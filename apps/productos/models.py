@@ -54,7 +54,9 @@ class Producto(models.Model):
         'Código de barras',
         max_length=100,
         unique=True,
-        help_text='Código de barras externo o generado',
+        blank=True,
+        null=True,
+        help_text='Código de barras externo o generado internamente (RP-XXXXXX)',
     )
     
     # Información básica
@@ -147,3 +149,21 @@ class Producto(models.Model):
             activo=True
         )
         return sum(lote.cantidad_actual * lote.costo_unitario for lote in lotes)
+    
+    @property
+    def es_codigo_interno(self):
+        """Retorna True si el código de barras fue generado internamente"""
+        return self.codigo_barras and self.codigo_barras.startswith('RP-')
+
+    def imprimir_etiqueta(self, cantidad=1):
+        """
+        Imprime etiqueta(s) del producto usando impresora Zebra
+        
+        Args:
+            cantidad: Número de etiquetas a imprimir
+        
+        Returns:
+            dict con resultado de la impresión
+        """
+        from utils.impresoras.zebra import imprimir_etiqueta_producto
+        return imprimir_etiqueta_producto(self, cantidad)

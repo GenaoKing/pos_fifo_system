@@ -19,4 +19,7 @@ urlpatterns = [
     path('categorias/crear/', views.crear_categoria, name='crear_categoria'),
     path('categorias/<int:categoria_id>/editar/', views.editar_categoria, name='editar_categoria'),
     path('categorias/<int:categoria_id>/toggle-estado/', views.toggle_estado_categoria, name='toggle_estado_categoria'),
+
+    #Codigo de barras
+    path('<int:producto_id>/imprimir-etiqueta/', views.imprimir_etiqueta, name='imprimir_etiqueta'),
 ]

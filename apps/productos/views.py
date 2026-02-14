@@ -9,6 +9,8 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db.models import Q, Sum, Count
 import json
+from .utils import generar_codigo_barra_interno, asignar_codigo_si_vacio
+from utils.impresoras.zebra import imprimir_etiqueta_producto
 
 from .models import Producto, Categoria
 
@@ -73,16 +75,26 @@ def crear_producto(request):
                 'message': 'Ya existe un producto con ese SKU'
             })
         
-        if Producto.objects.filter(codigo_barras=data['codigo_barras']).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe un producto con ese código de barras'
-            })
+        
+        
+        # Manejar código de barras
+        codigo_barras = data.get('codigo_barras', '').strip()
+
+        if not codigo_barras:
+            # Generar código interno si viene vacío
+            codigo_barras = generar_codigo_barra_interno()
+        else:
+            # Validar unicidad si viene con código
+            if Producto.objects.filter(codigo_barras=codigo_barras).exists():
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Ya existe un producto con ese código de barras'
+                })
         
         # Crear el producto
         producto = Producto.objects.create(
             sku=data['sku'],
-            codigo_barras=data['codigo_barras'],
+            codigo_barras=codigo_barras,
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
             categoria_id=data['categoria_id'],
@@ -294,6 +306,41 @@ def editar_categoria(request, categoria_id):
             'success': False,
             'message': str(e)
         }, status=400)
+
+
+
+@login_required
+@require_http_methods(["POST"])
+def imprimir_etiqueta(request, producto_id):
+    """Imprimir etiqueta de un producto"""
+    
+    try:
+        producto = get_object_or_404(Producto, id=producto_id)
+        data = json.loads(request.body)
+        cantidad = int(data.get('cantidad', 1))
+        
+        if cantidad < 1 or cantidad > 100:
+            return JsonResponse({
+                'success': False,
+                'message': 'La cantidad debe estar entre 1 y 100'
+            })
+        
+        # Imprimir
+        resultado = producto.imprimir_etiqueta(cantidad)
+        
+        if resultado['success']:
+            messages.success(request, f'Se imprimieron {cantidad} etiqueta(s) de "{producto.nombre}"')
+        else:
+            messages.error(request, f'Error al imprimir: {resultado.get("error", "Error desconocido")}')
+        
+        return JsonResponse(resultado)
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=400)
+
 
 
 @login_required

@@ -19,6 +19,8 @@ from datetime import datetime
 
 from apps.inventario.models import Compra, DetalleCompra, Lote
 from apps.productos.models import Producto
+from apps.productos.utils import asignar_codigo_si_vacio
+from utils.impresoras.zebra import imprimir_etiquetas_compra
 
 
 # ============================================
@@ -152,7 +154,10 @@ def compra_crear(request):
                         costo_unitario=costo_unitario,
                         subtotal=subtotal
                     )
-                    
+
+                    # Asignar código de barras interno si el producto no tiene uno
+                    asignar_codigo_si_vacio(producto)
+
                     # 4. Auto-generar Lote FIFO
                     # Cada detalle de compra genera UN lote independiente
 
@@ -271,3 +276,39 @@ def compra_detalle(request, compra_id):
     }
     
     return render(request, 'inventario/compra_detalle.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def compra_imprimir_etiquetas(request, compra_id):
+    """
+    Imprime etiquetas de todos los productos con código interno de una compra
+    """
+    # Verificar que sea Admin
+    if request.user.rol != 'ADMIN':
+        return JsonResponse({
+            'success': False,
+            'error': 'No tienes permisos para esta acción'
+        }, status=403)
+    
+    try:
+        compra = get_object_or_404(Compra, id=compra_id)
+        
+        # Imprimir etiquetas
+        resultado = imprimir_etiquetas_compra(compra)
+        
+        if resultado['success']:
+            messages.success(
+                request, 
+                f'Se imprimieron {resultado["total_etiquetas"]} etiquetas de la compra {compra.numero_compra}'
+            )
+        else:
+            messages.error(request, f'Error: {resultado.get("error", "Error desconocido")}')
+        
+        return JsonResponse(resultado)
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=400)

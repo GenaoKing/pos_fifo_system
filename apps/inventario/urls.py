@@ -26,4 +26,7 @@ urlpatterns = [
     
     # API para buscar productos (usado en el formulario)
     path('api/productos/buscar/', views.productos_buscar, name='productos_buscar'),
+
+    # Imprimir etiquetas de una compra
+    path('compras/<int:compra_id>/imprimir-etiquetas/', views.compra_imprimir_etiquetas, name='compra_imprimir_etiquetas'),
 ]
