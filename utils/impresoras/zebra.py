@@ -1,26 +1,25 @@
 """
-Driver para impresora Zebra ZD220
+Driver para impresora Zebra LP 2824 (EPL2)
 Maneja impresión de etiquetas con código de barras CODE128
 
 Especificaciones:
 - Tamaño etiqueta: 37mm x 27mm
-- Gap entre etiquetas: 5mm
+- Gap entre etiquetas: 5mm (2mm gap real medido)
 - Formato: Código de barras + Nombre + Precio
 - Conexión: USB
+- Lenguaje: EPL2 (Eltron Programming Language 2)
+
+IMPORTANTE: La LP 2824 usa EPL2, NO ZPL
 """
 
 import win32print
 import win32ui
-from PIL import Image, ImageDraw, ImageFont
-import io
-from barcode import Code128
-from barcode.writer import ImageWriter
-import os
 
 
 class ZebraLabelPrinter:
     """
-    Clase para manejar impresión de etiquetas en impresora Zebra
+    Clase para manejar impresión de etiquetas en impresora Zebra LP 2824
+    Usa comandos EPL2 (Eltron Programming Language 2)
     """
     
     def __init__(self, printer_name="ZDesigner LP 2824"):
@@ -31,19 +30,20 @@ class ZebraLabelPrinter:
             printer_name: Nombre exacto de la impresora en Windows
         """
         self.printer_name = printer_name
-        self.dpi = 203  # DPI de la ZD220
+        self.dpi = 203  # DPI de la LP 2824
         
         # Dimensiones en mm
         self.label_width_mm = 37
         self.label_height_mm = 27
-        self.gap_mm = 5
+        self.gap_mm = 2  # Gap real aproximado
         
         # Convertir a dots (puntos de impresora)
         self.label_width_dots = self.mm_to_dots(self.label_width_mm)
         self.label_height_dots = self.mm_to_dots(self.label_height_mm)
+        self.gap_dots = self.mm_to_dots(self.gap_mm)
         
     def mm_to_dots(self, mm):
-        """Convierte milímetros a dots según DPI"""
+        """Convierte milímetros a dots según DPI (203 dpi = 8 dots por mm)"""
         return int((mm / 25.4) * self.dpi)
     
     def verificar_impresora(self):
@@ -84,58 +84,61 @@ class ZebraLabelPrinter:
                 'error': str(e)
             }
     
-    def generar_zpl(self, codigo_barras, nombre_producto, precio, cantidad=1):
+    def generar_epl2(self, codigo_barras, nombre_producto, precio, cantidad=1):
         """
-        Genera comandos ZPL para imprimir etiqueta
+        Genera comandos EPL2 para imprimir etiqueta
         
-        ZPL (Zebra Programming Language) es el lenguaje nativo de las impresoras Zebra
+        EPL2 (Eltron Programming Language 2) es el lenguaje para LP 2824
         
         Args:
             codigo_barras: Código a imprimir (ej: "RP-000123")
-            nombre_producto: Nombre del producto (máx 30 chars)
+            nombre_producto: Nombre del producto (máx 40 chars en 2 líneas)
             precio: Precio del producto
             cantidad: Número de etiquetas a imprimir
             
         Returns:
-            String con comandos ZPL
+            String con comandos EPL2
         """
         
-        # Truncar nombre si es muy largo
-        nombre = nombre_producto[:30] if len(nombre_producto) > 30 else nombre_producto
+        # Dividir nombre en 2 líneas si es muy largo
+        if len(nombre_producto) > 20:
+            nombre_linea1 = nombre_producto[:20].strip()
+            nombre_linea2 = nombre_producto[20:40].strip()
+        else:
+            nombre_linea1 = nombre_producto
+            nombre_linea2 = ""
         
         # Formatear precio
         precio_str = f"RD$ {float(precio):,.2f}"
         
-        # Comandos ZPL
-        # ^XA = Inicio de formato
-        # ^CF = Fuente por defecto
-        # ^FO = Field Origin (posición x,y)
-        # ^BC = Código de barras CODE128
-        # ^FD = Field Data (datos a imprimir)
-        # ^FS = Field Separator
-        # ^XZ = Fin de formato
-        # ^PQ = Print Quantity
+        # Ajustar posición del código según si hay 1 o 2 líneas de nombre
+        barcode_y = 50 if nombre_linea2 else 40
+        precio_y = 155 if nombre_linea2 else 145
         
-        zpl = f"""
-^XA
-^LH0,0
-^CF0,20
-^PW{self.label_width_dots}
-^LL{self.label_height_dots}
-
-~SD15
-
-^FO20,10^A0N,18,18^FD{nombre}^FS
-
-^FO20,35^BCN,40,N,N,N^FD{codigo_barras}^FS
-
-^FO20,85^A0N,22,22^FD{precio_str}^FS
-
-^PQ{cantidad},0,1,Y
-^XZ
+        # Construir comandos EPL2 - SIN ESPACIOS AL INICIO
+        epl2_commands = f"""N
+q300
+Q220,16
+S2
+D10
+A10,8,0,3,1,1,N,"{nombre_linea1}"
 """
+    
+        # Agregar segunda línea del nombre si existe
+        if nombre_linea2:
+            epl2_commands += f'A10,24,0,3,1,1,N,"{nombre_linea2}"\n'
         
-        return zpl
+        # Código de barras con altura moderada (65) y mostrando código debajo
+        # Tipo 1 = Code 39 (el que funcionaba)
+        # 2,4 = ancho de barras (igual que funcionaba)
+        # 65 = altura (más grande que 50, pero no tanto como 85)
+        # B = mostrar código legible debajo
+        epl2_commands += f"""B10,{barcode_y},0,1,2,4,65,B,"{codigo_barras}"
+A10,{precio_y},0,4,1,2,N,"{precio_str}"
+P{cantidad}
+"""
+    
+        return epl2_commands
     
     def imprimir_etiqueta(self, codigo_barras, nombre_producto, precio, cantidad=1):
         """
@@ -160,8 +163,8 @@ class ZebraLabelPrinter:
                     'error': status.get('error', 'Impresora no disponible')
                 }
             
-            # Generar ZPL
-            zpl_commands = self.generar_zpl(
+            # Generar EPL2
+            epl2_commands = self.generar_epl2(
                 codigo_barras=codigo_barras,
                 nombre_producto=nombre_producto,
                 precio=precio,
@@ -174,7 +177,7 @@ class ZebraLabelPrinter:
             try:
                 job = win32print.StartDocPrinter(handle, 1, ("Etiqueta Producto", None, "RAW"))
                 win32print.StartPagePrinter(handle)
-                win32print.WritePrinter(handle, zpl_commands.encode('utf-8'))
+                win32print.WritePrinter(handle, epl2_commands.encode('utf-8'))
                 win32print.EndPagePrinter(handle)
                 win32print.EndDocPrinter(handle)
                 
