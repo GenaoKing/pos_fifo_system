@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Cotizacion {{ cotizacion.numero_cotizacion }} - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <a href="{% url 'cotizaciones:lista' %}" class="hover:text-primary-600">Cotizaciones</a>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">{{ cotizacion.numero_cotizacion }}</span>
+{% endblock %}
+
+{% block content %}
+<div>
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ cotizacion.numero_cotizacion }}</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                {{ cotizacion.fecha_creacion|date:"d/m/Y h:i A" }} | Creado por {{ cotizacion.usuario.get_full_name|default:cotizacion.usuario.username }}
+            </p>
+        </div>
+        <div class="flex items-center space-x-3 mt-3 sm:mt-0">
+            <!-- Botón Descargar PDF -->
+            <a href="{% url 'cotizaciones:descargar_pdf' cotizacion.id %}" class="btn-outline" target="_blank">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Descargar PDF
+            </a>
+            
+            {% if cotizacion.estado == 'PENDIENTE' %}
+                <span class="badge-warning">Pendiente</span>
+                <a href="{% url 'pos:punto_venta' %}?cotizacion={{ cotizacion.id }}" class="btn-success">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                    </svg>
+                    Convertir a Venta
+                </a>
+            {% elif cotizacion.estado == 'CONVERTIDA' %}
+                <span class="badge-success">Convertida</span>
+                {% if cotizacion.venta %}
+                <a href="{% url 'pos:venta_exitosa' cotizacion.venta.id %}" class="btn-outline">
+                    Ver Venta {{ cotizacion.venta.numero_venta }}
+                </a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Detalle -->
+        <div class="lg:col-span-2">
+            <!-- Info del cliente -->
+            <div class="card mb-6">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Cliente</h3>
+                </div>
+                <div class="card-body">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-500">Nombre</p>
+                            <p class="font-medium text-gray-900">{{ cotizacion.cliente.nombre }}</p>
+                        </div>
+                        {% if cotizacion.cliente.cedula_rnc %}
+                        <div>
+                            <p class="text-xs text-gray-500">Cedula/RNC</p>
+                            <p class="font-medium text-gray-900">{{ cotizacion.cliente.cedula_rnc }}</p>
+                        </div>
+                        {% endif %}
+                        {% if cotizacion.cliente.telefono %}
+                        <div>
+                            <p class="text-xs text-gray-500">Telefono</p>
+                            <p class="font-medium text-gray-900">{{ cotizacion.cliente.telefono }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Productos -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Productos</h3>
+                </div>
+                <div class="card-body p-0">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-gray-50">
+                                <th class="text-left text-xs font-semibold text-gray-600 uppercase px-6 py-3">Producto</th>
+                                <th class="text-center text-xs font-semibold text-gray-600 uppercase px-6 py-3">Cant.</th>
+                                <th class="text-right text-xs font-semibold text-gray-600 uppercase px-6 py-3">P. Unit.</th>
+                                <th class="text-right text-xs font-semibold text-gray-600 uppercase px-6 py-3">Desc.</th>
+                                <th class="text-right text-xs font-semibold text-gray-600 uppercase px-6 py-3">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for detalle in detalles %}
+                            <tr>
+                                <td class="px-6 py-4">
+                                    <p class="font-medium text-gray-900">{{ detalle.producto.nombre }}</p>
+                                    <p class="text-xs text-gray-500">{{ detalle.producto.sku }}</p>
+                                </td>
+                                <td class="px-6 py-4 text-center">{{ detalle.cantidad }}</td>
+                                <td class="px-6 py-4 text-right">${{ detalle.precio_unitario|floatformat:2 }}</td>
+                                <td class="px-6 py-4 text-right">
+                                    {% if detalle.descuento_monto > 0 %}
+                                    <span class="text-danger-600">-${{ detalle.descuento_monto|floatformat:2 }}</span>
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td class="px-6 py-4 text-right font-semibold">${{ detalle.total_linea|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resumen -->
+        <div>
+            <div class="card sticky top-24">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Resumen</h3>
+                </div>
+                <div class="card-body space-y-3">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Subtotal:</span>
+                        <span class="font-medium">${{ cotizacion.subtotal|floatformat:2 }}</span>
+                    </div>
+                    {% if cotizacion.descuento_total > 0 %}
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Descuento:</span>
+                        <span class="font-medium text-danger-600">-${{ cotizacion.descuento_total|floatformat:2 }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="border-t border-gray-200 pt-3 flex justify-between">
+                        <span class="font-semibold text-gray-900">Total:</span>
+                        <span class="text-2xl font-bold text-primary-600">${{ cotizacion.total|floatformat:2 }}</span>
+                    </div>
+                </div>
+                {% if cotizacion.notas %}
+                <div class="card-body border-t border-gray-200">
+                    <p class="text-xs text-gray-500 mb-1">Notas:</p>
+                    <p class="text-sm text-gray-700">{{ cotizacion.notas }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

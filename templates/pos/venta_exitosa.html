@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Venta Exitosa - {{ venta.numero_venta }}{% endblock %}
+
+{% block breadcrumb %}
+    <span>POS</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Venta Exitosa</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    
+    <!-- Mensaje de éxito -->
+    <div class="bg-success-50 border-l-4 border-success-500 rounded-lg p-6 mb-6">
+        <div class="flex items-start">
+            <svg class="w-12 h-12 text-success-600 mr-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div class="flex-1">
+                <h1 class="text-2xl font-bold text-success-900 mb-2">¡Venta Completada!</h1>
+                <p class="text-success-800">La venta ha sido procesada exitosamente.</p>
+                <p class="text-success-700 font-mono font-semibold mt-2">{{ venta.numero_venta }}</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Resumen de la venta -->
+    <div class="card mb-6">
+        <div class="card-header">
+            <h2 class="text-xl font-semibold">Resumen de la Venta</h2>
+        </div>
+        <div class="card-body">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <!-- Número de venta -->
+                <div>
+                    <p class="text-sm text-gray-500 mb-1">Número de Venta</p>
+                    <p class="text-lg font-semibold text-gray-900">{{ venta.numero_venta }}</p>
+                </div>
+                
+                <!-- Fecha -->
+                <div>
+                    <p class="text-sm text-gray-500 mb-1">Fecha y Hora</p>
+                    <p class="text-lg font-semibold text-gray-900">{{ venta.fecha_venta|date:"d/m/Y H:i" }}</p>
+                </div>
+                
+                <!-- Cajero -->
+                <div>
+                    <p class="text-sm text-gray-500 mb-1">Atendió</p>
+                    <p class="text-lg font-semibold text-gray-900">{{ venta.usuario.get_full_name|default:venta.usuario.username }}</p>
+                </div>
+            </div>
+            
+            <!-- Productos -->
+            <div class="mb-6">
+                <h3 class="text-sm font-medium text-gray-700 mb-3">Productos</h3>
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="table-header-cell">Producto</th>
+                                <th class="table-header-cell text-right">Cantidad</th>
+                                <th class="table-header-cell text-right">Precio Unit.</th>
+                                <th class="table-header-cell text-right">Descuento</th>
+                                <th class="table-header-cell text-right">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody class="table-body">
+                            {% for detalle in detalles %}
+                                <tr class="table-row-hover">
+                                    <td class="table-cell">
+                                        <p class="font-medium text-gray-900">{{ detalle.producto.nombre }}</p>
+                                        <p class="text-xs text-gray-500">SKU: {{ detalle.producto.sku }}</p>
+                                    </td>
+                                    <td class="table-cell text-right">{{ detalle.cantidad }}</td>
+                                    <td class="table-cell text-right">${{ detalle.precio_unitario|floatformat:2 }}</td>
+                                    <td class="table-cell text-right">
+                                        {% if detalle.descuento_monto > 0 %}
+                                            <span class="text-success-600">-${{ detalle.descuento_monto|floatformat:2 }}</span>
+                                        {% else %}
+                                            <span class="text-gray-400">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="table-cell text-right font-semibold">${{ detalle.subtotal|floatformat:2 }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Totales -->
+            <div class="border-t pt-4">
+                <div class="flex justify-end">
+                    <div class="w-full md:w-1/2 space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">Subtotal:</span>
+                            <span class="font-medium">${{ venta.subtotal|floatformat:2 }}</span>
+                        </div>
+                        {% if venta.descuento > 0 %}
+                            <div class="flex justify-between text-sm">
+                                <span class="text-success-600">Descuento:</span>
+                                <span class="text-success-600 font-medium">-${{ venta.descuento|floatformat:2 }}</span>
+                            </div>
+                        {% endif %}
+                        <div class="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
+                            <span>TOTAL:</span>
+                            <span class="text-primary-600">${{ venta.total|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Información de pago -->
+    <div class="card mb-6">
+        <div class="card-header">
+            <h2 class="text-xl font-semibold">Información de Pago</h2>
+        </div>
+        <div class="card-body">
+            <div class="space-y-3">
+                {% for pago in pagos %}
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div class="flex items-center">
+                            {% if pago.metodo == 'EFECTIVO' %}
+                                <svg class="w-6 h-6 text-success-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                                </svg>
+                                <span class="font-medium">Efectivo</span>
+                            {% else %}
+                                <svg class="w-6 h-6 text-info-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                </svg>
+                                <span class="font-medium">Transferencia</span>
+                            {% endif %}
+                        </div>
+                        <span class="text-lg font-bold text-gray-900">${{ pago.monto|floatformat:2 }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Acciones -->
+    <div class="flex space-x-4">
+        <a href="{% url 'pos:punto_venta' %}" class="btn-primary flex-1">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            Nueva Venta
+        </a>
+        <button onclick="window.print()" class="btn-outline flex-1">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+            </svg>
+            Imprimir
+        </button>
+    </div>
+
+</div>
+
+<!-- Estilos de impresión -->
+<style>
+    @media print {
+        /* Ocultar elementos no necesarios */
+        .sidebar, .breadcrumb, button, a {
+            display: none !important;
+        }
+        
+        /* Ajustar márgenes */
+        body {
+            margin: 0;
+            padding: 20px;
+        }
+        
+        /* Mantener cards visibles */
+        .card {
+            box-shadow: none;
+            border: 1px solid #000;
+            page-break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

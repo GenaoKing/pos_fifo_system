@@ -1,0 +1,400 @@
+{% extends 'base.html' %}
+
+{% block title %}Guía de Estilos - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Sistema</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Guía de Estilos</span>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- Header -->
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">🎨 Guía de Estilos</h1>
+        <p class="text-gray-600">Componentes y estilos del Sistema POS - FIFO</p>
+    </div>
+    
+    <!-- Paleta de Colores -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Paleta de Colores</h2>
+        </div>
+        <div class="card-body">
+            <!-- Colores Principales -->
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold mb-3">Colores Principales</h3>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div>
+                        <div class="h-20 bg-primary-500 rounded-lg mb-2"></div>
+                        <p class="text-sm font-medium">Primary</p>
+                        <p class="text-xs text-gray-500">#3B82F6</p>
+                    </div>
+                    <div>
+                        <div class="h-20 bg-secondary-500 rounded-lg mb-2"></div>
+                        <p class="text-sm font-medium">Secondary</p>
+                        <p class="text-xs text-gray-500">#A855F7</p>
+                    </div>
+                    <div>
+                        <div class="h-20 bg-success-500 rounded-lg mb-2"></div>
+                        <p class="text-sm font-medium">Success</p>
+                        <p class="text-xs text-gray-500">#10B981</p>
+                    </div>
+                    <div>
+                        <div class="h-20 bg-warning-500 rounded-lg mb-2"></div>
+                        <p class="text-sm font-medium">Warning</p>
+                        <p class="text-xs text-gray-500">#F59E0B</p>
+                    </div>
+                    <div>
+                        <div class="h-20 bg-danger-500 rounded-lg mb-2"></div>
+                        <p class="text-sm font-medium">Danger</p>
+                        <p class="text-xs text-gray-500">#EF4444</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Estados de Stock -->
+            <div>
+                <h3 class="text-lg font-semibold mb-3">Estados de Stock</h3>
+                <div class="flex space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-stock-ok rounded"></div>
+                        <span class="text-sm">Stock OK</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-stock-low rounded"></div>
+                        <span class="text-sm">Stock Bajo</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-stock-out rounded"></div>
+                        <span class="text-sm">Sin Stock</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Botones -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Botones</h2>
+        </div>
+        <div class="card-body space-y-6">
+            <!-- Tipos de botones -->
+            <div>
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Tipos</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button class="btn-primary">Primary</button>
+                    <button class="btn-secondary">Secondary</button>
+                    <button class="btn-success">Success</button>
+                    <button class="btn-warning">Warning</button>
+                    <button class="btn-danger">Danger</button>
+                    <button class="btn-outline">Outline</button>
+                    <button class="btn-ghost">Ghost</button>
+                </div>
+            </div>
+            
+            <!-- Tamaños -->
+            <div>
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Tamaños</h3>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button class="btn-primary btn-sm">Small</button>
+                    <button class="btn-primary">Medium (default)</button>
+                    <button class="btn-primary btn-lg">Large</button>
+                </div>
+            </div>
+            
+            <!-- Con iconos -->
+            <div>
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Con Iconos</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button class="btn-primary">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Agregar
+                    </button>
+                    <button class="btn-success">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                        </svg>
+                        Guardar
+                    </button>
+                    <button class="btn-danger">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        Eliminar
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Estados -->
+            <div>
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Estados</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button class="btn-primary">Normal</button>
+                    <button class="btn-primary" disabled>Disabled</button>
+                    <button class="btn-primary">
+                        <svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Badges -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Badges</h2>
+        </div>
+        <div class="card-body">
+            <div class="flex flex-wrap gap-3">
+                <span class="badge-primary">Primary</span>
+                <span class="badge-success">Success</span>
+                <span class="badge-warning">Warning</span>
+                <span class="badge-danger">Danger</span>
+                <span class="badge-info">Info</span>
+                <span class="badge-gray">Gray</span>
+            </div>
+            
+            <div class="mt-4">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Con Iconos</h3>
+                <div class="flex flex-wrap gap-3">
+                    <span class="badge-success">
+                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                        </svg>
+                        Activo
+                    </span>
+                    <span class="badge-danger">
+                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                        Inactivo
+                    </span>
+                    <span class="badge-warning">
+                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <circle cx="10" cy="10" r="3"></circle>
+                        </svg>
+                        Pendiente
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Formularios -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Formularios</h2>
+        </div>
+        <div class="card-body">
+            <form class="space-y-4 max-w-md">
+                <div class="form-group">
+                    <label class="form-label">Input Text</label>
+                    <input type="text" class="form-input" placeholder="Ingrese texto...">
+                    <p class="form-help">Texto de ayuda aquí</p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Input con Error</label>
+                    <input type="text" class="form-input-error" value="Valor incorrecto">
+                    <p class="form-error">Este campo es requerido</p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Select</label>
+                    <select class="form-select">
+                        <option>Opción 1</option>
+                        <option>Opción 2</option>
+                        <option>Opción 3</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Textarea</label>
+                    <textarea class="form-input" rows="3" placeholder="Descripción..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <div class="flex items-center">
+                        <input type="checkbox" class="form-checkbox" id="check1">
+                        <label for="check1" class="ml-2 text-sm text-gray-700">Checkbox option</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <div class="space-y-2">
+                        <div class="flex items-center">
+                            <input type="radio" name="radio" class="form-radio" id="radio1">
+                            <label for="radio1" class="ml-2 text-sm text-gray-700">Radio 1</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input type="radio" name="radio" class="form-radio" id="radio2">
+                            <label for="radio2" class="ml-2 text-sm text-gray-700">Radio 2</label>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Alertas -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Alertas</h2>
+        </div>
+        <div class="card-body space-y-4">
+            <div class="alert-success">
+                <div>
+                    <svg class="w-5 h-5 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="alert-title text-success-800">¡Éxito!</p>
+                    <p class="alert-message text-success-700">La operación se completó correctamente.</p>
+                </div>
+            </div>
+            
+            <div class="alert-warning">
+                <div>
+                    <svg class="w-5 h-5 text-warning-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="alert-title text-warning-800">Advertencia</p>
+                    <p class="alert-message text-warning-700">Stock bajo en este producto.</p>
+                </div>
+            </div>
+            
+            <div class="alert-danger">
+                <div>
+                    <svg class="w-5 h-5 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="alert-title text-danger-800">Error</p>
+                    <p class="alert-message text-danger-700">No se pudo completar la operación.</p>
+                </div>
+            </div>
+            
+            <div class="alert-info">
+                <div>
+                    <svg class="w-5 h-5 text-info-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="alert-title text-info-800">Información</p>
+                    <p class="alert-message text-info-700">Recuerda cerrar la caja al final del día.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Cards -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Cards</h2>
+        </div>
+        <div class="card-body">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="font-semibold">Card con Header</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-gray-600">Contenido de la card aquí.</p>
+                    </div>
+                </div>
+                
+                <div class="card-hover">
+                    <div class="card-body">
+                        <h3 class="font-semibold mb-2">Card Hover</h3>
+                        <p class="text-gray-600">Esta card tiene efecto hover.</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="font-semibold">Con Footer</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-gray-600">Contenido principal.</p>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn-primary btn-sm">Acción</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Indicadores de Stock -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Indicadores de Stock</h2>
+        </div>
+        <div class="card-body">
+            <div class="flex flex-wrap gap-3">
+                <span class="stock-ok">
+                    <svg class="w-4 h-4 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    Stock Suficiente (50 unidades)
+                </span>
+                <span class="stock-low">
+                    <svg class="w-4 h-4 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                    </svg>
+                    Stock Bajo (5 unidades)
+                </span>
+                <span class="stock-out">
+                    <svg class="w-4 h-4 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                    </svg>
+                    Sin Stock (0 unidades)
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tipografía -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-xl font-bold text-gray-900">Tipografía</h2>
+        </div>
+        <div class="card-body space-y-4">
+            <div>
+                <h1>Heading 1 - 3xl</h1>
+                <h2>Heading 2 - 2xl</h2>
+                <h3>Heading 3 - xl</h3>
+                <h4>Heading 4 - lg</h4>
+            </div>
+            <div>
+                <p class="text-base">Párrafo normal - Base (16px)</p>
+                <p class="text-sm text-gray-600">Texto pequeño - Small (14px)</p>
+                <p class="text-xs text-gray-500">Texto muy pequeño - XSmall (12px)</p>
+            </div>
+            <div>
+                <p class="font-light">Font Light</p>
+                <p class="font-normal">Font Normal</p>
+                <p class="font-medium">Font Medium</p>
+                <p class="font-semibold">Font Semibold</p>
+                <p class="font-bold">Font Bold</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

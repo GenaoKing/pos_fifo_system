@@ -1,0 +1,354 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Nueva Cotizacion - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <a href="{% url 'cotizaciones:lista' %}" class="hover:text-primary-600">Cotizaciones</a>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Nueva</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="cotizacionApp()" x-init="init()">
+
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Nueva Cotizacion</h1>
+            <p class="text-sm text-gray-500 mt-1">Crea una cotizacion sin afectar inventario</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Panel izquierdo: Busqueda y productos -->
+        <div class="lg:col-span-2 space-y-6">
+
+            <!-- Cliente -->
+            <div class="card">
+                <div class="card-body">
+                    <label class="form-label">Cliente</label>
+                    <div class="relative">
+                        <input
+                            type="text"
+                            x-model="clienteBusqueda"
+                            @input.debounce.300ms="buscarClientes()"
+                            @focus="mostrarResultadosClientes = true"
+                            placeholder="Buscar cliente por nombre o cedula... (dejar vacio = Contado)"
+                            class="form-input w-full"
+                        >
+                        <!-- Resultados -->
+                        <div
+                            x-show="mostrarResultadosClientes && clientesResultados.length > 0"
+                            @click.away="mostrarResultadosClientes = false"
+                            class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                        >
+                            <template x-for="c in clientesResultados" :key="c.id">
+                                <div
+                                    @click="seleccionarCliente(c)"
+                                    class="px-4 py-2 hover:bg-gray-50 cursor-pointer"
+                                >
+                                    <p class="text-sm font-medium text-gray-900" x-text="c.nombre"></p>
+                                    <p class="text-xs text-gray-500" x-text="c.cedula_rnc || c.telefono || ''"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <template x-if="clienteSeleccionado">
+                        <div class="mt-2 p-2 bg-primary-50 border border-primary-200 rounded-lg flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-primary-900" x-text="clienteSeleccionado.nombre"></p>
+                                <p class="text-xs text-primary-600" x-text="clienteSeleccionado.cedula_rnc"></p>
+                            </div>
+                            <button @click="clienteSeleccionado = null; clienteBusqueda = ''" class="text-primary-400 hover:text-primary-600">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Buscar productos -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Agregar Productos</h3>
+                </div>
+                <div class="card-body">
+                    <div class="relative">
+                        <input
+                            type="text"
+                            x-model="productoBusqueda"
+                            @input.debounce.300ms="buscarProductos()"
+                            @focus="mostrarResultadosProductos = true"
+                            placeholder="Buscar producto por nombre o SKU..."
+                            class="form-input w-full"
+                        >
+                        <div
+                            x-show="mostrarResultadosProductos && productosResultados.length > 0"
+                            @click.away="mostrarResultadosProductos = false"
+                            class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                        >
+                            <template x-for="p in productosResultados" :key="p.id">
+                                <div
+                                    @click="agregarProducto(p)"
+                                    class="px-4 py-3 hover:bg-gray-50 cursor-pointer flex justify-between items-center"
+                                >
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900" x-text="p.nombre"></p>
+                                        <p class="text-xs text-gray-500" x-text="'SKU: ' + p.sku + ' | Stock: ' + p.stock_actual"></p>
+                                    </div>
+                                    <span class="text-sm font-semibold text-gray-900" x-text="'$' + parseFloat(p.precio_venta).toFixed(2)"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items de la cotizacion -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-semibold text-gray-900">Productos en Cotizacion</h3>
+                        <span class="badge-primary" x-text="items.length + ' productos'" x-show="items.length > 0"></span>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <template x-if="items.length === 0">
+                        <div class="text-center py-12 text-gray-400">
+                            <p class="text-sm">Agrega productos a la cotizacion</p>
+                        </div>
+                    </template>
+
+                    <template x-for="(item, index) in items" :key="index">
+                        <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50">
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1">
+                                    <p class="font-medium text-gray-900 text-sm" x-text="item.nombre"></p>
+                                    <p class="text-xs text-gray-500" x-text="'$' + item.precio_unitario.toFixed(2) + ' c/u'"></p>
+                                </div>
+                                <div class="flex items-center space-x-3">
+                                    <!-- Cantidad -->
+                                    <div class="flex items-center space-x-1">
+                                        <button @click="item.cantidad > 1 ? item.cantidad-- : null" class="w-7 h-7 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600">-</button>
+                                        <input type="number" x-model.number="item.cantidad" min="1" class="w-14 text-center text-sm border border-gray-200 rounded py-1">
+                                        <button @click="item.cantidad++" class="w-7 h-7 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600">+</button>
+                                    </div>
+                                    <!-- Descuento -->
+                                    <div class="flex items-center">
+                                        <span class="text-xs text-gray-400 mr-1">Desc:</span>
+                                        <input type="number" x-model.number="item.descuento" min="0" step="0.01" class="w-16 text-center text-sm border border-gray-200 rounded py-1" placeholder="0">
+                                    </div>
+                                    <!-- Total linea -->
+                                    <span class="text-sm font-semibold w-24 text-right" x-text="'$' + ((item.cantidad * item.precio_unitario) - (item.descuento || 0)).toFixed(2)"></span>
+                                    <!-- Eliminar -->
+                                    <button @click="items.splice(index, 1)" class="text-danger-400 hover:text-danger-600">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel derecho: Resumen -->
+        <div class="space-y-6">
+            <div class="card sticky top-24">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Resumen</h3>
+                </div>
+                <div class="card-body space-y-3">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Subtotal:</span>
+                        <span class="font-medium" x-text="'$' + calcularSubtotal().toFixed(2)"></span>
+                    </div>
+                    <div class="flex justify-between text-sm" x-show="calcularDescuentoTotal() > 0">
+                        <span class="text-gray-600">Descuento:</span>
+                        <span class="font-medium text-danger-600" x-text="'-$' + calcularDescuentoTotal().toFixed(2)"></span>
+                    </div>
+                    <div class="border-t border-gray-200 pt-3 flex justify-between">
+                        <span class="font-semibold text-gray-900">Total:</span>
+                        <span class="text-2xl font-bold text-primary-600" x-text="'$' + calcularTotal().toFixed(2)"></span>
+                    </div>
+                </div>
+                <div class="card-body border-t border-gray-200">
+                    <!-- Notas -->
+                    <div class="form-group mb-4">
+                        <label class="form-label">Notas</label>
+                        <textarea x-model="notas" class="form-input w-full" rows="2" placeholder="Notas para la cotizacion..."></textarea>
+                    </div>
+
+                    <button
+                        @click="guardarCotizacion()"
+                        class="btn-primary w-full"
+                        :disabled="items.length === 0 || guardando"
+                    >
+                        <template x-if="guardando">
+                            <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-show="!guardando">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                        </svg>
+                        Guardar Cotizacion
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function cotizacionApp() {
+    return {
+        items: [],
+        notas: '',
+        guardando: false,
+
+        clienteBusqueda: '',
+        clienteSeleccionado: null,
+        clientesResultados: [],
+        mostrarResultadosClientes: false,
+
+        productoBusqueda: '',
+        productosResultados: [],
+        mostrarResultadosProductos: false,
+
+        init() {
+            console.log('Cotizacion app cargada');
+        },
+
+        async buscarClientes() {
+            if (this.clienteBusqueda.length < 2) {
+                this.clientesResultados = [];
+                return;
+            }
+            try {
+                const res = await fetch(`/clientes/api/buscar/?q=${encodeURIComponent(this.clienteBusqueda)}`);
+                const data = await res.json();
+                this.clientesResultados = data.clientes;
+                this.mostrarResultadosClientes = true;
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        seleccionarCliente(c) {
+            this.clienteSeleccionado = c;
+            this.clienteBusqueda = c.nombre;
+            this.mostrarResultadosClientes = false;
+        },
+
+        async buscarProductos() {
+            if (this.productoBusqueda.length < 2) {
+                this.productosResultados = [];
+                return;
+            }
+            try {
+                const res = await fetch(`/pos/api/buscar/?q=${encodeURIComponent(this.productoBusqueda)}`);
+                const data = await res.json();
+                this.productosResultados = data.productos;
+                this.mostrarResultadosProductos = true;
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        agregarProducto(p) {
+            const existente = this.items.find(i => i.producto_id === p.id);
+            if (existente) {
+                existente.cantidad++;
+            } else {
+                this.items.push({
+                    producto_id: p.id,
+                    nombre: p.nombre,
+                    sku: p.sku,
+                    precio_unitario: parseFloat(p.precio_venta),
+                    cantidad: 1,
+                    descuento: 0,
+                });
+            }
+            this.productoBusqueda = '';
+            this.productosResultados = [];
+            this.mostrarResultadosProductos = false;
+        },
+
+        calcularSubtotal() {
+            return this.items.reduce((sum, i) => sum + (i.cantidad * i.precio_unitario), 0);
+        },
+
+        calcularDescuentoTotal() {
+            return this.items.reduce((sum, i) => sum + (i.descuento || 0), 0);
+        },
+
+        calcularTotal() {
+            return this.calcularSubtotal() - this.calcularDescuentoTotal();
+        },
+
+        async guardarCotizacion() {
+            if (this.items.length === 0) return;
+            this.guardando = true;
+
+            const payload = {
+                cliente_id: this.clienteSeleccionado?.id || null,
+                notas: this.notas,
+                productos: this.items.map(i => ({
+                    producto_id: i.producto_id,
+                    cantidad: i.cantidad,
+                    precio_unitario: i.precio_unitario,
+                    descuento: i.descuento || 0,
+                })),
+            };
+
+            try {
+                const res = await fetch('/cotizaciones/api/guardar/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    alert(`Cotizacion ${data.numero_cotizacion} creada exitosamente.\nTotal: $${data.total.toFixed(2)}`);
+                    window.location.href = '/cotizaciones/';
+                } else {
+                    alert(data.error || 'Error al crear cotizacion');
+                }
+            } catch (e) {
+                alert('Error de conexion');
+            } finally {
+                this.guardando = false;
+            }
+        },
+
+        getCookie(name) {
+            let v = null;
+            if (document.cookie) {
+                document.cookie.split(';').forEach(c => {
+                    c = c.trim();
+                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+                });
+            }
+            return v;
+        },
+    };
+}
+</script>
+{% endblock %}

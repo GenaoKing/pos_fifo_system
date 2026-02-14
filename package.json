@@ -1,0 +1,21 @@
+{
+  "name": "pos-fifo-frontend",
+  "version": "1.0.0",
+  "description": "Frontend para Sistema POS con Inventario FIFO",
+  "scripts": {
+    "build:css": "tailwindcss -i ./static/css/styles.css -o ./static/css/output.css --minify",
+    "watch:css": "tailwindcss -i ./static/css/styles.css -o ./static/css/output.css --watch",
+    "dev": "npm run watch:css"
+  },
+  "keywords": ["pos", "fifo", "django", "tailwind"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "tailwindcss": "^3.4.1",
+    "@tailwindcss/forms": "^0.5.7",
+    "@tailwindcss/typography": "^0.5.10"
+  },
+  "dependencies": {
+    "alpinejs": "^3.13.5"
+  }
+}

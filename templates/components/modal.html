@@ -1,0 +1,106 @@
+{# components/modal.html #}
+{# 
+Componente de modal reutilizable
+Uso:
+    <div x-data="{ showModal: false }">
+        <button @click="showModal = true">Abrir Modal</button>
+        
+        {% include 'components/modal.html' with 
+            modal_id="confirmModal"
+            title="Confirmar acción"
+            size="md"
+        %}
+            <p>¿Estás seguro?</p>
+        {% endinclude %}
+    </div>
+#}
+
+<div 
+    x-show="{{ modal_var|default:'showModal' }}"
+    x-cloak
+    class="modal-container"
+    style="display: none;"
+>
+    <!-- Overlay -->
+    <div 
+        class="modal-overlay"
+        @click="{{ modal_var|default:'showModal' }} = false"
+        x-show="{{ modal_var|default:'showModal' }}"
+        x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+    ></div>
+    
+    <!-- Modal Content -->
+    <div 
+        class="relative z-50"
+        x-show="{{ modal_var|default:'showModal' }}"
+        x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0 transform scale-95"
+        x-transition:enter-end="opacity-100 transform scale-100"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100 transform scale-100"
+        x-transition:leave-end="opacity-0 transform scale-95"
+        @click.away="{{ modal_var|default:'showModal' }} = false"
+    >
+        <div class="modal-content {% if size == 'sm' %}max-w-sm{% elif size == 'lg' %}max-w-3xl{% elif size == 'xl' %}max-w-5xl{% else %}max-w-lg{% endif %}">
+            <!-- Header -->
+            {% if show_header|default:True %}
+                <div class="modal-header">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-900">{{ title|default:"Modal" }}</h3>
+                        <button 
+                            type="button"
+                            @click="{{ modal_var|default:'showModal' }} = false"
+                            class="text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            {% endif %}
+            
+            <!-- Body -->
+            <div class="modal-body">
+                {% block modal_content %}
+                    {{ content|safe }}
+                {% endblock %}
+            </div>
+            
+            <!-- Footer -->
+            {% if show_footer|default:True %}
+                <div class="modal-footer">
+                    {% block modal_footer %}
+                        {% if footer %}
+                            {{ footer|safe }}
+                        {% else %}
+                            <button 
+                                type="button"
+                                @click="{{ modal_var|default:'showModal' }} = false"
+                                class="btn-outline"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                type="button"
+                                class="btn-primary"
+                                {% if confirm_action %}@click="{{ confirm_action }}"{% endif %}
+                            >
+                                {{ confirm_text|default:"Confirmar" }}
+                            </button>
+                        {% endif %}
+                    {% endblock %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+    [x-cloak] { display: none !important; }
+</style>

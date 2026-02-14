@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Cotizaciones - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Cotizaciones</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="{ filtroEstado: '{{ request.GET.estado|default:"" }}' }">
+
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Cotizaciones</h1>
+            <p class="text-sm text-gray-500 mt-1">Cotizaciones realizadas a clientes</p>
+        </div>
+        <a href="{% url 'cotizaciones:crear' %}" class="btn-primary mt-3 sm:mt-0">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+            Nueva Cotizacion
+        </a>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card mb-6">
+        <div class="card-body">
+            <div class="flex gap-3">
+                <a href="{% url 'cotizaciones:lista' %}"
+                   class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                   {% if not request.GET.estado %}bg-primary-100 text-primary-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    Todas
+                </a>
+                <a href="{% url 'cotizaciones:lista' %}?estado=PENDIENTE"
+                   class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                   {% if request.GET.estado == 'PENDIENTE' %}bg-warning-100 text-warning-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    Pendientes
+                </a>
+                <a href="{% url 'cotizaciones:lista' %}?estado=CONVERTIDA"
+                   class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                   {% if request.GET.estado == 'CONVERTIDA' %}bg-success-100 text-success-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    Convertidas
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-gray-200 bg-gray-50">
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">No. Cotizacion</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Cliente</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Fecha</th>
+                            <th class="text-right text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Total</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Estado</th>
+                            <th class="text-right text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for cotizacion in cotizaciones %}
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4">
+                                <a href="{% url 'cotizaciones:detalle' cotizacion.id %}" class="font-medium text-primary-600 hover:text-primary-800">
+                                    {{ cotizacion.numero_cotizacion }}
+                                </a>
+                            </td>
+                            <td class="px-6 py-4">
+                                <p class="text-sm font-medium text-gray-900">{{ cotizacion.cliente.nombre }}</p>
+                                {% if cotizacion.cliente.cedula_rnc %}
+                                <p class="text-xs text-gray-500">{{ cotizacion.cliente.cedula_rnc }}</p>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600">
+                                {{ cotizacion.fecha_creacion|date:"d/m/Y h:i A" }}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span class="text-sm font-semibold text-gray-900">${{ cotizacion.total|floatformat:2 }}</span>
+                            </td>
+                            <td class="px-6 py-4">
+                                {% if cotizacion.estado == 'PENDIENTE' %}
+                                    <span class="badge-warning">Pendiente</span>
+                                {% elif cotizacion.estado == 'CONVERTIDA' %}
+                                    <span class="badge-success">Convertida</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <div class="flex items-center justify-end space-x-2">
+                                    <!-- Botón PDF -->
+                                    <a href="{% url 'cotizaciones:descargar_pdf' cotizacion.id %}" 
+                                       class="btn-ghost btn-sm text-danger-600 hover:bg-danger-50" 
+                                       title="Descargar PDF"
+                                       target="_blank">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                    </a>
+                                    
+                                    <a href="{% url 'cotizaciones:detalle' cotizacion.id %}" class="btn-ghost btn-sm" title="Ver detalle">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                        </svg>
+                                    </a>
+                                    
+                                    {% if cotizacion.estado == 'PENDIENTE' %}
+                                    <a href="{% url 'pos:punto_venta' %}?cotizacion={{ cotizacion.id }}" class="btn-success btn-sm" title="Convertir a venta">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Vender
+                                    </a>
+                                    {% elif cotizacion.venta %}
+                                    <a href="{% url 'pos:venta_exitosa' cotizacion.venta.id %}" class="btn-ghost btn-sm text-success-600" title="Ver venta">
+                                        {{ cotizacion.venta.numero_venta }}
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-12 text-gray-400">
+                                <svg class="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <p class="text-sm">No hay cotizaciones aun</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

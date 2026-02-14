@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Compras - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Inventario</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Compras</span>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Historial de Compras</h1>
+            <p class="text-gray-600 mt-1">Todas las compras registradas en el sistema</p>
+        </div>
+        <a href="{% url 'inventario:compra_crear' %}" class="btn-primary">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+            Nueva Compra
+        </a>
+    </div>
+
+    <!-- Card con tabla de compras -->
+    <div class="card">
+        <div class="card-body">
+            {% if compras %}
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="table-header-cell">Número</th>
+                                <th class="table-header-cell">Fecha</th>
+                                <th class="table-header-cell">Proveedor</th>
+                                <th class="table-header-cell">Factura</th>
+                                <th class="table-header-cell">Total</th>
+                                <th class="table-header-cell">Usuario</th>
+                                <th class="table-header-cell">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="table-body">
+                            {% for compra in compras %}
+                                <tr class="table-row-hover">
+                                    <td class="table-cell">
+                                        <span class="font-mono text-sm font-semibold">
+                                            {{ compra.numero_compra }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell">
+                                        {{ compra.fecha|date:"d/m/Y H:i" }}
+                                    </td>
+                                    <td class="table-cell">
+                                        {{ compra.proveedor }}
+                                    </td>
+                                    <td class="table-cell">
+                                        {% if compra.numero_factura %}
+                                            <span class="badge-gray">{{ compra.numero_factura }}</span>
+                                        {% else %}
+                                            <span class="text-gray-400 text-sm">Sin factura</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="table-cell">
+                                        <span class="font-semibold text-gray-900">
+                                            ${{ compra.total|floatformat:2 }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell">
+                                        {{ compra.usuario.get_full_name|default:compra.usuario.username }}
+                                    </td>
+                                    <td class="table-cell">
+                                        <a 
+                                            href="{% url 'inventario:compra_detalle' compra.id %}"
+                                            class="text-primary-600 hover:text-primary-800"
+                                        >
+                                            Ver detalle
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <!-- Estado vacío -->
+                <div class="text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No hay compras registradas</h3>
+                    <p class="mt-1 text-sm text-gray-500">Comienza registrando tu primera compra.</p>
+                    <div class="mt-6">
+                        <a href="{% url 'inventario:compra_crear' %}" class="btn-primary">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Nueva Compra
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Detalle de Compra {{ compra.numero_compra }} - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Inventario</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span>Compras</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">{{ compra.numero_compra }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- Header con información de la compra -->
+    <div class="flex items-start justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ compra.numero_compra }}</h1>
+            <div class="flex items-center space-x-4 text-sm text-gray-600">
+                <div class="flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    {{ compra.fecha_compra|date:"d/m/Y H:i" }}
+                </div>
+                <div class="flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                    {{ compra.usuario.get_full_name|default:compra.usuario.username }}
+                </div>
+            </div>
+        </div>
+        <div class="flex space-x-3">
+            <a href="{% url 'inventario:compras_lista' %}" class="btn-outline">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Volver a Compras
+            </a>
+        </div>
+    </div>
+
+    <!-- Card: Información General -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Proveedor -->
+        <div class="card">
+            <div class="card-body">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Proveedor</p>
+                        <p class="text-lg font-semibold text-gray-900">{{ compra.proveedor }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Factura -->
+        <div class="card">
+            <div class="card-body">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Número de Factura</p>
+                        {% if compra.numero_factura %}
+                            <p class="text-lg font-semibold text-gray-900">{{ compra.numero_factura }}</p>
+                        {% else %}
+                            <p class="text-sm text-gray-400 italic">Sin factura</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total -->
+        <div class="card">
+            <div class="card-body">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Total de la Compra</p>
+                        <p class="text-2xl font-bold text-green-600">${{ compra.total|floatformat:2 }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card: Productos de la Compra -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-lg font-semibold">Productos Comprados</h2>
+        </div>
+        <div class="card-body">
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead class="table-header">
+                        <tr>
+                            <th class="table-header-cell">Producto</th>
+                            <th class="table-header-cell">SKU</th>
+                            <th class="table-header-cell text-right">Cantidad</th>
+                            <th class="table-header-cell text-right">Costo Unitario</th>
+                            <th class="table-header-cell text-right">Subtotal</th>
+                            <th class="table-header-cell">Lote Generado</th>
+                        </tr>
+                    </thead>
+                    <tbody class="table-body">
+                        {% for detalle in detalles %}
+                            <tr class="table-row-hover">
+                                <td class="table-cell">
+                                    <div class="flex items-center">
+                                        <div class="w-10 h-10 bg-gray-200 rounded flex items-center justify-center mr-3">
+                                            <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-900">{{ detalle.producto.nombre }}</p>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="table-cell">
+                                    <span class="font-mono text-sm text-gray-600">{{ detalle.producto.sku }}</span>
+                                </td>
+                                <td class="table-cell text-right">
+                                    <span class="font-semibold">{{ detalle.cantidad }}</span> unidades
+                                </td>
+                                <td class="table-cell text-right">
+                                    ${{ detalle.costo_unitario|floatformat:2 }}
+                                </td>
+                                <td class="table-cell text-right">
+                                    <span class="font-semibold text-gray-900">
+                                        ${{ detalle.subtotal|floatformat:2 }}
+                                    </span>
+                                </td>
+                                <td class="table-cell">
+                                    {% if detalle.lote %}
+                                        <span class="badge-primary">
+                                            {{ detalle.lote.numero_lote }}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-gray-400 text-sm">Sin lote</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="bg-gray-50">
+                            <td colspan="4" class="px-6 py-4 text-right font-semibold text-gray-900">
+                                Total:
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span class="text-xl font-bold text-gray-900">
+                                    ${{ compra.total|floatformat:2 }}
+                                </span>
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card: Lotes FIFO Generados -->
+    <div class="card">
+        <div class="card-header">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold">Lotes FIFO Generados</h2>
+                    <p class="text-sm text-gray-600 mt-1">Estos lotes están disponibles para venta según orden FIFO</p>
+                </div>
+                <span class="badge-success">
+                    {{ lotes.count }} lote(s)
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if lotes %}
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="table-header-cell">Número de Lote</th>
+                                <th class="table-header-cell">Producto</th>
+                                <th class="table-header-cell">Fecha Compra</th>
+                                <th class="table-header-cell text-right">Cantidad Inicial</th>
+                                <th class="table-header-cell text-right">Cantidad Actual</th>
+                                <th class="table-header-cell text-right">Costo Unitario</th>
+                                <th class="table-header-cell text-right">Valor Actual</th>
+                                <th class="table-header-cell">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody class="table-body">
+                            {% for lote in lotes %}
+                                <tr class="table-row-hover">
+                                    <td class="table-cell">
+                                        <span class="font-mono text-sm font-semibold text-primary-600">
+                                            {{ lote.numero_lote }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell">
+                                        {{ lote.producto.nombre }}
+                                    </td>
+                                    <td class="table-cell">
+                                        <span class="text-sm text-gray-600">
+                                            {{ lote.fecha_compra|date:"d/m/Y H:i" }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell text-right">
+                                        {{ lote.cantidad_inicial }}
+                                    </td>
+                                    <td class="table-cell text-right">
+                                        <span class="font-semibold {% if lote.cantidad_actual == 0 %}text-danger-600{% elif lote.cantidad_actual < lote.cantidad_inicial %}text-warning-600{% else %}text-success-600{% endif %}">
+                                            {{ lote.cantidad_actual }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell text-right">
+                                        ${{ lote.costo_unitario|floatformat:2 }}
+                                    </td>
+                                    <td class="table-cell text-right">
+                                        <span class="font-semibold text-gray-900">
+                                            ${{ lote.get_valor_actual|floatformat:2 }}
+                                        </span>
+                                    </td>
+                                    <td class="table-cell">
+                                        {% if lote.cantidad_actual == 0 %}
+                                            <span class="stock-out">Agotado</span>
+                                        {% elif lote.cantidad_actual < lote.cantidad_inicial %}
+                                            <span class="stock-low">En Uso</span>
+                                        {% else %}
+                                            <span class="stock-ok">Completo</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-8">
+                    <p class="text-sm text-gray-500">No se encontraron lotes generados para esta compra.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

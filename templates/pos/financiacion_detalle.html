@@ -1,0 +1,246 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Financiacion - {{ venta.numero_venta }}{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <a href="{% url 'pos:lista' %}" class="hover:text-primary-600">Financiacion</a>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">{{ venta.numero_venta }}</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="financiacionApp()">
+
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ venta.numero_venta }}</h1>
+            <p class="text-sm text-gray-500 mt-1">{{ venta.fecha_venta|date:"d/m/Y h:i A" }} | Total: ${{ venta.total|floatformat:2 }}</p>
+        </div>
+        {% if financiacion %}
+        <a href="{% url 'pos:pdf' venta.id %}" target="_blank" class="btn-primary mt-3 sm:mt-0">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            Generar / Imprimir PDF
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Detalle de productos -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Detalle de la Venta</h3>
+                </div>
+                <div class="card-body p-0">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-gray-50">
+                                <th class="text-left text-xs font-semibold text-gray-600 uppercase px-6 py-3">Producto</th>
+                                <th class="text-center text-xs font-semibold text-gray-600 uppercase px-6 py-3">Cant.</th>
+                                <th class="text-right text-xs font-semibold text-gray-600 uppercase px-6 py-3">P. Unit.</th>
+                                <th class="text-right text-xs font-semibold text-gray-600 uppercase px-6 py-3">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for detalle in detalles %}
+                            <tr>
+                                <td class="px-6 py-4">
+                                    <p class="font-medium text-gray-900">{{ detalle.producto.nombre }}</p>
+                                </td>
+                                <td class="px-6 py-4 text-center">{{ detalle.cantidad }}</td>
+                                <td class="px-6 py-4 text-right">${{ detalle.precio_unitario|floatformat:2 }}</td>
+                                <td class="px-6 py-4 text-right font-semibold">${{ detalle.total_linea|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="border-t-2 border-gray-300 bg-gray-50">
+                                <td colspan="3" class="px-6 py-3 text-right font-semibold text-gray-900">Total:</td>
+                                <td class="px-6 py-3 text-right text-lg font-bold text-primary-600">${{ venta.total|floatformat:2 }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel derecho: Datos cooperativa -->
+        <div>
+            {% if financiacion %}
+            <!-- Datos ya registrados -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Datos de Financiacion</h3>
+                </div>
+                <div class="card-body space-y-3">
+                    <div>
+                        <p class="text-xs text-gray-500">Cliente</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.nombre_cliente }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500">Cedula</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.cedula_cliente }}</p>
+                    </div>
+                    {% if financiacion.telefono_cliente %}
+                    <div>
+                        <p class="text-xs text-gray-500">Telefono</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.telefono_cliente }}</p>
+                    </div>
+                    {% endif %}
+                    {% if financiacion.direccion_cliente %}
+                    <div>
+                        <p class="text-xs text-gray-500">Direccion</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.direccion_cliente }}</p>
+                    </div>
+                    {% endif %}
+                    <div class="border-t border-gray-200 pt-3">
+                        <p class="text-xs text-gray-500">Cooperativa</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.nombre_cooperativa }}</p>
+                    </div>
+                    {% if financiacion.codigo_aprobacion %}
+                    <div>
+                        <p class="text-xs text-gray-500">Codigo de Aprobacion</p>
+                        <p class="font-medium text-gray-900">{{ financiacion.codigo_aprobacion }}</p>
+                    </div>
+                    {% endif %}
+                    {% if financiacion.notas %}
+                    <div class="border-t border-gray-200 pt-3">
+                        <p class="text-xs text-gray-500">Notas</p>
+                        <p class="text-sm text-gray-700">{{ financiacion.notas }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% else %}
+            <!-- Formulario para registrar datos -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Registrar Financiacion</h3>
+                </div>
+                <div class="card-body space-y-4">
+                    <div class="form-group">
+                        <label class="form-label">Nombre del Cliente *</label>
+                        <input type="text" x-model="form.nombre_cliente" class="form-input w-full" placeholder="Nombre completo">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cedula *</label>
+                        <input type="text" x-model="form.cedula_cliente" class="form-input w-full" placeholder="000-0000000-0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Telefono</label>
+                        <input type="text" x-model="form.telefono_cliente" class="form-input w-full" placeholder="809-000-0000">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Direccion</label>
+                        <textarea x-model="form.direccion_cliente" class="form-input w-full" rows="2" placeholder="Direccion"></textarea>
+                    </div>
+                    <div class="border-t border-gray-200 pt-4">
+                        <div class="form-group">
+                            <label class="form-label">Cooperativa *</label>
+                            <input type="text" x-model="form.nombre_cooperativa" class="form-input w-full" placeholder="Nombre de la cooperativa">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Codigo de Aprobacion</label>
+                            <input type="text" x-model="form.codigo_aprobacion" class="form-input w-full" placeholder="COOP-2026-001">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Notas</label>
+                        <textarea x-model="form.notas" class="form-input w-full" rows="2" placeholder="Notas adicionales..."></textarea>
+                    </div>
+
+                    <button @click="registrar()" class="btn-primary w-full" :disabled="guardando">
+                        <template x-if="guardando">
+                            <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        Registrar y Generar PDF
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function financiacionApp() {
+    return {
+        guardando: false,
+        form: {
+            nombre_cliente: '',
+            cedula_cliente: '',
+            telefono_cliente: '',
+            direccion_cliente: '',
+            nombre_cooperativa: '',
+            codigo_aprobacion: '',
+            notas: '',
+        },
+
+        async registrar() {
+            if (!this.form.nombre_cliente.trim() || !this.form.cedula_cliente.trim()) {
+                alert('Nombre y cedula del cliente son requeridos');
+                return;
+            }
+            if (!this.form.nombre_cooperativa.trim()) {
+                alert('El nombre de la cooperativa es requerido');
+                return;
+            }
+
+            this.guardando = true;
+
+            try {
+                const res = await fetch('{% url "pos:api_registrar" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({
+                        venta_id: {{ venta.id }},
+                        ...this.form,
+                    }),
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    window.open('{% url "pos:pdf" venta.id %}', '_blank');
+                    window.location.reload();
+                } else {
+                    alert(data.error || 'Error al registrar');
+                }
+            } catch (e) {
+                alert('Error de conexion');
+            } finally {
+                this.guardando = false;
+            }
+        },
+
+        getCookie(name) {
+            let v = null;
+            if (document.cookie) {
+                document.cookie.split(';').forEach(c => {
+                    c = c.trim();
+                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+                });
+            }
+            return v;
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+{# components/card.html #}
+{# 
+Componente de tarjeta reutilizable
+Uso:
+    {% include 'components/card.html' with 
+        title="Título de la Card"
+        subtitle="Subtítulo opcional"
+        show_header=True
+        show_footer=False
+    %}
+        Card content here...
+    {% endinclude %}
+#}
+
+<div class="card {% if hover %}card-hover{% endif %} {{ extra_classes }}">
+    {% if show_header %}
+        <div class="card-header">
+            <div class="flex items-center justify-between">
+                <div>
+                    {% if title %}
+                        <h3 class="text-lg font-semibold text-gray-900">{{ title }}</h3>
+                    {% endif %}
+                    {% if subtitle %}
+                        <p class="text-sm text-gray-500 mt-1">{{ subtitle }}</p>
+                    {% endif %}
+                </div>
+                {% if header_actions %}
+                    <div class="flex items-center space-x-2">
+                        {{ header_actions|safe }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+    
+    <div class="card-body">
+        {% block card_content %}
+            {{ content|safe }}
+        {% endblock %}
+    </div>
+    
+    {% if show_footer %}
+        <div class="card-footer">
+            {% block card_footer %}
+                {{ footer|safe }}
+            {% endblock %}
+        </div>
+    {% endif %}
+</div>

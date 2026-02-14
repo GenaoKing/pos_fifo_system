@@ -1,0 +1,483 @@
+{% extends 'base.html' %}
+
+{% block title %}Categorías - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Inventario</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Categorías</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="categoriasManager()">
+    
+    <!-- Header con acciones -->
+    <div class="flex justify-between items-start mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Categorías</h1>
+            <p class="text-gray-600">Organiza tus productos por categorías</p>
+        </div>
+        <button @click="openModal('create')" class="btn-secondary">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+            Nueva Categoría
+        </button>
+    </div>
+    
+    <!-- Barra de búsqueda -->
+    <div class="card mb-6">
+        <div class="card-body">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">Buscar</label>
+                    <input type="text" 
+                           x-model="searchQuery"
+                           @input="filterCategorias()"
+                           placeholder="Buscar categoría..."
+                           class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Estado</label>
+                    <select x-model="filterEstado"
+                            @change="filterCategorias()"
+                            class="form-select">
+                        <option value="">Todas</option>
+                        <option value="activa">Activas</option>
+                        <option value="inactiva">Inactivas</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Grid de categorías -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template x-for="categoria in filteredCategorias" :key="categoria.id">
+            <div class="card card-hover">
+                <!-- Header de la tarjeta -->
+                <div class="bg-gradient-to-r from-secondary-500 to-secondary-600 p-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="bg-white bg-opacity-20 rounded-lg p-2">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white" x-text="categoria.nombre"></h3>
+                                <p class="text-secondary-100 text-sm">
+                                    <span x-text="categoria.total_productos"></span> productos
+                                </p>
+                            </div>
+                        </div>
+                        <template x-if="categoria.activa">
+                            <span class="badge-success">Activa</span>
+                        </template>
+                        <template x-if="!categoria.activa">
+                            <span class="badge-gray">Inactiva</span>
+                        </template>
+                    </div>
+                </div>
+                
+                <!-- Contenido -->
+                <div class="card-body">
+                    <p class="text-sm text-gray-600 mb-4" x-text="categoria.descripcion || 'Sin descripción'"></p>
+                    
+                    <!-- Productos de la categoría -->
+                    <div x-show="categoria.productos && categoria.productos.length > 0" class="border-t border-gray-200 pt-4">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Productos recientes</p>
+                        <div class="space-y-2">
+                            <template x-for="producto in categoria.productos.slice(0, 3)" :key="producto.id">
+                                <div class="flex items-center justify-between text-sm">
+                                    <div class="flex items-center space-x-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                        </svg>
+                                        <span class="text-gray-700" x-text="producto.nombre"></span>
+                                    </div>
+                                    <span class="text-gray-500 font-medium">$<span x-text="parseFloat(producto.precio_venta).toFixed(2)"></span></span>
+                                </div>
+                            </template>
+                            <template x-if="categoria.productos.length > 3">
+                                <p class="text-xs text-secondary-600 font-medium">
+                                    + <span x-text="categoria.productos.length - 3"></span> más
+                                </p>
+                            </template>
+                        </div>
+                    </div>
+                    
+                    <!-- Sin productos -->
+                    <div x-show="!categoria.productos || categoria.productos.length === 0" class="border-t border-gray-200 pt-4">
+                        <p class="text-sm text-gray-400 italic text-center">
+                            <svg class="w-8 h-8 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                            </svg>
+                            Sin productos asignados
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Footer con acciones -->
+                <div class="card-footer flex items-center justify-between">
+                    <button @click="viewProductos(categoria)"
+                            class="text-sm text-secondary-600 hover:text-secondary-800 font-medium">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                        </svg>
+                        Ver productos
+                    </button>
+                    <div class="flex items-center space-x-2">
+                        <button @click="editCategoria(categoria)" 
+                                class="p-2 text-warning-600 hover:text-warning-800 hover:bg-warning-50 rounded-lg transition-colors"
+                                title="Editar">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                            </svg>
+                        </button>
+                        <button @click="toggleEstado(categoria)" 
+                                :class="categoria.activa ? 'text-success-600 hover:text-success-800' : 'text-gray-400 hover:text-gray-600'"
+                                class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                :title="categoria.activa ? 'Desactivar' : 'Activar'">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+        
+        <!-- Sin resultados -->
+        <template x-if="filteredCategorias.length === 0">
+            <div class="col-span-full">
+                <div class="card">
+                    <div class="card-body text-center py-12">
+                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                        </svg>
+                        <p class="text-xl font-medium text-gray-600 mb-2">No se encontraron categorías</p>
+                        <p class="text-sm text-gray-500 mb-4">Intenta ajustar los filtros o crea una nueva categoría</p>
+                        <button @click="openModal('create')" class="btn-secondary">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Nueva Categoría
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+    
+    <!-- Modal para crear/editar categoría -->
+    <div x-show="showModal" 
+         x-cloak
+         class="fixed inset-0 z-50 overflow-y-auto"
+         @keydown.escape.window="showModal = false"
+         style="display: none;">
+        <div class="flex items-center justify-center min-h-screen px-4">
+            <!-- Overlay -->
+            <div x-show="showModal"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+                 @click="showModal = false">
+            </div>
+            
+            <!-- Modal -->
+            <div x-show="showModal"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-y-4"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 class="relative bg-white rounded-lg shadow-xl max-w-lg w-full">
+                
+                <form @submit.prevent="saveCategoria()">
+                    <div class="card-header flex items-center justify-between">
+                        <h3 class="text-lg font-bold">
+                            <svg class="w-5 h-5 inline mr-2 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                            </svg>
+                            <span x-text="modalMode === 'create' ? 'Nueva Categoría' : 'Editar Categoría'"></span>
+                        </h3>
+                        <button @click="showModal = false" type="button" class="text-gray-400 hover:text-gray-500">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="card-body space-y-4">
+                        <!-- Nombre -->
+                        <div class="form-group">
+                            <label class="form-label">Nombre <span class="text-danger-500">*</span></label>
+                            <input type="text" 
+                                   x-model="formData.nombre"
+                                   required
+                                   class="form-input"
+                                   placeholder="Ej: Electrónica, Alimentos, Limpieza">
+                        </div>
+                        
+                        <!-- Descripción -->
+                        <div class="form-group">
+                            <label class="form-label">Descripción</label>
+                            <textarea x-model="formData.descripcion"
+                                      rows="3"
+                                      class="form-textarea"
+                                      placeholder="Descripción opcional de la categoría"></textarea>
+                        </div>
+                        
+                        <!-- Activa -->
+                        <div x-show="modalMode !== 'create'" class="form-group flex items-center">
+                            <input type="checkbox" 
+                                   x-model="formData.activa"
+                                   id="activa"
+                                   class="form-checkbox">
+                            <label for="activa" class="ml-2 text-sm text-gray-900">
+                                Categoría activa
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="card-footer flex justify-end space-x-3">
+                        <button @click="showModal = false"
+                                type="button"
+                                class="btn-outline">
+                            Cancelar
+                        </button>
+                        <button type="submit"
+                                class="btn-secondary">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                            </svg>
+                            <span x-text="modalMode === 'create' ? 'Crear Categoría' : 'Guardar Cambios'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal para ver productos de la categoría -->
+    <div x-show="showProductosModal" 
+         x-cloak
+         class="fixed inset-0 z-50 overflow-y-auto"
+         @keydown.escape.window="showProductosModal = false"
+         style="display: none;">
+        <div class="flex items-center justify-center min-h-screen px-4">
+            <!-- Overlay -->
+            <div x-show="showProductosModal"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+                 @click="showProductosModal = false">
+            </div>
+            
+            <!-- Modal -->
+            <div x-show="showProductosModal"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-y-4"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 class="relative bg-white rounded-lg shadow-xl max-w-3xl w-full">
+                
+                <div class="card-header flex items-center justify-between">
+                    <h3 class="text-lg font-bold">
+                        <svg class="w-5 h-5 inline mr-2 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                        </svg>
+                        Productos de <span x-text="selectedCategoria ? selectedCategoria.nombre : ''"></span>
+                    </h3>
+                    <button @click="showProductosModal = false" class="text-gray-400 hover:text-gray-500">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="card-body">
+                    <template x-if="selectedCategoria && selectedCategoria.productos && selectedCategoria.productos.length > 0">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="producto in selectedCategoria.productos" :key="producto.id">
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-3 text-sm font-medium text-gray-900" x-text="producto.nombre"></td>
+                                            <td class="px-4 py-3 text-sm text-gray-500" x-text="producto.sku"></td>
+                                            <td class="px-4 py-3 text-sm font-medium text-gray-900">
+                                                $<span x-text="parseFloat(producto.precio_venta).toFixed(2)"></span>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-gray-500" x-text="producto.stock_actual"></td>
+                                            <td class="px-4 py-3 text-sm">
+                                                <template x-if="producto.activo">
+                                                    <span class="badge-success">Activo</span>
+                                                </template>
+                                                <template x-if="!producto.activo">
+                                                    <span class="badge-gray">Inactivo</span>
+                                                </template>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    
+                    <template x-if="!selectedCategoria || !selectedCategoria.productos || selectedCategoria.productos.length === 0">
+                        <div class="text-center py-8">
+                            <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                            </svg>
+                            <p class="text-gray-500">No hay productos en esta categoría</p>
+                        </div>
+                    </template>
+                </div>
+                
+                <div class="card-footer flex justify-between">
+                    <a :href="`{% url 'productos:lista' %}?categoria=${selectedCategoria ? selectedCategoria.id : ''}`"
+                       class="btn-secondary btn-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                        </svg>
+                        Ir a productos
+                    </a>
+                    <button @click="showProductosModal = false" class="btn-outline btn-sm">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+<script>
+function categoriasManager() {
+    return {
+        categorias: {{ categorias_json|safe }},
+        filteredCategorias: [],
+        searchQuery: '',
+        filterEstado: '',
+        showModal: false,
+        showProductosModal: false,
+        modalMode: 'create',
+        selectedCategoria: null,
+        formData: {
+            id: null,
+            nombre: '',
+            descripcion: '',
+            activa: true
+        },
+        
+        init() {
+            this.filterCategorias();
+        },
+        
+        filterCategorias() {
+            this.filteredCategorias = this.categorias.filter(c => {
+                const matchSearch = !this.searchQuery || 
+                    c.nombre.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                    (c.descripcion && c.descripcion.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                
+                const matchEstado = !this.filterEstado ||
+                    (this.filterEstado === 'activa' && c.activa) ||
+                    (this.filterEstado === 'inactiva' && !c.activa);
+                
+                return matchSearch && matchEstado;
+            });
+        },
+        
+        openModal(mode, categoria = null) {
+            this.modalMode = mode;
+            
+            if (mode === 'create') {
+                this.formData = {
+                    id: null,
+                    nombre: '',
+                    descripcion: '',
+                    activa: true
+                };
+            } else if (categoria) {
+                this.formData = { ...categoria };
+            }
+            
+            this.showModal = true;
+        },
+        
+        editCategoria(categoria) {
+            this.openModal('edit', categoria);
+        },
+        
+        viewProductos(categoria) {
+            this.selectedCategoria = categoria;
+            this.showProductosModal = true;
+        },
+        
+        async saveCategoria() {
+            try {
+                const url = this.modalMode === 'create' 
+                    ? '{% url "productos:crear_categoria" %}'
+                    : `{% url "productos:categorias" %}${this.formData.id}/editar/`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(this.formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'No se pudo guardar la categoría'));
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al guardar la categoría');
+            }
+        },
+        
+        async toggleEstado(categoria) {
+            if (!confirm(`¿Deseas ${categoria.activa ? 'desactivar' : 'activar'} esta categoría?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`{% url "productos:categorias" %}${categoria.id}/toggle-estado/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    categoria.activa = !categoria.activa;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al cambiar el estado de la categoría');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

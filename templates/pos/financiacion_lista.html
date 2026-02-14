@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Financiacion Cooperativa - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Financiacion Cooperativa</span>
+{% endblock %}
+
+{% block content %}
+<div>
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Financiacion Cooperativa</h1>
+            <p class="text-sm text-gray-500 mt-1">Ventas procesadas con financiacion cooperativa</p>
+        </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-gray-200 bg-gray-50">
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Venta</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Cliente</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Cooperativa</th>
+                            <th class="text-right text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Total</th>
+                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Fecha</th>
+                            <th class="text-center text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">PDF</th>
+                            <th class="text-right text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for fin in financiaciones %}
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4">
+                                <p class="font-medium text-primary-600">{{ fin.venta.numero_venta }}</p>
+                            </td>
+                            <td class="px-6 py-4">
+                                <p class="text-sm font-medium text-gray-900">{{ fin.nombre_cliente }}</p>
+                                <p class="text-xs text-gray-500">{{ fin.cedula_cliente }}</p>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600">
+                                {{ fin.nombre_cooperativa }}
+                                {% if fin.codigo_aprobacion %}
+                                <p class="text-xs text-gray-400">Cod: {{ fin.codigo_aprobacion }}</p>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span class="font-semibold text-gray-900">${{ fin.venta.total|floatformat:2 }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600">
+                                {{ fin.fecha_creacion|date:"d/m/Y h:i A" }}
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                {% if fin.pdf_generado %}
+                                    <span class="badge-success">Generado</span>
+                                {% else %}
+                                    <span class="badge-gray">Pendiente</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <div class="flex items-center justify-end space-x-2">
+                                    <a href="{% url 'pos:detalle' fin.venta.id %}" class="btn-ghost btn-sm" title="Ver detalle">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                        </svg>
+                                    </a>
+                                    <a href="{% url 'pos:pdf' fin.venta.id %}" target="_blank" class="btn-primary btn-sm" title="Generar PDF">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        PDF
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-12 text-gray-400">
+                                <svg class="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                </svg>
+                                <p class="text-sm">No hay ventas con financiacion cooperativa</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

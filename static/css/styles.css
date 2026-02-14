@@ -1,0 +1,402 @@
+/* 
+ * Sistema POS - FIFO
+ * Estilos principales con Tailwind CSS
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===================================
+   CUSTOM STYLES - Estilos Personalizados
+   =================================== */
+
+@layer base {
+  /* Fuentes de Google Fonts */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  
+  /* Reset y configuración base */
+  * {
+    @apply border-gray-200;
+  }
+  
+  html {
+    @apply scroll-smooth;
+  }
+  
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+  
+  /* Tipografía mejorada */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold text-gray-900;
+  }
+  
+  h1 { @apply text-3xl lg:text-4xl; }
+  h2 { @apply text-2xl lg:text-3xl; }
+  h3 { @apply text-xl lg:text-2xl; }
+  h4 { @apply text-lg lg:text-xl; }
+  
+  /* Links */
+  a {
+    @apply text-primary-600 hover:text-primary-700 transition-colors duration-150;
+  }
+}
+
+@layer components {
+  /* ===================================
+     BOTONES - Sistema de botones
+     =================================== */
+  
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 active:bg-primary-800;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-secondary-600 text-white hover:bg-secondary-700 focus:ring-secondary-500;
+  }
+  
+  .btn-success {
+    @apply btn bg-success-600 text-white hover:bg-success-700 focus:ring-success-500;
+  }
+  
+  .btn-danger {
+    @apply btn bg-danger-600 text-white hover:bg-danger-700 focus:ring-danger-500;
+  }
+  
+  .btn-warning {
+    @apply btn bg-warning-600 text-white hover:bg-warning-700 focus:ring-warning-500;
+  }
+  
+  .btn-outline {
+    @apply btn border-2 border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:ring-gray-500;
+  }
+  
+  .btn-ghost {
+    @apply btn text-gray-700 hover:bg-gray-100 focus:ring-gray-500;
+  }
+  
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+  
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+  
+  /* ===================================
+     CARDS - Sistema de tarjetas
+     =================================== */
+  
+  .card {
+    @apply bg-white rounded-lg shadow-card overflow-hidden;
+  }
+  
+  .card-hover {
+    @apply card transition-shadow duration-200 hover:shadow-card-hover;
+  }
+  
+  .card-header {
+    @apply px-6 py-4 border-b border-gray-200 bg-gray-50;
+  }
+  
+  .card-body {
+    @apply px-6 py-4;
+  }
+  
+  .card-footer {
+    @apply px-6 py-4 border-t border-gray-200 bg-gray-50;
+  }
+  
+  /* ===================================
+     FORMS - Formularios
+     =================================== */
+  
+  .form-group {
+    @apply mb-4;
+  }
+  
+  .form-label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+  
+  .form-input {
+    @apply block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors duration-150;
+  }
+  
+  .form-input-error {
+    @apply form-input border-danger-500 focus:ring-danger-500 focus:border-danger-500;
+  }
+  
+  .form-select {
+    @apply form-input bg-white;
+  }
+  
+  .form-checkbox {
+    @apply w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500;
+  }
+  
+  .form-radio {
+    @apply w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500;
+  }
+  
+  .form-error {
+    @apply text-sm text-danger-600 mt-1;
+  }
+  
+  .form-help {
+    @apply text-sm text-gray-500 mt-1;
+  }
+  
+  /* ===================================
+     BADGES - Etiquetas
+     =================================== */
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .badge-primary {
+    @apply badge bg-primary-100 text-primary-800;
+  }
+  
+  .badge-success {
+    @apply badge bg-success-100 text-success-800;
+  }
+  
+  .badge-warning {
+    @apply badge bg-warning-100 text-warning-800;
+  }
+  
+  .badge-danger {
+    @apply badge bg-danger-100 text-danger-800;
+  }
+  
+  .badge-info {
+    @apply badge bg-info-100 text-info-800;
+  }
+  
+  .badge-gray {
+    @apply badge bg-gray-100 text-gray-800;
+  }
+  
+  /* ===================================
+     TABLES - Tablas
+     =================================== */
+  
+  .table {
+    @apply min-w-full divide-y divide-gray-200;
+  }
+  
+  .table-header {
+    @apply bg-gray-50;
+  }
+  
+  .table-header-cell {
+    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+  }
+  
+  .table-body {
+    @apply bg-white divide-y divide-gray-200;
+  }
+  
+  .table-cell {
+    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+  }
+  
+  .table-row-hover {
+    @apply hover:bg-gray-50 transition-colors duration-150;
+  }
+  
+  /* ===================================
+     ALERTS - Alertas
+     =================================== */
+  
+  .alert {
+    @apply p-4 rounded-lg flex items-start space-x-3;
+  }
+  
+  .alert-success {
+    @apply alert bg-success-50 border border-success-200;
+  }
+  
+  .alert-warning {
+    @apply alert bg-warning-50 border border-warning-200;
+  }
+  
+  .alert-danger {
+    @apply alert bg-danger-50 border border-danger-200;
+  }
+  
+  .alert-info {
+    @apply alert bg-info-50 border border-info-200;
+  }
+  
+  .alert-title {
+    @apply font-medium text-sm;
+  }
+  
+  .alert-message {
+    @apply text-sm mt-1;
+  }
+  
+  /* ===================================
+     MODALS - Modales
+     =================================== */
+  
+  .modal-overlay {
+    @apply fixed inset-0 bg-gray-900 bg-opacity-50 z-40 transition-opacity duration-300;
+  }
+  
+  .modal-container {
+    @apply fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4;
+  }
+  
+  .modal-content {
+    @apply bg-white rounded-lg shadow-modal max-w-lg w-full animate-slide-in;
+  }
+  
+  .modal-header {
+    @apply px-6 py-4 border-b border-gray-200;
+  }
+  
+  .modal-body {
+    @apply px-6 py-4;
+  }
+  
+  .modal-footer {
+    @apply px-6 py-4 border-t border-gray-200 flex justify-end space-x-3;
+  }
+  
+  /* ===================================
+     SIDEBAR - Navegación lateral
+     =================================== */
+  
+  .sidebar {
+    @apply fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-200 overflow-y-auto;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  
+  }
+  
+  .sidebar-header {
+    @apply px-6 py-4 border-b border-gray-200;
+  }
+  
+  .sidebar-menu {
+    @apply py-4;
+  }
+  
+  .sidebar-item {
+    @apply flex items-center px-6 py-3 text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors duration-150 cursor-pointer;
+  }
+  
+  .sidebar-item-active {
+    @apply sidebar-item bg-primary-50 text-primary-600 border-r-4 border-primary-600;
+  }
+
+  
+  
+  /* ===================================
+     NAVBAR - Barra superior
+     =================================== */
+  
+  .navbar {
+    @apply fixed top-0 right-0 left-64 h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between z-30;
+  }
+  
+  /* ===================================
+     CONTENT - Contenido principal
+     =================================== */
+  
+  .main-content {
+    @apply ml-64 mt-16 p-6 min-h-screen;
+  }
+  
+  /* ===================================
+     STOCK INDICATORS - Indicadores de stock
+     =================================== */
+  
+  .stock-indicator {
+    @apply inline-flex items-center px-2 py-1 rounded text-xs font-medium;
+  }
+  
+  .stock-ok {
+    @apply stock-indicator bg-success-100 text-success-800;
+  }
+  
+  .stock-low {
+    @apply stock-indicator bg-warning-100 text-warning-800;
+  }
+  
+  .stock-out {
+    @apply stock-indicator bg-danger-100 text-danger-800;
+  }
+}
+
+@layer utilities {
+  /* Utilidades personalizadas */
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Glassmorphism effect */
+  .glass {
+    @apply bg-white bg-opacity-80 backdrop-blur-lg;
+  }
+}
+
+/* ===================================
+   ANIMATIONS - Animaciones adicionales
+   =================================== */
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ===================================
+   PRINT STYLES - Estilos de impresión
+   =================================== */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body {
+    @apply bg-white;
+  }
+  
+  .sidebar,
+  .navbar {
+    display: none !important;
+  }
+  
+  .main-content {
+    @apply ml-0 mt-0;
+  }
+}
