@@ -276,25 +276,34 @@
     <!-- Modal para crear/editar producto -->
     <div x-show="showModal" 
          x-cloak
-         class="fixed inset-0 z-50 overflow-y-auto"
          @keydown.escape.window="showModal = false"
-         style="display: none;">
-        <div class="flex items-center justify-center min-h-screen px-4">
-            <!-- Overlay -->
-            <div x-show="showModal"
-                 x-transition:enter="ease-out duration-300"
-                 x-transition:enter-start="opacity-0"
-                 x-transition:enter-end="opacity-100"
-                 class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
-                 @click="showModal = false">
-            </div>
-            
+         style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; overflow-y: auto;">
+        
+        <!-- Overlay -->
+        <div x-show="showModal"
+             x-transition:enter="ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5);"
+             @click="showModal = false">
+        </div>
+        
+        <!-- Contenedor centrado -->
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; padding: 1rem; pointer-events: none;">
             <!-- Modal -->
             <div x-show="showModal"
                  x-transition:enter="ease-out duration-300"
-                 x-transition:enter-start="opacity-0 translate-y-4"
-                 x-transition:enter-end="opacity-100 translate-y-0"
-                 class="relative bg-white rounded-lg shadow-xl max-w-2xl w-full">
+                 x-transition:enter-start="opacity-0 transform scale-95"
+                 x-transition:enter-end="opacity-100 transform scale-100"
+                 x-transition:leave="ease-in duration-200"
+                 x-transition:leave-start="opacity-100 transform scale-100"
+                 x-transition:leave-end="opacity-0 transform scale-95"
+                 style="pointer-events: auto; max-height: 90vh; overflow-y: auto;"
+                 class="relative bg-white rounded-lg shadow-xl max-w-2xl w-full"
+                 @click.stop>
                 
                 <form @submit.prevent="saveProduct()">
                     <div class="card-header flex items-center justify-between">
@@ -310,24 +319,40 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <!-- SKU -->
                             <div class="form-group">
-                                <label class="form-label">SKU <span class="text-danger-500">*</span></label>
-                                <input type="text" 
-                                       x-model="formData.sku"
-                                       :readonly="modalMode === 'view'"
-                                       required
-                                       class="form-input"
-                                       placeholder="PROD-001">
+                                <label class="form-label">SKU</label>
+                                <template x-if="modalMode === 'create'">
+                                    <div class="form-input bg-gray-100 text-gray-500 flex items-center">
+                                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                        </svg>
+                                        Se genera automáticamente
+                                    </div>
+                                </template>
+                                <template x-if="modalMode !== 'create'">
+                                    <input type="text" 
+                                           x-model="formData.sku"
+                                           readonly
+                                           class="form-input bg-gray-50">
+                                </template>
                             </div>
                             
                             <!-- Código de barras -->
                             <div class="form-group">
-                                <label class="form-label">Código de Barras <span class="text-danger-500">*</span></label>
-                                <input type="text" 
-                                       x-model="formData.codigo_barras"
-                                       :readonly="modalMode === 'view'"
-                                       required
-                                       class="form-input"
-                                       placeholder="1234567890123">
+                                <label class="form-label">Código de Barras</label>
+                                <template x-if="modalMode === 'create'">
+                                    <div class="form-input bg-gray-100 text-gray-500 flex items-center">
+                                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                        </svg>
+                                        Se genera automáticamente (RP-XXXXXX)
+                                    </div>
+                                </template>
+                                <template x-if="modalMode !== 'create'">
+                                    <input type="text" 
+                                           x-model="formData.codigo_barras"
+                                           readonly
+                                           class="form-input bg-gray-50">
+                                </template>
                             </div>
                             
                             <!-- Nombre -->
@@ -434,10 +459,13 @@
     <!-- Modal: Imprimir Etiquetas -->
     <div 
         x-show="modalImprimirEtiqueta"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         x-cloak
+        style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999;"
     >
-        <div class="bg-white rounded-lg shadow-xl p-6 w-96">
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5);"
+             @click="cerrarModalImprimirEtiqueta()"></div>
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; padding: 1rem; pointer-events: none;">
+            <div class="bg-white rounded-lg shadow-xl p-6 w-96" style="pointer-events: auto;" @click.stop>
             <h3 class="text-xl font-bold mb-4">Imprimir Etiquetas</h3>
             
             <div class="mb-4">
@@ -519,8 +547,8 @@ function productosManager() {
         filterProducts() {
             this.filteredProducts = this.products.filter(p => {
                 const matchSearch = !this.searchQuery || 
-                    p.sku.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                    p.codigo_barras.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                    (p.sku || '').toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                    (p.codigo_barras || '').toLowerCase().includes(this.searchQuery.toLowerCase()) ||
                     p.nombre.toLowerCase().includes(this.searchQuery.toLowerCase());
                 
                 const matchCategoria = !this.filterCategoria || 

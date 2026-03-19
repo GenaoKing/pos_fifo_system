@@ -18,10 +18,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from apps.usuarios.views import styleguide
+from django.views.generic import RedirectView
+
 
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path('', RedirectView.as_view(pattern_name='reportes:dashboard'), name='home'),
     path('styleguide/', styleguide, name='styleguide'),
     path('inventario/', include('apps.inventario.urls')),
     path('pos/', include('apps.ventas.urls')),
@@ -29,6 +32,9 @@ urlpatterns = [
     path('productos/', include('apps.productos.urls')),
     path('clientes/', include('apps.clientes.urls')),
     path('cotizaciones/', include('apps.cotizaciones.urls')),
+    path('reportes/', include('apps.reportes.urls')),
+     # Autenticacion (sin prefijo, queda como /login/ y /logout/)
+    path('', include('apps.usuarios.urls')),
      # Impresión automática (POST desde POS)
     
 ]

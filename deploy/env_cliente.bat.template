@@ -1,0 +1,36 @@
+@echo off
+REM ============================================================================
+REM Royal Plastic POS - Variables de Entorno del Cliente
+REM Copiar este archivo como "env_cliente.bat" y ajustar los valores
+REM ============================================================================
+
+REM --- Base de datos ---
+set DB_NAME=royal_plastic_pos
+set DB_USER=pos_admin
+set DB_PASSWORD=Royal2026$Pos
+set DB_HOST=localhost
+set DB_PORT=5432
+
+REM --- Red ---
+set SERVER_IP=192.168.1.100
+set SERVER_PORT=8080
+REM Si otras PCs acceden al sistema, agregar sus IPs separadas por coma:
+set EXTRA_HOSTS=
+
+REM --- Django ---
+set DJANGO_SETTINGS_MODULE=config.settings_production
+set DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION
+
+REM --- Impresoras (nombre exacto como aparece en Windows) ---
+set PRINTER_TERMICA=2C-POS80-01
+set PRINTER_ZEBRA=ZDesigner LP 2824
+
+REM --- Datos del negocio ---
+set RNC_NEGOCIO=
+set DIRECCION_NEGOCIO=Santo Domingo, RD
+set TELEFONO_NEGOCIO=
+
+REM --- Rutas ---
+set POS_DIR=%~dp0..
+set BACKUP_DIR=%POS_DIR%\backups
+set PYTHON_DIR=%POS_DIR%\venv\Scripts

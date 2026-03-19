@@ -1,0 +1,312 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesion - Royal Plastic POS</title>
+    
+    <!-- Mismo CSS compilado que usa el resto del sistema -->
+    <link rel="stylesheet" href="{% static 'css/output.css' %}">
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <style>
+        [x-cloak] { display: none !important; }
+        
+        .login-page {
+            background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 50%, #1e293b 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            position: relative;
+        }
+        .login-page::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(147, 197, 253, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+        }
+        
+        .login-card {
+            background: rgba(255, 255, 255, 0.97);
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+            padding: 2.5rem 2rem;
+            width: 100%;
+            max-width: 400px;
+            position: relative;
+            animation: cardIn 0.35s ease-out;
+        }
+        
+        .login-icon-box {
+            width: 3.5rem;
+            height: 3.5rem;
+            background: #2563eb;
+            border-radius: 0.75rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+            margin: 0 auto 1rem;
+        }
+        .login-icon-box svg {
+            width: 1.75rem;
+            height: 1.75rem;
+            color: #fff;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .login-header h1 {
+            font-size: 1.375rem;
+            font-weight: 700;
+            color: #111827;
+            margin: 0;
+        }
+        .login-header p {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+        
+        /* ---------- Campos ---------- */
+        .login-field {
+            position: relative;
+            margin-bottom: 1.25rem;
+        }
+        .login-field label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.375rem;
+        }
+        .login-field input {
+            width: 100%;
+            padding: 0.625rem 0.75rem 0.625rem 2.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 0.9375rem;
+            color: #111827;
+            background: #fff;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .login-field input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+        .login-field input::placeholder {
+            color: #9ca3af;
+        }
+        .login-field .field-icon {
+            position: absolute;
+            left: 0.75rem;
+            bottom: 0.7rem;
+            width: 1.125rem;
+            height: 1.125rem;
+            color: #9ca3af;
+            pointer-events: none;
+        }
+        
+        /* ---------- Toggle password ---------- */
+        .login-toggle-pw {
+            position: absolute;
+            right: 0.75rem;
+            bottom: 0.5rem;
+            padding: 0.2rem;
+            color: #9ca3af;
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: color 0.15s;
+            line-height: 0;
+        }
+        .login-toggle-pw:hover { color: #4b5563; }
+        .login-toggle-pw svg { width: 1.125rem; height: 1.125rem; }
+        
+        /* ---------- Boton ---------- */
+        .login-btn {
+            width: 100%;
+            padding: 0.65rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            color: #fff;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+            margin-top: 1.5rem;
+        }
+        .login-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+        }
+        .login-btn:active:not(:disabled) { transform: translateY(0); }
+        .login-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        
+        /* ---------- Mensajes ---------- */
+        .login-msg {
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.8125rem;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .login-msg svg { width: 1rem; height: 1rem; flex-shrink: 0; margin-top: 1px; }
+        .login-msg-error {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+        .login-msg-success {
+            background: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+        }
+
+        .login-footer {
+            text-align: center;
+            margin-top: 1.5rem;
+            font-size: 0.6875rem;
+            color: rgba(148, 163, 184, 0.45);
+        }
+        
+        /* ---------- Animaciones ---------- */
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            animation: spin 0.7s linear infinite;
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+    </style>
+</head>
+
+<body class="login-page" x-data="{ loading: false, showPw: false }">
+
+    <div style="width: 100%; max-width: 400px;">
+        <!-- Card -->
+        <div class="login-card">
+
+            <!-- Branding -->
+            <div class="login-header">
+                <div class="login-icon-box">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .414.336.75.75.75Z" />
+                    </svg>
+                </div>
+                <h1>Royal Plastic</h1>
+                <p>Sistema Punto de Venta</p>
+            </div>
+
+            <!-- Mensajes Django -->
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="login-msg {% if message.tags == 'error' %}login-msg-error{% elif message.tags == 'success' %}login-msg-success{% else %}login-msg-error{% endif %}">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            {% if message.tags == 'error' %}
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                            {% else %}
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            {% endif %}
+                        </svg>
+                        <span>{{ message }}</span>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Formulario -->
+            <form method="post" @submit="loading = true" novalidate>
+                {% csrf_token %}
+
+                <!-- Usuario -->
+                <div class="login-field">
+                    <label for="id_username">Usuario</label>
+                    <svg class="field-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+                    </svg>
+                    <input type="text"
+                           name="username"
+                           id="id_username"
+                           autocomplete="username"
+                           autofocus
+                           required
+                           placeholder="Ingrese su usuario">
+                </div>
+
+                <!-- Contrasena -->
+                <div class="login-field" style="margin-bottom: 0;">
+                    <label for="id_password">Contrasena</label>
+                    <svg class="field-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/>
+                    </svg>
+                    <input :type="showPw ? 'text' : 'password'"
+                           name="password"
+                           id="id_password"
+                           autocomplete="current-password"
+                           required
+                           placeholder="Ingrese su contrasena"
+                           style="padding-right: 2.5rem;">
+                    <button type="button"
+                            @click="showPw = !showPw"
+                            class="login-toggle-pw"
+                            tabindex="-1">
+                        <!-- Ojo abierto -->
+                        <svg x-show="!showPw" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+                        </svg>
+                        <!-- Ojo cerrado -->
+                        <svg x-show="showPw" x-cloak fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Boton -->
+                <button type="submit"
+                        :disabled="loading"
+                        class="login-btn">
+                    <svg x-show="loading" x-cloak class="spinner" fill="none" viewBox="0 0 24 24">
+                        <circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span x-text="loading ? 'Ingresando...' : 'Iniciar Sesion'"></span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Footer -->
+        <p class="login-footer">Royal Plastic POS v1.0</p>
+    </div>
+
+</body>
+</html>

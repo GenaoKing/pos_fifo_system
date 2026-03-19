@@ -68,32 +68,15 @@ def crear_producto(request):
     try:
         data = json.loads(request.body)
         
-        # Validar que SKU y código de barras sean únicos
-        if Producto.objects.filter(sku=data['sku']).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe un producto con ese SKU'
-            })
+        # Generar SKU automático
+        sku = Producto.generar_sku()
         
-        
-        
-        # Manejar código de barras
-        codigo_barras = data.get('codigo_barras', '').strip()
-
-        if not codigo_barras:
-            # Generar código interno si viene vacío
-            codigo_barras = generar_codigo_barra_interno()
-        else:
-            # Validar unicidad si viene con código
-            if Producto.objects.filter(codigo_barras=codigo_barras).exists():
-                return JsonResponse({
-                    'success': False,
-                    'message': 'Ya existe un producto con ese código de barras'
-                })
+        # Generar código de barras interno siempre
+        codigo_barras = generar_codigo_barra_interno()
         
         # Crear el producto
         producto = Producto.objects.create(
-            sku=data['sku'],
+            sku=sku,
             codigo_barras=codigo_barras,
             nombre=data['nombre'],
             descripcion=data.get('descripcion', ''),
@@ -108,7 +91,9 @@ def crear_producto(request):
         return JsonResponse({
             'success': True,
             'message': 'Producto creado exitosamente',
-            'producto_id': producto.id
+            'producto_id': producto.id,
+            'sku': producto.sku,
+            'codigo_barras': producto.codigo_barras,
         })
         
     except Exception as e:
@@ -201,7 +186,7 @@ def lista_categorias(request):
     
     # Obtener todas las categorías con conteo de productos
     categorias = Categoria.objects.annotate(
-        total_productos=Count('productos', filter=Q(productos__activo=True))
+        productos_count=Count('productos', filter=Q(productos__activo=True))
     ).prefetch_related('productos').all()
     
     # Preparar datos para el template
@@ -223,7 +208,7 @@ def lista_categorias(request):
             'nombre': categoria.nombre,
             'descripcion': categoria.descripcion,
             'activa': categoria.activa,
-            'total_productos': categoria.total_productos,
+            'total_productos': categoria.productos_count,
             'productos': productos_list,
         })
     

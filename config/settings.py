@@ -15,7 +15,7 @@ SECRET_KEY = 'django-insecure-tu-clave-secreta-aqui-cambiarla-en-produccion'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.*']
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -142,6 +142,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Modelo de usuario personalizado
 AUTH_USER_MODEL = 'usuarios.Usuario'
+
+# ============================================================================
+# AUTENTICACION Y SESIONES
+# ============================================================================
+# config/settings.py
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/reportes/'
+LOGOUT_REDIRECT_URL = '/login/'
+
+SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
+SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
 
 # Roles del sistema
 ROLES_SISTEMA = {

@@ -48,6 +48,7 @@ class Producto(models.Model):
         'SKU',
         max_length=50,
         unique=True,
+        blank=True,
         help_text='Código interno único del producto',
     )
     codigo_barras = models.CharField(
@@ -167,3 +168,11 @@ class Producto(models.Model):
         """
         from utils.impresoras.zebra import imprimir_etiqueta_producto
         return imprimir_etiqueta_producto(self, cantidad)
+
+
+    @classmethod
+    def generar_sku(cls):
+        """Genera SKU secuencial: PROD-0001, PROD-0002, etc."""
+        ultimo = cls.objects.order_by('-id').first()
+        siguiente_num = (ultimo.id + 1) if ultimo else 1
+        return f"PROD-{siguiente_num:04d}"
