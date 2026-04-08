@@ -4,6 +4,7 @@ apps/cotizaciones/pdf_generator.py
 
 Genera PDF profesional con formato similar al de financiacion cooperativa.
 """
+from apps.configuracion.models import ConfiguracionNegocio
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -25,6 +26,7 @@ class CotizacionPDF:
 
     def __init__(self, cotizacion):
         self.cotizacion = cotizacion
+        self.config = ConfiguracionNegocio.load()
         self.buffer = BytesIO()
         self.width, self.height = letter
         self.styles = getSampleStyleSheet()
@@ -102,26 +104,11 @@ class CotizacionPDF:
         ))
 
     def _get_logo_path(self):
-        """Obtiene la ruta del logo"""
-        logo_path = os.path.join(
-            settings.STATIC_ROOT or settings.BASE_DIR / 'static',
-            'img',
-            'logo-royal.jpeg'
-        )
-        if os.path.exists(logo_path):
-            return logo_path
-
-        # Intentar en staticfiles
-        logo_path = os.path.join(
-            settings.BASE_DIR,
-            'staticfiles',
-            'img',
-            'logo-royal.jpeg'
-        )
-        if os.path.exists(logo_path):
-            return logo_path
-
+        """Obtiene la ruta del logo desde configuración"""
+        if self.config.logo:
+            return self.config.logo.path
         return None
+
 
     def _crear_header(self):
         """Crea el header con logo e info de la empresa"""
@@ -132,12 +119,11 @@ class CotizacionPDF:
         # Accedemos al diccionario y luego usamos .get() para cada llave
         info = getattr(settings, 'BUSINESS_INFO', {})
 
-        empresa_nombre = info.get('NAME', 'Royal Plastic')
-        empresa_direccion = info.get('ADDRESS', 'Santo Domingo, Rep. Dom.')
-        empresa_telefono = info.get('PHONE', '')
-        empresa_rnc = info.get('RNC', '')
-        #empresa_email = getattr(settings, 'EMPRESA_EMAIL', '')
-        empresa_ciudad = info.get('CITY', '')
+# Obtener info de empresa desde configuración de BD
+        empresa_nombre = self.config.nombre_negocio
+        empresa_direccion = self.config.direccion
+        empresa_telefono = self.config.telefono
+        empresa_rnc = self.config.rnc
         # Tabla para logo + info empresa
         logo_path = self._get_logo_path()
         data = []
@@ -148,8 +134,8 @@ class CotizacionPDF:
 
             info_empresa = f"""
             <b><font size="14" color="#1e40af">{empresa_nombre}</font></b><br/>
-            <font size="8" color="#6b7280">
-            {empresa_direccion} {empresa_ciudad}<br/>
+            <font size="10" color="#6b7280">
+            {empresa_direccion}<br/>
             Tel: {empresa_telefono}<br/>
             RNC: {empresa_rnc}<br/>
             </font>
@@ -414,7 +400,7 @@ class CotizacionPDF:
 
         # Validez
         validez_text = """
-        <font size="8" color="#6b7280">
+        <font size="10" color="#6b7280">
         <b>Validez:</b> Esta cotización tiene una validez de 15 días a partir de la fecha de emisión.<br/>
         <b>Términos:</b> Los precios están sujetos a disponibilidad de inventario.
         Las condiciones de pago se acordarán al momento de la venta.<br/>
@@ -425,8 +411,7 @@ class CotizacionPDF:
         elements.append(Paragraph(validez_text, self.styles['Normal']))
 
         # Contacto
-        info = getattr(settings, 'BUSINESS_INFO', {})
-        empresa_telefono = info.get('PHONE', '')
+        empresa_telefono = self.config.telefono
         
 
         contacto_text = f"""

@@ -4,32 +4,55 @@ from django.db.models import Sum, Count
 from .models import Categoria, Producto
 
 
+from django.contrib import admin
+from django.utils.html import format_html
+import json
+from .models import Categoria, Producto
+
 @admin.register(Categoria)
 class CategoriaAdmin(admin.ModelAdmin):
-    """Administración de categorías"""
-    
-    list_display = (
-        'nombre', 
-        'total_productos', 
-        'productos_activos',
-        'activa', 
-        'fecha_creacion'
-    )
-    list_filter = ('activa', 'fecha_creacion')
+    list_display = ('nombre', 'tipo_negocio', 'activa', 'cantidad_atributos', 'fecha_creacion')
+    list_filter = ('tipo_negocio', 'activa')
     search_fields = ('nombre', 'descripcion')
-    ordering = ('nombre',)
     
     fieldsets = (
-        ('Información básica', {
-            'fields': ('nombre', 'descripcion', 'activa')
+        ('Información Básica', {
+            'fields': ('nombre', 'descripcion', 'tipo_negocio', 'activa')
         }),
-        ('Información del sistema', {
-            'fields': ('fecha_creacion', 'fecha_modificacion'),
-            'classes': ('collapse',)
+        ('Configuración de Atributos', {
+            'fields': ('atributos_configurados',),
+            'description': '''
+                <div style="background: #f0f9ff; border-left: 4px solid #0284c7; padding: 12px; margin-bottom: 12px;">
+                    <strong>📝 Formato JSON para configurar atributos:</strong>
+                    <pre style="background: #fff; padding: 8px; margin-top: 8px; overflow-x: auto;">{
+    "nombre_atributo": {
+        "tipo": "texto|numero|decimal|lista",
+        "label": "Etiqueta que ve el usuario",
+        "requerido": true|false,
+        "opciones": ["opcion1", "opcion2"],  // Solo para tipo "lista"
+        "min": 0,                              // Solo para numero/decimal
+        "max": 100                             // Solo para numero/decimal
+    }
+}</pre>
+                    <strong>Ejemplos:</strong>
+                    <ul style="margin-top: 8px;">
+                        <li><strong>Plásticos:</strong> marca, capacidad, unidades_por_paquete</li>
+                        <li><strong>Autopartes:</strong> marca_vehiculo, modelo, año_desde, año_hasta, lado</li>
+                    </ul>
+                </div>
+            '''
         }),
     )
     
-    readonly_fields = ('fecha_creacion', 'fecha_modificacion')
+    def cantidad_atributos(self, obj):
+        count = len(obj.atributos_configurados) if obj.atributos_configurados else 0
+        if count > 0:
+            return format_html(
+                '<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px;">{} atributos</span>',
+                count
+            )
+        return format_html('<span style="color: #9ca3af;">Sin atributos</span>')
+    cantidad_atributos.short_description = 'Atributos'
     
     def total_productos(self, obj):
         """Total de productos en la categoría"""

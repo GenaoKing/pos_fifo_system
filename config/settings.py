@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.reportes',
     'apps.clientes',
     'apps.cotizaciones',
+    'apps.configuracion',
 ]
 
 MIDDLEWARE = [
@@ -51,6 +52,7 @@ MIDDLEWARE = [
     # 'apps.auditoria.middleware.AuditoriaMiddleware',
     'apps.auditoria.middleware.AuditoriaMiddleware',
     'apps.auditoria.middleware.SesionAuditoriaMiddleware',
+    
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -66,6 +68,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'apps.configuracion.context_processors.config_negocio',
             ],
         },
     },

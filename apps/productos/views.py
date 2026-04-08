@@ -11,6 +11,7 @@ from django.db.models import Q, Sum, Count
 import json
 from .utils import generar_codigo_barra_interno, asignar_codigo_si_vacio
 from utils.impresoras.zebra import imprimir_etiqueta_producto
+from apps.configuracion.decorators import requiere_modulo
 
 from .models import Producto, Categoria
 
@@ -47,6 +48,7 @@ def lista_productos(request):
             'stock_actual': producto.stock_actual,  # property del modelo
             'activo': producto.activo,
             'imagen': producto.imagen.url if producto.imagen else None,
+            'atributos': producto.atributos or {},
         })
     
     # Obtener todas las categorías activas para los filtros
@@ -83,7 +85,8 @@ def crear_producto(request):
             categoria_id=data['categoria_id'],
             precio_venta=data['precio_venta'],
             stock_minimo=data.get('stock_minimo', 5),
-            activo=True
+            activo=True,
+            atributos=data.get('atributos', {})
         )
         
         messages.success(request, f'Producto "{producto.nombre}" creado exitosamente')
@@ -134,6 +137,7 @@ def editar_producto(request, producto_id):
         producto.precio_venta = data['precio_venta']
         producto.stock_minimo = data.get('stock_minimo', 5)
         producto.activo = data.get('activo', True)
+        producto.atributos = data.get('atributos', {})
         
         producto.save()
         
@@ -296,6 +300,7 @@ def editar_categoria(request, categoria_id):
 
 @login_required
 @require_http_methods(["POST"])
+@requiere_modulo('etiquetas_zebra')
 def imprimir_etiqueta(request, producto_id):
     """Imprimir etiqueta de un producto"""
     
@@ -346,6 +351,84 @@ def toggle_estado_categoria(request, categoria_id):
             'activa': categoria.activa
         })
         
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=400)
+
+@login_required
+@require_http_methods(["POST"])
+def subir_imagen_producto(request, producto_id):
+    """Subir o actualizar imagen de un producto"""
+    
+    try:
+        producto = get_object_or_404(Producto, id=producto_id)
+        
+        if 'imagen' not in request.FILES:
+            return JsonResponse({
+                'success': False,
+                'message': 'No se recibió ninguna imagen'
+            }, status=400)
+        
+        # Guardar la imagen
+        producto.imagen = request.FILES['imagen']
+        producto.save()
+        
+        messages.success(request, f'Imagen actualizada para "{producto.nombre}"')
+        
+        return JsonResponse({
+            'success': True,
+            'imagen_url': producto.imagen.url if producto.imagen else None
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def eliminar_imagen_producto(request, producto_id):
+    """Eliminar imagen de un producto"""
+    
+    try:
+        producto = get_object_or_404(Producto, id=producto_id)
+        
+        if producto.imagen:
+            # Eliminar archivo físico
+            producto.imagen.delete(save=False)
+            producto.imagen = None
+            producto.save()
+            
+            messages.success(request, f'Imagen eliminada de "{producto.nombre}"')
+        
+        return JsonResponse({
+            'success': True
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=400)
+    
+
+@login_required
+def obtener_config_atributos(request, categoria_id):
+    """Devuelve la configuración de atributos de una categoría"""
+    try:
+        categoria = get_object_or_404(Categoria, id=categoria_id)
+        
+        return JsonResponse({
+            'success': True,
+            'categoria_id': categoria.id,
+            'categoria_nombre': categoria.nombre,
+            'tipo_negocio': categoria.tipo_negocio,
+            'atributos_configurados': categoria.atributos_configurados or {}
+        })
     except Exception as e:
         return JsonResponse({
             'success': False,

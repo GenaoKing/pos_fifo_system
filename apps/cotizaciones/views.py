@@ -9,6 +9,8 @@ Funcionalidades:
 4. Convertir cotizacion a venta (carga carrito POS)
 """
 
+
+from apps.configuracion.decorators import requiere_modulo
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -26,6 +28,7 @@ from apps.productos.models import Producto
 
 
 @login_required
+@requiere_modulo('cotizaciones')
 def lista_cotizaciones(request):
     """Lista de cotizaciones"""
 
@@ -45,6 +48,7 @@ def lista_cotizaciones(request):
 
 
 @login_required
+@requiere_modulo('cotizaciones')
 def crear_cotizacion(request):
     """
     Formulario para crear cotizacion.
@@ -63,6 +67,7 @@ def crear_cotizacion(request):
 
 @login_required
 @require_http_methods(["POST"])
+@requiere_modulo('cotizaciones')
 def guardar_cotizacion(request):
     """
     API para guardar cotizacion via AJAX.
@@ -157,6 +162,7 @@ def guardar_cotizacion(request):
 
 
 @login_required
+@requiere_modulo('cotizaciones')
 def detalle_cotizacion(request, cotizacion_id):
     """Detalle de una cotizacion"""
 
@@ -176,6 +182,7 @@ def detalle_cotizacion(request, cotizacion_id):
 
 @login_required
 @require_http_methods(["GET"])
+@requiere_modulo('cotizaciones')
 def obtener_datos_cotizacion(request, cotizacion_id):
     """
     API: Devuelve los datos de una cotizacion en formato JSON
@@ -220,6 +227,7 @@ def obtener_datos_cotizacion(request, cotizacion_id):
 
 @login_required
 @require_http_methods(["POST"])
+@requiere_modulo('cotizaciones')
 def marcar_convertida(request, cotizacion_id):
     """
     Marca una cotizacion como convertida y la vincula a la venta.
@@ -256,6 +264,7 @@ def marcar_convertida(request, cotizacion_id):
     
 
 @login_required
+@requiere_modulo('cotizaciones')
 def descargar_pdf_cotizacion(request, cotizacion_id):
     """
     Genera y descarga el PDF de una cotizacion.

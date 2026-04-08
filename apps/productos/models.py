@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.contrib.postgres.indexes import GinIndex
 
 
 class Categoria(models.Model):
@@ -19,6 +20,27 @@ class Categoria(models.Model):
         'Activa',
         default=True,
         help_text='Indica si la categoría está activa',
+    )
+
+    # ← AGREGAR ESTOS DOS CAMPOS NUEVOS:
+    tipo_negocio = models.CharField(
+        'Tipo de Negocio',
+        max_length=50,
+        choices=[
+            ('general', 'General'),
+            ('plasticos', 'Plásticos / Envases'),
+            ('autopartes', 'Autopartes / Repuestos'),
+            ('otro', 'Otro'),
+        ],
+        default='general',
+        help_text='Tipo de industria/negocio de esta categoría'
+    )
+    
+    atributos_configurados = models.JSONField(
+        'Atributos Configurados',
+        default=dict,
+        blank=True,
+        help_text='Definición de atributos personalizados para productos de esta categoría'
     )
     
     # Fechas
@@ -105,6 +127,15 @@ class Producto(models.Model):
         blank=True,
         null=True,
     )
+
+        # ← AGREGAR AQUÍ (línea ~90):
+    atributos = models.JSONField(
+        'Atributos Personalizados',
+        default=dict,
+        blank=True,
+        help_text='Atributos específicos según el tipo de producto (marca, modelo, etc.)'
+    )
+    
     
     # Fechas
     fecha_creacion = models.DateTimeField('Fecha de creación', default=timezone.now)
@@ -119,6 +150,7 @@ class Producto(models.Model):
             models.Index(fields=['sku']),
             models.Index(fields=['codigo_barras']),
             models.Index(fields=['categoria', 'activo']),
+            GinIndex(fields=['atributos'], name='idx_productos_atributos'),
         ]
     
     def __str__(self):

@@ -8,6 +8,7 @@ Este módulo maneja:
 3. Auto-generación de lotes FIFO
 """
 
+from apps.configuracion.decorators import requiere_modulo
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -34,7 +35,7 @@ def compras_lista(request):
     Solo Admin puede ver esta vista.
     """
     # Verificar que sea Admin
-    if request.user.rol != 'ADMIN':
+    if not request.user.es_admin:
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('dashboard')
     
@@ -58,7 +59,7 @@ def compra_crear(request):
     Permite agregar múltiples productos en una sola compra.
     """
     # Verificar que sea Admin
-    if request.user.rol != 'ADMIN':
+    if not request.user.es_admin:
         messages.error(request, 'No tienes permisos para crear compras.')
         return redirect('dashboard')
     
@@ -254,7 +255,7 @@ def compra_detalle(request, compra_id):
     Incluye todos los productos y lotes generados.
     """
     # Verificar que sea Admin
-    if request.user.rol != 'ADMIN':
+    if not request.user.es_admin:
         messages.error(request, 'No tienes permisos para ver esta información.')
         return redirect('dashboard')
     
@@ -280,12 +281,13 @@ def compra_detalle(request, compra_id):
 
 @login_required
 @require_http_methods(["POST"])
+@requiere_modulo('etiquetas_zebra')
 def compra_imprimir_etiquetas(request, compra_id):
     """
     Imprime etiquetas de todos los productos con código interno de una compra
     """
     # Verificar que sea Admin
-    if request.user.rol != 'ADMIN':
+    if not request.user.es_admin:
         return JsonResponse({
             'success': False,
             'error': 'No tienes permisos para esta acción'

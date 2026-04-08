@@ -22,4 +22,12 @@ urlpatterns = [
 
     #Codigo de barras
     path('<int:producto_id>/imprimir-etiqueta/', views.imprimir_etiqueta, name='imprimir_etiqueta'),
+
+    # Gestión de imágenes
+    path('<int:producto_id>/subir-imagen/', views.subir_imagen_producto, name='subir_imagen'),
+    path('<int:producto_id>/eliminar-imagen/', views.eliminar_imagen_producto, name='eliminar_imagen'),
+
+    # Configuración de atributos personalizados
+    path('categoria/<int:categoria_id>/atributos/', views.obtener_config_atributos, name='obtener_config_atributos'),
 ]
+

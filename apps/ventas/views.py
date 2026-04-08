@@ -8,7 +8,12 @@ Este módulo maneja:
 3. Información de stock en tiempo real
 """
 
-from django.shortcuts import render, redirect
+
+
+from django.http import JsonResponse, HttpResponse
+from .models import Venta, FinanciacionCooperativa
+from apps.configuracion.decorators import requiere_modulo
+
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
@@ -31,7 +36,6 @@ from apps.inventario.models import Lote, MovimientoLote
 from apps.inventario.fifo_logic import procesar_venta_fifo
 
 from apps.productos.models import Producto
-from apps.inventario.models import Lote
 import pytz
 
 
@@ -573,19 +577,13 @@ Flujo:
 4. Se abre dialogo de impresion del navegador
 """
 
-from django.shortcuts import render, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse
-from django.views.decorators.http import require_http_methods
-from django.db import transaction
-import json
 
-from .models import Venta, FinanciacionCooperativa
 
 
 
 @login_required
 @require_http_methods(["POST"])
+@requiere_modulo('financiacion_coop')
 def registrar_financiacion(request):
     """
     Registra datos de financiacion cooperativa para una venta.
@@ -648,6 +646,7 @@ def registrar_financiacion(request):
 
 
 @login_required
+@requiere_modulo('financiacion_coop')
 def generar_pdf_financiacion(request, venta_id):
     """
     Genera PDF formal tipo factura para venta con financiacion.
@@ -679,6 +678,7 @@ def generar_pdf_financiacion(request, venta_id):
 
 
 @login_required
+@requiere_modulo('financiacion_coop')
 def vista_financiacion(request, venta_id):
     """
     Vista HTML que muestra datos de financiacion
@@ -699,6 +699,7 @@ def vista_financiacion(request, venta_id):
 
 
 @login_required
+@requiere_modulo('financiacion_coop')
 def lista_financiaciones(request):
     """Lista de ventas con financiacion cooperativa"""
 

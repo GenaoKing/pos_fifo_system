@@ -41,6 +41,7 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     """
     
     ROLES = (
+        ('SYSADMIN', 'Administrador de Sistema'),
         ('ADMIN', 'Administrador'),
         ('CAJERA', 'Cajera'),
     )
@@ -109,9 +110,14 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     
     @property
     def es_admin(self):
-        """Retorna True si el usuario es administrador"""
-        return self.rol == 'ADMIN'
+        """SYSADMIN tambien es admin a efectos de permisos"""
+        return self.rol in ('ADMIN', 'SYSADMIN')
     
+    @property
+    def es_sysadmin(self):
+        """Retorna True si el usuario es sysadmin"""
+        return self.rol == 'SYSADMIN'
+
     @property
     def es_cajera(self):
         """Retorna True si el usuario es cajera"""
@@ -122,7 +128,7 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         Verifica si el usuario tiene un permiso específico.
         Los admins siempre tienen todos los permisos.
         """
-        if self.es_admin:
+        if self.es_sysadmin or self.es_admin:
             return True
         
         # Aquí se pueden agregar reglas específicas para cajeras
