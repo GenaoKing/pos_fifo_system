@@ -449,7 +449,7 @@ def procesar_venta(request):
                 Pago.objects.create(
                     venta=venta,
                     metodo='EFECTIVO',
-                    monto=monto_efectivo,
+                    monto=total,
                     referencia=f'Efectivo - {numero_venta}'
                 )
             

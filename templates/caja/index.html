@@ -1,0 +1,813 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Caja - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span class="text-gray-900 font-medium">Caja</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="cajaApp()" x-init="init()">
+
+    {# ====== HEADER ====== #}
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Gestion de Caja</h1>
+            <p class="text-sm text-gray-500 mt-1" x-text="turnoActivo ? 'Turno abierto en ' + turnoActivo.caja : 'Sin turno abierto'"></p>
+        </div>
+        {% if request.user.rol == 'ADMIN' %}
+        <a href="{% url 'caja:historial' %}" class="text-sm text-gray-600 hover:text-primary-600 inline-flex items-center">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            Historial de Turnos
+        </a>
+        {% endif %}
+    </div>
+
+    {# ====== SIN TURNO: ABRIR TURNO ====== #}
+    <template x-if="!turnoActivo">
+        <div class="max-w-lg mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900">Abrir Turno de Caja</h3>
+                </div>
+                <div class="card-body space-y-4">
+                    <div class="form-group">
+                        <label class="form-label">Caja</label>
+                        <select x-model="formApertura.caja_id" class="form-input w-full">
+                            <option value="">Seleccionar caja...</option>
+                            <template x-for="c in cajasDisponibles" :key="c.id">
+                                <option :value="c.id" x-text="c.nombre"></option>
+                            </template>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Fondo de Apertura (efectivo inicial)</label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                            <input type="number" x-model="formApertura.fondo" min="0" step="0.01"
+                                   class="form-input w-full pl-7" placeholder="0.00">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Notas (opcional)</label>
+                        <textarea x-model="formApertura.notas" class="form-input w-full" rows="2" placeholder="Observaciones de apertura..."></textarea>
+                    </div>
+
+                    <button @click="abrirTurno()" :disabled="!formApertura.caja_id || cargando"
+                            class="btn-primary w-full">
+                        <template x-if="cargando">
+                            <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-show="!cargando">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                        Abrir Turno
+                    </button>
+                </div>
+            </div>
+
+            {# Historial reciente del usuario #}
+            {% if historial %}
+            <div class="card mt-6">
+                <div class="card-header">
+                    <h3 class="font-semibold text-gray-900 text-sm">Mis Ultimos Turnos</h3>
+                </div>
+                <div class="card-body p-0">
+                    {% for t in historial %}
+                    <div class="px-4 py-3 border-b border-gray-100 text-sm">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <span class="font-medium text-gray-900">{{ t.caja.nombre }}</span>
+                                <span class="text-gray-400 mx-1">|</span>
+                                <span class="text-gray-500">{{ t.fecha_apertura|date:"d/m/Y" }}</span>
+                            </div>
+                            <div class="text-right">
+                                {% if t.diferencia is not None %}
+                                    {% if t.diferencia >= 0 %}
+                                        <span class="badge-success text-xs">${{ t.diferencia }}</span>
+                                    {% else %}
+                                        <span class="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-medium">${{ t.diferencia }}</span>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </template>
+
+    {# ====== CON TURNO: PANEL ACTIVO ====== #}
+    <template x-if="turnoActivo">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {# --- Columna izquierda: Desglose + Movimientos --- #}
+            <div class="lg:col-span-2 space-y-6">
+
+                {# KPIs del turno #}
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div class="card">
+                        <div class="card-body text-center py-4">
+                            <p class="text-xs text-gray-500 uppercase tracking-wider">Fondo Inicial</p>
+                            <p class="text-lg font-bold text-gray-900 mt-1">$<span x-text="fmt(desglose.fondo_apertura)"></span></p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body text-center py-4">
+                            <p class="text-xs text-green-600 uppercase tracking-wider">Ventas Efectivo</p>
+                            <p class="text-lg font-bold text-green-700 mt-1">$<span x-text="fmt(desglose.efectivo_ventas)"></span></p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body text-center py-4">
+                            <p class="text-xs text-blue-600 uppercase tracking-wider">Ingresos</p>
+                            <p class="text-lg font-bold text-blue-700 mt-1">$<span x-text="fmt(desglose.ingresos)"></span></p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body text-center py-4">
+                            <p class="text-xs text-red-600 uppercase tracking-wider">Retiros + Gastos</p>
+                            <p class="text-lg font-bold text-red-700 mt-1">$<span x-text="fmt(parseFloat(desglose.retiros) + parseFloat(desglose.gastos))"></span></p>
+                        </div>
+                    </div>
+                </div>
+
+                {# Efectivo esperado destacado #}
+                <div class="card bg-primary-50 border border-primary-200">
+                    <div class="card-body flex items-center justify-between py-4">
+                        <div>
+                            <p class="text-sm font-medium text-primary-700">Efectivo Esperado en Caja</p>
+                            <p class="text-xs text-primary-500 mt-0.5">Fondo + Ventas Efectivo + Ingresos - Retiros - Gastos</p>
+                        </div>
+                        <p class="text-2xl font-bold text-primary-700">$<span x-text="fmt(desglose.esperado)"></span></p>
+                    </div>
+                </div>
+
+                {# Lista de movimientos #}
+                <div class="card">
+                    <div class="card-header">
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-semibold text-gray-900">Movimientos del Turno</h3>
+                            <button @click="refrescar()" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <template x-if="movimientos.length === 0">
+                            <div class="text-center py-8 text-gray-400">
+                                <p class="text-sm">Sin movimientos registrados</p>
+                            </div>
+                        </template>
+
+                        <template x-for="m in movimientos" :key="m.id">
+                            <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+                                    {# Icono segun tipo #}
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                                         :class="m.tipo === 'RETIRO' ? 'bg-red-100' : m.tipo === 'GASTO' ? 'bg-yellow-100' : 'bg-green-100'">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                             :class="m.tipo === 'RETIRO' ? 'text-red-600' : m.tipo === 'GASTO' ? 'text-yellow-600' : 'text-green-600'">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  :d="m.tipo === 'INGRESO' ? 'M12 4v16m8-8H4' : 'M20 12H4'"></path>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900" x-text="m.descripcion"></p>
+                                        <p class="text-xs text-gray-400">
+                                            <span x-text="m.tipo_display"></span>
+                                            <span x-show="m.autorizado_por"> · Aut: <span x-text="m.autorizado_por"></span></span>
+                                            <span> · <span x-text="m.fecha"></span></span>
+                                        </p>
+                                    </div>
+                                </div>
+                                <span class="text-sm font-semibold"
+                                      :class="m.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-600'"
+                                      x-text="(m.tipo === 'INGRESO' ? '+' : '-') + '$' + fmt(m.monto)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Columna derecha: Acciones --- #}
+            <div class="space-y-6">
+
+                {# Info del turno #}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-gray-900" x-text="turnoActivo.caja"></p>
+                                <p class="text-xs text-gray-500">Abierto desde <span x-text="turnoActivo.apertura"></span></p>
+                            </div>
+                        </div>
+                        <button @click="mostrarCerrarTurno = true"
+                                class="w-full py-2.5 px-4 bg-red-50 text-red-700 text-sm font-medium rounded-lg border border-red-200 hover:bg-red-100 transition-colors inline-flex items-center justify-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                            </svg>
+                            Cerrar Turno
+                        </button>
+                    </div>
+                </div>
+
+                {# Registrar Movimiento #}
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="font-semibold text-gray-900 text-sm">Registrar Movimiento</h3>
+                    </div>
+                    <div class="card-body space-y-3">
+                        <div class="form-group">
+                            <label class="form-label">Tipo</label>
+                            <select x-model="formMov.tipo" class="form-input w-full">
+                                <option value="">Seleccionar...</option>
+                                <option value="INGRESO">Ingreso de Fondos</option>
+                                <option value="GASTO">Gasto Menor</option>
+                                <option value="RETIRO">Retiro de Efectivo</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Monto</label>
+                            <div class="relative">
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                                <input type="number" x-model="formMov.monto" min="0" step="0.01"
+                                       class="form-input w-full pl-7" placeholder="0.00">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Descripcion</label>
+                            <input type="text" x-model="formMov.descripcion" class="form-input w-full"
+                                   placeholder="Motivo del movimiento...">
+                        </div>
+
+                        <button @click="registrarMovimiento()"
+                                :disabled="!formMov.tipo || !formMov.monto || !formMov.descripcion || cargando"
+                                class="btn-primary w-full">
+                            Registrar
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </template>
+
+    {# ====== RESULTADO CIERRE ====== #}
+    <template x-if="resultadoCierre">
+        <div class="max-w-2xl mx-auto">
+            <div class="card">
+                <div class="card-header bg-green-50">
+                    <h3 class="font-semibold text-green-900">Turno Cerrado Exitosamente</h3>
+                </div>
+                <div class="card-body space-y-4">
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="text-gray-500">Caja</p>
+                            <p class="font-medium" x-text="resultadoCierre.caja"></p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">Cajero/a</p>
+                            <p class="font-medium" x-text="resultadoCierre.cajero"></p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">Apertura</p>
+                            <p class="font-medium" x-text="resultadoCierre.apertura"></p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">Cierre</p>
+                            <p class="font-medium" x-text="resultadoCierre.cierre"></p>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-100 pt-4 space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Fondo Apertura</span>
+                            <span>$<span x-text="fmt(resultadoCierre.fondo_apertura)"></span></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Ventas Efectivo</span>
+                            <span class="text-green-600">+$<span x-text="fmt(resultadoCierre.efectivo_ventas)"></span></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Ingresos</span>
+                            <span class="text-blue-600">+$<span x-text="fmt(resultadoCierre.ingresos)"></span></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Retiros</span>
+                            <span class="text-red-600">-$<span x-text="fmt(resultadoCierre.retiros)"></span></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Gastos</span>
+                            <span class="text-red-600">-$<span x-text="fmt(resultadoCierre.gastos)"></span></span>
+                        </div>
+                        <div class="flex justify-between border-t border-gray-200 pt-2 font-semibold">
+                            <span>Esperado</span>
+                            <span>$<span x-text="fmt(resultadoCierre.esperado)"></span></span>
+                        </div>
+                        <div class="flex justify-between font-semibold">
+                            <span>Contado</span>
+                            <span>$<span x-text="fmt(resultadoCierre.contado)"></span></span>
+                        </div>
+                        <div class="flex justify-between text-lg font-bold pt-2 border-t border-gray-200"
+                             :class="parseFloat(resultadoCierre.diferencia) >= 0 ? 'text-green-700' : 'text-red-700'">
+                            <span x-text="parseFloat(resultadoCierre.diferencia) >= 0 ? 'Sobrante' : 'Faltante'"></span>
+                            <span>$<span x-text="fmt(Math.abs(parseFloat(resultadoCierre.diferencia)))"></span></span>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-100 pt-4">
+                        <button @click="resultadoCierre = null; location.reload()" class="btn-primary w-full">
+                            Aceptar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    {# ====== MODAL SOFT-LOGIN ADMIN ====== #}
+    <div x-show="mostrarModalAdmin"
+         style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+
+        <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" @click="cerrarModalAdmin()"></div>
+
+        <div style="position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:1.5rem;">
+            <div style="background:#fff;border-radius:1rem;width:100%;max-width:400px;padding:2rem;box-shadow:0 25px 60px rgba(0,0,0,0.35);border:1px solid #e5e7eb;"
+                 @click.stop
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 transform scale-95"
+                 x-transition:enter-end="opacity-100 transform scale-100">
+
+                {# Header #}
+                <div class="flex items-center space-x-3 mb-6">
+                    <div class="w-11 h-11 bg-yellow-100 rounded-xl flex items-center justify-center">
+                        <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Autorizacion Requerida</h3>
+                        <p class="text-sm text-gray-500">Ingresa credenciales de administrador</p>
+                    </div>
+                </div>
+
+                {# Formulario #}
+                <div class="space-y-4">
+                    <div class="form-group">
+                        <label class="form-label">Usuario</label>
+                        <input type="text" x-model="adminLogin.username" class="form-input w-full"
+                               placeholder="Usuario admin" @keydown.enter="$refs.adminPass.focus()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Contrasena</label>
+                        <input type="password" x-model="adminLogin.password" class="form-input w-full"
+                               placeholder="Contrasena" x-ref="adminPass" @keydown.enter="validarAdmin()">
+                    </div>
+
+                    <p x-show="adminLogin.error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2" x-text="adminLogin.error"></p>
+                </div>
+
+                {# Separador + Botones #}
+                <div class="border-t border-gray-200 mt-6 pt-5 flex space-x-3">
+                    <button @click="cerrarModalAdmin()" class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">
+                        Cancelar
+                    </button>
+                    <button @click="validarAdmin()" :disabled="!adminLogin.username || !adminLogin.password || adminLogin.validando"
+                            class="flex-1 btn-primary disabled:opacity-50">
+                        <template x-if="adminLogin.validando">
+                            <svg class="animate-spin w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        Autorizar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ====== MODAL CERRAR TURNO ====== #}
+    <div x-show="mostrarCerrarTurno"
+         style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+
+        <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" @click="mostrarCerrarTurno = false"></div>
+
+        <div style="position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:1.5rem;">
+            <div style="background:#fff;border-radius:1rem;width:100%;max-width:440px;padding:2rem;box-shadow:0 25px 60px rgba(0,0,0,0.35);border:1px solid #e5e7eb;"
+                 @click.stop
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 transform scale-95"
+                 x-transition:enter-end="opacity-100 transform scale-100">
+
+                {# Header con boton cerrar #}
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-11 h-11 bg-red-100 rounded-xl flex items-center justify-center">
+                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900">Cerrar Turno</h3>
+                            <p class="text-sm text-gray-500" x-text="turnoActivo ? turnoActivo.caja : ''"></p>
+                        </div>
+                    </div>
+                    <button @click="mostrarCerrarTurno = false" class="text-gray-400 hover:text-gray-600 p-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                {# Resumen desglose #}
+                <div class="bg-gray-50 rounded-xl p-4 mb-5 text-sm space-y-1.5">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Fondo inicial</span>
+                        <span class="font-medium">$<span x-text="fmt(desglose.fondo_apertura)"></span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">+ Ventas efectivo</span>
+                        <span class="text-green-600 font-medium">$<span x-text="fmt(desglose.efectivo_ventas)"></span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">+ Ingresos</span>
+                        <span class="text-blue-600 font-medium">$<span x-text="fmt(desglose.ingresos)"></span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">- Retiros</span>
+                        <span class="text-red-600 font-medium">$<span x-text="fmt(desglose.retiros)"></span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">- Gastos</span>
+                        <span class="text-red-600 font-medium">$<span x-text="fmt(desglose.gastos)"></span></span>
+                    </div>
+                    <div class="flex justify-between border-t border-gray-200 pt-2 mt-2">
+                        <span class="font-semibold text-gray-900">Esperado en caja</span>
+                        <span class="font-bold text-primary-700">$<span x-text="fmt(desglose.esperado)"></span></span>
+                    </div>
+                </div>
+
+                {# Formulario #}
+                <div class="space-y-4">
+                    <div class="form-group">
+                        <label class="form-label">Efectivo Contado</label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                            <input type="number" x-model="formCierre.monto_contado" min="0" step="0.01"
+                                   class="form-input w-full pl-7 text-lg font-semibold" placeholder="0.00">
+                        </div>
+                    </div>
+
+                    {# Preview diferencia en vivo #}
+                    <template x-if="formCierre.monto_contado">
+                        <div class="p-4 rounded-xl text-center"
+                             :class="(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)) >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+                            <p class="text-xs font-medium mb-1"
+                               :class="(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)) >= 0 ? 'text-green-600' : 'text-red-600'"
+                               x-text="(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)) >= 0 ? 'Sobrante' : 'Faltante'"></p>
+                            <p class="text-2xl font-bold"
+                               :class="(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)) >= 0 ? 'text-green-700' : 'text-red-700'"
+                               x-text="'$' + fmt(Math.abs(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)))"></p>
+                        </div>
+                    </template>
+
+                    <div class="form-group">
+                        <label class="form-label">Notas (opcional)</label>
+                        <textarea x-model="formCierre.notas" class="form-input w-full" rows="2" placeholder="Observaciones del cierre..."></textarea>
+                    </div>
+                </div>
+
+                {# Separador + Botones #}
+                <div class="border-t border-gray-200 mt-6 pt-5 flex space-x-3">
+                    <button @click="mostrarCerrarTurno = false"
+                            class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">
+                        Cancelar
+                    </button>
+                    <button @click="cerrarTurno()"
+                            :disabled="!formCierre.monto_contado || cargando"
+                            class="flex-1 py-2.5 px-4 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 inline-flex items-center justify-center">
+                        <template x-if="cargando">
+                            <svg class="animate-spin w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                        </template>
+                        Confirmar Cierre
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ====== ERROR GLOBAL ====== #}
+    <div x-show="error" x-transition class="fixed bottom-4 right-4 z-50 max-w-sm bg-red-50 border border-red-200 rounded-lg p-4 shadow-lg">
+        <div class="flex items-start">
+            <svg class="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div class="flex-1">
+                <p class="text-sm text-red-700" x-text="error"></p>
+            </div>
+            <button @click="error = null" class="text-red-400 hover:text-red-600 ml-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    {# ====== TURNOS DE OTROS (Solo Admin) ====== #}
+    {% if turnos_abiertos_otros %}
+    <div class="mt-6">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="font-semibold text-gray-900 text-sm">Otros Turnos Abiertos</h3>
+            </div>
+            <div class="card-body p-0">
+                {% for t in turnos_abiertos_otros %}
+                <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <span class="font-medium text-gray-900">{{ t.usuario.get_short_name }}</span>
+                        <span class="text-gray-400 mx-1">·</span>
+                        <span class="text-gray-500 text-sm">{{ t.caja.nombre }}</span>
+                        <span class="text-gray-400 mx-1">·</span>
+                        <span class="text-xs text-gray-400">desde {{ t.fecha_apertura|date:"d/m H:i" }}</span>
+                    </div>
+                    <span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">Abierto</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+function cajaApp() {
+    return {
+        // Estado
+        turnoActivo: {{ turno_activo|yesno:"true,null" }},
+        desglose: {},
+        movimientos: [],
+        cajasDisponibles: {{ cajas_disponibles|safe }},
+        resultadoCierre: null,
+        cargando: false,
+        error: null,
+        mostrarCerrarTurno: false,
+
+        // Formularios
+        formApertura: { caja_id: '', fondo: 0, notas: '' },
+        formMov: { tipo: '', monto: '', descripcion: '' },
+        formCierre: { monto_contado: '', notas: '' },
+
+        // Soft-login admin
+        mostrarModalAdmin: false,
+        adminLogin: { username: '', password: '', error: '', validando: false },
+        pendienteAdminCallback: null,
+
+        init() {
+            {% if turno_activo %}
+            this.turnoActivo = {
+                id: {{ turno_activo.id }},
+                caja: '{{ turno_activo.caja.nombre }}',
+                apertura: '{{ turno_activo.fecha_apertura|date:"d/m/Y H:i" }}',
+                fondo_apertura: '{{ turno_activo.fondo_apertura }}',
+            };
+            this.desglose = {
+                fondo_apertura: '{{ desglose.fondo_apertura }}',
+                efectivo_ventas: '{{ desglose.efectivo_ventas }}',
+                retiros: '{{ desglose.retiros }}',
+                gastos: '{{ desglose.gastos }}',
+                ingresos: '{{ desglose.ingresos }}',
+                esperado: '{{ desglose.esperado }}',
+            };
+            this.movimientos = [
+                {% for m in movimientos %}
+                {
+                    id: {{ m.id }},
+                    tipo: '{{ m.tipo }}',
+                    tipo_display: '{{ m.get_tipo_display }}',
+                    monto: '{{ m.monto }}',
+                    descripcion: '{{ m.descripcion|escapejs }}',
+                    fecha: '{{ m.fecha|date:"d/m/Y H:i" }}',
+                    registrado_por: '{{ m.registrado_por.get_short_name|default:m.registrado_por.username }}',
+                    autorizado_por: {% if m.autorizado_por %}'{{ m.autorizado_por.get_short_name|default:m.autorizado_por.username }}'{% else %}null{% endif %},
+                },
+                {% endfor %}
+            ];
+            {% endif %}
+
+            {% if cajas_disponibles|length == 1 %}
+            this.formApertura.caja_id = this.cajasDisponibles[0]?.id || '';
+            {% endif %}
+        },
+
+        // ---- Abrir Turno ----
+        async abrirTurno() {
+            this.cargando = true;
+            this.error = null;
+            try {
+                const res = await fetch('{% url "caja:api_abrir" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    body: JSON.stringify({
+                        caja_id: parseInt(this.formApertura.caja_id),
+                        fondo_apertura: parseFloat(this.formApertura.fondo) || 0,
+                        notas: this.formApertura.notas,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    location.reload();
+                } else {
+                    this.error = data.error;
+                }
+            } catch (e) {
+                this.error = 'Error de conexion';
+            } finally {
+                this.cargando = false;
+            }
+        },
+
+        // ---- Registrar Movimiento ----
+        async registrarMovimiento() {
+            // RETIRO e INGRESO requieren autorizacion admin
+            const requiereAdmin = this.formMov.tipo === 'RETIRO' || this.formMov.tipo === 'INGRESO';
+            const esAdmin = '{{ request.user.rol }}' === 'ADMIN';
+
+            if (requiereAdmin && !esAdmin) {
+                // Abrir modal soft-login
+                this.pendienteAdminCallback = (adminId) => {
+                    this._enviarMovimiento(adminId);
+                };
+                this.mostrarModalAdmin = true;
+                return;
+            }
+
+            // Admin se auto-autoriza, o es un GASTO que no requiere auth
+            await this._enviarMovimiento(null);
+        },
+
+        async _enviarMovimiento(adminId) {
+            this.cargando = true;
+            this.error = null;
+            try {
+                const payload = {
+                    tipo: this.formMov.tipo,
+                    monto: parseFloat(this.formMov.monto),
+                    descripcion: this.formMov.descripcion,
+                };
+                if (adminId) payload.admin_id = adminId;
+
+                const res = await fetch('{% url "caja:api_movimiento" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Actualizar UI
+                    this.movimientos.unshift(data.movimiento);
+                    this.desglose = data.desglose;
+                    this.formMov = { tipo: '', monto: '', descripcion: '' };
+                } else {
+                    this.error = data.error;
+                }
+            } catch (e) {
+                this.error = 'Error de conexion';
+            } finally {
+                this.cargando = false;
+            }
+        },
+
+        // ---- Soft-Login Admin ----
+        async validarAdmin() {
+            this.adminLogin.error = '';
+            this.adminLogin.validando = true;
+            try {
+                const res = await fetch('{% url "caja:api_validar_admin" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    body: JSON.stringify({
+                        username: this.adminLogin.username,
+                        password: this.adminLogin.password,
+                    }),
+                });
+                const data = await res.json();
+                if (data.valido) {
+                    this.cerrarModalAdmin();
+                    if (this.pendienteAdminCallback) {
+                        this.pendienteAdminCallback(data.admin_id);
+                        this.pendienteAdminCallback = null;
+                    }
+                } else {
+                    this.adminLogin.error = data.error || 'Credenciales incorrectas';
+                }
+            } catch (e) {
+                this.adminLogin.error = 'Error de conexion';
+            } finally {
+                this.adminLogin.validando = false;
+            }
+        },
+
+        cerrarModalAdmin() {
+            this.mostrarModalAdmin = false;
+            this.adminLogin = { username: '', password: '', error: '', validando: false };
+        },
+
+        // ---- Cerrar Turno ----
+        async cerrarTurno() {
+            if (!confirm('¿Cerrar el turno? Esta accion no se puede deshacer.')) return;
+
+            this.cargando = true;
+            this.error = null;
+            try {
+                const res = await fetch('{% url "caja:api_cerrar" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    body: JSON.stringify({
+                        monto_contado: parseFloat(this.formCierre.monto_contado),
+                        notas: this.formCierre.notas,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.mostrarCerrarTurno = false;
+                    this.turnoActivo = null;
+                    this.resultadoCierre = data.cierre;
+                } else {
+                    this.error = data.error;
+                }
+            } catch (e) {
+                this.error = 'Error de conexion';
+            } finally {
+                this.cargando = false;
+            }
+        },
+
+        // ---- Refrescar datos ----
+        async refrescar() {
+            try {
+                const res = await fetch('{% url "caja:api_estado" %}');
+                const data = await res.json();
+                if (data.tiene_turno) {
+                    this.desglose = data.desglose;
+                    this.movimientos = data.movimientos;
+                }
+            } catch (e) {
+                console.error('Error refrescando:', e);
+            }
+        },
+
+        // ---- Utilidades ----
+        fmt(val) {
+            const num = parseFloat(val) || 0;
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+
+        getCookie(name) {
+            let v = null;
+            if (document.cookie) {
+                document.cookie.split(';').forEach(c => {
+                    c = c.trim();
+                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+                });
+            }
+            return v;
+        },
+    };
+}
+</script>
+{% endblock %}

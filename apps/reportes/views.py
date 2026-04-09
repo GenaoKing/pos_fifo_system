@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.db.models import Sum, Count, F, Q, Avg, DecimalField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -282,35 +282,6 @@ def api_metricas_hoy(request):
     })
 
 
-"""
-apps/reportes/views_ondemand.py
-Vistas para Reportes On-Demand
-
-INSTRUCCIONES:
-Copiar estas funciones al final de tu apps/reportes/views.py existente.
-Agregar los imports que falten al inicio del archivo.
-"""
-
-# ============================================================================
-# IMPORTS ADICIONALES (agregar al inicio de views.py si no estan)
-# ============================================================================
-# from datetime import date, timedelta
-# from django.http import JsonResponse, HttpResponse, FileResponse
-# from django.db.models import Sum, Count, Avg, F, Q, DecimalField
-# from django.db.models.functions import Coalesce, TruncDate
-# from django.contrib.auth.decorators import login_required
-# from django.shortcuts import render
-# from django.utils import timezone
-# from decimal import Decimal
-# import json
-#
-# from apps.ventas.models import Venta, DetalleVenta, Pago
-# from apps.productos.models import Producto
-# from apps.inventario.models import Lote
-# from apps.usuarios.models import Usuario
-# from .models import CierreCaja, TopProducto, InventarioValorizado
-# from .report_manager import ReporteManager
-# from .pdf_generator import PDFGenerator
 
 
 def es_admin(user):
@@ -333,7 +304,7 @@ def reportes_on_demand(request):
 
     # Lista de cajeros para el select
     cajeros = Usuario.objects.filter(
-        is_active=True
+        activo=True,
     ).values('id', 'username', 'first_name', 'last_name', 'rol')
 
     context = {
@@ -471,11 +442,11 @@ def api_ventas_periodo(request):
         ).order_by('dia')
 
         # Ultimas ventas del periodo
-        ultimas = ventas_qs.select_related('cajero').order_by('-fecha_venta')[:20]
+        ultimas = ventas_qs.select_related('usuario').order_by('-fecha_venta')[:20]
         ventas_lista = [{
             'numero': v.numero_venta,
             'fecha': v.fecha_venta.strftime('%d/%m/%Y %H:%M'),
-            'cajero': v.cajero.get_short_name() if v.cajero else 'N/A',
+            'cajero': v.usuario.get_short_name() if v.usuario else 'N/A',
             'total': str(v.total),
             'descuento': str(v.descuento_total or Decimal('0.00')),
         } for v in ultimas]
@@ -707,33 +678,34 @@ def api_ventas_cajero(request):
 
         # Agrupar por cajero
         por_cajero = ventas_qs.values(
-            'cajero__id',
-            'cajero__username',
-            'cajero__first_name',
-            'cajero__last_name',
+            'usuario__id',
+            'usuario__username',
+            'usuario__first_name',
+            'usuario__last_name',
         ).annotate(
             cantidad=Count('id'),
-            total=Coalesce(Sum('total'), Decimal('0.00'), output_field=DecimalField()),
-            promedio=Coalesce(Avg('total'), Decimal('0.00'), output_field=DecimalField()),
+            suma_total=Coalesce(Sum('total'), Decimal('0.00'), output_field=DecimalField()),
             descuentos=Coalesce(Sum('descuento_total'), Decimal('0.00'), output_field=DecimalField()),
-        ).order_by('-total')
+        ).order_by('-suma_total')
 
         cajeros_lista = []
         total_general = Decimal('0')
 
         for c in por_cajero:
-            nombre = c['cajero__first_name'] or c['cajero__username']
-            if c['cajero__last_name']:
-                nombre += f" {c['cajero__last_name']}"
+            nombre = c['usuario__first_name'] or c['usuario__username']
+            if c['usuario__last_name']:
+                nombre += f" {c['usuario__last_name']}"
+
+            promedio = (c['suma_total'] / c['cantidad']) if c['cantidad'] > 0 else Decimal('0.00')
 
             cajeros_lista.append({
                 'nombre': nombre.strip(),
                 'cantidad': c['cantidad'],
-                'total': str(c['total']),
-                'promedio': str(c['promedio'].quantize(Decimal('0.01'))),
+                'total': str(c['suma_total']),
+                'promedio': str(promedio.quantize(Decimal('0.01'))),
                 'descuentos': str(c['descuentos']),
             })
-            total_general += c['total']
+            total_general += c['suma_total']
 
         # Calcular porcentajes
         for c in cajeros_lista:
@@ -747,7 +719,7 @@ def api_ventas_cajero(request):
         pagos_por_cajero = Pago.objects.filter(
             venta__in=ventas_qs
         ).values(
-            'venta__cajero__username',
+            'venta__usuario__username',
             'metodo'
         ).annotate(
             total=Sum('monto')
@@ -755,7 +727,7 @@ def api_ventas_cajero(request):
 
         pagos_desglose = {}
         for p in pagos_por_cajero:
-            user = p['venta__cajero__username']
+            user = p['venta__usuario__username']
             if user not in pagos_desglose:
                 pagos_desglose[user] = {}
             pagos_desglose[user][p['metodo']] = str(p['total'])

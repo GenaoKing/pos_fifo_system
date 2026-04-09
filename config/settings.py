@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'apps.clientes',
     'apps.cotizaciones',
     'apps.configuracion',
+    'apps.caja',
 ]
 
 MIDDLEWARE = [

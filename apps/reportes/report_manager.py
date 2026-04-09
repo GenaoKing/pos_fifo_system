@@ -31,7 +31,7 @@ class ReporteManager:
         
         # Obtener ventas del día
         ventas = Venta.objects.filter(
-            fecha_hora__date=fecha,
+            fecha_venta__date=fecha,
             estado='COMPLETADA'
         )
         
@@ -39,7 +39,7 @@ class ReporteManager:
         totales_ventas = ventas.aggregate(
             cantidad=Count('id'),
             total=Sum('total'),
-            descuentos=Sum('total_descuentos')
+            descuentos=Sum('descuento_total')
         )
         
         # Totales por método de pago
@@ -69,12 +69,12 @@ class ReporteManager:
         
         # Resumen por cajero
         resumen_cajeros = {}
-        for venta in ventas.select_related('cajero'):
-            cajero_id = str(venta.cajero.id)
+        for venta in ventas.select_related('usuario'):
+            cajero_id = str(venta.usuario.id)
             
             if cajero_id not in resumen_cajeros:
                 resumen_cajeros[cajero_id] = {
-                    'nombre': venta.cajero.get_full_name() or venta.cajero.username,
+                    'nombre': venta.usuario.get_full_name() or venta.usuario.username,
                     'cantidad': 0,
                     'total': Decimal('0.00')
                 }
@@ -121,8 +121,8 @@ class ReporteManager:
         
         # Obtener ventas del período
         ventas = Venta.objects.filter(
-            fecha_hora__date__gte=fecha_inicio,
-            fecha_hora__date__lte=fecha_fin,
+            fecha_venta__date__gte=fecha_inicio,
+            fecha_venta__date__lte=fecha_fin,
             estado='COMPLETADA'
         )
         
