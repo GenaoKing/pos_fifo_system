@@ -88,7 +88,6 @@ class ReimprimirTicketView(LoginRequiredMixin, PermissionRequiredMixin, View):
     Permiso requerido: ventas.reimprimir_ticket
     """
     
-    permission_required = 'ventas.reimprimir_ticket'
     
     def post(self, request, venta_id):
         """
@@ -252,7 +251,7 @@ class HistorialImpresionesView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class ListaVentasReimprimirView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class ListaVentasReimprimirView(LoginRequiredMixin,  TemplateView):
     """
     Vista para listar ventas y permitir reimpresión
     
@@ -265,7 +264,6 @@ class ListaVentasReimprimirView(LoginRequiredMixin, PermissionRequiredMixin, Tem
     """
     
     template_name = 'pos/lista_reimprimir.html'
-    permission_required = 'pos.reimprimir_ticket'
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

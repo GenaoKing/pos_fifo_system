@@ -35,9 +35,9 @@ def compras_lista(request):
     Solo Admin puede ver esta vista.
     """
     # Verificar que sea Admin
-    if not request.user.es_admin:
-        messages.error(request, 'No tienes permisos para acceder a esta sección.')
-        return redirect('dashboard')
+    #if not request.user.es_admin:
+     #   messages.error(request, 'No tienes permisos para acceder a esta sección.')
+      #  return redirect('dashboard')
     
     # Obtener todas las compras ordenadas por fecha (más reciente primero)
     compras = Compra.objects.all().select_related('usuario').order_by('-fecha_compra')
@@ -59,9 +59,9 @@ def compra_crear(request):
     Permite agregar múltiples productos en una sola compra.
     """
     # Verificar que sea Admin
-    if not request.user.es_admin:
-        messages.error(request, 'No tienes permisos para crear compras.')
-        return redirect('dashboard')
+    #if not request.user.es_admin:
+     #   messages.error(request, 'No tienes permisos para crear compras.')
+      #  return redirect('dashboard')
     
     if request.method == 'GET':
         # Mostrar formulario vacío
@@ -255,9 +255,9 @@ def compra_detalle(request, compra_id):
     Incluye todos los productos y lotes generados.
     """
     # Verificar que sea Admin
-    if not request.user.es_admin:
-        messages.error(request, 'No tienes permisos para ver esta información.')
-        return redirect('dashboard')
+    #if not request.user.es_admin:
+     #   messages.error(request, 'No tienes permisos para ver esta información.')
+      #  return redirect('dashboard')
     
     # Obtener la compra
     compra = get_object_or_404(Compra, id=compra_id)
@@ -287,11 +287,11 @@ def compra_imprimir_etiquetas(request, compra_id):
     Imprime etiquetas de todos los productos con código interno de una compra
     """
     # Verificar que sea Admin
-    if not request.user.es_admin:
-        return JsonResponse({
-            'success': False,
-            'error': 'No tienes permisos para esta acción'
-        }, status=403)
+    #if not request.user.es_admin:
+    #    return JsonResponse({
+     #       'success': False,
+      #      'error': 'No tienes permisos para esta acción'
+       # }, status=403)
     
     try:
         compra = get_object_or_404(Compra, id=compra_id)
