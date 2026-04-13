@@ -3,11 +3,15 @@ chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 REM ============================================================================
-REM Royal Plastic POS - Backup Automatico de Base de Datos
+REM POS FIFO System - Backup Automatico de Base de Datos v3
 REM ============================================================================
 
 set "PROJECT_DIR=%~dp0.."
 cd /d "%PROJECT_DIR%"
+
+REM --- Forzar encoding ---
+set PGCLIENTENCODING=UTF8
+set PYTHONUTF8=1
 
 REM --- Cargar configuracion ---
 call "%PROJECT_DIR%\deploy\env_cliente.bat"
@@ -16,8 +20,6 @@ REM --- Crear carpeta de backups ---
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 REM --- Generar nombre con fecha y hora ---
-for /f "tokens=1-3 delims=/" %%a in ('date /t') do set "FECHA=%%c%%b%%a"
-for /f "tokens=1-2 delims=: " %%a in ('time /t') do set "HORA=%%a%%b"
 set "FECHA=%date:~6,4%%date:~3,2%%date:~0,2%"
 set "HORA=%time:~0,2%%time:~3,2%"
 set "HORA=%HORA: =0%"

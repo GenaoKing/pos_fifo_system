@@ -100,6 +100,25 @@ class Producto(models.Model):
         verbose_name='Categoría',
     )
     
+    ESTADO_CHOICES = [
+        ('nuevo', 'Nuevo'),
+        ('usado', 'Usado'),
+    ]
+
+    estado = models.CharField(
+        max_length=10, 
+        choices=ESTADO_CHOICES,
+        default='nuevo', 
+        verbose_name='Estado'
+        )
+    
+    marca = models.CharField(
+        max_length=100,
+        blank=True, 
+        default='', 
+        verbose_name='Marca'
+        )
+
     # Precios y stock
     precio_venta = models.DecimalField(
         'Precio de venta',

@@ -1,15 +1,16 @@
 @echo off
 chcp 65001 >nul 2>&1
-title Royal Plastic POS - Registrar Servicio Windows
+setlocal EnableDelayedExpansion
+title POS FIFO System - Registrar Servicio Windows
 
 REM ============================================================================
-REM Royal Plastic POS - Registrar como Servicio de Windows (NSSM)
+REM POS FIFO System - Registrar como Servicio de Windows (NSSM) v3
 REM Ejecutar como Administrador
 REM ============================================================================
 
 echo.
 echo  ============================================================
-echo    Registrar Royal Plastic POS como Servicio de Windows
+echo    Registrar POS FIFO System como Servicio de Windows
 echo  ============================================================
 echo.
 
@@ -25,12 +26,11 @@ set "PROJECT_DIR=%~dp0.."
 cd /d "%PROJECT_DIR%"
 call "%PROJECT_DIR%\deploy\env_cliente.bat"
 
-set SERVICE_NAME=RoyalPlasticPOS
-set NSSM_PATH=%PROJECT_DIR%\deploy\nssm.exe
+set SERVICE_NAME=POSFifoSystem
+set "NSSM_PATH=%PROJECT_DIR%\deploy\nssm.exe"
 
 REM ============================================================================
 REM Opcion 1: Con NSSM (recomendado)
-REM Descargar de: https://nssm.cc/download
 REM ============================================================================
 if exist "%NSSM_PATH%" (
     echo [INFO] Usando NSSM para registrar servicio...
@@ -42,15 +42,15 @@ if exist "%NSSM_PATH%" (
     REM --- Instalar servicio ---
     "%NSSM_PATH%" install %SERVICE_NAME% "%PROJECT_DIR%\venv\Scripts\python.exe" "%PROJECT_DIR%\server.py"
     "%NSSM_PATH%" set %SERVICE_NAME% AppDirectory "%PROJECT_DIR%"
-    "%NSSM_PATH%" set %SERVICE_NAME% DisplayName "Royal Plastic POS"
-    "%NSSM_PATH%" set %SERVICE_NAME% Description "Sistema Punto de Venta Royal Plastic"
+    "%NSSM_PATH%" set %SERVICE_NAME% DisplayName "POS FIFO System"
+    "%NSSM_PATH%" set %SERVICE_NAME% Description "Sistema Punto de Venta con Inventario FIFO"
     "%NSSM_PATH%" set %SERVICE_NAME% Start SERVICE_AUTO_START
     "%NSSM_PATH%" set %SERVICE_NAME% AppStdout "%PROJECT_DIR%\logs\service_stdout.log"
     "%NSSM_PATH%" set %SERVICE_NAME% AppStderr "%PROJECT_DIR%\logs\service_stderr.log"
     "%NSSM_PATH%" set %SERVICE_NAME% AppRotateFiles 1
     "%NSSM_PATH%" set %SERVICE_NAME% AppRotateBytes 5242880
 
-    REM --- Configurar variables de entorno para el servicio ---
+    REM --- Variables de entorno para el servicio ---
     "%NSSM_PATH%" set %SERVICE_NAME% AppEnvironmentExtra ^
         DJANGO_SETTINGS_MODULE=config.settings_production ^
         DJANGO_SECRET_KEY=%DJANGO_SECRET_KEY% ^
@@ -60,7 +60,9 @@ if exist "%NSSM_PATH%" (
         DB_HOST=%DB_HOST% ^
         DB_PORT=%DB_PORT% ^
         SERVER_IP=%SERVER_IP% ^
-        SERVER_PORT=%SERVER_PORT%
+        SERVER_PORT=%SERVER_PORT% ^
+        PGCLIENTENCODING=UTF8 ^
+        PYTHONUTF8=1
 
     REM --- Iniciar servicio ---
     "%NSSM_PATH%" start %SERVICE_NAME%
@@ -86,16 +88,15 @@ echo [INFO] NSSM no encontrado en deploy\nssm.exe
 echo [INFO] Usando Task Scheduler como alternativa...
 echo.
 
-REM --- Crear tarea programada para inicio automatico ---
 schtasks /create ^
-    /tn "RoyalPlasticPOS_AutoStart" ^
+    /tn "POSFifoSystem_AutoStart" ^
     /tr "\"%PROJECT_DIR%\deploy\iniciar_servidor.bat\"" ^
     /sc onlogon ^
     /rl highest ^
     /f
 
 if %errorlevel% equ 0 (
-    echo   [OK] Tarea programada creada: RoyalPlasticPOS_AutoStart
+    echo   [OK] Tarea programada creada: POSFifoSystem_AutoStart
     echo        El servidor se iniciara automaticamente al iniciar sesion.
 ) else (
     echo   [ERROR] No se pudo crear la tarea programada.
@@ -108,3 +109,4 @@ echo          Coloque nssm.exe en la carpeta deploy\ y ejecute este script de nu
 :fin
 echo.
 pause
+endlocal

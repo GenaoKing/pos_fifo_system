@@ -1,18 +1,30 @@
 @echo off
 REM ============================================================================
-REM Royal Plastic POS - Variables de Entorno del Cliente
-REM Copiar este archivo como "env_cliente.bat" y ajustar los valores
+REM POS FIFO System - Variables de Entorno del Cliente v3
+REM
+REM INSTRUCCIONES:
+REM   1. Copiar este archivo como "env_cliente.bat" (sin .template)
+REM   2. Editar los valores segun la instalacion del cliente
+REM   3. El instalador lo hace automaticamente la primera vez
+REM
+REM NOTA: Los datos del negocio (nombre, RNC, direccion, telefono) ya NO van
+REM       aqui. Se configuran desde el panel de Configuracion del Sistema
+REM       (rol SYSADMIN) o con: python manage.py crear_config_inicial
 REM ============================================================================
+
+REM --- Encoding (NO TOCAR - previene errores en Windows espanol) ---
+set PGCLIENTENCODING=UTF8
+set PYTHONUTF8=1
 
 REM --- Base de datos ---
 set DB_NAME=royal_plastic_pos
 set DB_USER=pos_admin
-set DB_PASSWORD=Royal2026$Pos
+set DB_PASSWORD=CAMBIAR-CONTRASENA-BD
 set DB_HOST=localhost
 set DB_PORT=5432
 
 REM --- Red ---
-set SERVER_IP=192.168.1.100
+set SERVER_IP=127.0.0.1
 set SERVER_PORT=8080
 REM Si otras PCs acceden al sistema, agregar sus IPs separadas por coma:
 set EXTRA_HOSTS=
@@ -21,16 +33,17 @@ REM --- Django ---
 set DJANGO_SETTINGS_MODULE=config.settings_production
 set DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION
 
-REM --- Impresoras (nombre exacto como aparece en Windows) ---
-set PRINTER_TERMICA=2C-POS80-01
-set PRINTER_ZEBRA=ZDesigner LP 2824
+REM --- Impresoras (nombre EXACTO de "Dispositivos e impresoras") ---
+REM Configurar DESPUES de instalar drivers. Dejar vacio hasta entonces.
+set PRINTER_TERMICA=
+set PRINTER_ZEBRA=
 
-REM --- Datos del negocio ---
-set RNC_NEGOCIO=
-set DIRECCION_NEGOCIO=Santo Domingo, RD
-set TELEFONO_NEGOCIO=
+REM --- Preset de negocio para configuracion inicial ---
+REM Opciones: plasticos, accesorios_auto, retail_general
+REM Se usa SOLO en la primera instalacion (crear_config_inicial)
+set NEGOCIO_PRESET=plasticos
+set NEGOCIO_NOMBRE=Mi Negocio
 
-REM --- Rutas ---
+REM --- Rutas (no editar) ---
 set POS_DIR=%~dp0..
 set BACKUP_DIR=%POS_DIR%\backups
-set PYTHON_DIR=%POS_DIR%\venv\Scripts

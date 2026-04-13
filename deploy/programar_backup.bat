@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul 2>&1
-title Royal Plastic POS - Programar Backup Automatico
+title POS FIFO System - Programar Backup Automatico
 
 REM ============================================================================
-REM Royal Plastic POS - Programar Backup Diario Automatico
+REM POS FIFO System - Programar Backup Diario Automatico v3
 REM Ejecutar como Administrador
 REM ============================================================================
 
@@ -18,11 +18,11 @@ set "PROJECT_DIR=%~dp0.."
 
 echo.
 echo  Programando backup diario automatico...
-echo  Hora: 11:00 PM (antes del cierre)
+echo  Hora: 11:00 PM
 echo.
 
 schtasks /create ^
-    /tn "RoyalPlasticPOS_BackupDiario" ^
+    /tn "POSFifoSystem_BackupDiario" ^
     /tr "\"%PROJECT_DIR%\deploy\backup_db.bat\"" ^
     /sc daily ^
     /st 23:00 ^

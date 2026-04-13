@@ -1,12 +1,26 @@
-# Core Django
-Django==5.0.0
-psycopg2-binary==2.9.9
+# ============================================
+# POS FIFO System - Dependencias de Produccion
+# ============================================
+
+# Core
+Django>=5.0,<5.1
+psycopg[binary]>=3.1.0
+
+# Servidor produccion
+waitress
+whitenoise
 
 # Utilidades
-Pillow==10.2.0
-reportlab==4.0.9
-python-barcode==0.15.1
-openpyxl==3.1.2
+Pillow>=10.2
+reportlab>=4.0
+python-barcode>=0.15
+openpyxl>=3.1
+PyYAML>=6.0
 
-# Para desarrollo (opcional)
-django-debug-toolbar==4.2.0
+# Impresoras
+python-escpos>=3.0
+pywin32>=300
+pyserial>=3.5
+
+# Django extensions (opcional pero util)
+django-extensions>=4.0
