@@ -8,6 +8,7 @@ from django.conf import settings
 from decimal import Decimal
 import os
 from datetime import datetime
+from apps.configuracion.utils import get_config, modulo_activo
 
 from .models import CierreCaja, InventarioValorizado
 

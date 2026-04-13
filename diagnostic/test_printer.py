@@ -1,6 +1,6 @@
 """
 Script de Diagnóstico - Sistema de Impresión
-Sistema POS FIFO - Royal Plastic
+Sistema POS FIFO 
 
 Este script verifica que todos los componentes del sistema de impresión
 estén correctamente instalados y funcionando.

@@ -37,7 +37,7 @@ def compras_lista(request):
     # Verificar que sea Admin
     #if not request.user.es_admin:
      #   messages.error(request, 'No tienes permisos para acceder a esta sección.')
-      #  return redirect('dashboard')
+      #  return redirect('reportes:dashboard')
     
     # Obtener todas las compras ordenadas por fecha (más reciente primero)
     compras = Compra.objects.all().select_related('usuario').order_by('-fecha_compra')
@@ -61,7 +61,7 @@ def compra_crear(request):
     # Verificar que sea Admin
     #if not request.user.es_admin:
      #   messages.error(request, 'No tienes permisos para crear compras.')
-      #  return redirect('dashboard')
+      #  return redirect('reportes:dashboard')
     
     if request.method == 'GET':
         # Mostrar formulario vacío
@@ -257,7 +257,7 @@ def compra_detalle(request, compra_id):
     # Verificar que sea Admin
     #if not request.user.es_admin:
      #   messages.error(request, 'No tienes permisos para ver esta información.')
-      #  return redirect('dashboard')
+      #  return redirect('reportes:dashboard')
     
     # Obtener la compra
     compra = get_object_or_404(Compra, id=compra_id)

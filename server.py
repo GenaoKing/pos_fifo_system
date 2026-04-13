@@ -1,5 +1,5 @@
 """
-Royal Plastic POS - Servidor de Produccion (Waitress)
+POS - Servidor de Produccion (Waitress)
 Ejecutar con: python server.py
 O a traves de: deploy/iniciar_servidor.bat
 """
@@ -22,7 +22,7 @@ def get_server_config():
 def main():
     print()
     print('=' * 60)
-    print('  Royal Plastic POS - Servidor de Produccion')
+    print('  POS - Servidor de Produccion')
     print('=' * 60)
     print()
 

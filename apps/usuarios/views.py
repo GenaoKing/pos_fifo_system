@@ -9,7 +9,7 @@ from apps.auditoria.models import Auditoria, get_client_ip, get_user_agent
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('dashboard')
+        return redirect('reportes:dashboard')
 
     if request.method == 'POST':
         # AuthenticationForm requiere request como primer arg
@@ -43,7 +43,7 @@ def login_view(request):
             if next_url:
                 return redirect(next_url)
             elif user.es_admin:
-                return redirect('dashboard')
+                return redirect('reportes:dashboard')
             else:
                 return redirect('pos:punto_venta')
         else:

@@ -1,6 +1,6 @@
 /**
  * Módulo de Impresión para POS
- * Sistema POS FIFO - Royal Plastic
+ * Sistema POS FIFO 
  * 
  * Maneja la impresión automática de tickets al completar ventas
  * y proporciona funciones para reimpresión y test de impresora.

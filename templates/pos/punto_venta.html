@@ -562,11 +562,17 @@
                         :class="{ 'sin-stock': !producto.tiene_stock, 'opacity-50 pointer-events-none': panelPagoActivo }"
                     >
                         <!-- Icono del producto -->
-                        <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mb-2 mx-auto">
-                            <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
-                            </svg>
-                        </div>
+                        <!-- Imagen o icono del producto -->
+                        <template x-if="producto.imagen">
+                            <img :src="producto.imagen" :alt="producto.nombre" class="w-12 h-12 object-cover rounded-lg mb-2 mx-auto">
+                        </template>
+                        <template x-if="!producto.imagen">
+                            <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mb-2 mx-auto">
+                                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                </svg>
+                            </div>
+                        </template>
                         
                         <!-- Nombre -->
                         <p class="font-medium text-sm text-gray-900 text-center mb-1 line-clamp-2" x-text="producto.nombre"></p>

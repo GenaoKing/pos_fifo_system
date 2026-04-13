@@ -40,9 +40,9 @@ def requiere_sysadmin(view_func):
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if not hasattr(request, 'user') or not request.user.is_authenticated:
-            return redirect('login')
+            return redirect('usuarios:login')
         if not getattr(request.user, 'es_sysadmin', False):
-            return redirect('dashboard')
+            return redirect('reportes:dashboard')
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -54,7 +54,7 @@ def requiere_admin_o_sysadmin(view_func):
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if not hasattr(request, 'user') or not request.user.is_authenticated:
-            return redirect('login')
+            return redirect('usuarios:login')
         user = request.user
         es_admin = getattr(user, 'es_admin', False)
         es_sysadmin = getattr(user, 'es_sysadmin', False)
@@ -64,6 +64,6 @@ def requiere_admin_o_sysadmin(view_func):
         if callable(es_sysadmin):
             es_sysadmin = es_sysadmin()
         if not (es_admin or es_sysadmin):
-            return redirect('dashboard')
+            return redirect('reportes:dashboard')
         return view_func(request, *args, **kwargs)
     return wrapper

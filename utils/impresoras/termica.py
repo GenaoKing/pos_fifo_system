@@ -1,6 +1,6 @@
 """
 Driver de Impresora Térmica 2Connect
-Sistema POS FIFO - Royal Plastic
+Sistema POS FIFO - Módulo de Impresión
 
 Este módulo maneja la comunicación con la impresora térmica 2Connect 2C-POS80-01
 e incluye funcionalidades de impresión de tickets, manejo de cajón de dinero,

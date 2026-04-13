@@ -21,6 +21,7 @@ from django.urls import path, include
 from apps.usuarios.views import styleguide
 from django.views.generic import RedirectView
 from django.conf.urls.static import static  # ← AGREGAR
+from django.views.static import serve
 
 
 
@@ -42,5 +43,6 @@ urlpatterns = [
     
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += [
+    path('media/<path:path>', serve, {'document_root': settings.MEDIA_ROOT}),
+]

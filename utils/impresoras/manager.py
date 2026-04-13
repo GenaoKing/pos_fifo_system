@@ -1,6 +1,6 @@
 """
 Print Manager - Gestor Centralizado de Impresión
-Sistema POS FIFO - Royal Plastic
+Sistema POS FIFO - Módulo de Impresión
 
 Este módulo coordina toda la lógica de impresión del sistema,
 incluyendo manejo de errores, auditoría y preparación de datos.

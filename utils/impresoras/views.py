@@ -1,6 +1,6 @@
 """
 Views de Impresión para Sistema POS
-Sistema POS FIFO - Royal Plastic
+Sistema POS FIFO - Módulo de Impresión
 
 Vistas para manejar impresión de tickets desde el POS,
 reimpresión de tickets históricos y pruebas de impresora.
@@ -77,7 +77,7 @@ class ImprimirTicketAutomaticoView(LoginRequiredMixin, View):
             }, status=500)
 
 
-class ReimprimirTicketView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class ReimprimirTicketView(LoginRequiredMixin, View):
     """
     Vista para reimpresión de tickets históricos
     

@@ -20,7 +20,6 @@ from django.utils import timezone
 class Caja(models.Model):
     """
     Caja fisica del negocio.
-    Royal Plast tiene 1 sola, pero el modelo soporta multiples.
     """
     nombre = models.CharField(
         max_length=50,

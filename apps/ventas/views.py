@@ -139,6 +139,7 @@ def buscar_productos(request):
             'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoría',
             # Información adicional útil para el POS
             'precio_formateado': f"${producto.precio_venta:,.2f}",
+            'imagen': producto.imagen.url if producto.imagen else '',
         })
     
     return JsonResponse({
@@ -194,6 +195,7 @@ def producto_por_codigo(request, codigo_barras):
                 'tiene_stock': stock_disponible > 0,
                 'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoría',
                 'precio_formateado': f"${producto.precio_venta:,.2f}",
+                'imagen': producto.imagen.url if producto.imagen else '',
             }
         })
     
