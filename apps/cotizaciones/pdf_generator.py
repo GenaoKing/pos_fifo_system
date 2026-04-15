@@ -117,7 +117,6 @@ class CotizacionPDF:
         # Obtener info de empresa desde settings
 
         # Accedemos al diccionario y luego usamos .get() para cada llave
-        info = getattr(settings, 'BUSINESS_INFO', {})
 
 # Obtener info de empresa desde configuración de BD
         empresa_nombre = self.config.nombre_negocio

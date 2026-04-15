@@ -4,6 +4,7 @@ Incluye generación de códigos de barra internos
 """
 
 from apps.productos.models import Producto
+from apps.configuracion.utils import get_config
 
 
 def generar_codigo_barra_interno():
@@ -36,7 +37,9 @@ def generar_codigo_barra_interno():
             numero = 1
     
     # Formatear con 6 dígitos
-    codigo = f"RP-{numero:06d}"
+    
+    prefijo = get_config().formato_codigo_barras.split('-')[0]  # 'RP'
+    codigo = f"{prefijo}-{numero:06d}"
     
     # Verificar que no exista (por seguridad)
     while Producto.objects.filter(codigo_barras=codigo).exists():

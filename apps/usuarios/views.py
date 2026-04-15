@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
+from apps.configuracion.utils import get_config
 
 from apps.auditoria.models import Auditoria, get_client_ip, get_user_agent
 
@@ -26,7 +27,7 @@ def login_view(request):
                     exito=False,
                 )
                 messages.error(request, 'Tu cuenta esta desactivada.')
-                return render(request, 'usuarios/login.html', {'form': form})
+                return render(request, 'usuarios/login.html', {'form': form, 'config': get_config()})
 
             login(request, user)
 

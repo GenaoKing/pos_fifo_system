@@ -2,11 +2,10 @@
 Print Manager - Gestor Centralizado de Impresión
 Sistema POS FIFO - Módulo de Impresión
 
-Este módulo coordina toda la lógica de impresión del sistema,
+Coordina la lógica de impresión del sistema,
 incluyendo manejo de errores, auditoría y preparación de datos.
 
-Autor: Sistema POS FIFO
-Versión: 1.0
+Versión: 2.0 - Migrado a ConfiguracionNegocio
 """
 
 import logging
@@ -15,7 +14,6 @@ from django.conf import settings
 from django.db import transaction
 import pytz
 
-# Importación condicional para evitar errores circulares
 from apps.auditoria.models import Auditoria
 
 logger = logging.getLogger(__name__)
@@ -26,56 +24,44 @@ class PrintManagerException(Exception):
     pass
 
 
+def _is_printing_enabled():
+    """
+    Verifica si la impresión está habilitada desde ConfiguracionNegocio.
+    Se llama en cada operación (no al importar) para que sea siempre fresco.
+    Fallback a settings.THERMAL_PRINTER si la BD no está disponible.
+    """
+    try:
+        from apps.configuracion.utils import modulo_activo
+        return modulo_activo('impresion_termica')
+    except Exception:
+        # BD no disponible (primera migración, etc.)
+        return settings.THERMAL_PRINTER.get('ENABLED', False)
+
+
 class PrintManager:
     """
     Gestor centralizado de impresión
-    
-    Responsabilidades:
-    - Preparación de datos de venta para impresión
-    - Coordinación con el driver de impresora
-    - Registro de auditoría de impresiones
-    - Manejo de reimpresiones
-    - Gestión de errores
-    
-    Uso:
-        manager = PrintManager()
-        manager.print_ticket_venta(venta, usuario)
     """
     
     def __init__(self):
         """Inicializa el Print Manager"""
-        self.enabled = settings.THERMAL_PRINTER.get('ENABLED', False)
+        self.printer_class = None
         
-        # Importar el printer solo si está habilitado
-        if self.enabled:
-            try:
-                from utils.impresoras.termica import ThermalPrinter2Connect
-                self.printer_class = ThermalPrinter2Connect
-            except ImportError as e:
-                logger.error(f"No se pudo importar ThermalPrinter2Connect: {str(e)}")
-                self.enabled = False
-                self.printer_class = None
-        else:
-            self.printer_class = None
+        try:
+            from utils.impresoras.termica import ThermalPrinter2Connect
+            self.printer_class = ThermalPrinter2Connect
+        except ImportError as e:
+            logger.error(f"No se pudo importar ThermalPrinter2Connect: {str(e)}")
+
+    @property
+    def enabled(self):
+        """Verifica en cada llamada si la impresión está habilitada"""
+        return self.printer_class is not None and _is_printing_enabled()
     
     def print_ticket_venta(self, venta, usuario, reimpresion=False):
         """
         Imprime ticket de una venta
-        
-        Args:
-            venta: Instancia del modelo Venta
-            usuario: Usuario que solicita la impresión
-            reimpresion (bool): Indica si es una reimpresión
-            
-        Returns:
-            dict: Resultado de la operación
-                {
-                    'success': bool,
-                    'mensaje': str,
-                    'error': str (opcional)
-                }
         """
-        # Verificar si el sistema está habilitado
         if not self.enabled:
             return {
                 'success': False,
@@ -100,7 +86,6 @@ class PrintManager:
             printer = self.printer_class()
             printer.print_ticket(venta_data)
             
-            # Registrar en auditoría
             self._registrar_auditoria_impresion(
                 venta=venta,
                 usuario=usuario,
@@ -120,7 +105,6 @@ class PrintManager:
             error_msg = f"Error imprimiendo ticket: {str(e)}"
             logger.error(error_msg)
             
-            # Registrar error en auditoría
             self._registrar_auditoria_impresion(
                 venta=venta,
                 usuario=usuario,
@@ -136,12 +120,7 @@ class PrintManager:
             }
     
     def test_printer(self):
-        """
-        Ejecuta una prueba de impresión
-        
-        Returns:
-            dict: Resultado de la prueba
-        """
+        """Ejecuta una prueba de impresión"""
         if not self.enabled:
             return {
                 'success': False,
@@ -169,19 +148,9 @@ class PrintManager:
             }
     
     def _prepare_venta_data(self, venta):
-        """
-        Prepara el diccionario de datos para impresión
-        
-        Args:
-            venta: Instancia del modelo Venta
-            
-        Returns:
-            dict: Datos formateados para el printer
-        """
-        # Obtener detalles de la venta
+        """Prepara el diccionario de datos para impresión"""
         detalles = venta.detalles.select_related('producto').all()
         
-        # Preparar items
         items = []
         for detalle in detalles:
             items.append({
@@ -192,13 +161,11 @@ class PrintManager:
                 'subtotal': float(detalle.subtotal - (detalle.descuento_monto or 0))
             })
         
-        # Obtener pagos
         pagos_lista = []
         tiene_efectivo = False
         
         pagos = venta.pagos.all()
         for pago in pagos:
-            # Verificar si hay pago en efectivo
             if pago.metodo in ['EFECTIVO', 'MIXTO']:
                 tiene_efectivo = True
             
@@ -207,7 +174,6 @@ class PrintManager:
                 'monto': float(pago.monto)
             })
         
-        # Calcular cambio si aplica
         if tiene_efectivo:
             total_pagado = sum(p['monto'] for p in pagos_lista)
             cambio = total_pagado - float(venta.total)
@@ -215,10 +181,9 @@ class PrintManager:
             if cambio > 0:
                 pagos_lista.append({
                     'metodo': 'Cambio',
-                    'monto': -cambio  # Negativo para que se muestre correctamente
+                    'monto': -cambio
                 })
         
-        # Construir diccionario completo
         santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
         fecha_local = venta.fecha_venta.astimezone(santo_domingo_tz)
         venta_data = {
@@ -233,7 +198,6 @@ class PrintManager:
             'tiene_efectivo': tiene_efectivo
         }
         
-        # Agregar cliente si existe
         if hasattr(venta, 'cliente') and venta.cliente:
             venta_data['cliente'] = venta.cliente.nombre
         
@@ -241,16 +205,7 @@ class PrintManager:
     
     @transaction.atomic
     def _registrar_auditoria_impresion(self, venta, usuario, reimpresion, exitosa, error=None):
-        """
-        Registra el evento de impresión en auditoría
-        
-        Args:
-            venta: Instancia de Venta
-            usuario: Usuario que imprime
-            reimpresion (bool): Si es reimpresión
-            exitosa (bool): Si la impresión fue exitosa
-            error (str): Mensaje de error si aplica
-        """
+        """Registra el evento de impresión en auditoría"""
         try:
             accion = 'ERROR_IMPRESION' if not exitosa else 'IMPRESION_TICKET'
             
@@ -273,20 +228,10 @@ class PrintManager:
             logger.debug(f"Auditoría registrada: {accion} - {venta.numero_venta}")
             
         except Exception as e:
-            # No queremos que un error de auditoría afecte la impresión
             logger.error(f"Error registrando auditoría: {str(e)}")
     
     def get_ultimas_impresiones(self, usuario=None, limit=50):
-        """
-        Obtiene las últimas impresiones del sistema
-        
-        Args:
-            usuario: Filtrar por usuario específico (opcional)
-            limit (int): Cantidad de registros
-            
-        Returns:
-            QuerySet: Registros de auditoría
-        """
+        """Obtiene las últimas impresiones del sistema"""
         filtros = {
             'accion__in': ['IMPRESION_TICKET', 'ERROR_IMPRESION']
         }
@@ -297,16 +242,7 @@ class PrintManager:
         return Auditoria.objects.filter(**filtros).order_by('-fecha')[:limit]
     
     def get_estadisticas_impresion(self, fecha_desde=None, fecha_hasta=None):
-        """
-        Obtiene estadísticas de impresión
-        
-        Args:
-            fecha_desde (datetime): Fecha inicio
-            fecha_hasta (datetime): Fecha fin
-            
-        Returns:
-            dict: Estadísticas de impresión
-        """
+        """Obtiene estadísticas de impresión"""
         filtros = {
             'accion__in': ['IMPRESION_TICKET', 'ERROR_IMPRESION']
         }
@@ -335,38 +271,15 @@ class PrintManager:
         }
 
 
-# ============================================================================
-# INSTANCIA SINGLETON
-# ============================================================================
-
-# Crear instancia única del PrintManager para usar en toda la aplicación
+# Instancia singleton
 print_manager = PrintManager()
 
 
-# ============================================================================
-# FUNCIONES DE CONVENIENCIA
-# ============================================================================
-
 def imprimir_ticket(venta, usuario, reimpresion=False):
-    """
-    Función de conveniencia para imprimir tickets
-    
-    Args:
-        venta: Instancia de Venta
-        usuario: Usuario que imprime
-        reimpresion (bool): Si es reimpresión
-        
-    Returns:
-        dict: Resultado de la impresión
-    """
+    """Función de conveniencia para imprimir tickets"""
     return print_manager.print_ticket_venta(venta, usuario, reimpresion)
 
 
 def test_impresora():
-    """
-    Función de conveniencia para probar impresora
-    
-    Returns:
-        dict: Resultado de la prueba
-    """
+    """Función de conveniencia para probar impresora"""
     return print_manager.test_printer()

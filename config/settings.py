@@ -192,13 +192,6 @@ INVENTARIO_CONFIG = {
     'alertar_stock_minimo': True,
 }
 
-# Formato de números de documentos
-FORMATO_DOCUMENTOS = {
-    'venta': 'V-{fecha}-{secuencia:05d}',  # V-20260201-00001
-    'compra': 'C-{fecha}-{secuencia:05d}',
-    'lote': 'LOTE-{fecha}-{secuencia:05d}',
-}
-
 
 """
 Configuración de Impresión para Sistema POS FIFO
@@ -244,64 +237,3 @@ THERMAL_PRINTER = {
 # ============================================================================
 # INFORMACIÓN DEL NEGOCIO (PARA TICKETS)
 # ============================================================================
-
-BUSINESS_INFO = {
-    'NAME': 'Royal Plast EIRL',
-    'RNC': '1-32-33458-2',  # TODO: Actualizar cuando se confirme
-    'PHONE': '829-986-6443',
-    'ADDRESS': 'Aut. Joaquin Balaguer Km 4',  # TODO: Actualizar con dirección
-    'CITY': 'Estancia del yaque, Santiago, R.D.',
-    'WEBSITE': '',  # Opcional
-    'EMAIL': '',    # Opcional
-    
-    # Mensaje en el footer del ticket
-    'FOOTER_MESSAGE': 'Gracias por su compra',
-    'FOOTER_LINE2': 'Visítenos nuevamente',
-    
-    # Redes sociales (opcional)
-    'WHATSAPP': '829-986-6443',  # Número de WhatsApp
-    'INSTAGRAM': '',  # Usuario de Instagram sin @
-    'FACEBOOK': '',   # Página de Facebook
-}
-
-# ============================================================================
-# CONFIGURACIÓN DE CÓDIGO QR
-# ============================================================================
-
-QR_CONFIG = {
-    'ENABLED': True,
-    'SIZE': 4,  # Tamaño del QR (1-10, más grande = más fácil de escanear)
-    'ERROR_CORRECTION': 'M',  # L, M, Q, H (M = medio, recomendado)
-    
-    # URL base para trazabilidad (si tienes sistema web)
-    # El código QR contendrá: BASE_URL + numero_venta
-    # Ejemplo: https://sistema.royalplastic.com/ticket/V-00001
-    'BASE_URL': '',  # Dejar vacío si no hay sistema web aún
-}
-
-# ============================================================================
-# INSTRUCCIONES DE ACTUALIZACIÓN
-# ============================================================================
-
-"""
-PARA ACTUALIZAR LA INFORMACIÓN DEL NEGOCIO:
-
-1. Abrir: config/settings.py
-2. Buscar la sección: BUSINESS_INFO
-3. Modificar los campos marcados como [PENDIENTE - CONFIGURAR]:
-   
-   BUSINESS_INFO = {
-       'NAME': 'Royal Plastic',
-       'RNC': '123-4567890-1',  # ← Colocar RNC real aquí
-       'PHONE': '829-986-6443',
-       'ADDRESS': 'Calle Principal #123',  # ← Colocar dirección aquí
-       'CITY': 'Santo Domingo, R.D.',
-       ...
-   }
-
-4. Guardar el archivo
-5. Reiniciar el servidor Django: python manage.py runserver
-
-NO REQUIERE CAMBIOS EN EL CÓDIGO, solo actualizar estos valores.
-"""
-

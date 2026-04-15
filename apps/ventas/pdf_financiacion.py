@@ -17,6 +17,8 @@ import os
 from decimal import Decimal
 from datetime import datetime
 
+
+from apps.configuracion.utils import get_config
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch, mm
 from reportlab.lib.colors import HexColor
@@ -107,13 +109,13 @@ def generar_factura_cooperativa(venta, financiacion, detalles, pagos):
     # ===========================
     # ENCABEZADO CON LOGO
     # ===========================
-    nombre_negocio = getattr(settings, 'NOMBRE_NEGOCIO', 'Royal Plastic')
-    rnc_negocio = getattr(settings, 'RNC_NEGOCIO', '')
-    direccion_negocio = getattr(settings, 'DIRECCION_NEGOCIO', 'Santo Domingo, RD')
-    telefono_negocio = getattr(settings, 'TELEFONO_NEGOCIO', '')
 
-    # Intentar cargar logo
-    logo_path = os.path.join(settings.STATIC_ROOT or settings.BASE_DIR, 'static', 'img', 'logo.png')
+    config = get_config()
+    nombre_negocio = config.nombre_negocio
+    rnc_negocio = config.rnc
+    direccion_negocio = config.direccion
+    telefono_negocio = config.telefono
+    logo_path = config.logo.path if config.logo else None
     header_data = []
 
     if os.path.exists(logo_path):
