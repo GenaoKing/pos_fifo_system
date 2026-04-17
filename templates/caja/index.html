@@ -8,6 +8,7 @@
 {% endblock %}
 
 {% block content %}
+{{ init_data_json|json_script:"caja-init-data" }}
 <div x-data="cajaApp()" x-init="init()">
 
     {# ====== HEADER ====== #}
@@ -578,10 +579,10 @@
 function cajaApp() {
     return {
         // Estado
-        turnoActivo: {{ turno_activo|yesno:"true,null" }},
+        turnoActivo: null,
         desglose: {},
         movimientos: [],
-        cajasDisponibles: {{ cajas_disponibles|safe }},
+        cajasDisponibles: [],
         resultadoCierre: null,
         cargando: false,
         error: null,
@@ -598,40 +599,21 @@ function cajaApp() {
         pendienteAdminCallback: null,
 
         init() {
-            {% if turno_activo %}
-            this.turnoActivo = {
-                id: {{ turno_activo.id }},
-                caja: '{{ turno_activo.caja.nombre }}',
-                apertura: '{{ turno_activo.fecha_apertura|date:"d/m/Y H:i" }}',
-                fondo_apertura: '{{ turno_activo.fondo_apertura }}',
-            };
-            this.desglose = {
-                fondo_apertura: '{{ desglose.fondo_apertura }}',
-                efectivo_ventas: '{{ desglose.efectivo_ventas }}',
-                retiros: '{{ desglose.retiros }}',
-                gastos: '{{ desglose.gastos }}',
-                ingresos: '{{ desglose.ingresos }}',
-                esperado: '{{ desglose.esperado }}',
-            };
-            this.movimientos = [
-                {% for m in movimientos %}
-                {
-                    id: {{ m.id }},
-                    tipo: '{{ m.tipo }}',
-                    tipo_display: '{{ m.get_tipo_display }}',
-                    monto: '{{ m.monto }}',
-                    descripcion: '{{ m.descripcion|escapejs }}',
-                    fecha: '{{ m.fecha|date:"d/m/Y H:i" }}',
-                    registrado_por: '{{ m.registrado_por.get_short_name|default:m.registrado_por.username }}',
-                    autorizado_por: {% if m.autorizado_por %}'{{ m.autorizado_por.get_short_name|default:m.autorizado_por.username }}'{% else %}null{% endif %},
-                },
-                {% endfor %}
-            ];
-            {% endif %}
+            const data = JSON.parse(
+                document.getElementById('caja-init-data').textContent
+            );
 
-            {% if cajas_disponibles|length == 1 %}
-            this.formApertura.caja_id = this.cajasDisponibles[0]?.id || '';
-            {% endif %}
+            this.cajasDisponibles = data.cajas_disponibles || [];
+
+            if (data.turno) {
+                this.turnoActivo = data.turno;
+                this.desglose = data.desglose || {};
+                this.movimientos = data.movimientos || [];
+            }
+
+            if (this.cajasDisponibles.length === 1) {
+                this.formApertura.caja_id = this.cajasDisponibles[0]?.id || '';
+            }
         },
 
         // ---- Abrir Turno ----
@@ -641,7 +623,7 @@ function cajaApp() {
             try {
                 const res = await fetch('{% url "caja:api_abrir" %}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    headers: jsonHeaders(),
                     body: JSON.stringify({
                         caja_id: parseInt(this.formApertura.caja_id),
                         fondo_apertura: parseFloat(this.formApertura.fondo) || 0,
@@ -693,7 +675,7 @@ function cajaApp() {
 
                 const res = await fetch('{% url "caja:api_movimiento" %}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(payload),
                 });
                 const data = await res.json();
@@ -719,7 +701,7 @@ function cajaApp() {
             try {
                 const res = await fetch('{% url "caja:api_validar_admin" %}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    headers: jsonHeaders(),
                     body: JSON.stringify({
                         username: this.adminLogin.username,
                         password: this.adminLogin.password,
@@ -749,14 +731,14 @@ function cajaApp() {
 
         // ---- Cerrar Turno ----
         async cerrarTurno() {
-            if (!confirm('¿Cerrar el turno? Esta accion no se puede deshacer.')) return;
-
+            const ok = await showConfirm('¿Cerrar el turno?', 'Esta acción no se puede deshacer.', { confirmText: 'Cerrar Turno', type: 'danger' });
+            if (!ok) return;
             this.cargando = true;
             this.error = null;
             try {
                 const res = await fetch('{% url "caja:api_cerrar" %}', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCookie('csrftoken') },
+                    headers: jsonHeaders(),
                     body: JSON.stringify({
                         monto_contado: parseFloat(this.formCierre.monto_contado),
                         notas: this.formCierre.notas,
@@ -797,16 +779,7 @@ function cajaApp() {
             return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         },
 
-        getCookie(name) {
-            let v = null;
-            if (document.cookie) {
-                document.cookie.split(';').forEach(c => {
-                    c = c.trim();
-                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
-                });
-            }
-            return v;
-        },
+
     };
 }
 </script>

@@ -5,6 +5,7 @@ Vistas del modulo de Arqueo y Gestion de Caja
 
 import json
 from decimal import Decimal
+from multiprocessing import context
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -102,19 +103,32 @@ def caja_index(request):
             usuario=request.user
         ).select_related('caja', 'usuario')
 
-    context = {
-        'turno_activo': turno_activo,
+
+    init_data = {
         'cajas_disponibles': list(cajas_disponibles.values('id', 'nombre')),
-        'historial': historial,
-        'turnos_abiertos_otros': turnos_abiertos_otros,
     }
 
     # Si hay turno activo, agregar desglose
     if turno_activo:
-        context['desglose'] = turno_activo.calcular_esperado()
-        context['movimientos'] = turno_activo.movimientos.select_related(
-            'registrado_por', 'autorizado_por'
-        ).order_by('-fecha')[:20]
+        init_data['turno'] = {
+            'id': turno_activo.id,
+            'caja': turno_activo.caja.nombre,
+            'apertura': turno_activo.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
+            'fondo_apertura': str(turno_activo.fondo_apertura),
+        }
+        init_data['desglose'] = {k: str(v) for k, v in context['desglose'].items()}
+        init_data['movimientos'] = [{
+            'id': m.id,
+            'tipo': m.tipo,
+            'tipo_display': m.get_tipo_display(),
+            'monto': str(m.monto),
+            'descripcion': m.descripcion,
+            'fecha': m.fecha.strftime('%d/%m/%Y %H:%M'),
+            'registrado_por': m.registrado_por.get_short_name() or m.registrado_por.username,
+            'autorizado_por': (m.autorizado_por.get_short_name() or m.autorizado_por.username) if m.autorizado_por else None,
+        } for m in context['movimientos']]
+
+    context['init_data_json'] = json.dumps(init_data)
 
     return render(request, 'caja/index.html', context)
 

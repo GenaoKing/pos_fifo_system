@@ -109,10 +109,7 @@ function reportesApp() {
             try {
                 const resp = await fetch(endpoints[this.tipo], {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken'),
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(payloads[this.tipo]),
                 });
 
@@ -277,20 +274,7 @@ function reportesApp() {
             return d.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' });
         },
 
-        getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
+       
     };
 }
 </script>

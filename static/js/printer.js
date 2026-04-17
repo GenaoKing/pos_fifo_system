@@ -34,10 +34,7 @@ export async function imprimirTicketAutomatico(ventaId, options = {}) {
     try {
         const response = await fetch(`/impresion/ticket/${ventaId}/`, {
             method: 'POST',
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Content-Type': 'application/json'
-            }
+            headers: jsonHeaders(),
         });
 
         const data = await response.json();
@@ -46,7 +43,7 @@ export async function imprimirTicketAutomatico(ventaId, options = {}) {
             console.log('✓ Ticket impreso:', data.mensaje);
             
             if (!silencioso) {
-                mostrarNotificacion('Ticket impreso exitosamente', 'success');
+                showToast('success','Ticket impreso exitosamente');
             }
             
             if (onSuccess) {
@@ -56,10 +53,7 @@ export async function imprimirTicketAutomatico(ventaId, options = {}) {
             console.warn('⚠ Error imprimiendo:', data.mensaje);
             
             if (!silencioso) {
-                mostrarNotificacion(
-                    `No se pudo imprimir: ${data.mensaje}`,
-                    'warning'
-                );
+                showToast('warning', `No se pudo imprimir: ${data.mensaje}`);
             }
             
             if (onError) {
@@ -73,10 +67,7 @@ export async function imprimirTicketAutomatico(ventaId, options = {}) {
         console.error('✗ Error de conexión:', error);
         
         if (!silencioso) {
-            mostrarNotificacion(
-                'Error de conexión con el sistema de impresión',
-                'error'
-            );
+            showToast('error', 'Error de conexión con el sistema de impresión');
         }
         
         if (onError) {
@@ -98,25 +89,22 @@ export async function reimprimirTicket(ventaId) {
     try {
         const response = await fetch(`/impresion/reimprimir/${ventaId}/`, {
             method: 'POST',
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Content-Type': 'application/json'
-            }
+            headers: jsonHeaders(),
         });
 
         const data = await response.json();
 
         if (data.success) {
-            mostrarNotificacion('Ticket reimpreso exitosamente', 'success');
+            showToast('success', 'Ticket reimpreso exitosamente');
         } else {
-            mostrarNotificacion(data.mensaje, 'error');
+            showToast('error', data.mensaje);
         }
 
         return data;
 
     } catch (error) {
         console.error('Error reimprimiendo:', error);
-        mostrarNotificacion('Error al reimprimir ticket', 'error');
+        showToast('error', 'Error al reimprimir ticket');
         return { success: false, error: error.message };
     }
 }
@@ -129,29 +117,26 @@ export async function reimprimirTicket(ventaId) {
  */
 export async function testImpresora() {
     try {
-        mostrarNotificacion('Enviando página de prueba...', 'info');
+        showToast('info', 'Enviando página de prueba...');
 
         const response = await fetch('/impresion/test/', {
             method: 'POST',
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Content-Type': 'application/json'
-            }
+            headers: jsonHeaders(),
         });
 
         const data = await response.json();
 
         if (data.success) {
-            mostrarNotificacion('Prueba exitosa. Revisa la impresora.', 'success');
+            showToast('success', 'Prueba exitosa. Revisa la impresora.');
         } else {
-            mostrarNotificacion(`Prueba falló: ${data.mensaje}`, 'error');
+            showToast('error', `Prueba falló: ${data.mensaje}`);
         }
 
         return data;
 
     } catch (error) {
         console.error('Error en test:', error);
-        mostrarNotificacion('Error ejecutando test de impresora', 'error');
+        showToast('error', 'Error ejecutando test de impresora');
         return { success: false, error: error.message };
     }
 }
@@ -197,20 +182,7 @@ export async function obtenerUltimasImpresiones(limit = 10) {
  * @param {string} name - Nombre de la cookie
  * @returns {string|null} Valor de la cookie
  */
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
-}
+
 
 /**
  * Muestra una notificación en la interfaz
@@ -218,39 +190,7 @@ function getCookie(name) {
  * @param {string} mensaje - Mensaje a mostrar
  * @param {string} tipo - Tipo: 'success', 'error', 'warning', 'info'
  */
-function mostrarNotificacion(mensaje, tipo = 'info') {
-    // Verificar si existe Alpine.js y el sistema de notificaciones
-    if (window.Alpine && window.Alpine.store && window.Alpine.store('notifications')) {
-        window.Alpine.store('notifications').add(mensaje, tipo);
-        return;
-    }
 
-    // Fallback: usar alert nativo
-    const iconos = {
-        success: '✓',
-        error: '✗',
-        warning: '⚠',
-        info: 'ℹ'
-    };
-    
-    const icono = iconos[tipo] || 'ℹ';
-    console.log(`${icono} ${mensaje}`);
-    
-    // Crear notificación visual simple si no hay sistema de notificaciones
-    const notif = document.createElement('div');
-    notif.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
-        tipo === 'success' ? 'bg-green-500' :
-        tipo === 'error' ? 'bg-red-500' :
-        tipo === 'warning' ? 'bg-yellow-500' :
-        'bg-blue-500'
-    } text-white`;
-    notif.textContent = `${icono} ${mensaje}`;
-    document.body.appendChild(notif);
-    
-    setTimeout(() => {
-        notif.remove();
-    }, 3000);
-}
 
 // ============================================================================
 // INTEGRACIÓN CON EL FLUJO DEL POS

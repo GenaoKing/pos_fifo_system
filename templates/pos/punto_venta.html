@@ -289,11 +289,7 @@
     - calcularCambio(): calcula el vuelto
     - validarPago(): verifica que el pago sea suficiente
 -->
-<div 
-    x-data="posData()" 
-    x-init="init()"
-    class="pos-container"
->
+<div x-data="posData()" x-init="init()"class="pos-container">
 
     <!-- ============================================
          SCANNER: Input dedicado (invisible) + Indicador
@@ -707,7 +703,7 @@
                     
                     <!-- Metodos de pago -->
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Metodo de Pago</label>
+                        <label class="form-label">Metodo de Pago</label>
                         <div class="grid grid-cols-2 gap-2">
                             <!-- Efectivo -->
                             <div 
@@ -979,7 +975,7 @@ function posData() {
             }
             
             // Atajos de teclado globales
-            document.addEventListener('keydown', (e) => {
+            document.addEventListener('keydown', async (e) => {
                 // F2: Focus en búsqueda
                 if (e.key === 'F2') {
                     e.preventDefault();
@@ -999,14 +995,18 @@ function posData() {
                 }
                 
                 // F8: Cancelar
+                // F8: Cancelar
                 if (e.key === 'F8') {
                     e.preventDefault();
                     if (this.panelPagoActivo) {
                         this.cancelarPago();
                     } else if (this.carrito.length > 0) {
-                        if (confirm('¿Cancelar la venta actual?')) {
-                            this.limpiarCarrito();
-                        }
+                        const ok = await showConfirm(
+                            '¿Cancelar la venta actual?',
+                            'Se vaciará el carrito completo.',
+                            { confirmText: 'Sí, cancelar', type: 'danger' }
+                        );
+                        if (ok) this.limpiarCarrito();
                     }
                 }
             });
@@ -1040,7 +1040,7 @@ function posData() {
                 }
             } catch (error) {
                 console.error('Error al buscar productos:', error);
-                alert('Error al buscar productos');
+                showToast('error', 'Error al buscar productos');
             } finally {
                 this.loading = false;
             }
@@ -1057,7 +1057,7 @@ function posData() {
         agregarAlCarrito(producto) {
             // Validar que tenga stock
             if (!producto.tiene_stock) {
-                alert(`${producto.nombre} no tiene stock disponible`);
+                showToast('warning', `${producto.nombre} no tiene stock disponible`);
                 return;
             }
             
@@ -1265,7 +1265,7 @@ function posData() {
 
         habilitarPanelPago() {
             if (!this.validarCarrito()) {
-                alert('Revisa el carrito antes de proceder al pago');
+                showToast('warning', 'Revisa el carrito antes de proceder al pago');
                 return;
             }
             
@@ -1391,7 +1391,7 @@ function posData() {
          */
         async confirmarVenta() {
             if (!this.validarPago()) {
-                alert('El monto pagado es insuficiente');
+                showToast('warning', 'El monto pagado es insuficiente');
                 return;
             }
             
@@ -1425,10 +1425,7 @@ function posData() {
                 // Enviar al backend
                 const response = await fetch('/pos/api/procesar-venta/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken')
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(datosVenta)
                 });
                 
@@ -1443,10 +1440,7 @@ function posData() {
                         try {
                             await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'X-CSRFToken': this.getCookie('csrftoken'),
-                                },
+                                headers: jsonHeaders(),
                                 body: JSON.stringify({ venta_id: data.venta.id }),
                             });
                         } catch (e) {
@@ -1455,7 +1449,7 @@ function posData() {
                     }
                     
                     // Mostrar confirmación
-                    alert(
+                    showToast('success',
                         '🎉 ¡VENTA EXITOSA!\n\n' +
                         `Número: ${data.venta.numero_venta}\n` +
                         `Total: $${data.venta.total.toFixed(2)}\n` +
@@ -1471,10 +1465,7 @@ function posData() {
                         try {
                             await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'X-CSRFToken': this.getCookie('csrftoken'),
-                                },
+                                headers: jsonHeaders(),
                                 body: JSON.stringify({ venta_id: data.venta.id }),
                             });
                         } catch (e) {
@@ -1488,7 +1479,7 @@ function posData() {
                 } else {
                     // ❌ ERROR EN LA VENTA
                     console.error('❌ Error:', data.error);
-                    alert(`Error al procesar la venta:\n\n${data.error}`);
+                    showToast('error', `Error al procesar la venta:\n\n${data.error}`);
                     
                     // Restaurar botón
                     if (btnConfirmar) {
@@ -1499,7 +1490,7 @@ function posData() {
                 
             } catch (error) {
                 console.error('❌ Error de red:', error);
-                alert('Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
+                showToast('error', 'Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
                 
                 // Restaurar botón
                 const btnConfirmar = document.querySelector('button[\\@click="confirmarVenta()"]');
@@ -1796,20 +1787,7 @@ function posData() {
         /**
          * Obtiene el token CSRF para las peticiones POST
          */
-        getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
+        
     }
 }
 </script>

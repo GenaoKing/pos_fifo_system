@@ -193,11 +193,11 @@ function financiacionApp() {
 
         async registrar() {
             if (!this.form.nombre_cliente.trim() || !this.form.cedula_cliente.trim()) {
-                alert('Nombre y cedula del cliente son requeridos');
+                showToast('warning', 'Nombre y cedula del cliente son requeridos');
                 return;
             }
             if (!this.form.nombre_cooperativa.trim()) {
-                alert('El nombre de la cooperativa es requerido');
+                showToast('warning', 'El nombre de la cooperativa es requerido');
                 return;
             }
 
@@ -206,10 +206,7 @@ function financiacionApp() {
             try {
                 const res = await fetch('{% url "pos:api_registrar" %}', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken'),
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify({
                         venta_id: {{ venta.id }},
                         ...this.form,
@@ -221,25 +218,16 @@ function financiacionApp() {
                     window.open('{% url "pos:pdf" venta.id %}', '_blank');
                     window.location.reload();
                 } else {
-                    alert(data.error || 'Error al registrar');
+                    showToast('error', data.error || 'Error al registrar');
                 }
             } catch (e) {
-                alert('Error de conexion');
+                showToast('error', 'Error de conexion');
             } finally {
                 this.guardando = false;
             }
         },
 
-        getCookie(name) {
-            let v = null;
-            if (document.cookie) {
-                document.cookie.split(';').forEach(c => {
-                    c = c.trim();
-                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
-                });
-            }
-            return v;
-        },
+        
     };
 }
 </script>

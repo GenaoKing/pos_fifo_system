@@ -192,16 +192,6 @@ function historialApp() {
             }
         },
 
-        getCookie(name) {
-            let v = null;
-            if (document.cookie) {
-                document.cookie.split(';').forEach(c => {
-                    c = c.trim();
-                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
-                });
-            }
-            return v;
-        },
     };
 }
 </script>

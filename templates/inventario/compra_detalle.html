@@ -333,7 +333,12 @@ function compraDetalle() {
         cargandoImpresion: false,
         
         async imprimirEtiquetasCompra() {
-            if (!confirm('¿Desea imprimir las etiquetas de productos con código interno (RP-)?')) {
+            const ok = await showConfirm(
+                '¿Desea imprimir las etiquetas de productos con código interno (RP-)?',
+                'Se enviarán a la impresora las etiquetas de los productos que tengan código de barras interno (RP-XXXXXX) y quedará registrado en auditoría.',
+                { confirmText: 'Imprimir Etiquetas', type: 'info' }
+            );
+            if (!ok) {
                 return;
             }
             
@@ -344,43 +349,27 @@ function compraDetalle() {
                     '{% url "inventario:compra_imprimir_etiquetas" compra.id %}',
                     {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': this.getCsrfToken()
-                        }
+                        headers: jsonHeaders(),
                     }
                 );
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert(`✅ ${data.total_etiquetas} etiqueta(s) enviadas a impresión exitosamente`);
+                    showToast('success', `✅ ${data.total_etiquetas} etiqueta(s) enviadas a impresión exitosamente`);
                 } else {
-                    alert(`❌ Error al imprimir: ${data.error || 'Error desconocido'}`);
+                    showToast('error', `❌ Error al imprimir: ${data.error || 'Error desconocido'}`);
                 }
                 
             } catch (error) {
                 console.error('Error:', error);
-                alert('❌ Error de conexión al intentar imprimir');
+                showToast('error', '❌ Error de conexión al intentar imprimir');
             } finally {
                 this.cargandoImpresion = false;
             }
         },
         
-        getCsrfToken() {
-            const csrfInput = document.querySelector('[name=csrfmiddlewaretoken]');
-            if (csrfInput) {
-                return csrfInput.value;
-            }
-            
-            // Alternativa: buscar en cookies
-            const cookieValue = document.cookie
-                .split('; ')
-                .find(row => row.startsWith('csrftoken='))
-                ?.split('=')[1];
-            
-            return cookieValue || '';
-        }
+        
     }
 }
 </script>

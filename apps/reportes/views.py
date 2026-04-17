@@ -235,8 +235,21 @@ def dashboard(request):
         **context_admin,
     }
 
+    
+    # Hidratación segura para Alpine
+    metricas_init = {
+        'total_ventas': float(resumen_hoy['total']),
+        'cantidad_ventas': resumen_hoy['cantidad'],
+        'efectivo': float(efectivo_hoy),
+        'transferencia': float(transferencia_hoy),
+        'tarjeta': float(tarjeta_hoy),
+    }
+    context['metricas_init_json'] = json.dumps(metricas_init)    
+
+
     if request.user.es_cajera:
         return render(request, 'reportes/dashboard_cajera.html', context)
+
 
     return render(request, 'reportes/dashboard.html', context)
 

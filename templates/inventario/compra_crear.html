@@ -39,11 +39,7 @@
         - productos: array de productos agregados
         - Métodos para agregar, eliminar, calcular totales
     -->
-    <div 
-        x-data="compraForm()" 
-        x-init="init()"
-        class="space-y-6"
-    >
+    <div x-data="compraForm()" x-init="init()" class="space-y-6"
         
         <!-- Card: Datos de la Compra -->
         <div class="card">
@@ -299,13 +295,13 @@
             validar() {
                 // Validar proveedor
                 if (!this.compraData.proveedor.trim()) {
-                    alert('El proveedor es requerido');
+                    showToast('warning', 'El proveedor es requerido');
                     return false;
                 }
 
                 // Validar que haya al menos un producto
                 if (this.productos.length === 0) {
-                    alert('Debe agregar al menos un producto');
+                    showToast('warning', 'Debe agregar al menos un producto');
                     return false;
                 }
 
@@ -314,17 +310,17 @@
                     const item = this.productos[i];
                     
                     if (!item.producto_id) {
-                        alert(`Producto ${i + 1}: Debe seleccionar un producto`);
+                        showToast('warning', `Producto ${i + 1}: Debe seleccionar un producto`);
                         return false;
                     }
                     
                     if (!item.cantidad || item.cantidad <= 0) {
-                        alert(`Producto ${i + 1}: La cantidad debe ser mayor a 0`);
+                        showToast('warning', `Producto ${i + 1}: La cantidad debe ser mayor a 0`);
                         return false;
                     }
                     
                     if (!item.costo_unitario || item.costo_unitario <= 0) {
-                        alert(`Producto ${i + 1}: El costo unitario debe ser mayor a 0`);
+                        showToast('warning', `Producto ${i + 1}: El costo unitario debe ser mayor a 0`);
                         return false;
                     }
                 }
@@ -352,10 +348,7 @@
                     // Enviar al servidor
                     const response = await fetch("{% url 'inventario:compra_crear' %}", {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': this.getCookie('csrftoken')
-                        },
+                        headers: jsonHeaders(),
                         body: JSON.stringify(data)
                     });
 
@@ -363,38 +356,25 @@
 
                     if (result.success) {
                         // Mostrar mensaje de éxito
-                        alert(`¡Compra registrada exitosamente!\n\n` +
+                        showToast('success', `¡Compra registrada exitosamente!\n\n` +
                               `Número de compra: ${result.numero_compra}\n` +
                               `Total: $${result.total.toFixed(2)}\n`);
                         
                         // Redirigir a la lista de compras
                         window.location.href = "{% url 'inventario:compras_lista' %}";
                     } else {
-                        alert('Error: ' + result.error);
+                        showToast('error', 'Error: ' + result.error);
                     }
                 } catch (error) {
                     console.error('Error:', error);
-                    alert('Error al guardar la compra. Por favor intenta nuevamente.');
+                    showToast('error', 'Error al guardar la compra. Por favor intenta nuevamente.');
                 } finally {
                     this.loading = false;
                 }
             },
 
             // Helper para obtener el CSRF token
-            getCookie(name) {
-                let cookieValue = null;
-                if (document.cookie && document.cookie !== '') {
-                    const cookies = document.cookie.split(';');
-                    for (let i = 0; i < cookies.length; i++) {
-                        const cookie = cookies[i].trim();
-                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                            break;
-                        }
-                    }
-                }
-                return cookieValue;
-            }
+            
         }
     }
 </script>
