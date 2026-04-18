@@ -11,6 +11,8 @@ Este módulo maneja:
 
 
 from django.http import JsonResponse, HttpResponse
+
+from configuracion.utils import get_config
 from .models import Venta, FinanciacionCooperativa
 from apps.configuracion.decorators import requiere_modulo
 
@@ -47,26 +49,46 @@ import pytz
 def punto_venta(request):
     """
     Vista principal del Punto de Venta.
-    
-    Accesible por Admin y Cajera.
-    Muestra la interfaz completa del POS con:
-    - Panel de búsqueda de productos
-    - Carrito de compras
-    - Panel de pago
+    Ahora hidrata métodos de pago desde ConfiguracionNegocio.
     """
-    # Verificar que el usuario tenga permisos
-    # (Admin y Cajera pueden acceder)
     if not hasattr(request.user, 'rol'):
         messages.error(request, 'Usuario sin rol asignado.')
         return redirect('admin:index')
-    
+ 
+    from apps.configuracion.utils import get_config
+    config = get_config()
+ 
+    # Construir lista de métodos de pago habilitados
+    metodos_pago = []
+    if config.pago_efectivo:
+        metodos_pago.append({
+            'id': 'efectivo',
+            'label': 'Efectivo',
+            'icon': 'cash',
+        })
+    if config.pago_transferencia:
+        metodos_pago.append({
+            'id': 'transferencia',
+            'label': 'Transferencia',
+            'icon': 'transfer',
+        })
+    if config.pago_tarjeta:
+        metodos_pago.append({
+            'id': 'tarjeta',
+            'label': 'Tarjeta',
+            'icon': 'card',
+        })
+ 
     context = {
         'usuario': request.user,
+        'pos_config_json': json.dumps({
+            'metodos_pago': metodos_pago,
+            'permite_mixto': len(metodos_pago) > 1,
+        }),
     }
-    
+ 
     return render(request, 'pos/punto_venta.html', context)
-
-
+ 
 # ============================================
 # API: BUSCAR PRODUCTOS
 # ============================================
@@ -317,6 +339,8 @@ def procesar_venta(request):
         monto_efectivo = Decimal(str(data.get('monto_efectivo', 0)))
         monto_transferencia = Decimal(str(data.get('monto_transferencia', 0)))
         total_esperado = Decimal(str(data.get('total', 0)))
+        monto_tarjeta = Decimal(str(data.get('monto_tarjeta', 0)))
+        referencia_tarjeta = data.get('referencia_tarjeta', '')
         
         # Validaciones básicas
         if not carrito:
@@ -464,6 +488,14 @@ def procesar_venta(request):
                     referencia=f'Transferencia - {numero_venta}'
                 )
             
+            elif metodo_pago == 'tarjeta':
+                Pago.objects.create(
+                    venta=venta,
+                    metodo='TARJETA',
+                    monto=total_esperado,
+                    referencia=f'Tarjeta {referencia_tarjeta} - {numero_venta}'
+                )
+            
             elif metodo_pago == 'mixto':
                 # Efectivo
                 if monto_efectivo > 0:
@@ -482,6 +514,16 @@ def procesar_venta(request):
                         monto=monto_transferencia,
                         referencia=f'Transferencia (Mixto) - {numero_venta}'
                     )
+
+                # Tarjeta
+                if monto_tarjeta > 0:
+                    Pago.objects.create(
+                        venta=venta,
+                        metodo='TARJETA',
+                        monto=monto_tarjeta,
+                        referencia=f'Tarjeta (Mixto) {referencia_tarjeta} - {numero_venta}'
+                    )
+
             
             # ============================================
             # PASO 5: RETORNAR ÉXITO
@@ -719,3 +761,171 @@ def lista_financiaciones(request):
 
 
 
+@login_required
+def vista_anulaciones(request):
+    """
+    Página para gestionar anulaciones de venta.
+    Solo accesible por ADMIN y SYSADMIN.
+    """
+    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+        messages.error(request, 'No tienes permisos para acceder a esta sección.')
+        return redirect('pos:punto_venta')
+ 
+    config = get_config()
+ 
+    # Obtener ventas recientes (últimos 30 días, máx 100)
+    from datetime import timedelta
+    fecha_desde = timezone.now() - timedelta(days=30)
+ 
+    ventas_qs = Venta.objects.filter(
+        fecha_venta__gte=fecha_desde
+    ).select_related('usuario', 'anulada_por', 'cliente').order_by('-fecha_venta')[:100]
+ 
+    ventas_data = []
+    for v in ventas_qs:
+        ventas_data.append({
+            'id': v.id,
+            'numero_venta': v.numero_venta,
+            'fecha': v.fecha_venta.strftime('%d/%m/%Y %H:%M'),
+            'fecha_iso': v.fecha_venta.strftime('%Y-%m-%d'),
+            'cajero': v.usuario.get_full_name() or v.usuario.username,
+            'cliente': str(v.cliente) if v.cliente else 'Contado',
+            'total': str(v.total),
+            'estado': v.estado,
+            'puede_anularse': v.puede_anularse(),
+            'motivo_anulacion': v.motivo_anulacion or '',
+            'anulada_por': (v.anulada_por.get_full_name() or v.anulada_por.username) if v.anulada_por else '',
+            'fecha_anulacion': v.fecha_anulacion.strftime('%d/%m/%Y %H:%M') if v.fecha_anulacion else '',
+        })
+ 
+    context = {
+        'init_data_json': json.dumps({
+            'ventas': ventas_data,
+            'dias_limite': config.dias_limite_anulacion,
+        }),
+    }
+ 
+    return render(request, 'pos/anulaciones.html', context)
+ 
+ 
+# ============================================
+# API: ANULAR VENTA
+# ============================================
+ 
+@login_required
+@require_http_methods(["POST"])
+def api_anular_venta(request):
+    """
+    Endpoint para anular una venta.
+ 
+    POST Body (JSON):
+    {
+        "venta_id": 123,
+        "motivo": "Texto obligatorio del motivo"
+    }
+ 
+    Flujo:
+    1. Valida permisos (ADMIN/SYSADMIN)
+    2. Verifica que la venta puede anularse (estado + días límite)
+    3. Ejecuta reversión FIFO (devuelve stock a lotes)
+    4. Actualiza campos de anulación en Venta
+    5. Registra en Auditoría
+    """
+    # Validar permisos
+    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+        return JsonResponse({
+            'success': False,
+            'error': 'No tienes permisos para anular ventas.'
+        }, status=403)
+ 
+    try:
+        data = json.loads(request.body)
+        venta_id = data.get('venta_id')
+        motivo = data.get('motivo', '').strip()
+ 
+        # Validar motivo obligatorio
+        if not motivo:
+            return JsonResponse({
+                'success': False,
+                'error': 'El motivo de anulación es obligatorio.'
+            }, status=400)
+ 
+        if len(motivo) < 10:
+            return JsonResponse({
+                'success': False,
+                'error': 'El motivo debe tener al menos 10 caracteres.'
+            }, status=400)
+ 
+        # Obtener venta
+        venta = get_object_or_404(Venta, id=venta_id)
+ 
+        # Verificar que puede anularse
+        if not venta.puede_anularse():
+            if venta.estado == 'ANULADA':
+                error_msg = 'Esta venta ya fue anulada.'
+            else:
+                config = get_config()
+                error_msg = f'Esta venta superó el límite de {config.dias_limite_anulacion} días para anulación.'
+            return JsonResponse({
+                'success': False,
+                'error': error_msg
+            }, status=400)
+ 
+        # Ejecutar anulación FIFO (devuelve stock a lotes)
+        from apps.inventario.fifo_logic import anular_venta_devolver_stock
+        resultado_fifo = anular_venta_devolver_stock(
+            venta_id=venta.id,
+            usuario=request.user
+        )
+ 
+        if not resultado_fifo['success']:
+            return JsonResponse({
+                'success': False,
+                'error': f'Error al devolver stock: {resultado_fifo.get("error", "Error desconocido")}'
+            }, status=500)
+ 
+        # Actualizar venta
+        venta.estado = 'ANULADA'
+        venta.motivo_anulacion = motivo
+        venta.anulada_por = request.user
+        venta.fecha_anulacion = timezone.now()
+        venta.save()
+ 
+        # Registrar en auditoría
+        Auditoria.registrar_anulacion_venta(
+            venta=venta,
+            usuario=request.user,
+            motivo=motivo,
+            ip_address=get_client_ip(request)
+        )
+ 
+        return JsonResponse({
+            'success': True,
+            'message': f'Venta {venta.numero_venta} anulada exitosamente.',
+            'venta': {
+                'id': venta.id,
+                'numero_venta': venta.numero_venta,
+                'total': str(venta.total),
+                'estado': 'ANULADA',
+                'motivo_anulacion': motivo,
+                'anulada_por': request.user.get_full_name() or request.user.username,
+                'fecha_anulacion': venta.fecha_anulacion.strftime('%d/%m/%Y %H:%M'),
+                'lotes_actualizados': resultado_fifo.get('lotes_actualizados', 0),
+                'cantidad_devuelta': resultado_fifo.get('cantidad_devuelta', 0),
+            }
+        })
+ 
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'error': 'Datos inválidos.'
+        }, status=400)
+    except Exception as e:
+        print(f"❌ ERROR al anular venta: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'error': f'Error inesperado: {str(e)}'
+        }, status=500)
+ 

@@ -1,0 +1,532 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Ajustes de Inventario - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Inventario</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Ajustes</span>
+{% endblock %}
+
+{% block content %}
+{# Hidratación de datos #}
+{{ init_data_json|json_script:"ajustes-init-data" }}
+
+<div x-data="ajustesApp()" x-init="init()">
+
+    {# ── Header ── #}
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Ajustes de Inventario</h1>
+        <p class="text-sm text-gray-500 mt-1">Registra mermas, daños, correcciones y devoluciones por lote</p>
+    </div>
+
+    {# ══════════════════════════════════════════ #}
+    {# SECCIÓN 1: Buscar producto y ver lotes     #}
+    {# ══════════════════════════════════════════ #}
+    <div class="card mb-6">
+        <div class="card-header">
+            <h2 class="text-lg font-semibold text-gray-800">Seleccionar Producto</h2>
+        </div>
+        <div class="card-body">
+            {# Buscador de productos #}
+            <div class="relative max-w-lg">
+                <label class="form-label">Buscar producto por nombre o SKU</label>
+                <input type="text"
+                       x-model="busquedaProducto"
+                       @input.debounce.300ms="buscarProductos()"
+                       @keydown.escape="cerrarDropdown()"
+                       placeholder="Ej: Vaso 16oz, RP-000001..."
+                       class="form-input w-full">
+
+                {# Dropdown de resultados #}
+                <div x-show="mostrarDropdown && productosEncontrados.length > 0" x-cloak
+                     @click.outside="cerrarDropdown()"
+                     class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <template x-for="prod in productosEncontrados" :key="prod.id">
+                        <button @click="seleccionarProducto(prod)"
+                                class="w-full text-left px-4 py-3 hover:bg-blue-50 border-b border-gray-100 last:border-0 transition-colors">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <span class="font-medium text-gray-900" x-text="prod.nombre"></span>
+                                    <span class="text-xs text-gray-500 ml-2" x-text="prod.sku"></span>
+                                </div>
+                                <span class="text-sm"
+                                      :class="prod.stock_actual > 0 ? 'text-green-600 font-semibold' : 'text-red-500'"
+                                      x-text="prod.stock_actual + ' uds'"></span>
+                            </div>
+                        </button>
+                    </template>
+                </div>
+
+                {# Sin resultados #}
+                <div x-show="mostrarDropdown && productosEncontrados.length === 0 && busquedaProducto.length >= 2 && !buscando" x-cloak
+                     class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center text-gray-500 text-sm">
+                    No se encontraron productos
+                </div>
+            </div>
+
+            {# Producto seleccionado #}
+            <div x-show="productoSeleccionado" x-cloak class="mt-4 bg-blue-50 rounded-lg p-4 flex items-center justify-between">
+                <div>
+                    <span class="font-semibold text-blue-900" x-text="productoSeleccionado?.nombre"></span>
+                    <span class="text-sm text-blue-600 ml-2" x-text="'SKU: ' + (productoSeleccionado?.sku || '')"></span>
+                </div>
+                <button @click="limpiarSeleccion()" class="text-blue-600 hover:text-blue-800 text-sm">
+                    Cambiar producto
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# ══════════════════════════════════════════ #}
+    {# SECCIÓN 2: Lotes del producto seleccionado #}
+    {# ══════════════════════════════════════════ #}
+    <div x-show="productoSeleccionado" x-cloak class="card mb-6">
+        <div class="card-header flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-gray-800">
+                Lotes de <span x-text="productoSeleccionado?.nombre"></span>
+            </h2>
+            <span class="text-sm text-gray-500" x-text="lotes.length + ' lote(s)'"></span>
+        </div>
+
+        {# Loading #}
+        <div x-show="cargandoLotes" class="p-8 text-center text-gray-500">
+            <svg class="animate-spin h-6 w-6 mx-auto mb-2 text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Cargando lotes...
+        </div>
+
+        {# Tabla de lotes #}
+        <div x-show="!cargandoLotes && lotes.length > 0" class="overflow-x-auto">
+            <table class="table w-full">
+                <thead class="table-header">
+                    <tr>
+                        <th class="table-header-cell">Lote</th>
+                        <th class="table-header-cell">Fecha Compra</th>
+                        <th class="table-header-cell text-center">Inicial</th>
+                        <th class="table-header-cell text-center">Actual</th>
+                        <th class="table-header-cell text-right">Costo Unit.</th>
+                        <th class="table-header-cell text-right">Valor</th>
+                        <th class="table-header-cell text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="table-body">
+                    <template x-for="lote in lotes" :key="lote.id">
+                        <tr class="table-row-hover">
+                            <td class="table-cell font-mono text-sm" x-text="lote.numero_lote"></td>
+                            <td class="table-cell text-sm text-gray-600" x-text="lote.fecha_compra"></td>
+                            <td class="table-cell text-center" x-text="lote.cantidad_inicial"></td>
+                            <td class="table-cell text-center">
+                                <span :class="lote.cantidad_actual > 0 ? 'stock-ok' : 'stock-out'"
+                                      x-text="lote.cantidad_actual"></span>
+                            </td>
+                            <td class="table-cell text-right" x-text="'$' + parseFloat(lote.costo_unitario).toFixed(2)"></td>
+                            <td class="table-cell text-right font-semibold" x-text="'$' + parseFloat(lote.valor_actual).toFixed(2)"></td>
+                            <td class="table-cell text-center">
+                                <button @click="abrirModalAjuste(lote)"
+                                        class="btn-primary btn-sm"
+                                        :disabled="lote.agotado">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                    </svg>
+                                    Ajustar
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        {# Sin lotes #}
+        <div x-show="!cargandoLotes && lotes.length === 0" class="p-8 text-center text-gray-500">
+            <p>Este producto no tiene lotes registrados.</p>
+        </div>
+    </div>
+
+    {# ══════════════════════════════════════════ #}
+    {# SECCIÓN 3: Historial de ajustes recientes  #}
+    {# ══════════════════════════════════════════ #}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="text-lg font-semibold text-gray-800">Historial de Ajustes</h2>
+        </div>
+
+        <div x-show="ajustesRecientes.length > 0" class="overflow-x-auto">
+            <table class="table w-full">
+                <thead class="table-header">
+                    <tr>
+                        <th class="table-header-cell">Fecha</th>
+                        <th class="table-header-cell">Producto</th>
+                        <th class="table-header-cell">Lote</th>
+                        <th class="table-header-cell text-center">Tipo</th>
+                        <th class="table-header-cell text-center">Cantidad</th>
+                        <th class="table-header-cell">Motivo</th>
+                        <th class="table-header-cell">Usuario</th>
+                    </tr>
+                </thead>
+                <tbody class="table-body">
+                    <template x-for="ajuste in ajustesRecientes" :key="ajuste.id">
+                        <tr class="table-row-hover">
+                            <td class="table-cell text-sm text-gray-600" x-text="ajuste.fecha"></td>
+                            <td class="table-cell text-sm font-medium" x-text="ajuste.producto"></td>
+                            <td class="table-cell font-mono text-xs" x-text="ajuste.lote"></td>
+                            <td class="table-cell text-center">
+                                <span :class="{
+                                    'badge-danger': ajuste.tipo === 'MERMA' || ajuste.tipo === 'DANO',
+                                    'badge-warning': ajuste.tipo === 'CONTEO' || ajuste.tipo === 'CORRECCION',
+                                    'badge-success': ajuste.tipo === 'DEVOLUCION',
+                                }" x-text="ajuste.tipo_display"></span>
+                            </td>
+                            <td class="table-cell text-center font-semibold"
+                                :class="ajuste.cantidad < 0 ? 'text-red-600' : 'text-green-600'"
+                                x-text="(ajuste.cantidad > 0 ? '+' : '') + ajuste.cantidad"></td>
+                            <td class="table-cell text-sm text-gray-600 max-w-xs truncate" x-text="ajuste.motivo"></td>
+                            <td class="table-cell text-sm" x-text="ajuste.usuario"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <div x-show="ajustesRecientes.length === 0" class="p-8 text-center text-gray-500">
+            No hay ajustes registrados aún.
+        </div>
+    </div>
+
+    {# ══════════════════════════════════════════ #}
+    {# MODAL: Formulario de Ajuste                #}
+    {# ══════════════════════════════════════════ #}
+    <div x-show="showModal" x-cloak
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;">
+
+        {# Backdrop #}
+        <div @click="showModal = false"
+             style="position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);"></div>
+
+        {# Card #}
+        <div x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 transform scale-95"
+             x-transition:enter-end="opacity-100 transform scale-100"
+             style="position:relative;width:100%;max-width:32rem;margin:1rem;background:white;border-radius:1rem;padding:2rem;box-shadow:0 25px 60px rgba(0,0,0,0.35);border:1px solid #e5e7eb;">
+
+            {# Icono + Título #}
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900">Ajustar Inventario</h3>
+                    <p class="text-sm text-gray-500" x-text="productoSeleccionado?.nombre"></p>
+                </div>
+            </div>
+
+            {# Info del lote #}
+            <div class="bg-gray-50 rounded-lg p-4 mb-4 text-sm space-y-1">
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Lote:</span>
+                    <span class="font-mono font-semibold" x-text="loteSeleccionado?.numero_lote"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Stock actual:</span>
+                    <span class="font-semibold" x-text="loteSeleccionado?.cantidad_actual + ' unidades'"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Costo unitario:</span>
+                    <span x-text="'$' + parseFloat(loteSeleccionado?.costo_unitario || 0).toFixed(2)"></span>
+                </div>
+            </div>
+
+            {# Formulario #}
+            <div class="border-t border-gray-200 mt-6 pt-5 space-y-4">
+                {# Tipo de ajuste #}
+                <div>
+                    <label class="form-label">Tipo de ajuste <span class="text-red-500">*</span></label>
+                    <select x-model="formAjuste.tipo" class="form-select w-full">
+                        <option value="">Seleccionar...</option>
+                        <template x-for="t in tiposAjuste" :key="t.value">
+                            <option :value="t.value" x-text="t.label + ' — ' + t.desc"></option>
+                        </template>
+                    </select>
+                </div>
+
+                {# Cantidad #}
+                <div>
+                    <label class="form-label">
+                        Cantidad <span class="text-red-500">*</span>
+                        <span class="text-xs text-gray-400 ml-1"
+                              x-text="formAjuste.tipo === 'DEVOLUCION' ? '(se sumará al stock)' : '(se restará del stock)'"></span>
+                    </label>
+                    <input type="number"
+                           x-model.number="formAjuste.cantidad"
+                           min="1"
+                           :max="formAjuste.tipo !== 'DEVOLUCION' ? loteSeleccionado?.cantidad_actual : 99999"
+                           placeholder="Cantidad de unidades"
+                           class="form-input w-full">
+                    <p x-show="formAjuste.tipo && formAjuste.tipo !== 'DEVOLUCION' && formAjuste.cantidad > 0"
+                       class="text-xs text-gray-500 mt-1">
+                        Stock resultante:
+                        <span class="font-semibold"
+                              :class="(loteSeleccionado?.cantidad_actual - formAjuste.cantidad) < 0 ? 'text-red-600' : 'text-green-600'"
+                              x-text="(loteSeleccionado?.cantidad_actual || 0) - formAjuste.cantidad"></span>
+                    </p>
+                    <p x-show="formAjuste.tipo === 'DEVOLUCION' && formAjuste.cantidad > 0"
+                       class="text-xs text-gray-500 mt-1">
+                        Stock resultante:
+                        <span class="font-semibold text-green-600"
+                              x-text="(loteSeleccionado?.cantidad_actual || 0) + formAjuste.cantidad"></span>
+                    </p>
+                </div>
+
+                {# Motivo #}
+                <div>
+                    <label class="form-label">Motivo <span class="text-red-500">*</span></label>
+                    <textarea x-model="formAjuste.motivo"
+                              rows="3"
+                              placeholder="Describe el motivo del ajuste (mínimo 10 caracteres)..."
+                              class="form-input w-full"></textarea>
+                    <p class="text-xs mt-1 text-gray-400">
+                        <span x-text="formAjuste.motivo.length"></span>/10 caracteres mínimo
+                    </p>
+                </div>
+            </div>
+
+            {# Botones #}
+            <div class="flex space-x-3 mt-5">
+                <button @click="cerrarModal()"
+                        class="btn-outline flex-1"
+                        :disabled="procesando">
+                    Cancelar
+                </button>
+                <button @click="ejecutarAjuste()"
+                        class="btn-primary flex-1"
+                        :disabled="procesando || !formularioValido">
+                    <template x-if="procesando">
+                        <span class="inline-flex items-center">
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                            </svg>
+                            Procesando...
+                        </span>
+                    </template>
+                    <template x-if="!procesando">
+                        <span>Registrar Ajuste</span>
+                    </template>
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function ajustesApp() {
+    return {
+        // Búsqueda de productos
+        busquedaProducto: '',
+        productosEncontrados: [],
+        mostrarDropdown: false,
+        buscando: false,
+
+        // Producto y lotes
+        productoSeleccionado: null,
+        lotes: [],
+        cargandoLotes: false,
+
+        // Modal de ajuste
+        showModal: false,
+        loteSeleccionado: null,
+        tiposAjuste: [],
+        formAjuste: {
+            tipo: '',
+            cantidad: '',
+            motivo: '',
+        },
+        procesando: false,
+
+        // Historial
+        ajustesRecientes: [],
+
+        get formularioValido() {
+            return this.formAjuste.tipo &&
+                   this.formAjuste.cantidad > 0 &&
+                   this.formAjuste.motivo.trim().length >= 10;
+        },
+
+        init() {
+            const data = JSON.parse(
+                document.getElementById('ajustes-init-data').textContent
+            );
+            this.ajustesRecientes = data.ajustes_recientes;
+            this.tiposAjuste = data.tipos_ajuste;
+        },
+
+        // ── Búsqueda de productos ──
+
+        async buscarProductos() {
+            if (this.busquedaProducto.trim().length < 2) {
+                this.productosEncontrados = [];
+                this.mostrarDropdown = false;
+                return;
+            }
+
+            this.buscando = true;
+            try {
+                const response = await fetch(
+                    `/inventario/api/productos/buscar/?q=${encodeURIComponent(this.busquedaProducto)}`
+                );
+                const data = await response.json();
+                this.productosEncontrados = data.productos || [];
+                this.mostrarDropdown = true;
+            } catch (e) {
+                console.error('Error buscando productos:', e);
+                showToast('error', 'Error al buscar productos.');
+            } finally {
+                this.buscando = false;
+            }
+        },
+
+        cerrarDropdown() {
+            this.mostrarDropdown = false;
+        },
+
+        async seleccionarProducto(producto) {
+            this.productoSeleccionado = producto;
+            this.busquedaProducto = '';
+            this.mostrarDropdown = false;
+            this.productosEncontrados = [];
+
+            // Cargar lotes
+            await this.cargarLotes(producto.id);
+        },
+
+        limpiarSeleccion() {
+            this.productoSeleccionado = null;
+            this.lotes = [];
+            this.busquedaProducto = '';
+        },
+
+        // ── Lotes ──
+
+        async cargarLotes(productoId) {
+            this.cargandoLotes = true;
+            try {
+                const response = await fetch(`/inventario/api/lotes/${productoId}/`);
+                const data = await response.json();
+
+                if (data.success) {
+                    this.lotes = data.lotes;
+                } else {
+                    showToast('error', data.error || 'Error al cargar lotes.');
+                }
+            } catch (e) {
+                console.error('Error cargando lotes:', e);
+                showToast('error', 'Error de conexión al cargar lotes.');
+            } finally {
+                this.cargandoLotes = false;
+            }
+        },
+
+        // ── Modal de ajuste ──
+
+        abrirModalAjuste(lote) {
+            this.loteSeleccionado = lote;
+            this.formAjuste = { tipo: '', cantidad: '', motivo: '' };
+            this.showModal = true;
+        },
+
+        cerrarModal() {
+            this.showModal = false;
+            this.loteSeleccionado = null;
+            this.formAjuste = { tipo: '', cantidad: '', motivo: '' };
+        },
+
+        async ejecutarAjuste() {
+            if (!this.formularioValido) return;
+
+            // Confirmar
+            const tipoLabel = this.tiposAjuste.find(t => t.value === this.formAjuste.tipo)?.label || this.formAjuste.tipo;
+            const esEntrada = this.formAjuste.tipo === 'DEVOLUCION';
+            const accion = esEntrada ? 'sumar' : 'restar';
+
+            const ok = await showConfirm(
+                `¿Confirmar ${tipoLabel}?`,
+                `Se va a ${accion} ${this.formAjuste.cantidad} unidad(es) del lote ${this.loteSeleccionado.numero_lote}.`,
+                {
+                    confirmText: 'Confirmar',
+                    cancelText: 'Cancelar',
+                    type: esEntrada ? 'info' : 'warning'
+                }
+            );
+            if (!ok) return;
+
+            this.procesando = true;
+
+            try {
+                const response = await fetch('/inventario/api/ajustar/', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        lote_id: this.loteSeleccionado.id,
+                        tipo: this.formAjuste.tipo,
+                        cantidad: this.formAjuste.cantidad,
+                        motivo: this.formAjuste.motivo.trim(),
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Actualizar lote en la lista local
+                    const idx = this.lotes.findIndex(l => l.id === this.loteSeleccionado.id);
+                    if (idx !== -1) {
+                        this.lotes[idx].cantidad_actual = data.ajuste.cantidad_nueva;
+                        this.lotes[idx].agotado = data.ajuste.cantidad_nueva <= 0;
+                        this.lotes[idx].valor_actual = String(
+                            data.ajuste.cantidad_nueva * parseFloat(this.lotes[idx].costo_unitario)
+                        );
+                    }
+
+                    // Agregar al historial local
+                    this.ajustesRecientes.unshift({
+                        id: data.ajuste.id,
+                        fecha: data.ajuste.fecha,
+                        producto: data.ajuste.producto,
+                        lote: data.ajuste.lote,
+                        tipo: data.ajuste.tipo,
+                        tipo_display: data.ajuste.tipo_display,
+                        cantidad: data.ajuste.cantidad,
+                        motivo: data.ajuste.motivo,
+                        usuario: data.ajuste.usuario,
+                    });
+
+                    this.cerrarModal();
+                    showToast('success', data.message);
+                } else {
+                    showToast('error', data.error || 'Error al registrar el ajuste.');
+                }
+            } catch (e) {
+                console.error('Error ejecutando ajuste:', e);
+                showToast('error', 'Error de conexión al procesar el ajuste.');
+            } finally {
+                this.procesando = false;
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

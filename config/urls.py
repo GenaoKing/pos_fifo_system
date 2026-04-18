@@ -37,6 +37,7 @@ urlpatterns = [
     path('cotizaciones/', include('apps.cotizaciones.urls')),
     path('reportes/', include('apps.reportes.urls')),
     path('caja/', include('apps.caja.urls')),
+    path('auditoria/', include('apps.auditoria.urls')),
      # Autenticacion (sin prefijo, queda como /login/ y /logout/)
     path('', include('apps.usuarios.urls')),
      # Impresión automática (POST desde POS)
