@@ -42,7 +42,7 @@ def dashboard_auditoria(request):
     ]
 
     usuarios = list(
-        Usuario.objects.filter(is_active=True)
+        Usuario.objects.filter(activo=True)
         .values('id', 'username', 'first_name', 'last_name')
         .order_by('first_name', 'username')
     )
@@ -73,12 +73,12 @@ def dashboard_auditoria(request):
     }
 
     context = {
-        'init_data_json': json.dumps({
+        'init_data_json': {
             'tipos_accion': tipos_accion,
             'niveles': niveles,
             'usuarios': usuarios_data,
             'stats': stats,
-        }),
+        },
     }
 
     return render(request, 'auditoria/dashboard.html', context)

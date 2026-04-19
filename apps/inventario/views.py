@@ -23,7 +23,8 @@ from datetime import datetime
 from apps.inventario.models import AjusteInventario, Compra, DetalleCompra, Lote, MovimientoLote
 from apps.productos.models import Producto
 from apps.productos.utils import asignar_codigo_si_vacio
-from auditoria.models import Auditoria, get_client_ip
+from apps.auditoria.models import Auditoria, get_client_ip
+from apps.inventario.fifo_logic import obtener_stock_disponible, obtener_lotes_fifo 
 from utils.impresoras.zebra import imprimir_etiquetas_compra
 
 
@@ -238,7 +239,7 @@ def productos_buscar(request):
                 'nombre': p.nombre,
                 'sku': p.sku,
                 'precio_venta': float(p.precio_venta),
-                'stock_actual': p.obtener_stock_total()  # Método del modelo
+                'stock_actual': obtener_stock_disponible(p)  # Método del modelo
             }
             for p in productos
         ]
@@ -359,10 +360,10 @@ def vista_ajustes(request):
     ]
  
     context = {
-        'init_data_json': json.dumps({
+        'init_data_json': {
             'ajustes_recientes': ajustes_data,
             'tipos_ajuste': tipos_ajuste,
-        }),
+        },
     }
  
     return render(request, 'inventario/ajustes.html', context)

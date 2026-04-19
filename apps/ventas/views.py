@@ -12,7 +12,7 @@ Este módulo maneja:
 
 from django.http import JsonResponse, HttpResponse
 
-from configuracion.utils import get_config
+from apps.configuracion.utils import get_config
 from .models import Venta, FinanciacionCooperativa
 from apps.configuracion.decorators import requiere_modulo
 
@@ -81,10 +81,10 @@ def punto_venta(request):
  
     context = {
         'usuario': request.user,
-        'pos_config_json': json.dumps({
+        'pos_config_json': {
             'metodos_pago': metodos_pago,
             'permite_mixto': len(metodos_pago) > 1,
-        }),
+        },
     }
  
     return render(request, 'pos/punto_venta.html', context)
@@ -799,10 +799,10 @@ def vista_anulaciones(request):
         })
  
     context = {
-        'init_data_json': json.dumps({
+        'init_data_json': {
             'ventas': ventas_data,
             'dias_limite': config.dias_limite_anulacion,
-        }),
+        },
     }
  
     return render(request, 'pos/anulaciones.html', context)

@@ -23,18 +23,22 @@ from .models import Producto, Categoria
 @login_required
 def lista_productos(request):
     """Lista de productos con filtros"""
-    
-    # Obtener todos los productos con información relacionada
+ 
     productos = Producto.objects.select_related('categoria').all()
-    
-    # Filtro por categoría (desde GET params)
+ 
+    # Filtro por categoría
     categoria_id = request.GET.get('categoria')
     if categoria_id:
         productos = productos.filter(categoria_id=categoria_id)
-    
+ 
     # Preparar datos para el template
     productos_data = []
+    marcas_set = set()
+ 
     for producto in productos:
+        if producto.marca:
+            marcas_set.add(producto.marca)
+ 
         productos_data.append({
             'id': producto.id,
             'sku': producto.sku,
@@ -45,21 +49,29 @@ def lista_productos(request):
             'categoria_nombre': producto.categoria.nombre,
             'precio_venta': str(producto.precio_venta),
             'stock_minimo': producto.stock_minimo,
-            'stock_actual': producto.stock_actual,  # property del modelo
+            'stock_actual': producto.stock_actual,
             'activo': producto.activo,
             'imagen': producto.imagen.url if producto.imagen else None,
             'atributos': producto.atributos or {},
+            # ─── CAMPOS NUEVOS ───
+            'estado': producto.estado,
+            'estado_display': producto.get_estado_display(),
+            'marca': producto.marca or '',
         })
-    
-    # Obtener todas las categorías activas para los filtros
+ 
+    # Marcas únicas ordenadas para el filtro
+    marcas_lista = sorted(marcas_set)
+ 
     categorias = Categoria.objects.filter(activa=True).order_by('nombre')
-    
+ 
     context = {
         'productos_json': json.dumps(productos_data),
         'categorias': categorias,
+        'marcas_json': json.dumps(marcas_lista),
     }
-    
+ 
     return render(request, 'productos/lista_productos.html', context)
+ 
 
 
 @login_required
@@ -86,7 +98,9 @@ def crear_producto(request):
             precio_venta=data['precio_venta'],
             stock_minimo=data.get('stock_minimo', 5),
             activo=True,
-            atributos=data.get('atributos', {})
+            atributos=data.get('atributos', {}),
+            estado=data.get('estado', 'nuevo'),
+            marca=data.get('marca', '')
         )
         
         messages.success(request, f'Producto "{producto.nombre}" creado exitosamente')
@@ -138,6 +152,8 @@ def editar_producto(request, producto_id):
         producto.stock_minimo = data.get('stock_minimo', 5)
         producto.activo = data.get('activo', True)
         producto.atributos = data.get('atributos', {})
+        producto.estado = data.get('estado', 'nuevo')
+        producto.marca = data.get('marca', '')
         
         producto.save()
         
