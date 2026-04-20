@@ -1,0 +1,19 @@
+# =============================================================================
+# requirements_cloud.txt — Dependencias adicionales para BD cloud (Fase 1)
+# =============================================================================
+# Instalar SOBRE el requirements.txt base:
+#   pip install -r requirements_cloud.txt
+# =============================================================================
+
+# --- Azure PostgreSQL (branch feature/azure-postgres) ---
+# psycopg[binary] ya está en requirements.txt base — funciona igual con Azure PG
+# No se necesitan dependencias adicionales para Azure PostgreSQL
+
+# --- Azure SQL Database (branch feature/azure-sql) ---
+mssql-django>=1.5
+pyodbc>=5.1
+
+# NOTA: pyodbc requiere el driver ODBC instalado a nivel de sistema operativo:
+#   "ODBC Driver 18 for SQL Server"
+#   Descargar: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+#   Instalador Windows: msodbcsql18.msi

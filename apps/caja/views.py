@@ -5,7 +5,7 @@ Vistas del modulo de Arqueo y Gestion de Caja
 
 import json
 from decimal import Decimal
-from multiprocessing import context
+
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -108,6 +108,13 @@ def caja_index(request):
         'cajas_disponibles': list(cajas_disponibles.values('id', 'nombre')),
     }
 
+    context = {
+        'turno_activo': turno_activo,
+        'cajas_disponibles': cajas_disponibles,
+        'historial': historial,
+        'turnos_abiertos_otros': turnos_abiertos_otros,
+    }
+    
     # Si hay turno activo, agregar desglose
     if turno_activo:
         init_data['turno'] = {

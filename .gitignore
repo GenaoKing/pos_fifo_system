@@ -48,3 +48,14 @@ backups/
 secrets.json
 *.key
 *.pem
+
+
+# Cloud credentials (NUNCA commitear)
+deploy/env_*_local.bat
+
+# Logs de debug cloud
+cloud_debug.log
+cloud_debug_sql.log
+
+# Resultados de latencia (contienen hostnames)
+docs/latency_results_*.json
