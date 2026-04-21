@@ -41,6 +41,9 @@ INSTALLED_APPS = [
     'apps.configuracion',
     'apps.caja',
     'apps.sucursales',
+    'rest_framework',
+    'rest_framework.authtoken',
+    'apps.api',
     
 ]
 
@@ -238,7 +241,33 @@ THERMAL_PRINTER = {
     'LOGO_HEIGHT': None,     # Auto-proporcional
 }
 
-SUCURSAL_CODIGO = None  # Código de sucursal actual, usado para cargar la configuración específica.
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'apps.api.pagination.StandardPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'sync': '120/min',       # Sucursales sincronizando
+        'maestros': '60/min',    # Pull de datos maestros
+        'reportes': '30/min',    # Dashboard consultando
+    },
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+}
+
+SUCURSAL_CODIGO = 'SD-001'  # Código de sucursal actual, usado para cargar la configuración específica.
 # ============================================================================
 # INFORMACIÓN DEL NEGOCIO (PARA TICKETS)
 # ============================================================================
