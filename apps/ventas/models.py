@@ -41,8 +41,18 @@ class Venta(models.Model):
         blank=True,
         null=True,
         help_text='Null = Cliente Contado'
-)
+    )
     
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='ventas',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal donde se realizo la venta. Null para ventas legacy.'
+    )
+
     subtotal = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -122,11 +132,17 @@ class Venta(models.Model):
         # SEGUNDO: Generar número de venta basado en fecha_venta
         if not self.numero_venta:
             fecha_str = self.fecha_venta.strftime('%Y%m%d')
-            
+
+            # Fase 2: prefijo de sucursal si existe
+            if self.sucursal:
+                prefijo = f'{self.sucursal.codigo}-V{fecha_str}'
+            else:
+                prefijo = f'V-{fecha_str}'
+
             ultimo = Venta.objects.filter(
-                numero_venta__startswith=f'V-{fecha_str}'
+                numero_venta__startswith=prefijo
             ).count()
-            self.numero_venta = f'V-{fecha_str}-{str(ultimo + 1).zfill(5)}'
+            self.numero_venta = f'{prefijo}-{str(ultimo + 1).zfill(4)}'
         
         super().save(*args, **kwargs)
     

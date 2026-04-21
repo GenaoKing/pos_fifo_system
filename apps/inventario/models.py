@@ -49,6 +49,16 @@ class Compra(models.Model):
         related_name='compras',
         verbose_name='Registrado por'
     )
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='compras',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal donde se registro la compra. Null para compras legacy.'
+    )
     
     fecha_creacion = models.DateTimeField(
         auto_now_add=True,
@@ -151,7 +161,8 @@ class DetalleCompra(models.Model):
             fecha_compra=self.compra.fecha_compra,
             cantidad_inicial=self.cantidad,
             cantidad_actual=self.cantidad,
-            costo_unitario=self.costo_unitario
+            costo_unitario=self.costo_unitario,
+            sucursal=self.compra.sucursal
         )
         
         # Crear movimiento inicial
@@ -225,6 +236,16 @@ class Lote(models.Model):
         default=True,
         verbose_name='Activo'
     )
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='lotes',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal donde se registro la compra. Null para compras legacy.'
+    )
     
     fecha_creacion = models.DateTimeField(
         auto_now_add=True,
@@ -238,6 +259,7 @@ class Lote(models.Model):
         indexes = [
             models.Index(fields=['producto', 'fecha_compra']),
             models.Index(fields=['cantidad_actual']),
+            models.Index(fields=['sucursal', 'producto']),
         ]
     
     def __str__(self):

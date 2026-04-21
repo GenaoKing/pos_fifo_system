@@ -39,6 +39,16 @@ class Caja(models.Model):
         verbose_name='Activa'
     )
 
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='cajas',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal a la que pertenece esta caja. Null para instalaciones legacy.'
+    )
+
     fecha_creacion = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Fecha de Creacion'

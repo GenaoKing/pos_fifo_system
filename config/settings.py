@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     'apps.cotizaciones',
     'apps.configuracion',
     'apps.caja',
+    'apps.sucursales',
+    
 ]
 
 MIDDLEWARE = [
@@ -54,6 +56,7 @@ MIDDLEWARE = [
     # 'apps.auditoria.middleware.AuditoriaMiddleware',
     'apps.auditoria.middleware.AuditoriaMiddleware',
     'apps.auditoria.middleware.SesionAuditoriaMiddleware',
+    'apps.sucursales.middleware.SucursalMiddleware',
     
 ]
 
@@ -71,6 +74,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'apps.configuracion.context_processors.config_negocio',
+                'apps.sucursales.context_processors.sucursal_actual',
             ],
         },
     },
@@ -234,6 +238,7 @@ THERMAL_PRINTER = {
     'LOGO_HEIGHT': None,     # Auto-proporcional
 }
 
+SUCURSAL_CODIGO = None  # Código de sucursal actual, usado para cargar la configuración específica.
 # ============================================================================
 # INFORMACIÓN DEL NEGOCIO (PARA TICKETS)
 # ============================================================================

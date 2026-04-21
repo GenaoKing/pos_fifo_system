@@ -131,6 +131,7 @@ def compra_crear(request):
                 compra = Compra.objects.create(
                     usuario=request.user,
                     proveedor=proveedor,
+                    sucursal=request.sucursal,
                     numero_factura=numero_factura if numero_factura else None,
                     total=Decimal('0')  # Lo calculamos después
                 )
