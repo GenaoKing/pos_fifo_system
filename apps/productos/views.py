@@ -14,6 +14,7 @@ from utils.impresoras.zebra import imprimir_etiqueta_producto
 from apps.configuracion.decorators import requiere_modulo
 
 from .models import Producto, Categoria
+from apps.sync.decorators import requiere_conexion_cloud
 
 
 # ==========================================
@@ -73,7 +74,7 @@ def lista_productos(request):
     return render(request, 'productos/lista_productos.html', context)
  
 
-
+@requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
 @require_http_methods(["POST"])
 def crear_producto(request):
@@ -105,6 +106,7 @@ def crear_producto(request):
         
         messages.success(request, f'Producto "{producto.nombre}" creado exitosamente')
         
+
         return JsonResponse({
             'success': True,
             'message': 'Producto creado exitosamente',
@@ -120,6 +122,7 @@ def crear_producto(request):
         }, status=400)
 
 
+@requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
 @require_http_methods(["POST"])
 def editar_producto(request, producto_id):

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'apps.api',
+    'apps.sync',
     
 ]
 
@@ -167,6 +168,12 @@ SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
 SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
 
+
+
+
+
+
+
 # Roles del sistema
 ROLES_SISTEMA = {
     'ADMIN': 'Administrador',
@@ -244,7 +251,7 @@ THERMAL_PRINTER = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'apps.api.authentication.SucursalTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -260,7 +267,7 @@ REST_FRAMEWORK = {
         'maestros': '60/min',    # Pull de datos maestros
         'reportes': '30/min',    # Dashboard consultando
     },
-    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%f%z',
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
@@ -271,3 +278,22 @@ SUCURSAL_CODIGO = 'SD-001'  # Código de sucursal actual, usado para cargar la c
 # ============================================================================
 # INFORMACIÓN DEL NEGOCIO (PARA TICKETS)
 # ============================================================================
+
+
+
+# =========================================================================
+# SYNC ENGINE (Fase 4)
+# =========================================================================
+# Configuracion de sincronizacion con el cloud.
+# Si SYNC_ENABLED=False, la app sync no hace nada (modo standalone).
+# Los valores reales (CLOUD_API_URL, CLOUD_API_TOKEN) deben venir de env vars
+# en el .env de cada sucursal, para no hardcodear secrets en settings.py.
+SYNC_ENABLED = os.environ.get('SYNC_ENABLED', 'false').lower() == 'true'
+CLOUD_API_URL = os.environ.get('CLOUD_API_URL', '')
+CLOUD_API_TOKEN = os.environ.get('CLOUD_API_TOKEN', '')
+ 
+# Parametros del engine (todos con defaults razonables)
+SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
+SYNC_BATCH_SIZE = int(os.environ.get('SYNC_BATCH_SIZE', '50'))
+SYNC_MAX_RETRIES = int(os.environ.get('SYNC_MAX_RETRIES', '10'))
+SYNC_HTTP_TIMEOUT = int(os.environ.get('SYNC_HTTP_TIMEOUT', '10'))

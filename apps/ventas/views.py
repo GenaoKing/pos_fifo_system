@@ -13,6 +13,7 @@ Este módulo maneja:
 from django.http import JsonResponse, HttpResponse
 
 from apps.configuracion.utils import get_config
+
 from .models import Venta, FinanciacionCooperativa
 from apps.configuracion.decorators import requiere_modulo
 
@@ -32,6 +33,7 @@ import json
 from utils.impresoras.manager import print_manager
 from apps.auditoria.models import Auditoria, get_client_ip
 
+
 from apps.ventas.models import Venta, DetalleVenta, Pago
 from apps.productos.models import Producto
 from apps.inventario.models import Lote, MovimientoLote
@@ -39,6 +41,10 @@ from apps.inventario.fifo_logic import procesar_venta_fifo
 
 from apps.productos.models import Producto
 import pytz
+
+
+from django.db import transaction
+from apps.sync import events as sync_events
 
 
 # ============================================
@@ -84,6 +90,7 @@ def punto_venta(request):
         'pos_config_json': {
             'metodos_pago': metodos_pago,
             'permite_mixto': len(metodos_pago) > 1,
+            'permitir_inventario_negativo': get_config().permitir_inventario_negativo,
         },
     }
  
@@ -354,6 +361,7 @@ def procesar_venta(request):
             # ============================================
             # PASO 1: VALIDAR STOCK DISPONIBLE
             # ============================================
+            config = get_config()
             for item in carrito:
                 producto = get_object_or_404(Producto, id=item['id'])
                 
@@ -366,13 +374,13 @@ def procesar_venta(request):
                     total=models.Sum('cantidad_actual')
                 )['total'] or 0
                 
-                cantidad_solicitada = item['cantidad']
-                
-                # Permitimos venta con stock negativo pero lo alertamos
-                if cantidad_solicitada > stock_disponible:
-                    print(f"⚠️ ALERTA: Venta con stock insuficiente - {producto.nombre}")
-                    print(f"   Solicitado: {cantidad_solicitada}, Disponible: {stock_disponible}")
-                    # Continuamos igual (permitido según tus especificaciones)
+                if item['cantidad'] > stock_disponible:
+                    if not config.permitir_inventario_negativo:
+                        return JsonResponse({
+                            'success': False,
+                            'error': f'Stock insuficiente: {producto.nombre}. '
+                                    f'Disponible: {stock_disponible}'
+                        }, status=400)
             
             # ============================================
             # PASO 2: CREAR VENTA (HEADER)
@@ -538,6 +546,8 @@ def procesar_venta(request):
                 except Cliente.DoesNotExist:
                     pass  # Si no existe, queda como contado (null)
             venta.save()
+            # Fase 4: encolar evento de sync (se ejecuta despues del commit)
+            transaction.on_commit(lambda: sync_events.evento_venta_creada(venta))
 
             if venta:
                 resultado = print_manager.print_ticket_venta(
@@ -551,6 +561,9 @@ def procesar_venta(request):
                     usuario=request.user,
                     ip_address=get_client_ip(request)
                 )
+
+                
+
 
 
             return JsonResponse({
@@ -898,6 +911,9 @@ def api_anular_venta(request):
             motivo=motivo,
             ip_address=get_client_ip(request)
         )
+
+        transaction.on_commit(lambda v=venta: sync_events.evento_venta_anulada(v))
+
  
         return JsonResponse({
             'success': True,

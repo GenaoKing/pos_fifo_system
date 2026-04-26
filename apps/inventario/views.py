@@ -27,6 +27,8 @@ from apps.auditoria.models import Auditoria, get_client_ip
 from apps.inventario.fifo_logic import obtener_stock_disponible, obtener_lotes_fifo 
 from utils.impresoras.zebra import imprimir_etiquetas_compra
 
+from django.db import transaction
+from apps.sync import events as sync_events
 
 # ============================================
 # LISTA DE COMPRAS
@@ -541,6 +543,9 @@ def api_ajustar_inventario(request):
                 usuario=request.user,
                 ip_address=get_client_ip(request),
             )
+            
+            transaction.on_commit(lambda a=ajuste: sync_events.evento_ajuste_inventario(a))
+
  
         return JsonResponse({
             'success': True,

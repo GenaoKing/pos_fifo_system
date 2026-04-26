@@ -1,77 +1,71 @@
 """
 apps/api/views/sync.py
-Endpoints de sincronización (sucursal → cloud).
 
-Estos endpoints reciben eventos de las sucursales y reportan
-el estado de sincronización.
+Endpoints del cloud que reciben eventos desde las sucursales.
 
-TODO: FASE 2 — Requiere modelos Sucursal y EventoSync.
-La lógica está completa, solo falta descomentar los imports
-y queries que dependen de esos modelos.
+Este archivo vive en la MISMA base de codigo que el POS, pero solo tiene
+sentido ejecutarlo en la instancia CLOUD (Django corriendo con settings que
+apuntan a la BD cloud).
+
+Handlers por tipo de evento (Opcion 3 del diseno, Fase 4.5):
+
+    VENTA_CREADA       -> Crea Venta + DetalleVenta + Pago
+    VENTA_ANULADA      -> Actualiza Venta existente con datos de anulacion
+    APERTURA_CAJA      -> Crea TurnoCaja con estado='ABIERTO'
+    MOVIMIENTO_CAJA    -> Crea MovimientoCaja colgado de turno ABIERTO
+    CIERRE_CAJA        -> Actualiza TurnoCaja existente (abierto por APERTURA)
+    AJUSTE_INVENTARIO  -> Log-only por ahora (futuro: crear Ajuste en cloud)
+    COMPRA_REGISTRADA  -> Log-only por ahora
+
+Idempotencia:
+    El hash_payload identifica eventos unicos. El cloud reutiliza la tabla
+    EventoSync (la misma del cliente) para marcar que ya vio ese hash.
+    Si el cliente reenvia por ACK perdido, el cloud responde DUPLICADO sin
+    reprocesar.
+
+Assert de integridad:
+    Al cargarse este modulo, valida que todos los TIPOS_EVENTO_CODIGOS tengan
+    handler definido. Si alguien agrega un tipo en constants.py sin agregar
+    handler aqui, Django no arranca (error loud, no silent).
 """
-
-import hashlib
-import json
 import logging
+from decimal import Decimal
 
+from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 
+from apps.sync.constants import TIPOS_EVENTO_CODIGOS
 from ..permissions import EsSucursalAutenticada
-from ..serializers.sync import EventoBatchSerializer, SyncStatusSerializer
+from ..serializers.sync import EventoBatchSerializer
 
 logger = logging.getLogger('pos_system')
 
 
+# ============================================================================
+# POST /api/v1/sync/eventos/
+# ============================================================================
+
 @api_view(['POST'])
 @permission_classes([EsSucursalAutenticada])
-@throttle_classes([ScopedRateThrottle])
+@throttle_classes([])
 def recibir_eventos(request):
-    """
-    POST /api/v1/sync/eventos/
-    
-    Recibe un batch de eventos desde una sucursal.
-    
-    Body:
-        {
-            "eventos": [
-                {
-                    "tipo_evento": "VENTA_CREADA",
-                    "payload": { ... datos completos de la venta ... },
-                    "hash_payload": "sha256...",
-                    "timestamp": "2026-04-17T14:30:00-04:00"
-                },
-                ...
-            ]
-        }
-    
-    Response (éxito):
-        {
-            "recibidos": 5,
-            "duplicados": 1,
-            "errores": 0,
-            "detalle": [
-                { "hash": "abc...", "estado": "CONFIRMADO" },
-                { "hash": "def...", "estado": "DUPLICADO" },
-                ...
-            ]
-        }
-    
-    Idempotencia:
-        El hash_payload se usa para detectar duplicados. Si un evento
-        con el mismo hash ya fue procesado, se marca como DUPLICADO
-        sin error — esto permite que la sucursal reenvíe sin miedo.
-    """
-    serializer = EventoBatchSerializer(data=request.data)
+    """Recibe un batch de eventos desde una sucursal y los aplica."""
+    recibir_eventos.throttle_scope = 'sync'
 
+    serializer = EventoBatchSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(
-            {'error': 'Datos inválidos', 'detalle': serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST
+            {'error': 'Datos invalidos', 'detalle': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
         )
+
+    from apps.sync.models import EventoSync
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
 
     eventos = serializer.validated_data['eventos']
     resultados = []
@@ -81,55 +75,64 @@ def recibir_eventos(request):
 
     for evento_data in eventos:
         hash_payload = evento_data['hash_payload']
+        tipo_evento = evento_data['tipo_evento']
+        payload = evento_data['payload']
 
-        try:
-            # TODO: FASE 2 — Descomentar cuando existan los modelos
-            # ──────────────────────────────────────────────────────
-            # from apps.sync.models import EventoSync
-            #
-            # # Verificar duplicado por hash
-            # if EventoSync.objects.filter(hash_payload=hash_payload).exists():
-            #     duplicados += 1
-            #     resultados.append({
-            #         'hash': hash_payload,
-            #         'estado': 'DUPLICADO'
-            #     })
-            #     continue
-            #
-            # # Crear evento
-            # EventoSync.objects.create(
-            #     sucursal=request.auth.sucursal,
-            #     tipo_evento=evento_data['tipo_evento'],
-            #     payload=evento_data['payload'],
-            #     hash_payload=hash_payload,
-            #     estado='CONFIRMADO',
-            #     confirmed_at=timezone.now(),
-            # )
-            # ──────────────────────────────────────────────────────
+        # Idempotencia: si ya procesamos este hash, responder DUPLICADO
+        if EventoSync.objects.filter(hash_payload=hash_payload).exists():
+            duplicados += 1
+            resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+            continue
 
-            # Placeholder hasta Fase 2: log del evento
-            logger.info(
-                f"[SYNC] Evento recibido: {evento_data['tipo_evento']} "
-                f"hash={hash_payload[:12]}... "
-                f"usuario={request.user.username}"
-            )
-
-            recibidos += 1
-            resultados.append({
-                'hash': hash_payload,
-                'estado': 'CONFIRMADO'
-            })
-
-        except Exception as e:
+        handler = HANDLERS.get(tipo_evento)
+        if handler is None:
             errores += 1
             resultados.append({
                 'hash': hash_payload,
                 'estado': 'ERROR',
-                'error': str(e)
+                'error': f'Tipo desconocido: {tipo_evento}',
             })
-            logger.error(
-                f"[SYNC] Error procesando evento {hash_payload[:12]}: {e}"
+            continue
+
+        try:
+            with transaction.atomic():
+                handler(sucursal, payload)
+                EventoSync.objects.create(
+                    sucursal=sucursal,
+                    tipo_evento=tipo_evento,
+                    payload=payload,
+                    hash_payload=hash_payload,
+                    objeto_referencia=_extraer_referencia(tipo_evento, payload),
+                    estado='CONFIRMADO',
+                    sent_at=timezone.now(),
+                    confirmed_at=timezone.now(),
+                )
+            recibidos += 1
+            resultados.append({'hash': hash_payload, 'estado': 'CONFIRMADO'})
+            logger.info(
+                '[SYNC] %s %s aplicado (hash=%s)',
+                tipo_evento,
+                _extraer_referencia(tipo_evento, payload),
+                hash_payload[:12],
             )
+        except Exception as exc:
+            errores += 1
+            resultados.append({
+                'hash': hash_payload,
+                'estado': 'ERROR',
+                'error': str(exc)[:500],
+            })
+            logger.exception(
+                '[SYNC] Error aplicando %s hash=%s: %s',
+                tipo_evento, hash_payload[:12], exc,
+            )
+
+    if sucursal and hasattr(sucursal, 'ultima_sync'):
+        try:
+            sucursal.ultima_sync = timezone.now()
+            sucursal.save(update_fields=['ultima_sync'])
+        except Exception:
+            pass
 
     return Response({
         'recibidos': recibidos,
@@ -140,74 +143,410 @@ def recibir_eventos(request):
     }, status=status.HTTP_200_OK)
 
 
+# ============================================================================
+# GET /api/v1/sync/status/
+# ============================================================================
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def sync_status(request):
-    """
-    GET /api/v1/sync/status/
-    
-    Retorna el estado de sincronización de la sucursal autenticada.
-    
-    Response:
-        {
-            "sucursal_codigo": "SD-001",
-            "eventos_pendientes": 0,
-            "eventos_confirmados": 342,
-            "eventos_error": 2,
-            "ultima_sync": "2026-04-17T14:30:00-04:00",
-            "version_maestros": {
-                "productos": "2026-04-17T10:00:00-04:00",
-                "categorias": "2026-04-15T08:00:00-04:00",
-                "clientes": "2026-04-16T12:00:00-04:00"
-            }
-        }
-    """
-    # TODO: FASE 2 — Descomentar cuando existan los modelos
-    # ──────────────────────────────────────────────────────
-    # from apps.sync.models import EventoSync, VersionMaestro
-    # sucursal = request.auth.sucursal
-    #
-    # pendientes = EventoSync.objects.filter(
-    #     sucursal=sucursal, estado='PENDIENTE'
-    # ).count()
-    # confirmados = EventoSync.objects.filter(
-    #     sucursal=sucursal, estado='CONFIRMADO'
-    # ).count()
-    # con_error = EventoSync.objects.filter(
-    #     sucursal=sucursal, estado='ERROR'
-    # ).count()
-    #
-    # ultima = EventoSync.objects.filter(
-    #     sucursal=sucursal, estado='CONFIRMADO'
-    # ).order_by('-confirmed_at').values_list('confirmed_at', flat=True).first()
-    #
-    # versiones = {}
-    # for vm in VersionMaestro.objects.filter(sucursal=sucursal):
-    #     versiones[vm.tabla] = vm.version
-    #
-    # data = {
-    #     'sucursal_codigo': sucursal.codigo,
-    #     'eventos_pendientes': pendientes,
-    #     'eventos_confirmados': confirmados,
-    #     'eventos_error': con_error,
-    #     'ultima_sync': ultima,
-    #     'version_maestros': versiones,
-    # }
-    # ──────────────────────────────────────────────────────
+    """Estado de sincronizacion desde el punto de vista del cloud."""
+    from apps.sync.models import EventoSync, VersionMaestro
 
-    # Placeholder hasta Fase 2
-    data = {
-        'sucursal_codigo': 'LOCAL',
-        'eventos_pendientes': 0,
-        'eventos_confirmados': 0,
-        'eventos_error': 0,
-        'ultima_sync': None,
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response(
+            {'error': 'Token sin sucursal asociada'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    qs = EventoSync.objects.filter(sucursal=sucursal)
+    return Response({
+        'sucursal_codigo': sucursal.codigo,
+        'eventos_pendientes': qs.filter(estado='PENDIENTE').count(),
+        'eventos_confirmados': qs.filter(estado='CONFIRMADO').count(),
+        'eventos_error': qs.filter(estado='ERROR').count(),
+        'ultima_sync': qs.filter(estado='CONFIRMADO')
+            .order_by('-confirmed_at')
+            .values_list('confirmed_at', flat=True)
+            .first(),
         'version_maestros': {
-            'productos': None,
-            'categorias': None,
-            'clientes': None,
+            vm.tabla: vm.ultima_version
+            for vm in VersionMaestro.objects.all()
         },
-        'mensaje': 'Sync engine pendiente — requiere Fase 2 (modelo Sucursal)',
-    }
+    })
 
-    return Response(data)
+
+# ============================================================================
+# HANDLERS por tipo de evento
+# ============================================================================
+
+def _extraer_referencia(tipo_evento, payload):
+    """Extrae una referencia legible del payload para logs/admin."""
+    if tipo_evento in ('VENTA_CREADA', 'VENTA_ANULADA'):
+        return payload.get('numero_venta', '')
+    if tipo_evento in ('APERTURA_CAJA', 'CIERRE_CAJA'):
+        return f"Turno-{payload.get('turno_id_local', '?')}"
+    if tipo_evento == 'MOVIMIENTO_CAJA':
+        return f"Mov-{payload.get('movimiento_id_local', '?')}-{payload.get('tipo', '?')}"
+    if tipo_evento == 'AJUSTE_INVENTARIO':
+        return f"Ajuste-{payload.get('ajuste_id_local', '?')}"
+    if tipo_evento == 'COMPRA_REGISTRADA':
+        return payload.get('numero_compra', '')
+    return ''
+
+
+def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura):
+    """
+    Busca el TurnoCaja ABIERTO correspondiente a una sucursal+caja+apertura.
+
+    Estrategia:
+    1. Busca por caja+fecha_apertura exacta (lo mas preciso)
+    2. Si no existe, busca el ultimo abierto de esa caja como fallback
+
+    Retorna None si no existe. El caller decide que hacer.
+    """
+    from apps.caja.models import TurnoCaja
+
+    try:
+        caja = _obtener_caja(sucursal, caja_nombre)
+    except Exception:
+        return None
+
+    fecha = parse_datetime(fecha_apertura) if fecha_apertura else None
+
+    if fecha:
+        turno = TurnoCaja.objects.filter(
+            caja=caja,
+            fecha_apertura=fecha,
+        ).first()
+        if turno:
+            return turno
+
+    # Fallback: ultimo turno abierto de la caja
+    return TurnoCaja.objects.filter(caja=caja, estado='ABIERTO').first()
+
+
+def _obtener_caja(sucursal, caja_nombre):
+    """Obtiene o crea la caja con ese nombre en la sucursal."""
+    from apps.caja.models import Caja
+    caja, _ = Caja.objects.get_or_create(
+        nombre=caja_nombre,
+        sucursal=sucursal,
+        defaults={'activa': True},
+    )
+    return caja
+
+
+def _resolver_usuario(username):
+    """Resuelve username -> User o None."""
+    if not username:
+        return None
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    return User.objects.filter(username=username).first()
+
+
+# ---- VENTAS ----
+
+def _handler_venta_creada(sucursal, payload):
+    """Crea Venta + DetalleVenta + Pago a partir del payload."""
+    from apps.ventas.models import Venta, DetalleVenta, Pago
+    from apps.productos.models import Producto
+    from apps.clientes.models import Cliente
+
+    numero_venta = payload.get('numero_venta')
+    if not numero_venta:
+        raise ValueError('Payload sin numero_venta')
+
+    if Venta.objects.filter(numero_venta=numero_venta).exists():
+        logger.info('Venta %s ya existe en cloud, skip', numero_venta)
+        return
+
+    usuario = _resolver_usuario(payload.get('usuario_username'))
+    cliente = None
+    if payload.get('cliente_cedula_rnc'):
+        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+
+    venta = Venta.objects.create(
+        numero_venta=numero_venta,
+        sucursal=sucursal,
+        usuario=usuario,
+        cliente=cliente,
+        subtotal=Decimal(payload.get('subtotal', '0')),
+        descuento_total=Decimal(payload.get('descuento_total', '0')),
+        total=Decimal(payload.get('total', '0')),
+        estado=payload.get('estado', 'COMPLETADA'),
+        notas=payload.get('notas', '') or '',
+    )
+
+    fecha = parse_datetime(payload['fecha_venta']) if payload.get('fecha_venta') else None
+    if fecha:
+        Venta.objects.filter(pk=venta.pk).update(fecha_venta=fecha)
+
+    for d in payload.get('detalles', []):
+        sku = d.get('producto_sku')
+        producto = Producto.objects.filter(sku=sku).first() if sku else None
+        if not producto:
+            logger.warning(
+                'Producto SKU %s no existe en cloud para venta %s; linea omitida',
+                sku, numero_venta,
+            )
+            continue
+        DetalleVenta.objects.create(
+            venta=venta,
+            producto=producto,
+            cantidad=Decimal(d.get('cantidad', '0')),
+            precio_unitario=Decimal(d.get('precio_unitario', '0')),
+            subtotal=Decimal(d.get('subtotal', '0')),
+            descuento_monto=Decimal(d.get('descuento_monto', '0')),
+            descuento_porcentaje=Decimal(d.get('descuento_porcentaje', '0')),
+            total_linea=Decimal(d.get('total_linea', '0')),
+            costo_fifo=Decimal(d.get('costo_fifo', '0')),
+        )
+
+    for p in payload.get('pagos', []):
+        Pago.objects.create(
+            venta=venta,
+            metodo=p.get('metodo', 'EFECTIVO'),
+            monto=Decimal(p.get('monto', '0')),
+            referencia=p.get('referencia', '') or '',
+        )
+
+
+def _handler_venta_anulada(sucursal, payload):
+    """Marca una venta existente como anulada."""
+    from apps.ventas.models import Venta
+
+    numero = payload.get('numero_venta')
+    if not numero:
+        raise ValueError('Payload sin numero_venta')
+
+    try:
+        venta = Venta.objects.get(numero_venta=numero)
+    except Venta.DoesNotExist:
+        raise ValueError(f'Venta {numero} no existe en cloud (posiblemente llegara pronto)')
+
+    anulada_por = _resolver_usuario(payload.get('anulada_por_username'))
+    fecha_anul = parse_datetime(payload['fecha_anulacion']) if payload.get('fecha_anulacion') else None
+
+    venta.estado = payload.get('estado', 'ANULADA')
+    venta.fecha_anulacion = fecha_anul
+    venta.anulada_por = anulada_por
+    venta.motivo_anulacion = payload.get('motivo_anulacion', '') or ''
+    venta.save(update_fields=[
+        'estado', 'fecha_anulacion', 'anulada_por', 'motivo_anulacion',
+    ])
+
+
+# ---- CAJA ----
+
+def _handler_apertura_caja(sucursal, payload):
+    """
+    Crea un TurnoCaja con estado='ABIERTO'.
+
+    En Opcion 3, este es el evento que CREA el turno en el cloud. Los
+    movimientos (MOVIMIENTO_CAJA) y el cierre (CIERRE_CAJA) se cuelgan
+    de este turno despues.
+    """
+    from apps.caja.models import TurnoCaja
+
+    caja = _obtener_caja(sucursal, payload.get('caja_nombre', 'Caja Principal'))
+    usuario = _resolver_usuario(payload.get('usuario_username'))
+    fecha_apertura = parse_datetime(payload['fecha_apertura']) if payload.get('fecha_apertura') else timezone.now()
+
+    # Idempotencia secundaria: si ya existe turno (abierto o cerrado) con la
+    # misma caja+fecha_apertura, no crear duplicado
+    existente = TurnoCaja.objects.filter(
+        caja=caja,
+        fecha_apertura=fecha_apertura,
+    ).first()
+    if existente:
+        logger.info(
+            'Turno ya existe en cloud (caja=%s apertura=%s estado=%s), skip',
+            caja.nombre, fecha_apertura, existente.estado,
+        )
+        return
+
+    TurnoCaja.objects.create(
+        caja=caja,
+        usuario=usuario,
+        estado='ABIERTO',
+        fecha_apertura=fecha_apertura,
+        fondo_apertura=Decimal(payload.get('fondo_apertura', '0')),
+        notas_apertura=payload.get('notas_apertura', '') or '',
+    )
+
+
+def _handler_movimiento_caja(sucursal, payload):
+    """
+    Crea un MovimientoCaja colgado del turno abierto correspondiente.
+
+    Busca el turno por (sucursal, caja, fecha_apertura). Si no lo encuentra
+    (caso raro: el evento MOVIMIENTO llego antes que APERTURA por reintentos),
+    lanza ValueError para que el cliente reintente.
+    """
+    from apps.caja.models import MovimientoCaja
+
+    turno = _buscar_turno_abierto(
+        sucursal,
+        payload.get('caja_nombre', 'Caja Principal'),
+        payload.get('turno_fecha_apertura'),
+    )
+    if not turno:
+        raise ValueError(
+            'Turno abierto no existe en cloud todavia (apertura llegara pronto)'
+        )
+
+    # Idempotencia secundaria: buscar movimiento por (turno, fecha, tipo, monto)
+    fecha = parse_datetime(payload['fecha']) if payload.get('fecha') else timezone.now()
+    existente = MovimientoCaja.objects.filter(
+        turno=turno,
+        fecha=fecha,
+        tipo=payload.get('tipo'),
+        monto=Decimal(payload.get('monto', '0')),
+    ).exists()
+    if existente:
+        logger.info('Movimiento ya existe en cloud, skip')
+        return
+
+    registrado_por = _resolver_usuario(payload.get('registrado_por_username'))
+    autorizado_por = _resolver_usuario(payload.get('autorizado_por_username'))
+
+    if not registrado_por:
+        raise ValueError(
+            f"Usuario {payload.get('registrado_por_username')} no existe en cloud"
+        )
+
+    MovimientoCaja.objects.create(
+        turno=turno,
+        tipo=payload.get('tipo'),
+        monto=Decimal(payload.get('monto', '0')),
+        descripcion=payload.get('descripcion', '') or '',
+        registrado_por=registrado_por,
+        autorizado_por=autorizado_por,
+        fecha=fecha,
+    )
+
+
+def _handler_cierre_caja(sucursal, payload):
+    """
+    Cierra el TurnoCaja existente (creado por APERTURA_CAJA).
+
+    Fallback: si el turno no existe (caso raro, APERTURA nunca llego), lo
+    crea en estado CERRADO con los datos disponibles. Asi el cierre no
+    se pierde aunque la apertura se haya perdido.
+    """
+    from apps.caja.models import TurnoCaja
+
+    fecha_apertura = parse_datetime(payload['fecha_apertura']) if payload.get('fecha_apertura') else None
+    fecha_cierre = parse_datetime(payload['fecha_cierre']) if payload.get('fecha_cierre') else timezone.now()
+
+    caja = _obtener_caja(sucursal, payload.get('caja_nombre', 'Caja Principal'))
+
+    # Buscar el turno creado por APERTURA_CAJA
+    turno = None
+    if fecha_apertura:
+        turno = TurnoCaja.objects.filter(
+            caja=caja,
+            fecha_apertura=fecha_apertura,
+        ).first()
+
+    usuario = _resolver_usuario(payload.get('usuario_username'))
+    cerrado_por = _resolver_usuario(payload.get('cerrado_por_username'))
+
+    monto_contado = Decimal(payload['monto_contado']) if payload.get('monto_contado') else None
+    monto_esperado = Decimal(payload['monto_esperado']) if payload.get('monto_esperado') else None
+    diferencia = Decimal(payload['diferencia']) if payload.get('diferencia') else None
+
+    if turno:
+        # Path feliz: actualizar el turno abierto
+        if turno.estado == 'CERRADO':
+            logger.info('Turno %s ya esta CERRADO en cloud, skip', turno.pk)
+            return
+
+        turno.estado = 'CERRADO'
+        turno.fecha_cierre = fecha_cierre
+        turno.monto_contado = monto_contado
+        turno.monto_esperado = monto_esperado
+        turno.diferencia = diferencia
+        turno.cerrado_por = cerrado_por
+        turno.notas_cierre = payload.get('notas_cierre', '') or ''
+        turno.save()
+    else:
+        # Fallback: APERTURA nunca llego, crear turno ya cerrado
+        logger.warning(
+            'Cierre recibido sin apertura previa (caja=%s apertura=%s). '
+            'Creando turno CERRADO directamente.',
+            caja.nombre, fecha_apertura,
+        )
+        TurnoCaja.objects.create(
+            caja=caja,
+            usuario=usuario,
+            estado='CERRADO',
+            fecha_apertura=fecha_apertura or fecha_cierre,
+            fecha_cierre=fecha_cierre,
+            fondo_apertura=Decimal(payload.get('fondo_apertura', '0')),
+            monto_contado=monto_contado,
+            monto_esperado=monto_esperado,
+            diferencia=diferencia,
+            cerrado_por=cerrado_por,
+            notas_cierre=payload.get('notas_cierre', '') or '',
+        )
+
+
+# ---- INVENTARIO / COMPRAS (log-only por ahora) ----
+
+def _handler_ajuste_inventario(sucursal, payload):
+    """Log-only. Futuro: crear AjusteInventario en cloud con FK a sucursal."""
+    logger.info(
+        'AJUSTE_INVENTARIO: sucursal=%s producto=%s tipo=%s cant=%s',
+        sucursal.codigo if sucursal else '?',
+        payload.get('producto_sku'),
+        payload.get('tipo'),
+        payload.get('cantidad'),
+    )
+
+
+def _handler_compra(sucursal, payload):
+    """Log-only por ahora."""
+    logger.info(
+        'COMPRA_REGISTRADA: sucursal=%s numero=%s total=%s',
+        sucursal.codigo if sucursal else '?',
+        payload.get('numero_compra'),
+        payload.get('total'),
+    )
+
+
+# ============================================================================
+# Registry + Assert de integridad
+# ============================================================================
+
+HANDLERS = {
+    'VENTA_CREADA': _handler_venta_creada,
+    'VENTA_ANULADA': _handler_venta_anulada,
+    'APERTURA_CAJA': _handler_apertura_caja,
+    'MOVIMIENTO_CAJA': _handler_movimiento_caja,
+    'CIERRE_CAJA': _handler_cierre_caja,
+    'AJUSTE_INVENTARIO': _handler_ajuste_inventario,
+    'COMPRA_REGISTRADA': _handler_compra,
+}
+
+
+# Sanity check: si alguien agrega un tipo nuevo en constants.py sin definir
+# un handler aqui, Django NO arranca (error ruidoso al boot). Mejor que un
+# error silencioso en produccion.
+_tipos_sin_handler = set(TIPOS_EVENTO_CODIGOS) - set(HANDLERS.keys())
+_tipos_extra_handler = set(HANDLERS.keys()) - set(TIPOS_EVENTO_CODIGOS)
+
+if _tipos_sin_handler:
+    raise ImportError(
+        f'apps/api/views/sync.py: faltan handlers para tipos '
+        f'{sorted(_tipos_sin_handler)}. Agregarlos al dict HANDLERS.'
+    )
+
+if _tipos_extra_handler:
+    raise ImportError(
+        f'apps/api/views/sync.py: handlers para tipos desconocidos '
+        f'{sorted(_tipos_extra_handler)}. Revisar constants.py o quitarlos.'
+    )

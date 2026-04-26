@@ -395,7 +395,7 @@
                             
                             <button 
                                 @click="actualizarCantidad(index, item.cantidad + 1)"
-                                :disabled="item.cantidad >= item.stock_disponible"
+                                :disabled="!permitirInvNegativo && item.cantidad >= item.stock_disponible"
                                 class="w-7 h-7 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                             >
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -559,7 +559,10 @@
                     <div 
                         @click="agregarAlCarrito(producto)"
                         class="producto-card"
-                        :class="{ 'sin-stock': !producto.tiene_stock, 'opacity-50 pointer-events-none': panelPagoActivo }"
+                        :class="{ 
+                            'sin-stock': !producto.tiene_stock && !permitirInvNegativo,
+                            'opacity-50 pointer-events-none': panelPagoActivo 
+                        }"
                     >
                         <!-- Icono del producto -->
                         <!-- Imagen o icono del producto -->
@@ -967,6 +970,7 @@ function posData() {
         // (CARGADA DESDE EL BACKEND)
         metodosPagoConfig: [],
         permiteMixto: true,
+        permitirInvNegativo: false,
 
         // ============================================
         // ESTADO DE PAGO (NUEVO EN PARTE 2)
@@ -997,7 +1001,7 @@ function posData() {
             );
             this.metodosPagoConfig = posConfig.metodos_pago;
             this.permiteMixto = posConfig.permite_mixto;
-
+            this.permitsInvNegativo = posConfig.permitir_inventario_negativo;
             // Redirigir focus al scanner cuando se hace click fuera de inputs
             document.addEventListener('click', (e) => {
                 if (!this.panelPagoActivo && 
@@ -1101,11 +1105,11 @@ function posData() {
          * Si ya existe, incrementa la cantidad
          */
         agregarAlCarrito(producto) {
-            // Validar que tenga stock
-            if (!producto.tiene_stock) {
-                showToast('warning', `${producto.nombre} no tiene stock disponible`);
+            if (!producto.tiene_stock && !this.permitirInvNegativo) {
+                showToast('error', `${producto.nombre} no tiene stock disponible`);
                 return;
             }
+         
             
             // Buscar si ya existe en el carrito
             const index = this.carrito.findIndex(item => item.id === producto.id);
@@ -1379,20 +1383,16 @@ function posData() {
          * Valida que el carrito esté listo para pagar
          */
         validarCarrito() {
-            if (this.carrito.length === 0) {
-                return false;
-            }
+            if (this.carrito.length === 0) return false;
             
-            // Validar que todos los items tengan stock suficiente
-            for (let item of this.carrito) {
-                if (item.cantidad > item.stock_disponible) {
-                    return false;
+            if (!this.permitirInvNegativo) {
+                for (let item of this.carrito) {
+                    if (item.cantidad > item.stock_disponible) return false;
                 }
             }
-            
             return true;
         },
-        
+                
         /**
          * Valida que el pago esté completo
          */

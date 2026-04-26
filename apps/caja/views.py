@@ -12,8 +12,14 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate
 from django.utils import timezone
 from django.db.models import Sum, Count, Q
+from django.db import transaction
+from apps.sync import events as sync_events
 
 from .models import Caja, TurnoCaja, MovimientoCaja
+
+from django.db import transaction
+from apps.sync import events as sync_events
+
 
 
 def es_admin(user):
@@ -103,19 +109,29 @@ def caja_index(request):
             usuario=request.user
         ).select_related('caja', 'usuario')
 
-
-    init_data = {
-        'cajas_disponibles': list(cajas_disponibles.values('id', 'nombre')),
-    }
+    # Desglose y movimientos del turno activo (si existe)
+    desglose = None
+    movimientos = []
+    if turno_activo:
+        desglose = turno_activo.calcular_esperado()
+        movimientos = turno_activo.movimientos.all().select_related(
+            'registrado_por', 'autorizado_por'
+        ).order_by('-fecha')
 
     context = {
         'turno_activo': turno_activo,
         'cajas_disponibles': cajas_disponibles,
         'historial': historial,
         'turnos_abiertos_otros': turnos_abiertos_otros,
+        'desglose': desglose,
+        'movimientos': movimientos,
     }
-    
-    # Si hay turno activo, agregar desglose
+
+    # Datos hidratados para Alpine.js (se renderiza con |json_script en template)
+    init_data = {
+        'cajas_disponibles': list(cajas_disponibles.values('id', 'nombre')),
+    }
+
     if turno_activo:
         init_data['turno'] = {
             'id': turno_activo.id,
@@ -123,7 +139,7 @@ def caja_index(request):
             'apertura': turno_activo.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
             'fondo_apertura': str(turno_activo.fondo_apertura),
         }
-        init_data['desglose'] = {k: str(v) for k, v in context['desglose'].items()}
+        init_data['desglose'] = {k: str(v) for k, v in desglose.items()}
         init_data['movimientos'] = [{
             'id': m.id,
             'tipo': m.tipo,
@@ -133,16 +149,17 @@ def caja_index(request):
             'fecha': m.fecha.strftime('%d/%m/%Y %H:%M'),
             'registrado_por': m.registrado_por.get_short_name() or m.registrado_por.username,
             'autorizado_por': (m.autorizado_por.get_short_name() or m.autorizado_por.username) if m.autorizado_por else None,
-        } for m in context['movimientos']]
+        } for m in movimientos]
 
-    context['init_data_json'] = json.dumps(init_data)
+    context['init_data_json'] = init_data  # sin json.dumps: el filtro |json_script lo hace
 
     return render(request, 'caja/index.html', context)
 
 
 # ============================================================================
 # ABRIR TURNO
-# ============================================================================
+# ============================================================================sudo su
+
 
 @login_required
 def api_abrir_turno(request):
@@ -154,50 +171,54 @@ def api_abrir_turno(request):
         return JsonResponse({'error': 'Metodo no permitido'}, status=405)
 
     try:
-        data = json.loads(request.body)
-        caja_id = data.get('caja_id')
-        fondo = Decimal(str(data.get('fondo_apertura', 0)))
-        notas = data.get('notas', '')
+        with transaction.atomic():
+            data = json.loads(request.body)
+            caja_id = data.get('caja_id')
+            fondo = Decimal(str(data.get('fondo_apertura', 0)))
+            notas = data.get('notas', '')
 
-        # Validar que no tenga turno abierto
-        turno_existente = TurnoCaja.objects.filter(
-            usuario=request.user,
-            estado='ABIERTO'
-        ).first()
+            # Validar que no tenga turno abierto
+            turno_existente = TurnoCaja.objects.filter(
+                usuario=request.user,
+                estado='ABIERTO'
+            ).first()
 
-        if turno_existente:
+            if turno_existente:
+                return JsonResponse({
+                    'success': False,
+                    'error': f'Ya tienes un turno abierto en {turno_existente.caja.nombre}'
+                }, status=400)
+
+            # Validar caja
+            caja = get_object_or_404(Caja, id=caja_id, activa=True)
+
+            # Validar que la caja no tenga turno abierto
+            if caja.turno_activo():
+                return JsonResponse({
+                    'success': False,
+                    'error': f'{caja.nombre} ya tiene un turno abierto'
+                }, status=400)
+
+            # Crear turno
+            turno = TurnoCaja.objects.create(
+                caja=caja,
+                usuario=request.user,
+                fondo_apertura=fondo,
+                notas_apertura=notas,
+            )
+
+            # Fase 4: encolar evento de sync
+            transaction.on_commit(lambda t=turno: sync_events.evento_apertura_caja(t))
+
             return JsonResponse({
-                'success': False,
-                'error': f'Ya tienes un turno abierto en {turno_existente.caja.nombre}'
-            }, status=400)
-
-        # Validar caja
-        caja = get_object_or_404(Caja, id=caja_id, activa=True)
-
-        # Validar que la caja no tenga turno abierto
-        if caja.turno_activo():
-            return JsonResponse({
-                'success': False,
-                'error': f'{caja.nombre} ya tiene un turno abierto'
-            }, status=400)
-
-        # Crear turno
-        turno = TurnoCaja.objects.create(
-            caja=caja,
-            usuario=request.user,
-            fondo_apertura=fondo,
-            notas_apertura=notas,
-        )
-
-        return JsonResponse({
-            'success': True,
-            'turno': {
-                'id': turno.id,
-                'caja': caja.nombre,
-                'fondo': str(turno.fondo_apertura),
-                'fecha': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
-            }
-        })
+                'success': True,
+                'turno': {
+                    'id': turno.id,
+                    'caja': caja.nombre,
+                    'fondo': str(turno.fondo_apertura),
+                    'fecha': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
+                }
+            })
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
@@ -220,51 +241,55 @@ def api_cerrar_turno(request):
         return JsonResponse({'error': 'Metodo no permitido'}, status=405)
 
     try:
-        data = json.loads(request.body)
-        monto_contado = Decimal(str(data.get('monto_contado', 0)))
-        notas = data.get('notas', '')
-        turno_id = data.get('turno_id')  # Opcional, para admin cerrando turno de otro
+        with transaction.atomic():
+            data = json.loads(request.body)
+            monto_contado = Decimal(str(data.get('monto_contado', 0)))
+            notas = data.get('notas', '')
+            turno_id = data.get('turno_id')  # Opcional, para admin cerrando turno de otro
 
-        # Determinar cual turno cerrar
-        if turno_id and es_admin(request.user):
-            turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
-        else:
-            turno = TurnoCaja.objects.filter(
-                usuario=request.user,
-                estado='ABIERTO'
-            ).first()
+            # Determinar cual turno cerrar
+            if turno_id and es_admin(request.user):
+                turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
+            else:
+                turno = TurnoCaja.objects.filter(
+                    usuario=request.user,
+                    estado='ABIERTO'
+                ).first()
 
-        if not turno:
+            if not turno:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'No hay turno abierto para cerrar'
+                }, status=400)
+
+            # Cerrar turno
+            calculo = turno.cerrar(
+                monto_contado=monto_contado,
+                cerrado_por=request.user,
+                notas=notas
+            )
+
+            # Fase 4: encolar evento de sync
+            transaction.on_commit(lambda t=turno: sync_events.evento_cierre_caja(t))
+
             return JsonResponse({
-                'success': False,
-                'error': 'No hay turno abierto para cerrar'
-            }, status=400)
-
-        # Cerrar turno
-        calculo = turno.cerrar(
-            monto_contado=monto_contado,
-            cerrado_por=request.user,
-            notas=notas
-        )
-
-        return JsonResponse({
-            'success': True,
-            'cierre': {
-                'turno_id': turno.id,
-                'caja': turno.caja.nombre,
-                'cajero': turno.usuario.get_short_name() or turno.usuario.username,
-                'apertura': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
-                'cierre': turno.fecha_cierre.strftime('%d/%m/%Y %H:%M'),
-                'fondo_apertura': str(calculo['fondo_apertura']),
-                'efectivo_ventas': str(calculo['efectivo_ventas']),
-                'retiros': str(calculo['retiros']),
-                'gastos': str(calculo['gastos']),
-                'ingresos': str(calculo['ingresos']),
-                'esperado': str(calculo['esperado']),
-                'contado': str(turno.monto_contado),
-                'diferencia': str(turno.diferencia),
-            }
-        })
+                'success': True,
+                'cierre': {
+                    'turno_id': turno.id,
+                    'caja': turno.caja.nombre,
+                    'cajero': turno.usuario.get_short_name() or turno.usuario.username,
+                    'apertura': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
+                    'cierre': turno.fecha_cierre.strftime('%d/%m/%Y %H:%M'),
+                    'fondo_apertura': str(calculo['fondo_apertura']),
+                    'efectivo_ventas': str(calculo['efectivo_ventas']),
+                    'retiros': str(calculo['retiros']),
+                    'gastos': str(calculo['gastos']),
+                    'ingresos': str(calculo['ingresos']),
+                    'esperado': str(calculo['esperado']),
+                    'contado': str(turno.monto_contado),
+                    'diferencia': str(turno.diferencia),
+                }
+            })
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
@@ -289,95 +314,100 @@ def api_registrar_movimiento(request):
         return JsonResponse({'error': 'Metodo no permitido'}, status=405)
 
     try:
-        data = json.loads(request.body)
-        tipo = data.get('tipo', '').upper()
-        monto = Decimal(str(data.get('monto', 0)))
-        descripcion = data.get('descripcion', '').strip()
-        admin_id = data.get('admin_id')
+        with transaction.atomic():
+            data = json.loads(request.body)
+            tipo = data.get('tipo', '').upper()
+            monto = Decimal(str(data.get('monto', 0)))
+            descripcion = data.get('descripcion', '').strip()
+            admin_id = data.get('admin_id')
 
-        # Validaciones
-        if tipo not in ('RETIRO', 'GASTO', 'INGRESO'):
-            return JsonResponse({'success': False, 'error': 'Tipo invalido'}, status=400)
+            # Validaciones
+            if tipo not in ('RETIRO', 'GASTO', 'INGRESO'):
+                return JsonResponse({'success': False, 'error': 'Tipo invalido'}, status=400)
 
-        if monto <= 0:
-            return JsonResponse({'success': False, 'error': 'Monto debe ser mayor a 0'}, status=400)
+            if monto <= 0:
+                return JsonResponse({'success': False, 'error': 'Monto debe ser mayor a 0'}, status=400)
 
-        if not descripcion:
-            return JsonResponse({'success': False, 'error': 'Descripcion requerida'}, status=400)
+            if not descripcion:
+                return JsonResponse({'success': False, 'error': 'Descripcion requerida'}, status=400)
 
-        # Obtener turno activo
-        turno = TurnoCaja.objects.filter(
-            usuario=request.user,
-            estado='ABIERTO'
-        ).first()
+            # Obtener turno activo
+            turno = TurnoCaja.objects.filter(
+                usuario=request.user,
+                estado='ABIERTO'
+            ).first()
 
-        # Si es admin, puede registrar en su turno o indicar turno_id
-        if not turno and es_admin(request.user):
-            turno_id = data.get('turno_id')
-            if turno_id:
-                turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
+            # Si es admin, puede registrar en su turno o indicar turno_id
+            if not turno and es_admin(request.user):
+                turno_id = data.get('turno_id')
+                if turno_id:
+                    turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
 
-        if not turno:
-            return JsonResponse({
-                'success': False,
-                'error': 'No hay turno abierto'
-            }, status=400)
+            if not turno:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'No hay turno abierto'
+                }, status=400)
 
-        # RETIRO e INGRESO requieren autorizacion admin
-        autorizado_por = None
-        if tipo in ('RETIRO', 'INGRESO'):
-            if not admin_id:
-                # Si el usuario actual es admin, se auto-autoriza
-                if es_admin(request.user):
-                    autorizado_por = request.user
+            # RETIRO e INGRESO requieren autorizacion admin
+            autorizado_por = None
+            if tipo in ('RETIRO', 'INGRESO'):
+                if not admin_id:
+                    # Si el usuario actual es admin, se auto-autoriza
+                    if es_admin(request.user):
+                        autorizado_por = request.user
+                    else:
+                        return JsonResponse({
+                            'success': False,
+                            'error': 'Se requiere autorizacion de un administrador'
+                        }, status=403)
                 else:
-                    return JsonResponse({
-                        'success': False,
-                        'error': 'Se requiere autorizacion de un administrador'
-                    }, status=403)
-            else:
-                from apps.usuarios.models import Usuario
-                try:
-                    admin = Usuario.objects.get(id=admin_id, rol__in=['ADMIN', 'SYSADMIN'], activo=True)
-                    autorizado_por = admin
-                except Usuario.DoesNotExist:
-                    return JsonResponse({
-                        'success': False,
-                        'error': 'Admin no encontrado o inactivo'
-                    }, status=400)
+                    from apps.usuarios.models import Usuario
+                    try:
+                        admin = Usuario.objects.get(id=admin_id, rol__in=['ADMIN', 'SYSADMIN'], activo=True)
+                        autorizado_por = admin
+                    except Usuario.DoesNotExist:
+                        return JsonResponse({
+                            'success': False,
+                            'error': 'Admin no encontrado o inactivo'
+                        }, status=400)
 
-        # Crear movimiento
-        movimiento = MovimientoCaja.objects.create(
-            turno=turno,
-            tipo=tipo,
-            monto=monto,
-            descripcion=descripcion,
-            registrado_por=request.user,
-            autorizado_por=autorizado_por,
-        )
+            # Crear movimiento
+            movimiento = MovimientoCaja.objects.create(
+                turno=turno,
+                tipo=tipo,
+                monto=monto,
+                descripcion=descripcion,
+                registrado_por=request.user,
+                autorizado_por=autorizado_por,
+            )
 
-        # Recalcular esperado
-        desglose = turno.calcular_esperado()
+            # Recalcular esperado
+            desglose = turno.calcular_esperado()
+            # Fase 4.5: encolar evento de sync para el cloud
+            transaction.on_commit(
+                lambda m=movimiento: sync_events.evento_movimiento_caja(m)
+            )
 
-        return JsonResponse({
-            'success': True,
-            'movimiento': {
-                'id': movimiento.id,
-                'tipo': movimiento.get_tipo_display(),
-                'monto': str(movimiento.monto),
-                'descripcion': movimiento.descripcion,
-                'fecha': movimiento.fecha.strftime('%d/%m/%Y %H:%M'),
-                'autorizado_por': autorizado_por.get_short_name() if autorizado_por else None,
-            },
-            'desglose': {
-                'fondo_apertura': str(desglose['fondo_apertura']),
-                'efectivo_ventas': str(desglose['efectivo_ventas']),
-                'retiros': str(desglose['retiros']),
-                'gastos': str(desglose['gastos']),
-                'ingresos': str(desglose['ingresos']),
-                'esperado': str(desglose['esperado']),
-            }
-        })
+            return JsonResponse({
+                'success': True,
+                'movimiento': {
+                    'id': movimiento.id,
+                    'tipo': movimiento.get_tipo_display(),
+                    'monto': str(movimiento.monto),
+                    'descripcion': movimiento.descripcion,
+                    'fecha': movimiento.fecha.strftime('%d/%m/%Y %H:%M'),
+                    'autorizado_por': autorizado_por.get_short_name() if autorizado_por else None,
+                },
+                'desglose': {
+                    'fondo_apertura': str(desglose['fondo_apertura']),
+                    'efectivo_ventas': str(desglose['efectivo_ventas']),
+                    'retiros': str(desglose['retiros']),
+                    'gastos': str(desglose['gastos']),
+                    'ingresos': str(desglose['ingresos']),
+                    'esperado': str(desglose['esperado']),
+                }
+            })
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)

@@ -67,6 +67,23 @@ class Sucursal(models.Model):
         verbose_name='Ultima Modificacion'
     )
 
+    ultima_sync = models.DateTimeField(
+            null=True,
+            blank=True,
+            verbose_name='Ultima sincronizacion recibida'
+        )
+    
+    usuario_servicio = models.OneToOneField(
+        'usuarios.Usuario',  # Ajusta a tu AUTH_USER_MODEL real si es distinto
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sucursal_servicio',
+        verbose_name='Usuario de servicio (API)',
+        help_text='User dedicado cuyo token DRF autentica requests sync desde esta sucursal.'
+    )
+
+
     class Meta:
         verbose_name = 'Sucursal'
         verbose_name_plural = 'Sucursales'
