@@ -43,6 +43,12 @@ urlpatterns = [
     
     # API REST V1
     path('api/', include('apps.api.urls')),
+
+    path('configuracion/', include('apps.configuracion.urls')),
+
+    path('sucursales/', include('apps.sucursales.urls')),
+
+    path('facturacion-electronica/', include('apps.facturacion_electronica.urls')),
     
 ]
 

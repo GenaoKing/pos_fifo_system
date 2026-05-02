@@ -144,6 +144,144 @@
             </div>
         </div>
     </div>
+
+        {% load static %}
+
+    {# ============================================================ #}
+    {# Estado de e-CF (solo si modulo_ecf=True para esta sucursal)  #}
+    {# ============================================================ #}
+    {% if config.modulo_ecf %}
+    <div class="card" style="overflow: visible;">
+    <div class="card-body">
+        <h3 class="text-lg font-semibold mb-3">Comprobante Fiscal Electrónico</h3>
+
+        <div x-data="ecfEstadoBadge({{ venta.id }})" x-init="iniciar()"
+            x-cloak>
+        {# ----- Estado: cargando ----- #}
+        <template x-if="cargando">
+            <div class="flex items-center gap-2">
+            <span class="badge-info">Consultando estado...</span>
+            <span class="text-sm text-gray-500">
+                (la primera consulta puede tardar unos segundos)
+            </span>
+            </div>
+        </template>
+
+        {# ----- Estado: sin ECF asociado ----- #}
+        <template x-if="!cargando && !tiene_ecf">
+            <div>
+            <span class="badge-secondary" x-text="mensaje"></span>
+            <p class="text-sm text-gray-500 mt-2">
+                Si esto persiste, contactar al SYSADMIN.
+            </p>
+            </div>
+        </template>
+
+        {# ----- Estado: con ECF (algún estado) ----- #}
+        <template x-if="!cargando && tiene_ecf">
+            <div class="space-y-3">
+            {# Badge principal de estado #}
+            <div class="flex items-center gap-2 flex-wrap">
+                <span :class="badgeClase()" x-text="estado_display"></span>
+                <span class="text-sm text-gray-600" x-text="tipo_display"></span>
+                <template x-if="!estado_terminal">
+                <span class="text-xs text-gray-400">
+                    (actualizando automáticamente cada 5s)
+                </span>
+                </template>
+            </div>
+
+            {# Datos del eNCF, si ya fue asignado #}
+            <template x-if="encf">
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                    <span class="font-medium">eNCF:</span>
+                    <span x-text="encf" class="font-mono"></span>
+                </div>
+                <template x-if="codigo_seguridad">
+                    <div>
+                    <span class="font-medium">Código de seguridad:</span>
+                    <span x-text="codigo_seguridad" class="font-mono"></span>
+                    </div>
+                </template>
+                </div>
+            </template>
+
+            {# Leyenda obligatoria DGII para Envío Diferido #}
+            <template x-if="leyendaEnvioDiferido()">
+                <div class="rounded-md bg-amber-50 border border-amber-200
+                            p-3 text-amber-900 text-sm">
+                <strong>e-CF emitido en modalidad Envío Diferido.</strong><br>
+                El comprobante estará disponible para validación en el
+                portal DGII dentro de las 24 horas.
+                </div>
+            </template>
+
+            {# Mensaje específico si fue RECHAZADO #}
+            <template x-if="esRechazado()">
+                <div class="rounded-md bg-red-50 border border-red-200
+                            p-3 text-red-900 text-sm">
+                <strong>e-CF rechazado por DGII.</strong><br>
+                Este ticket NO es válido como comprobante fiscal. Debe
+                emitirse una nueva factura.<br>
+                <span class="text-xs" x-text="mensaje_ultimo_evento"></span>
+                </div>
+            </template>
+
+            {# Botón reimprimir solo si está aprobado #}
+            <template x-if="esAprobado()">
+                <button class="btn-outline"
+                        @click="reimprimir()">
+                Reimprimir ticket con datos finales DGII
+                </button>
+            </template>
+
+            {# Link al QR si existe #}
+            <template x-if="qr_url">
+                <p class="text-xs text-gray-500">
+                <a :href="qr_url" target="_blank" class="underline">
+                    Validar este e-CF en DGII
+                </a>
+                </p>
+            </template>
+            </div>
+        </template>
+        </div>
+    </div>
+    </div>
+
+    {# Pequeña extensión del componente para reimprimir #}
+    <script>
+    (function () {
+    // Hacemos un mixin: extender ecfEstadoBadge con la función reimprimir
+    // sin tocar el archivo del componente.
+    const original = window.ecfEstadoBadge;
+    window.ecfEstadoBadge = function (ventaId) {
+        const obj = original(ventaId);
+        obj.reimprimir = async function () {
+        try {
+            const response = await fetch(
+            `/ventas/api/reimprimir/${ventaId}/`,
+            {
+                method: 'POST',
+                headers: jsonHeaders(),
+                credentials: 'same-origin',
+            }
+            );
+            if (response.ok) {
+            showToast('success', 'Ticket reimpreso.');
+            } else {
+            showToast('error', 'Error al reimprimir.');
+            }
+        } catch (err) {
+            showToast('error', 'Error de red al reimprimir.');
+        }
+        };
+        return obj;
+    };
+    })();
+    </script>
+    {% endif %}
     
     <!-- Acciones -->
     <div class="flex space-x-4">

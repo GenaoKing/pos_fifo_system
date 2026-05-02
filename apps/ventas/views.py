@@ -46,6 +46,11 @@ import pytz
 from django.db import transaction
 from apps.sync import events as sync_events
 
+from apps.ventas.services import (
+    procesar_venta_service,
+    anular_venta_service,
+    ErrorVentaBase,
+)
 
 # ============================================
 # VISTA PRINCIPAL DEL POS
@@ -306,295 +311,79 @@ def verificar_stock(request, producto_id):
 @require_http_methods(["POST"])
 def procesar_venta(request):
     """
-    Procesa una venta completa desde el POS.
-    
-    FLUJO:
-    1. Recibe datos del carrito y pago
-    2. Valida stock disponible
-    3. Crea la venta (header)
-    4. Crea los detalles de venta (líneas)
-    5. Consume stock FIFO automáticamente
-    6. Registra los pagos
-    7. Retorna confirmación con número de venta
-    
+    Procesa una venta desde el POS.
+
+    Este view es delgado: parsea el JSON del request, delega a
+    procesar_venta_service la lógica de negocio (validaciones,
+    transacciones, hooks de sync/print/e-CF), y traduce el resultado
+    o las excepciones tipadas a JsonResponse.
+
     POST Body (JSON):
     {
         "carrito": [
-            {
-                "id": 1,
-                "cantidad": 2,
-                "precio_venta": 30.00,
-                "descuento": 5.00
-            },
+            {"id": 1, "cantidad": 2, "precio_venta": 30.00,
+             "descuento": 5.00},
             ...
         ],
-        "metodo_pago": "efectivo",  // 'efectivo', 'transferencia', 'mixto'
-        "monto_efectivo": 100.00,
-        "monto_transferencia": 0.00,
-        "total": 95.00
+        "metodo_pago": "efectivo" | "transferencia" | "tarjeta" | "mixto",
+        "monto_efectivo": 100.00,         // requerido si mixto
+        "monto_transferencia": 0.00,      // opcional
+        "monto_tarjeta": 0.00,            // opcional
+        "referencia_tarjeta": "...",      // opcional
+        "total": 95.00,
+        "cliente_id": 5,                  // opcional, null = CONTADO
+        "tipo_ecf": "32"                  // opcional, "31" o "32" (default "32")
     }
-    
+
     Returns:
-        JSON con éxito y número de venta, o error
+        200: {"success": true, "venta": {...}, "mensaje": "..."}
+        400: {"success": false, "error": "..."}    # validación de negocio
+        404: {"success": false, "error": "..."}    # producto inexistente
+        500: {"success": false, "error": "..."}    # excepción no manejada
     """
     try:
-        # Parsear datos del request
         data = json.loads(request.body)
-        
-        carrito = data.get('carrito', [])
-        metodo_pago = data.get('metodo_pago', 'efectivo')
-        monto_efectivo = Decimal(str(data.get('monto_efectivo', 0)))
-        monto_transferencia = Decimal(str(data.get('monto_transferencia', 0)))
-        total_esperado = Decimal(str(data.get('total', 0)))
-        monto_tarjeta = Decimal(str(data.get('monto_tarjeta', 0)))
-        referencia_tarjeta = data.get('referencia_tarjeta', '')
-        
-        # Validaciones básicas
-        if not carrito:
-            return JsonResponse({
-                'success': False,
-                'error': 'El carrito está vacío'
-            }, status=400)
-        
-        # Usar transacción atómica
-        with transaction.atomic():
-            # ============================================
-            # PASO 1: VALIDAR STOCK DISPONIBLE
-            # ============================================
-            config = get_config()
-            for item in carrito:
-                producto = get_object_or_404(Producto, id=item['id'])
-                
-                # Calcular stock disponible
-                stock_disponible = Lote.objects.filter(
-                    producto=producto,
-                    cantidad_actual__gt=0,
-                    activo=True
-                ).aggregate(
-                    total=models.Sum('cantidad_actual')
-                )['total'] or 0
-                
-                if item['cantidad'] > stock_disponible:
-                    if not config.permitir_inventario_negativo:
-                        return JsonResponse({
-                            'success': False,
-                            'error': f'Stock insuficiente: {producto.nombre}. '
-                                    f'Disponible: {stock_disponible}'
-                        }, status=400)
-            
-            # ============================================
-            # PASO 2: CREAR VENTA (HEADER)
-            # ============================================
-            
-            # Generar número de venta: VENTA-20260206-00001
-            from django.utils import timezone as django_timezone
-            santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
-            fecha_hoy = django_timezone.now().astimezone(santo_domingo_tz)
-            fecha_str = fecha_hoy.strftime('%Y%m%d')
-            #fecha_hoy = timezone.now().strftime('%Y%m%d')
-            ultimo = Venta.objects.filter(
-                numero_venta__startswith=f'VENTA-{fecha_str}'
-            ).count()
-            numero_venta = f'VENTA-{fecha_str}-{str(ultimo + 1).zfill(5)}'
-            
-            # Calcular totales
-            subtotal = sum(
-                Decimal(str(item['cantidad'])) * Decimal(str(item['precio_venta']))
-                for item in carrito
-            )
-            descuento_total = sum(
-                Decimal(str(item.get('descuento', 0)))
-                for item in carrito
-            )
-            total = subtotal - descuento_total
-            
-            # Validar que el total coincida
-            if abs(total - total_esperado) > Decimal('0.01'):
-                return JsonResponse({
-                    'success': False,
-                    'error': f'Total no coincide. Esperado: ${total_esperado}, Calculado: ${total}'
-                }, status=400)
-            
-            # Crear la venta
-            venta = Venta.objects.create(
-                numero_venta=numero_venta,
-                usuario=request.user,
-                subtotal=subtotal,
-                descuento_total=descuento_total,
-                total=total,
-                estado='COMPLETADA'
-            )
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {'success': False, 'error': 'JSON inválido en el request.'},
+            status=400,
+        )
 
-            # ============================================
-            # PASO 3: CREAR DETALLES DE VENTA + CONSUMO FIFO
-            # ============================================
-            
-            for item in carrito:
-                producto = get_object_or_404(Producto, id=item['id'])
-                cantidad = item['cantidad']
-                precio_unitario = Decimal(str(item['precio_venta']))
-                descuento_linea = Decimal(str(item.get('descuento', 0)))
-                
-                # Calcular subtotal de la línea
-                subtotal_linea = cantidad * precio_unitario
-                
-                # Calcular porcentaje de descuento
-                porcentaje_descuento = (descuento_linea / subtotal_linea * 100) if subtotal_linea > 0 else 0
-                
-                # Crear detalle de venta
-                detalle = DetalleVenta.objects.create(
-                    venta=venta,
-                    producto=producto,
-                    cantidad=cantidad,
-                    precio_unitario=precio_unitario,
-                    descuento_monto=descuento_linea,
-                    descuento_porcentaje=porcentaje_descuento,
-                    subtotal=subtotal_linea - descuento_linea
-                )
-                
-                # ============================================
-                # CONSUMIR STOCK FIFO
-                # ============================================
-                
-                # Usar la función de fifo_logic.py
-                resultado = procesar_venta_fifo(
-                producto_id=producto.id,
-                cantidad_solicitada=cantidad,
-                venta_id=venta.id,
-                usuario=request.user
-            )
-
-                # Verificar resultado
-                if not resultado['success']:
-                    print(f"⚠️ Error al procesar FIFO para {producto.nombre}")
-
-                # Alertar si hay stock faltante (se permite venta igual)
-                if resultado['cantidad_faltante'] > 0:
-                    print(f"⚠️ ALERTA: Stock insuficiente - {producto.nombre}")
-                    print(f"   Vendido: {resultado['cantidad_vendida']}")
-                    print(f"   Faltante: {resultado['cantidad_faltante']}")
-            
-            # ============================================
-            # PASO 4: REGISTRAR PAGOS
-            # ============================================
-            
-            if metodo_pago == 'efectivo':
-                # Solo efectivo
-                Pago.objects.create(
-                    venta=venta,
-                    metodo='EFECTIVO',
-                    monto=total,
-                    referencia=f'Efectivo - {numero_venta}'
-                )
-            
-            elif metodo_pago == 'transferencia':
-                # Solo transferencia
-                Pago.objects.create(
-                    venta=venta,
-                    metodo='TRANSFERENCIA',
-                    monto=total,
-                    referencia=f'Transferencia - {numero_venta}'
-                )
-            
-            elif metodo_pago == 'tarjeta':
-                Pago.objects.create(
-                    venta=venta,
-                    metodo='TARJETA',
-                    monto=total_esperado,
-                    referencia=f'Tarjeta {referencia_tarjeta} - {numero_venta}'
-                )
-            
-            elif metodo_pago == 'mixto':
-                # Efectivo
-                if monto_efectivo > 0:
-                    Pago.objects.create(
-                        venta=venta,
-                        metodo='EFECTIVO',
-                        monto=monto_efectivo,
-                        referencia=f'Efectivo (Mixto) - {numero_venta}'
-                    )
-                
-                # Transferencia
-                if monto_transferencia > 0:
-                    Pago.objects.create(
-                        venta=venta,
-                        metodo='TRANSFERENCIA',
-                        monto=monto_transferencia,
-                        referencia=f'Transferencia (Mixto) - {numero_venta}'
-                    )
-
-                # Tarjeta
-                if monto_tarjeta > 0:
-                    Pago.objects.create(
-                        venta=venta,
-                        metodo='TARJETA',
-                        monto=monto_tarjeta,
-                        referencia=f'Tarjeta (Mixto) {referencia_tarjeta} - {numero_venta}'
-                    )
-
-            
-            # ============================================
-            # PASO 5: RETORNAR ÉXITO
-            # ============================================
-            # Asignar cliente si viene
-            # Asignar cliente si viene
-            cliente_id = data.get('cliente_id')
-            if cliente_id:
-                from apps.clientes.models import Cliente
-                try:
-                    venta.cliente = Cliente.objects.get(id=cliente_id, activo=True)
-                except Cliente.DoesNotExist:
-                    pass  # Si no existe, queda como contado (null)
-            venta.save()
-            # Fase 4: encolar evento de sync (se ejecuta despues del commit)
-            transaction.on_commit(lambda: sync_events.evento_venta_creada(venta))
-
-            if venta:
-                resultado = print_manager.print_ticket_venta(
-                    venta=venta,
-                    usuario=request.user,
-                    reimpresion=False
-                )
-
-                Auditoria.registrar_venta(
-                    venta=venta,
-                    usuario=request.user,
-                    ip_address=get_client_ip(request)
-                )
-
-                
-
-
-
-            return JsonResponse({
-                'success': True,
-                'venta': {
-                    'id': venta.id,
-                    'numero_venta': venta.numero_venta,
-                    'total': float(venta.total),
-                    'fecha': venta.fecha_venta.strftime('%d/%m/%Y %H:%M'),
-                    'items_count': carrito.__len__(),
-                },
-                'mensaje': f'Venta {numero_venta} procesada exitosamente'
-            })
-    
-    except Producto.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'error': 'Uno o más productos no existen'
-        }, status=404)
-    
-    except Exception as e:
-        # Log del error
-        print(f"❌ ERROR al procesar venta: {str(e)}")
+    try:
+        venta = procesar_venta_service(
+            usuario=request.user,
+            datos=data,
+            ip_address=get_client_ip(request),
+        )
+    except ErrorVentaBase as exc:
+        # Errores de negocio esperados — el service ya armó el mensaje
+        # legible. El status code lo trae la excepción.
+        return JsonResponse(
+            {'success': False, 'error': str(exc)},
+            status=exc.status_code,
+        )
+    except Exception as exc:
+        # Cualquier excepción no anticipada. Log completo, mensaje
+        # genérico al cliente.
         import traceback
+        print(f'❌ ERROR no manejado en procesar_venta: {exc}')
         traceback.print_exc()
-        
-        return JsonResponse({
-            'success': False,
-            'error': f'Error al procesar la venta: {str(e)}'
-        }, status=500)
+        return JsonResponse(
+            {'success': False, 'error': f'Error al procesar la venta: {exc}'},
+            status=500,
+        )
 
+    return JsonResponse({
+        'success': True,
+        'venta': {
+            'id': venta.id,
+            'numero_venta': venta.numero_venta,
+            'total': float(venta.total),
+            'fecha': venta.fecha_venta.strftime('%d/%m/%Y %H:%M'),
+            'items_count': venta.detalles.count(),
+        },
+        'mensaje': f'Venta {venta.numero_venta} procesada exitosamente',
+    })
 
 # ============================================
 # VISTA DE CONFIRMACIÓN DE VENTA
@@ -616,6 +405,7 @@ def venta_exitosa(request, venta_id):
         'venta': venta,
         'detalles': detalles,
         'pagos': pagos,
+        'config': get_config(),
     }
     
     return render(request, 'pos/venta_exitosa.html', context)
@@ -829,119 +619,75 @@ def vista_anulaciones(request):
 @require_http_methods(["POST"])
 def api_anular_venta(request):
     """
-    Endpoint para anular una venta.
- 
+    Anula una venta existente.
+
+    Delega toda la lógica de negocio (validación de permisos, plazo,
+    devolución FIFO, auditoría, hook de NC tipo 34) a
+    anular_venta_service.
+
     POST Body (JSON):
     {
         "venta_id": 123,
-        "motivo": "Texto obligatorio del motivo"
+        "motivo": "Texto obligatorio del motivo (mín. 10 caracteres)"
     }
- 
-    Flujo:
-    1. Valida permisos (ADMIN/SYSADMIN)
-    2. Verifica que la venta puede anularse (estado + días límite)
-    3. Ejecuta reversión FIFO (devuelve stock a lotes)
-    4. Actualiza campos de anulación en Venta
-    5. Registra en Auditoría
+
+    Returns:
+        200: {"success": true, "message": "...", "venta": {...}}
+        400: errores de validación de negocio (motivo, plazo, etc.)
+        403: usuario sin permisos (rol != ADMIN/SYSADMIN)
+        404: venta inexistente
+        500: error inesperado o falla FIFO
     """
-    # Validar permisos
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
-        return JsonResponse({
-            'success': False,
-            'error': 'No tienes permisos para anular ventas.'
-        }, status=403)
- 
     try:
         data = json.loads(request.body)
-        venta_id = data.get('venta_id')
-        motivo = data.get('motivo', '').strip()
- 
-        # Validar motivo obligatorio
-        if not motivo:
-            return JsonResponse({
-                'success': False,
-                'error': 'El motivo de anulación es obligatorio.'
-            }, status=400)
- 
-        if len(motivo) < 10:
-            return JsonResponse({
-                'success': False,
-                'error': 'El motivo debe tener al menos 10 caracteres.'
-            }, status=400)
- 
-        # Obtener venta
-        venta = get_object_or_404(Venta, id=venta_id)
- 
-        # Verificar que puede anularse
-        if not venta.puede_anularse():
-            if venta.estado == 'ANULADA':
-                error_msg = 'Esta venta ya fue anulada.'
-            else:
-                config = get_config()
-                error_msg = f'Esta venta superó el límite de {config.dias_limite_anulacion} días para anulación.'
-            return JsonResponse({
-                'success': False,
-                'error': error_msg
-            }, status=400)
- 
-        # Ejecutar anulación FIFO (devuelve stock a lotes)
-        from apps.inventario.fifo_logic import anular_venta_devolver_stock
-        resultado_fifo = anular_venta_devolver_stock(
-            venta_id=venta.id,
-            usuario=request.user
-        )
- 
-        if not resultado_fifo['success']:
-            return JsonResponse({
-                'success': False,
-                'error': f'Error al devolver stock: {resultado_fifo.get("error", "Error desconocido")}'
-            }, status=500)
- 
-        # Actualizar venta
-        venta.estado = 'ANULADA'
-        venta.motivo_anulacion = motivo
-        venta.anulada_por = request.user
-        venta.fecha_anulacion = timezone.now()
-        venta.save()
- 
-        # Registrar en auditoría
-        Auditoria.registrar_anulacion_venta(
-            venta=venta,
-            usuario=request.user,
-            motivo=motivo,
-            ip_address=get_client_ip(request)
-        )
-
-        transaction.on_commit(lambda v=venta: sync_events.evento_venta_anulada(v))
-
- 
-        return JsonResponse({
-            'success': True,
-            'message': f'Venta {venta.numero_venta} anulada exitosamente.',
-            'venta': {
-                'id': venta.id,
-                'numero_venta': venta.numero_venta,
-                'total': str(venta.total),
-                'estado': 'ANULADA',
-                'motivo_anulacion': motivo,
-                'anulada_por': request.user.get_full_name() or request.user.username,
-                'fecha_anulacion': venta.fecha_anulacion.strftime('%d/%m/%Y %H:%M'),
-                'lotes_actualizados': resultado_fifo.get('lotes_actualizados', 0),
-                'cantidad_devuelta': resultado_fifo.get('cantidad_devuelta', 0),
-            }
-        })
- 
     except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False,
-            'error': 'Datos inválidos.'
-        }, status=400)
-    except Exception as e:
-        print(f"❌ ERROR al anular venta: {str(e)}")
+        return JsonResponse(
+            {'success': False, 'error': 'JSON inválido en el request.'},
+            status=400,
+        )
+
+    venta_id = data.get('venta_id')
+    motivo = data.get('motivo', '')
+
+    if not venta_id:
+        return JsonResponse(
+            {'success': False, 'error': 'venta_id es requerido.'},
+            status=400,
+        )
+
+    try:
+        venta = anular_venta_service(
+            usuario=request.user,
+            venta_id=venta_id,
+            motivo=motivo,
+            ip_address=get_client_ip(request),
+        )
+    except ErrorVentaBase as exc:
+        return JsonResponse(
+            {'success': False, 'error': str(exc)},
+            status=exc.status_code,
+        )
+    except Exception as exc:
         import traceback
+        print(f'❌ ERROR no manejado en api_anular_venta: {exc}')
         traceback.print_exc()
-        return JsonResponse({
-            'success': False,
-            'error': f'Error inesperado: {str(e)}'
-        }, status=500)
- 
+        return JsonResponse(
+            {'success': False, 'error': f'Error inesperado: {exc}'},
+            status=500,
+        )
+
+    return JsonResponse({
+        'success': True,
+        'message': f'Venta {venta.numero_venta} anulada exitosamente.',
+        'venta': {
+            'id': venta.id,
+            'numero_venta': venta.numero_venta,
+            'total': str(venta.total),
+            'estado': 'ANULADA',
+            'motivo_anulacion': venta.motivo_anulacion,
+            'anulada_por': (
+                request.user.get_full_name() or request.user.username
+            ),
+            'fecha_anulacion': venta.fecha_anulacion.strftime('%d/%m/%Y %H:%M'),
+        },
+    })

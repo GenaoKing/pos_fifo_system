@@ -179,3 +179,4 @@ function showConfirm(titulo, mensaje = '', opts = {}) {
         document.addEventListener('keydown', onKey);
     });
 }
+

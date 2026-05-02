@@ -173,6 +173,10 @@ class ThermalPrinter2Connect:
             
             # === CÓDIGO QR ===
             self._print_qr_code(venta_data['numero_venta'])
+
+            # === SECCION e-CF ===
+            if venta_data.get('ecf'):
+                self._print_ecf_section(venta_data['ecf'])
             
             # === FOOTER ===
             self._print_footer()
@@ -386,7 +390,129 @@ class ThermalPrinter2Connect:
             self.printer.text(f"Facebook: {self.business_info['FACEBOOK']}\n")
         
         self.printer.set(align='left', bold=False)
-    
+
+    def _print_ecf_section(self, ecf_data):
+        """
+        Imprime la seccion e-CF segun el estado del documento fiscal.
+
+        Casos:
+        - APROBADO / APROBADO_CONDICIONAL: RI valida con QR.
+        - PENDIENTE / ENVIADO / EN_PROCESO con datos: RI con leyenda
+          de ENVIO DIFERIDO.
+        - PENDIENTE sin eNCF/codigo todavia: aviso de reimpresion.
+        - RECHAZADO / ERROR: leyenda destacada de NO VALIDO.
+        """
+        estado = ecf_data.get('estado')
+
+        self.printer.text("\n")
+        self.printer.set(align='center', bold=False)
+        self.printer.text("-" * 32 + "\n")
+        self.printer.set(align='center', bold=True)
+        self.printer.text("COMPROBANTE FISCAL ELECTRONICO\n")
+        self.printer.set(align='center', bold=False)
+
+        if estado in ('RECHAZADO', 'ERROR'):
+            self._print_ecf_rechazado(ecf_data)
+            return
+
+        if ecf_data.get('encf') and ecf_data.get('codigo_seguridad'):
+            self._print_ecf_with_data(ecf_data)
+            return
+
+        self.printer.text("\n")
+        self.printer.text("e-CF en proceso de emision\n")
+        self.printer.text("Reimprima este ticket en unos minutos\n")
+        self.printer.text("para obtener el comprobante final.\n")
+        self.printer.text(f"Venta: {ecf_data.get('venta_numero', '')}\n")
+        self.printer.text("\n")
+
+    def _print_ecf_with_data(self, ecf_data):
+        """
+        Imprime un ECF con eNCF y codigo de seguridad asignados.
+        Si no esta aprobado aun, agrega la leyenda de ENVIO DIFERIDO.
+        """
+        estado = ecf_data.get('estado')
+
+        self.printer.text("\n")
+        self.printer.text(f"eNCF: {ecf_data.get('encf', '')}\n")
+        self.printer.text(
+            f"Cod. Seguridad: {ecf_data.get('codigo_seguridad', '')}\n"
+        )
+
+        if ecf_data.get('fecha_firma'):
+            self.printer.text(f"Fecha Firma: {ecf_data['fecha_firma']}\n")
+
+        qr_url = ecf_data.get('qr_url')
+        if qr_url:
+            self.printer.text("\n")
+            try:
+                self._print_qr_from_data(qr_url)
+            except Exception:
+                self.printer.set(align='center', bold=False)
+                self.printer.text("Validar en:\n")
+                self.printer.text(f"{qr_url}\n")
+
+        if estado not in ('APROBADO', 'APROBADO_CONDICIONAL'):
+            self.printer.text("\n")
+            self.printer.set(align='center', bold=True)
+            self.printer.text("e-CF emitido en modalidad\n")
+            self.printer.text("ENVIO DIFERIDO\n")
+            self.printer.set(align='center', bold=False)
+            self.printer.text("Disponible para validacion\n")
+            self.printer.text("en portal DGII en 24 horas.\n")
+        else:
+            self.printer.text("\n")
+            self.printer.set(align='center', bold=False)
+            self.printer.text("Documento valido fiscalmente\n")
+            self.printer.text("y aceptado por DGII.\n")
+
+        self.printer.set(align='left', bold=False)
+        self.printer.text("\n")
+
+    def _print_ecf_rechazado(self, ecf_data):
+        """
+        Imprime leyenda destacada para un e-CF rechazado por DGII.
+        """
+        self.printer.text("\n")
+        self.printer.set(align='center', bold=True, double_height=True)
+        self.printer.text("DOCUMENTO RECHAZADO\n")
+        self.printer.text("POR DGII\n")
+        self.printer.set(align='center', bold=True, double_height=False)
+        self.printer.text("NO VALIDO COMO\n")
+        self.printer.text("COMPROBANTE FISCAL\n")
+        self.printer.set(align='center', bold=False)
+        self.printer.text("\n")
+        self.printer.text("Solicite una nueva factura\n")
+        self.printer.text("al cajero.\n")
+        self.printer.text("\n")
+        self.printer.text(
+            f"Ref. interna: {ecf_data.get('venta_numero', '')}\n"
+        )
+        self.printer.text("\n")
+        self.printer.set(align='left', bold=False, double_height=False)
+
+    def _print_qr_from_data(self, qr_data):
+        """
+        Genera e imprime un QR desde un string arbitrario.
+        """
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=getattr(
+                qrcode.constants,
+                f"ERROR_CORRECT_{self.qr_config.get('ERROR_CORRECTION', 'M')}"
+            ),
+            box_size=self.qr_config.get('SIZE', 4),
+            border=1,
+        )
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+
+        qr_image = qr.make_image(fill_color="black", back_color="white")
+        qr_image = qr_image.convert('L')
+
+        self.printer.set(normal_textsize=True)
+        self.printer.image(qr_image, center=True)
+
     def _print_total_line(self, label, amount):
         """Helper para imprimir líneas de totales alineadas a la derecha"""
         amount_str = f"${abs(amount):.2f}"

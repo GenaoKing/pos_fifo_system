@@ -9,6 +9,7 @@ Versión: 2.0 - Migrado a ConfiguracionNegocio
 """
 
 import logging
+import json
 from datetime import datetime
 from django.conf import settings
 from django.db import transaction
@@ -36,6 +37,46 @@ def _is_printing_enabled():
     except Exception:
         # BD no disponible (primera migración, etc.)
         return settings.THERMAL_PRINTER.get('ENABLED', False)
+
+
+def _obtener_ecf_para_ticket(venta):
+    """
+    Recupera el ECF original (tipo 31 o 32) mas reciente de la venta.
+    Retorna None si el modulo e-CF no esta activo o si la venta aun no
+    tiene ECF asociado.
+    """
+    try:
+        from apps.configuracion.utils import get_config
+        from apps.facturacion_electronica.models import ECF
+    except ImportError:
+        return None
+
+    config = get_config()
+    if not config.modulo_ecf:
+        return None
+
+    return (
+        ECF.objects
+        .filter(venta=venta, tipo__in=('31', '32'))
+        .order_by('-creado_en')
+        .first()
+    )
+
+
+def _extraer_qr_url_para_ticket(ecf):
+    """
+    Extrae el qr_url persistido en ecf.xml_respuesta. Retorna None si no
+    existe o si el JSON no se puede parsear.
+    """
+    if not ecf or not ecf.xml_respuesta:
+        return None
+
+    try:
+        raw = json.loads(ecf.xml_respuesta)
+    except (ValueError, TypeError):
+        return None
+
+    return raw.get('qr_url') or raw.get('qrUrl') or None
 
 
 class PrintManager:
@@ -68,6 +109,9 @@ class PrintManager:
                 'mensaje': 'Sistema de impresión deshabilitado',
                 'error': 'DISABLED'
             }
+
+        if reimpresion:
+            venta.refresh_from_db()
         
         # Preparar datos para impresión
         try:
@@ -200,6 +244,20 @@ class PrintManager:
         
         if hasattr(venta, 'cliente') and venta.cliente:
             venta_data['cliente'] = venta.cliente.nombre
+
+        ecf = _obtener_ecf_para_ticket(venta)
+        if ecf is not None:
+            venta_data['ecf'] = {
+                'estado': ecf.estado,
+                'encf': ecf.encf or '',
+                'codigo_seguridad': ecf.codigo_seguridad or '',
+                'fecha_firma': (
+                    ecf.fecha_emision.strftime('%d-%m-%Y %H:%M:%S')
+                    if ecf.fecha_emision else ''
+                ),
+                'qr_url': _extraer_qr_url_para_ticket(ecf),
+                'venta_numero': venta.numero_venta,
+            }
         
         return venta_data
     

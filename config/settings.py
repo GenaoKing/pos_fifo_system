@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'apps.api',
     'apps.sync',
+    'apps.facturacion_electronica',
     
 ]
 

@@ -708,6 +708,39 @@
                         <p class="text-4xl font-bold" x-text="'$' + calcularTotal().toFixed(2)"></p>
                     </div>
                     
+                    {% if config.modulo_ecf %}
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="tipo_ecf">
+                            Tipo de Comprobante Fiscal
+                        </label>
+                        <select
+                            id="tipo_ecf"
+                            x-model="tipoEcf"
+                            class="form-input w-full"
+                        >
+                            <option value="32">Factura de Consumo (32) - default</option>
+                            <option value="31">Factura de Credito Fiscal (31)</option>
+                        </select>
+
+                        <template x-if="tipoEcf === '31'">
+                            <div class="mt-2 text-sm">
+                                <template x-if="clienteSeleccionado && clienteSeleccionado.cedula_rnc">
+                                    <p class="text-green-700">
+                                        Cliente con RNC:
+                                        <span class="font-mono" x-text="clienteSeleccionado.cedula_rnc"></span>
+                                    </p>
+                                </template>
+                                <template x-if="!clienteSeleccionado || !clienteSeleccionado.cedula_rnc">
+                                    <p class="text-amber-700">
+                                        Credito Fiscal requiere cliente con RNC. Asignar cliente
+                                        o cambiar a Consumo (32).
+                                    </p>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                    {% endif %}
+
                     <!-- Metodos de pago (dinámicos desde ConfiguracionNegocio) -->
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Método de Pago</label>
@@ -977,6 +1010,8 @@ function posData() {
         // ============================================
         panelPagoActivo: false,
         metodoPago: 'efectivo', // 'efectivo', 'transferencia', 'mixto'
+        moduloEcfActivo: {{ config.modulo_ecf|yesno:"true,false" }},
+        tipoEcf: '32',
         montoPagado: 0,
         montoEfectivo: 0,
         montoTransferencia: 0,
@@ -1195,6 +1230,7 @@ function posData() {
             this.busqueda = '';
             this.productos = [];
             this.panelPagoActivo = false;
+            this.tipoEcf = '32';
             // Limpiar cliente y cotizacion
             this.clienteSeleccionado = null;
             this.clienteBusqueda = '';
@@ -1442,6 +1478,16 @@ function posData() {
                 showToast('warning', 'El monto pagado es insuficiente');
                 return;
             }
+
+            if (this.moduloEcfActivo && this.tipoEcf === '31') {
+                if (!this.clienteSeleccionado || !this.clienteSeleccionado.cedula_rnc) {
+                    showToast(
+                        'error',
+                        'Credito Fiscal (31) requiere cliente con RNC asignado.'
+                    );
+                    return;
+                }
+            }
             
             // Preparar datos de la venta
             const datosVenta = {
@@ -1460,7 +1506,8 @@ function posData() {
                 monto_tarjeta: this.metodoPago === 'tarjeta' ? this.calcularTotal() : 0,
                 referencia_tarjeta: this.referenciaTarjeta,
                 cotizacion_id: this.cotizacionId || null,
-                total: this.calcularTotal()
+                total: this.calcularTotal(),
+                tipo_ecf: this.tipoEcf || '32',
             };
             
             console.log('📤 Enviando venta al backend:', datosVenta);

@@ -6,6 +6,8 @@ FASE 2: Ya no es singleton (pk=1).
 Ahora es una config POR SUCURSAL via FK.
 Backward compatible: si no hay sucursal configurada, carga la primera config existente.
 """
+from decimal import Decimal
+
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -141,6 +143,66 @@ class ConfiguracionNegocio(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(365)],
         help_text='Cantidad de dias permitidos para anular una venta'
     )
+
+
+     # =========================================================================
+    # FACTURACION ELECTRONICA (e-CF)
+    # =========================================================================
+    # El feature flag `modulo_ecf` ya existe arriba en MODULOS.
+    # Estos campos definen QUE proveedor usar y CON QUE entidad fiscal
+    # se firman los documentos cuando el modulo esta activo.
+    ecf_proveedor = models.CharField(
+        'Proveedor e-CF',
+        max_length=20,
+        choices=(
+            ('mseller', 'MSeller (PSFE)'),
+            ('nativo', 'Libreria nativa (dgii-ecf-py)'),
+        ),
+        default='mseller',
+        help_text='Implementacion a usar cuando modulo_ecf esta activo. '
+                  'En Fase Inicial solo "mseller" esta disponible.'
+    )
+    emisor_activo = models.ForeignKey(
+        'facturacion_electronica.Emisor',
+        on_delete=models.PROTECT,
+        related_name='configuraciones',
+        verbose_name='Emisor activo',
+        blank=True,
+        null=True,
+        help_text='Entidad fiscal que firma los e-CF de esta sucursal. '
+                  'Requerido si modulo_ecf=True.'
+    )
+    itbis_incluido_en_precio = models.BooleanField(
+        'ITBIS incluido en precio de venta',
+        default=True,
+        help_text='Si True, Producto.precio_venta ya incluye ITBIS y se '
+                  'desglosa al emitir e-CF (back-calculo: base = precio/(1+pct)). '
+                  'Si False, precio_venta es base imponible y el ITBIS se suma encima.'
+    )
+    itbis_porcentaje_global = models.DecimalField(
+        'ITBIS % global',
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('18.00'),
+        help_text='Porcentaje de ITBIS aplicado por defecto a todos los productos. '
+                  'Se usa hasta que Producto tenga su propio campo itbis_pct '
+                  'para tasas diferenciadas (16%, exento, etc.).'
+    )
+
+    modo_contingencia = models.BooleanField(
+        'Modo contingencia (Fase 2)',
+        default=False,
+        help_text='PLACEHOLDER FASE 2 — actualmente NO afecta el comportamiento. '
+                  'Cuando se implemente: si True, el POS emite NCF papel '
+                  '(serie B) en lugar de e-CF, durante el periodo en que '
+                  'DGII está caída más de 24h. Requiere notificación previa '
+                  'a DGII vía Oficina Virtual y plazo máximo 15 días. Al '
+                  'volver a False, se dispara comando que convierte los '
+                  'NCF papel del periodo en e-CF para enviar a DGII en los '
+                  'siguientes 30 días.'
+    )
+
+
 
     # =========================================================================
     # METADATA
