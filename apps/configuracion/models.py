@@ -1,18 +1,37 @@
 """
 apps/configuracion/models.py
 Configuracion centralizada del negocio + feature flags
-Singleton pattern: siempre pk=1
+
+FASE 2: Ya no es singleton (pk=1).
+Ahora es una config POR SUCURSAL via FK.
+Backward compatible: si no hay sucursal configurada, carga la primera config existente.
 """
+from decimal import Decimal
+
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class ConfiguracionNegocio(models.Model):
     """
-    Configuracion unica por instalacion.
-    Controla feature flags, datos del negocio, y parametros operativos.
+    Configuracion por sucursal.
+    Cada sucursal tiene su propia config con feature flags y datos de negocio.
     Se consulta en caliente via get_config() cacheado.
     """
+
+    # =========================================================================
+    # SUCURSAL (Fase 2)
+    # =========================================================================
+    sucursal = models.OneToOneField(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='configuracion',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal a la que pertenece esta configuracion. '
+                  'Null para instalaciones legacy sin sucursal.'
+    )
 
     # =========================================================================
     # IDENTIDAD DEL NEGOCIO
@@ -49,6 +68,15 @@ class ConfiguracionNegocio(models.Model):
         help_text='Logo para tickets, PDFs y cotizaciones'
     )
 
+
+    permitir_inventario_negativo = models.BooleanField(
+        'Permitir inventario negativo',
+        default=False,
+        help_text='Si True, el sistema no bloquea ventas aunque el stock sea insuficiente. '
+                  'Usar con precaucion, puede llevar a inconsistencias si no se controla bien'
+                    'el flujo de compras e ingresos de mercancia.'
+    )
+
     # =========================================================================
     # FEATURE FLAGS - MODULOS
     # =========================================================================
@@ -73,28 +101,28 @@ class ConfiguracionNegocio(models.Model):
         help_text='Impresion de tickets en impresora termica 80mm'
     )
     modulo_barcode_scanner = models.BooleanField(
-        'Escaner de Codigo de Barras',
+        'Scanner de Codigo de Barras',
         default=True,
-        help_text='Soporte para escaner de codigo de barras en POS'
+        help_text='Lector de codigos de barras en el POS'
     )
     modulo_reportes_ondemand = models.BooleanField(
         'Reportes On-Demand',
         default=True,
-        help_text='Generacion manual de reportes con filtros'
+        help_text='Generacion de reportes personalizados'
     )
     modulo_ecf = models.BooleanField(
         'Facturacion Electronica (e-CF)',
         default=False,
-        help_text='Integracion con DGII para comprobantes fiscales electronicos'
+        help_text='Emision de comprobantes fiscales electronicos (Ley 32-23)'
     )
     modulo_dashboard = models.BooleanField(
         'Dashboard',
         default=True,
-        help_text='Panel de metricas y KPIs'
+        help_text='Panel de control con metricas en tiempo real'
     )
 
     # =========================================================================
-    # METODOS DE PAGO HABILITADOS
+    # METODOS DE PAGO
     # =========================================================================
     pago_efectivo = models.BooleanField(
         'Pago en Efectivo',
@@ -112,65 +140,78 @@ class ConfiguracionNegocio(models.Model):
     # =========================================================================
     # PARAMETROS OPERATIVOS
     # =========================================================================
-    hora_cierre_automatico = models.TimeField(
-        'Hora de cierre automatico',
-        default='19:00',
-        help_text='Hora a la que se ejecuta el cierre de caja diario'
-    )
-    dias_limite_anulacion = models.PositiveIntegerField(
-        'Dias limite para anulacion',
-        default=15,
-        validators=[MinValueValidator(1), MaxValueValidator(365)],
-        help_text='Cantidad de dias despues de los cuales no se puede anular una venta'
-    )
-    stock_minimo_default = models.PositiveIntegerField(
-        'Stock minimo por defecto',
-        default=5,
-        help_text='Stock minimo predeterminado al crear productos nuevos'
-    )
-    prefijo_numero_venta = models.CharField(
-        'Prefijo numero de venta',
-        max_length=10,
-        default='VTA',
-        help_text='Prefijo para numeros de venta (ej: VTA-20260406-00001)'
-    )
     formato_codigo_barras = models.CharField(
-        'Formato codigo de barras interno',
+        'Formato Codigo de Barras',
         max_length=20,
         default='RP-XXXXXX',
-        help_text='Formato para codigos de barras generados internamente'
+        help_text='Formato para generacion de codigos internos'
     )
-    permitir_inventario_negativo = models.BooleanField(
-        'Permitir inventario negativo',
-        default=True,
-        help_text='Permitir ventas cuando el stock es insuficiente (se registra en auditoria)'
+    dias_anulacion = models.PositiveIntegerField(
+        'Dias para Anulacion',
+        default=15,
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+        help_text='Cantidad de dias permitidos para anular una venta'
     )
 
+
+     # =========================================================================
+    # FACTURACION ELECTRONICA (e-CF)
     # =========================================================================
-    # IMPRESION
-    # =========================================================================
-    nombre_impresora_termica = models.CharField(
-        'Nombre impresora termica',
-        max_length=100,
+    # El feature flag `modulo_ecf` ya existe arriba en MODULOS.
+    # Estos campos definen QUE proveedor usar y CON QUE entidad fiscal
+    # se firman los documentos cuando el modulo esta activo.
+    ecf_proveedor = models.CharField(
+        'Proveedor e-CF',
+        max_length=20,
+        choices=(
+            ('mseller', 'MSeller (PSFE)'),
+            ('nativo', 'Libreria nativa (dgii-ecf-py)'),
+        ),
+        default='mseller',
+        help_text='Implementacion a usar cuando modulo_ecf esta activo. '
+                  'En Fase Inicial solo "mseller" esta disponible.'
+    )
+    emisor_activo = models.ForeignKey(
+        'facturacion_electronica.Emisor',
+        on_delete=models.PROTECT,
+        related_name='configuraciones',
+        verbose_name='Emisor activo',
         blank=True,
-        help_text='Nombre exacto como aparece en Windows (ej: 2C-POS80-01)'
+        null=True,
+        help_text='Entidad fiscal que firma los e-CF de esta sucursal. '
+                  'Requerido si modulo_ecf=True.'
     )
-    nombre_impresora_zebra = models.CharField(
-        'Nombre impresora Zebra',
-        max_length=100,
-        blank=True,
-        help_text='Nombre exacto como aparece en Windows (ej: ZDesigner LP 2824)'
+    itbis_incluido_en_precio = models.BooleanField(
+        'ITBIS incluido en precio de venta',
+        default=True,
+        help_text='Si True, Producto.precio_venta ya incluye ITBIS y se '
+                  'desglosa al emitir e-CF (back-calculo: base = precio/(1+pct)). '
+                  'Si False, precio_venta es base imponible y el ITBIS se suma encima.'
     )
-    texto_pie_ticket = models.TextField(
-        'Texto pie de ticket',
-        blank=True,
-        default='Gracias por su compra',
-        help_text='Texto que aparece al final del ticket de venta'
+    itbis_porcentaje_global = models.DecimalField(
+        'ITBIS % global',
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('18.00'),
+        help_text='Porcentaje de ITBIS aplicado por defecto a todos los productos. '
+                  'Se usa hasta que Producto tenga su propio campo itbis_pct '
+                  'para tasas diferenciadas (16%, exento, etc.).'
     )
-    imprimir_logo_ticket = models.BooleanField(
-        'Imprimir logo en ticket',
-        default=True
+
+    modo_contingencia = models.BooleanField(
+        'Modo contingencia (Fase 2)',
+        default=False,
+        help_text='PLACEHOLDER FASE 2 — actualmente NO afecta el comportamiento. '
+                  'Cuando se implemente: si True, el POS emite NCF papel '
+                  '(serie B) en lugar de e-CF, durante el periodo en que '
+                  'DGII está caída más de 24h. Requiere notificación previa '
+                  'a DGII vía Oficina Virtual y plazo máximo 15 días. Al '
+                  'volver a False, se dispara comando que convierte los '
+                  'NCF papel del periodo en e-CF para enviar a DGII en los '
+                  'siguientes 30 días.'
     )
+
+
 
     # =========================================================================
     # METADATA
@@ -180,26 +221,55 @@ class ConfiguracionNegocio(models.Model):
 
     class Meta:
         verbose_name = 'Configuracion del Negocio'
-        verbose_name_plural = 'Configuracion del Negocio'
+        verbose_name_plural = 'Configuraciones del Negocio'
 
     def __str__(self):
+        if self.sucursal:
+            return f'Configuracion: {self.nombre_negocio} ({self.sucursal.codigo})'
         return f'Configuracion: {self.nombre_negocio}'
 
     def save(self, *args, **kwargs):
-        self.pk = 1
+        # -----------------------------------------------------------
+        # FASE 2: Ya NO forzamos self.pk = 1
+        # Cada sucursal tiene su propia config.
+        # -----------------------------------------------------------
         super().save(*args, **kwargs)
         # Invalidar cache al guardar
         from django.core.cache import cache
-        cache.delete('config_negocio')
+        if self.sucursal:
+            cache.delete(f'config_negocio_{self.sucursal.codigo}')
+            # Tambien invalidar cache de sucursal_actual por si cambio
+            cache.delete(f'sucursal_actual_{self.sucursal.codigo}')
+        else:
+            # Fallback legacy: invalidar cache sin sucursal
+            cache.delete('config_negocio')
 
     def delete(self, *args, **kwargs):
-        pass  # No permitir eliminar el singleton
+        pass  # No permitir eliminar configuracion
 
     @classmethod
-    def load(cls):
-        """Carga o crea la configuracion singleton"""
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj
+    def load(cls, sucursal=None):
+        """
+        Carga la configuracion para una sucursal.
+
+        Args:
+            sucursal: instancia de Sucursal, o None para legacy/fallback
+
+        Si se pasa sucursal, busca por FK.
+        Si no hay sucursal, intenta cargar pk=1 (backward compatible).
+        """
+        if sucursal:
+            obj, _ = cls.objects.get_or_create(
+                sucursal=sucursal,
+                defaults={'nombre_negocio': sucursal.nombre}
+            )
+            return obj
+        else:
+            # Backward compatible: cargar la primera config o crear una con pk=1
+            obj = cls.objects.first()
+            if obj is None:
+                obj = cls.objects.create(pk=1)
+            return obj
 
     def get_metodos_pago_activos(self):
         """Retorna lista de metodos de pago habilitados"""

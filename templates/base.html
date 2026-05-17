@@ -13,6 +13,8 @@
     
     <!-- Alpine.js (local - offline compatible) -->
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
+    <script src="{% static 'js/utils.js' %}"></script>
+    <script src="{% static 'js/ecf_estado.js' %}"></script>
     
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
@@ -94,6 +96,17 @@
                 </svg>
                 Reimprimir
             </a>
+
+            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            <a href="{% url 'pos:anulaciones' %}"
+                class="sidebar-item {% if request.resolver_match.url_name == 'anulaciones' %}sidebar-item-active{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                </svg>
+                <span>Anulaciones</span>
+            </a>
+            {% endif %}
             
             
             
@@ -142,15 +155,17 @@
                 </svg>
                 Nueva Compra
             </a>
-            {% if user.es_admin %}
-            <a href="/admin/inventario/lote/" class="sidebar-item">
+            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            <a href="{% url 'inventario:ajustes' %}"
+                class="sidebar-item {% if request.resolver_match.url_name == 'ajustes' %}sidebar-item-active{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
-                Lotes FIFO
+                <span>Ajustes Inventario</span>
             </a>
             {% endif %}
-            <!-- ==============================
+                        <!-- ==============================
                 CLIENTES Y COTIZACIONES
                 ============================== -->
             <div class="px-6 py-2 mt-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -209,6 +224,17 @@
             <div class="px-6 py-2 mt-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Sistema
             </div>
+
+            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            <a href="{% url 'auditoria:dashboard' %}"
+                class="sidebar-item {% if request.resolver_match.app_name == 'auditoria' %}sidebar-item-active{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                </svg>
+                <span>Auditoría</span>
+            </a>
+            {% endif %}
             
             {% if user.es_sysadmin %}
             <a href="/admin/" class="sidebar-item">
@@ -384,5 +410,8 @@
     </script>
     
     {% block extra_js %}{% endblock %}
+
+     <!-- Toast container global -->
+    <div id="toast-container" style="position:fixed;top:1rem;right:1rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;max-width:400px;"></div>
 </body>
 </html>

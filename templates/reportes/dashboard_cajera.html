@@ -7,7 +7,8 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="dashboardCajera()" x-init="iniciarActualizacion()">
+{{ metricas_init_json|json_script:"dashboard-init-data" }}
+<div x-data="dashboardCajera()" x-init="init()">
 
     {# ================================================================ #}
     {# HEADER + ACCESO RAPIDO POS                                       #}
@@ -156,12 +157,7 @@
 <script>
 function dashboardCajera() {
     return {
-        metricas: {
-            total_ventas: {{ resumen_hoy.total|default:"0" }},
-            cantidad_ventas: {{ resumen_hoy.cantidad|default:"0" }},
-            efectivo: {{ efectivo_hoy|default:"0" }},
-            transferencia: {{ transferencia_hoy|default:"0" }},
-        },
+        metricas: JSON.parse(document.getElementById('dashboard-init-data').textContent),
         horaActual: '',
         intervalo: null,
 
@@ -189,7 +185,7 @@ function dashboardCajera() {
             } catch (e) { /* silencioso */ }
         },
 
-        iniciarActualizacion() {
+        init() {
             this.actualizarHora();
             this.intervalo = setInterval(() => {
                 this.fetchMetricas();

@@ -11,6 +11,7 @@
     
     <!-- Alpine.js -->
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
+    <script src="{% static 'js/utils.js' %}"></script>
     
     <style>
         [x-cloak] { display: none !important; }
@@ -307,6 +308,9 @@
         <!-- Footer -->
         <p class="login-footer">POS v1.3</p>
     </div>
+
+    <!-- Toast container global -->
+    <div id="toast-container" style="position:fixed;top:1rem;right:1rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;max-width:400px;"></div>
 
 </body>
 </html>

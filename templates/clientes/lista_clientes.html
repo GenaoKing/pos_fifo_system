@@ -108,13 +108,13 @@
                 <table class="w-full">
                     <thead>
                         <tr class="border-b border-gray-200 bg-gray-50">
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Cliente</th>
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Tipo</th>
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Cedula/RNC</th>
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Telefono</th>
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Compras</th>
-                            <th class="text-left text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Estado</th>
-                            <th class="text-right text-xs font-semibold text-gray-600 uppercase tracking-wider px-6 py-3">Acciones</th>
+                            <th class="table-header-cell">Cliente</th>
+                            <th class="table-header-cell">Tipo</th>
+                            <th class="table-header-cell">Cedula/RNC</th>
+                            <th class="table-header-cell">Telefono</th>
+                            <th class="table-header-cell">Compras</th>
+                            <th class="table-header-cell">Estado</th>
+                            <th class="table-header-cell text-right">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -343,7 +343,7 @@ function clientesApp() {
 
         async guardarCliente() {
             if (!this.formulario.nombre.trim()) {
-                alert('El nombre es requerido');
+                showToast('warning', 'El nombre es requerido');
                 return;
             }
 
@@ -355,10 +355,7 @@ function clientesApp() {
             try {
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken'),
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(this.formulario),
                 });
                 const data = await response.json();
@@ -366,50 +363,39 @@ function clientesApp() {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    alert(data.message || 'Error al guardar');
+                    showToast('error', data.message || 'Error al guardar');
                 }
             } catch (error) {
-                alert('Error de conexion');
+                showToast('error', 'Error de conexión');
             } finally {
                 this.guardando = false;
             }
         },
 
         async toggleEstado(cliente) {
-            if (!confirm(`Deseas ${cliente.activo ? 'desactivar' : 'activar'} a "${cliente.nombre}"?`)) return;
+            const action = cliente.activo ? 'desactivar' : 'activar';
+            const ok = await showConfirm(
+                `¿Deseas ${action} a "${cliente.nombre}"?`,
+                `El cliente será ${cliente.activo ? 'desactivado' : 'activado'} y ${cliente.activo ? 'no podrá realizar compras' : 'podrá realizar compras'}.`,
+                { confirmText: action.charAt(0).toUpperCase() + action.slice(1), type: cliente.activo ? 'warning' : 'success' }
+            );
+            if (!ok) return;
 
             try {
                 const response = await fetch(`/clientes/${cliente.id}/toggle/`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken'),
-                    },
+                    headers: jsonHeaders(),
                 });
                 const data = await response.json();
                 if (data.success) {
                     cliente.activo = data.activo;
                 }
             } catch (error) {
-                alert('Error de conexion');
+                showToast('error', 'Error de conexión');
             }
         },
 
-        getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        },
-    };
+    }
 }
 </script>
 {% endblock %}

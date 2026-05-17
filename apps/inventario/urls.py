@@ -29,4 +29,9 @@ urlpatterns = [
 
     # Imprimir etiquetas de una compra
     path('compras/<int:compra_id>/imprimir-etiquetas/', views.compra_imprimir_etiquetas, name='compra_imprimir_etiquetas'),
+
+    # Ajustes de inventario
+    path('ajustes/', views.vista_ajustes, name='ajustes'),
+    path('api/lotes/<int:producto_id>/', views.api_lotes_producto, name='api_lotes_producto'),
+    path('api/ajustar/', views.api_ajustar_inventario, name='api_ajustar'),
 ]

@@ -1,10 +1,17 @@
 """
 Management command: python manage.py crear_config_inicial
 Crea la configuracion del negocio con valores por defecto o personalizados.
-Uso en instalacion:
-    python manage.py crear_config_inicial --nombre "Royal Plast EIRL" --rnc "123456789" --telefono "829-986-6443"
+
+FASE 2: Soporta --sucursal para vincular la config a una sucursal existente.
+
+Uso:
+    # Legacy (sin sucursal, backward compatible)
+    python manage.py crear_config_inicial --nombre "Royal Plast EIRL"
+
+    # Con sucursal (Fase 2)
+    python manage.py crear_config_inicial --sucursal SD-001 --nombre "Royal Plast EIRL" --preset plasticos
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from apps.configuracion.models import ConfiguracionNegocio
 
 
@@ -17,6 +24,12 @@ class Command(BaseCommand):
         parser.add_argument('--direccion', type=str, default='')
         parser.add_argument('--telefono', type=str, default='')
         parser.add_argument('--email', type=str, default='')
+        parser.add_argument(
+            '--sucursal',
+            type=str,
+            default=None,
+            help='Codigo de sucursal existente para vincular la config (Fase 2)'
+        )
         # Presets de negocio
         parser.add_argument(
             '--preset',
@@ -27,7 +40,35 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        config, created = ConfiguracionNegocio.objects.get_or_create(pk=1)
+        sucursal = None
+        codigo_sucursal = options['sucursal']
+
+        # Resolver sucursal si se especifico
+        if codigo_sucursal:
+            try:
+                from apps.sucursales.models import Sucursal
+                sucursal = Sucursal.objects.get(codigo=codigo_sucursal)
+                self.stdout.write(f'  Sucursal: {sucursal}')
+            except Exception:
+                raise CommandError(
+                    f'Sucursal "{codigo_sucursal}" no encontrada. '
+                    f'Creala primero con: python manage.py crear_sucursal --codigo {codigo_sucursal} --nombre "..."'
+                )
+
+        # Obtener o crear config
+        if sucursal:
+            config, created = ConfiguracionNegocio.objects.get_or_create(
+                sucursal=sucursal,
+                defaults={'nombre_negocio': options['nombre']}
+            )
+        else:
+            # Legacy: buscar primera config o crear
+            config = ConfiguracionNegocio.objects.first()
+            if config is None:
+                config = ConfiguracionNegocio(pk=1)
+                created = True
+            else:
+                created = False
 
         # Datos basicos
         config.nombre_negocio = options['nombre']
@@ -83,6 +124,7 @@ class Command(BaseCommand):
         config.save()
 
         action = 'Creada' if created else 'Actualizada'
+        suc_label = f' (sucursal: {sucursal.codigo})' if sucursal else ' (sin sucursal - legacy)'
         self.stdout.write(self.style.SUCCESS(
-            f'  [OK] {action} configuracion para: {config.nombre_negocio}'
+            f'  [OK] {action} configuracion para: {config.nombre_negocio}{suc_label}'
         ))

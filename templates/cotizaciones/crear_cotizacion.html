@@ -320,37 +320,25 @@ function cotizacionApp() {
             try {
                 const res = await fetch('/cotizaciones/api/guardar/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken'),
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(payload),
                 });
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`Cotizacion ${data.numero_cotizacion} creada exitosamente.\nTotal: $${data.total.toFixed(2)}`);
+                    showToast('success', `Cotizacion ${data.numero_cotizacion} creada exitosamente.\nTotal: $${data.total.toFixed(2)}`);
                     window.location.href = '/cotizaciones/';
                 } else {
-                    alert(data.error || 'Error al crear cotizacion');
+                    showToast('error', data.error || 'Error al crear cotizacion');
                 }
             } catch (e) {
-                alert('Error de conexion');
+                showToast('error', 'Error de conexión');
             } finally {
                 this.guardando = false;
             }
         },
 
-        getCookie(name) {
-            let v = null;
-            if (document.cookie) {
-                document.cookie.split(';').forEach(c => {
-                    c = c.trim();
-                    if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
-                });
-            }
-            return v;
-        },
+       
     };
 }
 </script>

@@ -270,6 +270,10 @@
 {% endblock %}
 
 {% block content %}
+{{ pos_config_json|json_script:"pos-config-data" }}
+
+
+
 <!-- 
     COMPONENTE POS - Alpine.js
     
@@ -289,11 +293,7 @@
     - calcularCambio(): calcula el vuelto
     - validarPago(): verifica que el pago sea suficiente
 -->
-<div 
-    x-data="posData()" 
-    x-init="init()"
-    class="pos-container"
->
+<div x-data="posData()" x-init="init()"class="pos-container">
 
     <!-- ============================================
          SCANNER: Input dedicado (invisible) + Indicador
@@ -395,7 +395,7 @@
                             
                             <button 
                                 @click="actualizarCantidad(index, item.cantidad + 1)"
-                                :disabled="item.cantidad >= item.stock_disponible"
+                                :disabled="!permitirInvNegativo && item.cantidad >= item.stock_disponible"
                                 class="w-7 h-7 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                             >
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -559,7 +559,10 @@
                     <div 
                         @click="agregarAlCarrito(producto)"
                         class="producto-card"
-                        :class="{ 'sin-stock': !producto.tiene_stock, 'opacity-50 pointer-events-none': panelPagoActivo }"
+                        :class="{ 
+                            'sin-stock': !producto.tiene_stock && !permitirInvNegativo,
+                            'opacity-50 pointer-events-none': panelPagoActivo 
+                        }"
                     >
                         <!-- Icono del producto -->
                         <!-- Imagen o icono del producto -->
@@ -705,37 +708,74 @@
                         <p class="text-4xl font-bold" x-text="'$' + calcularTotal().toFixed(2)"></p>
                     </div>
                     
-                    <!-- Metodos de pago -->
+                    {% if config.modulo_ecf %}
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Metodo de Pago</label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <!-- Efectivo -->
-                            <div 
-                                @click="seleccionarMetodoPago('efectivo')"
-                                class="metodo-pago-btn"
-                                :class="{ 'activo': metodoPago === 'efectivo' }"
-                            >
-                                <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === 'efectivo' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                                </svg>
-                                <p class="text-xs font-medium">Efectivo</p>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="tipo_ecf">
+                            Tipo de Comprobante Fiscal
+                        </label>
+                        <select
+                            id="tipo_ecf"
+                            x-model="tipoEcf"
+                            class="form-input w-full"
+                        >
+                            <option value="32">Factura de Consumo (32) - default</option>
+                            <option value="31">Factura de Credito Fiscal (31)</option>
+                        </select>
+
+                        <template x-if="tipoEcf === '31'">
+                            <div class="mt-2 text-sm">
+                                <template x-if="clienteSeleccionado && clienteSeleccionado.cedula_rnc">
+                                    <p class="text-green-700">
+                                        Cliente con RNC:
+                                        <span class="font-mono" x-text="clienteSeleccionado.cedula_rnc"></span>
+                                    </p>
+                                </template>
+                                <template x-if="!clienteSeleccionado || !clienteSeleccionado.cedula_rnc">
+                                    <p class="text-amber-700">
+                                        Credito Fiscal requiere cliente con RNC. Asignar cliente
+                                        o cambiar a Consumo (32).
+                                    </p>
+                                </template>
                             </div>
-                            
-                            <!-- Transferencia -->
-                            <div 
-                                @click="seleccionarMetodoPago('transferencia')"
-                                class="metodo-pago-btn"
-                                :class="{ 'activo': metodoPago === 'transferencia' }"
-                            >
-                                <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === 'transferencia' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-                                </svg>
-                                <p class="text-xs font-medium">Transferencia</p>
-                            </div>
+                        </template>
+                    </div>
+                    {% endif %}
+
+                    <!-- Metodos de pago (dinámicos desde ConfiguracionNegocio) -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Método de Pago</label>
+                        <div :class="metodosPagoConfig.length <= 2 ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'">
+                            <template x-for="metodo in metodosPagoConfig" :key="metodo.id">
+                                <div 
+                                    @click="seleccionarMetodoPago(metodo.id)"
+                                    class="metodo-pago-btn"
+                                    :class="{ 'activo': metodoPago === metodo.id }"
+                                >
+                                    <!-- Icono Efectivo -->
+                                    <template x-if="metodo.icon === 'cash'">
+                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                                        </svg>
+                                    </template>
+                                    <!-- Icono Transferencia -->
+                                    <template x-if="metodo.icon === 'transfer'">
+                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                        </svg>
+                                    </template>
+                                    <!-- Icono Tarjeta -->
+                                    <template x-if="metodo.icon === 'card'">
+                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                        </svg>
+                                    </template>
+                                    <p class="text-xs font-medium" x-text="metodo.label"></p>
+                                </div>
+                            </template>
                         </div>
                         
-                        <!-- Pago mixto -->
-                        <div 
+                        <!-- Pago mixto (solo si hay más de 1 método activo) -->
+                        <div x-show="permiteMixto"
                             @click="seleccionarMetodoPago('mixto')"
                             class="metodo-pago-btn mt-2"
                             :class="{ 'activo': metodoPago === 'mixto' }"
@@ -778,13 +818,13 @@
                                         @click="montoPagado = Math.ceil(calcularTotal() / 10) * 10; calcularCambio()"
                                         class="btn-outline btn-sm"
                                     >
-                                        +$10
+                                        +$100
                                     </button>
                                     <button 
                                         @click="montoPagado = Math.ceil(calcularTotal() / 50) * 50; calcularCambio()"
                                         class="btn-outline btn-sm"
                                     >
-                                        +$50
+                                        +$500
                                     </button>
                                 </div>
                                 
@@ -807,6 +847,30 @@
                                     </svg>
                                     <p class="text-sm font-medium text-blue-900">Pago por Transferencia</p>
                                     <p class="text-xs text-blue-700 mt-1">Confirma el pago cuando el cliente te lo indique</p>
+                                </div>
+                            </div>
+                        </template>
+
+
+                        <!-- Tarjeta -->
+                        <template x-if="metodoPago === 'tarjeta'">
+                            <div>
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                                    <svg class="w-8 h-8 mx-auto mb-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                    </svg>
+                                    <p class="text-sm font-medium text-blue-800">Pago con Tarjeta</p>
+                                    <p class="text-2xl font-bold text-blue-900 mt-1" x-text="'$' + calcularTotal().toFixed(2)"></p>
+                                    <p class="text-xs text-blue-600 mt-1">Monto exacto procesado por terminal</p>
+                                </div>
+                                <div class="mt-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
+                                    <input 
+                                        type="text"
+                                        x-model="referenciaTarjeta"
+                                        placeholder="Últimos 4 dígitos o autorización..."
+                                        class="form-input w-full text-sm"
+                                    >
                                 </div>
                             </div>
                         </template>
@@ -921,6 +985,9 @@ function posData() {
         scannerToastTimeout: null,
         scannerFocusInterval: null,
 
+        // ============================================
+        // ESTADO DE TARJETA
+        referenciaTarjeta: '',
 
         // ============================================
         // ESTADO DE CLIENTE Y COTIZACION
@@ -931,12 +998,20 @@ function posData() {
         mostrarClientesDropdown: false,
         cotizacionId: null,
 
+        // ============================================
+        // CONFIGURACIÓN DE MÉTODOS DE PAGO 
+        // (CARGADA DESDE EL BACKEND)
+        metodosPagoConfig: [],
+        permiteMixto: true,
+        permitirInvNegativo: false,
 
         // ============================================
         // ESTADO DE PAGO (NUEVO EN PARTE 2)
         // ============================================
         panelPagoActivo: false,
         metodoPago: 'efectivo', // 'efectivo', 'transferencia', 'mixto'
+        moduloEcfActivo: {{ config.modulo_ecf|yesno:"true,false" }},
+        tipoEcf: '32',
         montoPagado: 0,
         montoEfectivo: 0,
         montoTransferencia: 0,
@@ -955,7 +1030,13 @@ function posData() {
             // INICIALIZAR SCANNER DE CODIGO DE BARRAS
             // ============================================
             this.initScanner();
-            
+
+            const posConfig = JSON.parse(
+                document.getElementById('pos-config-data').textContent
+            );
+            this.metodosPagoConfig = posConfig.metodos_pago;
+            this.permiteMixto = posConfig.permite_mixto;
+            this.permitsInvNegativo = posConfig.permitir_inventario_negativo;
             // Redirigir focus al scanner cuando se hace click fuera de inputs
             document.addEventListener('click', (e) => {
                 if (!this.panelPagoActivo && 
@@ -979,7 +1060,7 @@ function posData() {
             }
             
             // Atajos de teclado globales
-            document.addEventListener('keydown', (e) => {
+            document.addEventListener('keydown', async (e) => {
                 // F2: Focus en búsqueda
                 if (e.key === 'F2') {
                     e.preventDefault();
@@ -999,14 +1080,18 @@ function posData() {
                 }
                 
                 // F8: Cancelar
+                // F8: Cancelar
                 if (e.key === 'F8') {
                     e.preventDefault();
                     if (this.panelPagoActivo) {
                         this.cancelarPago();
                     } else if (this.carrito.length > 0) {
-                        if (confirm('¿Cancelar la venta actual?')) {
-                            this.limpiarCarrito();
-                        }
+                        const ok = await showConfirm(
+                            '¿Cancelar la venta actual?',
+                            'Se vaciará el carrito completo.',
+                            { confirmText: 'Sí, cancelar', type: 'danger' }
+                        );
+                        if (ok) this.limpiarCarrito();
                     }
                 }
             });
@@ -1040,7 +1125,7 @@ function posData() {
                 }
             } catch (error) {
                 console.error('Error al buscar productos:', error);
-                alert('Error al buscar productos');
+                showToast('error', 'Error al buscar productos');
             } finally {
                 this.loading = false;
             }
@@ -1055,11 +1140,11 @@ function posData() {
          * Si ya existe, incrementa la cantidad
          */
         agregarAlCarrito(producto) {
-            // Validar que tenga stock
-            if (!producto.tiene_stock) {
-                alert(`${producto.nombre} no tiene stock disponible`);
+            if (!producto.tiene_stock && !this.permitirInvNegativo) {
+                showToast('error', `${producto.nombre} no tiene stock disponible`);
                 return;
             }
+         
             
             // Buscar si ya existe en el carrito
             const index = this.carrito.findIndex(item => item.id === producto.id);
@@ -1145,12 +1230,14 @@ function posData() {
             this.busqueda = '';
             this.productos = [];
             this.panelPagoActivo = false;
+            this.tipoEcf = '32';
             // Limpiar cliente y cotizacion
             this.clienteSeleccionado = null;
             this.clienteBusqueda = '';
             this.clientesResultados = [];
             this.cotizacionId = null;
             this.focusScanner();
+            this.referenciaTarjeta = '';
         },
         
         // ============================================
@@ -1265,7 +1352,7 @@ function posData() {
 
         habilitarPanelPago() {
             if (!this.validarCarrito()) {
-                alert('Revisa el carrito antes de proceder al pago');
+                showToast('warning', 'Revisa el carrito antes de proceder al pago');
                 return;
             }
             
@@ -1332,20 +1419,16 @@ function posData() {
          * Valida que el carrito esté listo para pagar
          */
         validarCarrito() {
-            if (this.carrito.length === 0) {
-                return false;
-            }
+            if (this.carrito.length === 0) return false;
             
-            // Validar que todos los items tengan stock suficiente
-            for (let item of this.carrito) {
-                if (item.cantidad > item.stock_disponible) {
-                    return false;
+            if (!this.permitirInvNegativo) {
+                for (let item of this.carrito) {
+                    if (item.cantidad > item.stock_disponible) return false;
                 }
             }
-            
             return true;
         },
-        
+                
         /**
          * Valida que el pago esté completo
          */
@@ -1355,12 +1438,13 @@ function posData() {
             if (this.metodoPago === 'efectivo') {
                 return this.montoPagado >= total;
             } else if (this.metodoPago === 'transferencia') {
-                return true; // Asumimos que la transferencia se verificó
+                return true;  // Monto exacto
+            } else if (this.metodoPago === 'tarjeta') {
+                return true;  // Monto exacto por terminal
             } else if (this.metodoPago === 'mixto') {
-                const totalPagado = this.montoEfectivo + this.montoTransferencia;
-                return totalPagado >= total;
+                const totalMixto = this.montoEfectivo + this.montoTransferencia;
+                return totalMixto >= total;
             }
-            
             return false;
         },
         
@@ -1391,8 +1475,18 @@ function posData() {
          */
         async confirmarVenta() {
             if (!this.validarPago()) {
-                alert('El monto pagado es insuficiente');
+                showToast('warning', 'El monto pagado es insuficiente');
                 return;
+            }
+
+            if (this.moduloEcfActivo && this.tipoEcf === '31') {
+                if (!this.clienteSeleccionado || !this.clienteSeleccionado.cedula_rnc) {
+                    showToast(
+                        'error',
+                        'Credito Fiscal (31) requiere cliente con RNC asignado.'
+                    );
+                    return;
+                }
             }
             
             // Preparar datos de la venta
@@ -1409,7 +1503,11 @@ function posData() {
                                 this.metodoPago === 'mixto' ? this.montoEfectivo : 0,
                 monto_transferencia: this.metodoPago === 'transferencia' ? this.calcularTotal() : 
                                     this.metodoPago === 'mixto' ? this.montoTransferencia : 0,
-                total: this.calcularTotal()
+                monto_tarjeta: this.metodoPago === 'tarjeta' ? this.calcularTotal() : 0,
+                referencia_tarjeta: this.referenciaTarjeta,
+                cotizacion_id: this.cotizacionId || null,
+                total: this.calcularTotal(),
+                tipo_ecf: this.tipoEcf || '32',
             };
             
             console.log('📤 Enviando venta al backend:', datosVenta);
@@ -1425,10 +1523,7 @@ function posData() {
                 // Enviar al backend
                 const response = await fetch('/pos/api/procesar-venta/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.getCookie('csrftoken')
-                    },
+                    headers: jsonHeaders(),
                     body: JSON.stringify(datosVenta)
                 });
                 
@@ -1443,10 +1538,7 @@ function posData() {
                         try {
                             await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'X-CSRFToken': this.getCookie('csrftoken'),
-                                },
+                                headers: jsonHeaders(),
                                 body: JSON.stringify({ venta_id: data.venta.id }),
                             });
                         } catch (e) {
@@ -1455,7 +1547,7 @@ function posData() {
                     }
                     
                     // Mostrar confirmación
-                    alert(
+                    showToast('success',
                         '🎉 ¡VENTA EXITOSA!\n\n' +
                         `Número: ${data.venta.numero_venta}\n` +
                         `Total: $${data.venta.total.toFixed(2)}\n` +
@@ -1471,10 +1563,7 @@ function posData() {
                         try {
                             await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'X-CSRFToken': this.getCookie('csrftoken'),
-                                },
+                                headers: jsonHeaders(),
                                 body: JSON.stringify({ venta_id: data.venta.id }),
                             });
                         } catch (e) {
@@ -1488,7 +1577,7 @@ function posData() {
                 } else {
                     // ❌ ERROR EN LA VENTA
                     console.error('❌ Error:', data.error);
-                    alert(`Error al procesar la venta:\n\n${data.error}`);
+                    showToast('error', `Error al procesar la venta:\n\n${data.error}`);
                     
                     // Restaurar botón
                     if (btnConfirmar) {
@@ -1499,7 +1588,7 @@ function posData() {
                 
             } catch (error) {
                 console.error('❌ Error de red:', error);
-                alert('Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
+                showToast('error', 'Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
                 
                 // Restaurar botón
                 const btnConfirmar = document.querySelector('button[\\@click="confirmarVenta()"]');
@@ -1796,20 +1885,7 @@ function posData() {
         /**
          * Obtiene el token CSRF para las peticiones POST
          */
-        getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
+        
     }
 }
 </script>

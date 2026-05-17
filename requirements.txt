@@ -24,3 +24,7 @@ pyserial>=3.5
 
 # Django extensions (opcional pero util)
 django-extensions>=4.0
+
+djangorestframework>=3.15.0
+
+requests>=2.31.0

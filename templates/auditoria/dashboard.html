@@ -1,0 +1,311 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Auditoría - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Sistema</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Auditoría</span>
+{% endblock %}
+
+{% block content %}
+{{ init_data_json|json_script:"auditoria-init-data" }}
+
+<div x-data="auditoriaApp()" x-init="init()">
+
+    {# ── Header ── #}
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Dashboard de Auditoría</h1>
+        <p class="text-sm text-gray-500 mt-1">Registro completo de acciones del sistema</p>
+    </div>
+
+    {# ── Stats Cards (últimas 24h) ── #}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="card card-body text-center">
+            <p class="text-2xl font-bold text-blue-600" x-text="stats.total_24h"></p>
+            <p class="text-xs text-gray-500 mt-1">Acciones (24h)</p>
+        </div>
+        <div class="card card-body text-center">
+            <p class="text-2xl font-bold text-red-600" x-text="stats.criticas_24h"></p>
+            <p class="text-xs text-gray-500 mt-1">Críticas (24h)</p>
+        </div>
+        <div class="card card-body text-center">
+            <p class="text-2xl font-bold text-orange-600" x-text="stats.errores_24h"></p>
+            <p class="text-xs text-gray-500 mt-1">Errores (24h)</p>
+        </div>
+        <div class="card card-body text-center">
+            <p class="text-2xl font-bold text-green-600" x-text="stats.usuarios_activos_24h"></p>
+            <p class="text-xs text-gray-500 mt-1">Usuarios activos (24h)</p>
+        </div>
+    </div>
+
+    {# ── Filtros ── #}
+    <div class="card mb-6">
+        <div class="card-body">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {# Búsqueda libre #}
+                <div>
+                    <label class="form-label">Buscar en descripción</label>
+                    <input type="text"
+                           x-model="filtros.busqueda"
+                           @keydown.enter="buscar()"
+                           placeholder="Texto libre..."
+                           class="form-input w-full">
+                </div>
+
+                {# Tipo de acción #}
+                <div>
+                    <label class="form-label">Tipo de acción</label>
+                    <select x-model="filtros.accion" @change="buscar()" class="form-select w-full">
+                        <option value="">Todos</option>
+                        <template x-for="t in tiposAccion" :key="t.value">
+                            <option :value="t.value" x-text="t.label"></option>
+                        </template>
+                    </select>
+                </div>
+
+                {# Nivel de importancia #}
+                <div>
+                    <label class="form-label">Nivel</label>
+                    <select x-model="filtros.nivel" @change="buscar()" class="form-select w-full">
+                        <option value="">Todos</option>
+                        <template x-for="n in niveles" :key="n.value">
+                            <option :value="n.value" x-text="n.label"></option>
+                        </template>
+                    </select>
+                </div>
+
+                {# Usuario #}
+                <div>
+                    <label class="form-label">Usuario</label>
+                    <select x-model="filtros.usuario_id" @change="buscar()" class="form-select w-full">
+                        <option value="">Todos</option>
+                        <template x-for="u in usuarios" :key="u.id">
+                            <option :value="u.id" x-text="u.nombre"></option>
+                        </template>
+                    </select>
+                </div>
+
+                {# Fecha desde #}
+                <div>
+                    <label class="form-label">Fecha desde</label>
+                    <input type="date" x-model="filtros.fecha_desde" @change="buscar()" class="form-input w-full">
+                </div>
+
+                {# Fecha hasta #}
+                <div>
+                    <label class="form-label">Fecha hasta</label>
+                    <input type="date" x-model="filtros.fecha_hasta" @change="buscar()" class="form-input w-full">
+                </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-3">
+                {# Solo errores #}
+                <label class="inline-flex items-center text-sm cursor-pointer">
+                    <input type="checkbox" x-model="filtros.solo_errores" @change="buscar()"
+                           class="rounded border-gray-300 text-red-600 focus:ring-red-500 mr-2">
+                    Solo errores
+                </label>
+
+                <div class="flex-1"></div>
+
+                <button @click="limpiarFiltros()" class="btn-ghost btn-sm"
+                        x-show="filtrosActivos">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Limpiar
+                </button>
+
+                <button @click="buscar()" class="btn-primary btn-sm">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Tabla de registros ── #}
+    <div class="card">
+        {# Loading #}
+        <div x-show="cargando" class="p-8 text-center text-gray-500">
+            <svg class="animate-spin h-6 w-6 mx-auto mb-2 text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Consultando registros...
+        </div>
+
+        <div x-show="!cargando" class="overflow-x-auto">
+            <table class="table w-full">
+                <thead class="table-header">
+                    <tr>
+                        <th class="table-header-cell">Fecha</th>
+                        <th class="table-header-cell">Usuario</th>
+                        <th class="table-header-cell">Acción</th>
+                        <th class="table-header-cell">Descripción</th>
+                        <th class="table-header-cell text-center">Nivel</th>
+                        <th class="table-header-cell text-center">Estado</th>
+                    </tr>
+                </thead>
+                <tbody class="table-body">
+                    <template x-for="reg in registros" :key="reg.id">
+                        <tr class="table-row-hover">
+                            <td class="table-cell text-xs text-gray-500 whitespace-nowrap" x-text="reg.fecha"></td>
+                            <td class="table-cell text-sm" x-text="reg.usuario"></td>
+                            <td class="table-cell text-sm font-medium" x-text="reg.accion_display"></td>
+                            <td class="table-cell text-sm text-gray-600 max-w-sm truncate" x-text="reg.descripcion"></td>
+                            <td class="table-cell text-center">
+                                <span :class="{
+                                    'badge-primary': reg.nivel === 'BAJA',
+                                    'badge-warning': reg.nivel === 'MEDIA',
+                                    'badge-danger': reg.nivel === 'ALTA' || reg.nivel === 'CRITICA',
+                                }" class="text-xs" x-text="reg.nivel_display"></span>
+                            </td>
+                            <td class="table-cell text-center">
+                                <span x-show="reg.exito" class="text-green-500 text-sm">✓</span>
+                                <span x-show="!reg.exito" class="text-red-500 text-sm font-bold">✗</span>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        {# Sin resultados #}
+        <div x-show="!cargando && registros.length === 0" class="p-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            <p>No se encontraron registros con los filtros aplicados</p>
+        </div>
+
+        {# Paginación #}
+        <div x-show="!cargando && paginacion.total_paginas > 1"
+             class="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+            <p class="text-sm text-gray-500">
+                Página <span class="font-semibold" x-text="paginacion.pagina_actual"></span>
+                de <span class="font-semibold" x-text="paginacion.total_paginas"></span>
+                (<span x-text="paginacion.total_registros"></span> registros)
+            </p>
+            <div class="flex space-x-2">
+                <button @click="irPagina(paginacion.pagina_actual - 1)"
+                        :disabled="!paginacion.tiene_anterior"
+                        class="btn-outline btn-sm disabled:opacity-40">
+                    ← Anterior
+                </button>
+                <button @click="irPagina(paginacion.pagina_actual + 1)"
+                        :disabled="!paginacion.tiene_siguiente"
+                        class="btn-outline btn-sm disabled:opacity-40">
+                    Siguiente →
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function auditoriaApp() {
+    return {
+        // Datos de filtros
+        tiposAccion: [],
+        niveles: [],
+        usuarios: [],
+        stats: {},
+
+        // Filtros activos
+        filtros: {
+            busqueda: '',
+            accion: '',
+            nivel: '',
+            usuario_id: '',
+            fecha_desde: '',
+            fecha_hasta: '',
+            solo_errores: false,
+        },
+
+        // Resultados
+        registros: [],
+        paginacion: {
+            pagina_actual: 1,
+            total_paginas: 1,
+            total_registros: 0,
+            tiene_anterior: false,
+            tiene_siguiente: false,
+        },
+        cargando: false,
+
+        get filtrosActivos() {
+            return this.filtros.busqueda || this.filtros.accion || this.filtros.nivel ||
+                   this.filtros.usuario_id || this.filtros.fecha_desde ||
+                   this.filtros.fecha_hasta || this.filtros.solo_errores;
+        },
+
+        init() {
+            const data = JSON.parse(
+                document.getElementById('auditoria-init-data').textContent
+            );
+            this.tiposAccion = data.tipos_accion;
+            this.niveles = data.niveles;
+            this.usuarios = data.usuarios;
+            this.stats = data.stats;
+
+            // Cargar primera página
+            this.buscar();
+        },
+
+        async buscar(pagina = 1) {
+            this.cargando = true;
+
+            const params = new URLSearchParams();
+            params.set('pagina', pagina);
+            params.set('por_pagina', '25');
+
+            if (this.filtros.busqueda) params.set('busqueda', this.filtros.busqueda);
+            if (this.filtros.accion) params.set('accion', this.filtros.accion);
+            if (this.filtros.nivel) params.set('nivel', this.filtros.nivel);
+            if (this.filtros.usuario_id) params.set('usuario_id', this.filtros.usuario_id);
+            if (this.filtros.fecha_desde) params.set('fecha_desde', this.filtros.fecha_desde);
+            if (this.filtros.fecha_hasta) params.set('fecha_hasta', this.filtros.fecha_hasta);
+            if (this.filtros.solo_errores) params.set('solo_errores', 'true');
+
+            try {
+                const response = await fetch(`/auditoria/api/buscar/?${params.toString()}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    this.registros = data.registros;
+                    this.paginacion = data.paginacion;
+                } else {
+                    showToast('error', data.error || 'Error al consultar auditoría.');
+                }
+            } catch (e) {
+                console.error('Error buscando auditoría:', e);
+                showToast('error', 'Error de conexión.');
+            } finally {
+                this.cargando = false;
+            }
+        },
+
+        irPagina(pagina) {
+            if (pagina < 1 || pagina > this.paginacion.total_paginas) return;
+            this.buscar(pagina);
+        },
+
+        limpiarFiltros() {
+            this.filtros = {
+                busqueda: '', accion: '', nivel: '',
+                usuario_id: '', fecha_desde: '', fecha_hasta: '',
+                solo_errores: false,
+            };
+            this.buscar();
+        },
+    };
+}
+</script>
+{% endblock %}

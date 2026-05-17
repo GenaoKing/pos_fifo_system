@@ -1,10 +1,21 @@
+"""
+apps/configuracion/admin.py
+FASE 2: Ya no restringe a un solo registro. Ahora permite una config por sucursal.
+"""
 from django.contrib import admin
 from .models import ConfiguracionNegocio
 
 
 @admin.register(ConfiguracionNegocio)
 class ConfiguracionNegocioAdmin(admin.ModelAdmin):
+    list_display = ('nombre_negocio', 'sucursal', 'fecha_modificacion')
+    list_filter = ('sucursal',)
+
     fieldsets = (
+        ('Sucursal', {
+            'fields': ('sucursal',),
+            'description': 'Sucursal a la que pertenece esta configuracion.'
+        }),
         ('Identidad del Negocio', {
             'fields': ('nombre_negocio', 'rnc', 'direccion', 'telefono', 'email_negocio', 'logo')
         }),
@@ -14,6 +25,7 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
                 'modulo_cotizaciones', 'modulo_impresion_termica',
                 'modulo_barcode_scanner', 'modulo_reportes_ondemand',
                 'modulo_ecf', 'modulo_dashboard',
+                'permitir_inventario_negativo',
             )
         }),
         ('Metodos de Pago', {
@@ -21,21 +33,14 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
         }),
         ('Parametros Operativos', {
             'fields': (
-                'hora_cierre_automatico', 'dias_limite_anulacion',
-                'stock_minimo_default', 'prefijo_numero_venta',
-                'formato_codigo_barras', 'permitir_inventario_negativo',
-            )
-        }),
-        ('Impresion', {
-            'fields': (
-                'nombre_impresora_termica', 'nombre_impresora_zebra',
-                'texto_pie_ticket', 'imprimir_logo_ticket',
+                'formato_codigo_barras', 'dias_anulacion',
             )
         }),
     )
 
     def has_add_permission(self, request):
-        return not ConfiguracionNegocio.objects.exists()
+        # Fase 2: permitir multiples configs (una por sucursal)
+        return True
 
     def has_delete_permission(self, request, obj=None):
         return False

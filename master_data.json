@@ -1,0 +1,1841 @@
+[
+{
+  "model": "productos.producto",
+  "pk": 1,
+  "fields": {
+    "sku": "TEST-001",
+    "codigo_barras": "7501234567890",
+    "nombre": "Coca-Cola 600ml TEST",
+    "descripcion": "",
+    "categoria": 1,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "2.00",
+    "stock_minimo": 20,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-02-01T23:27:40.513Z",
+    "fecha_modificacion": "2026-02-01T23:27:40.514Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 2,
+  "fields": {
+    "sku": "SNK-001",
+    "codigo_barras": "7501234567891",
+    "nombre": "Papas Lays 45g",
+    "descripcion": "",
+    "categoria": 2,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1.50",
+    "stock_minimo": 20,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-02-01T23:46:58.478Z",
+    "fecha_modificacion": "2026-02-01T23:46:58.478Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 3,
+  "fields": {
+    "sku": "PROD-01",
+    "codigo_barras": "X004EPR2XL",
+    "nombre": "Ozenke",
+    "descripcion": "Electrolitos",
+    "categoria": 1,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "10.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-02-12T04:25:35.856Z",
+    "fecha_modificacion": "2026-02-12T04:25:35.858Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 4,
+  "fields": {
+    "sku": "PROD-001",
+    "codigo_barras": "RP-00001",
+    "nombre": "Cama de 54",
+    "descripcion": "Ortopedico",
+    "categoria": 1,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "7900.00",
+    "stock_minimo": 2,
+    "activo": true,
+    "imagen": "productos/7164963-1.jpg",
+    "atributos": {},
+    "fecha_creacion": "2026-02-14T19:37:55.379Z",
+    "fecha_modificacion": "2026-04-13T20:08:51.738Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 6,
+  "fields": {
+    "sku": "PROD-0006",
+    "codigo_barras": "RP-000006",
+    "nombre": "Gabetero 6 gabeta",
+    "descripcion": "tipo torre\nSkyplast",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1550.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T20:55:32.909Z",
+    "fecha_modificacion": "2026-03-07T20:55:32.910Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 7,
+  "fields": {
+    "sku": "PROD-0007",
+    "codigo_barras": "RP-000007",
+    "nombre": "Tanque de gas 25Lb",
+    "descripcion": "usado\nduragas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1650.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:15:59.469Z",
+    "fecha_modificacion": "2026-03-07T21:15:59.470Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 8,
+  "fields": {
+    "sku": "PROD-0008",
+    "codigo_barras": "RP-000008",
+    "nombre": "Tanque de gas 25L",
+    "descripcion": "duragas nuevo",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:31:54.302Z",
+    "fecha_modificacion": "2026-03-07T21:31:54.302Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 9,
+  "fields": {
+    "sku": "PROD-0009",
+    "codigo_barras": "RP-000009",
+    "nombre": "Tanque de gas 50L",
+    "descripcion": "Duragas Usado",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "2500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:32:55.671Z",
+    "fecha_modificacion": "2026-03-07T21:32:55.671Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 11,
+  "fields": {
+    "sku": "PROD-0010",
+    "codigo_barras": "RP-000010",
+    "nombre": "Tanque de gas 50L",
+    "descripcion": "Duragas Nuevo",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "4900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:34:29.619Z",
+    "fecha_modificacion": "2026-03-07T21:34:29.619Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 12,
+  "fields": {
+    "sku": "PROD-0012",
+    "codigo_barras": "RP-000011",
+    "nombre": "Abanico de pedestal",
+    "descripcion": "Universal\nPedestal",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:38:35.722Z",
+    "fecha_modificacion": "2026-03-07T22:24:00.312Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 13,
+  "fields": {
+    "sku": "PROD-0013",
+    "codigo_barras": "RP-000012",
+    "nombre": "Abanico de pared",
+    "descripcion": "Universal",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:39:30.454Z",
+    "fecha_modificacion": "2026-03-07T22:23:51.752Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 14,
+  "fields": {
+    "sku": "PROD-0014",
+    "codigo_barras": "RP-000013",
+    "nombre": "Abanico pedestal",
+    "descripcion": "Cancan ",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1550.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:40:05.928Z",
+    "fecha_modificacion": "2026-03-07T22:24:10.224Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 15,
+  "fields": {
+    "sku": "PROD-0015",
+    "codigo_barras": "RP-000014",
+    "nombre": "Silla arcoiris ",
+    "descripcion": "Skyplast\nsilla con brazos",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "300.00",
+    "stock_minimo": 150,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:42:10.165Z",
+    "fecha_modificacion": "2026-03-07T21:42:10.165Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 16,
+  "fields": {
+    "sku": "PROD-0016",
+    "codigo_barras": "RP-000015",
+    "nombre": "Silla Leticia",
+    "descripcion": "Skyplast\nSilla sin brazos",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "300.00",
+    "stock_minimo": 150,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:43:06.858Z",
+    "fecha_modificacion": "2026-03-07T21:43:06.858Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 17,
+  "fields": {
+    "sku": "PROD-0017",
+    "codigo_barras": "RP-000016",
+    "nombre": "Silla Bocachica",
+    "descripcion": "Skyplast\nSillas con brazos",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "500.00",
+    "stock_minimo": 150,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T21:45:35.574Z",
+    "fecha_modificacion": "2026-03-07T21:45:35.574Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 18,
+  "fields": {
+    "sku": "PROD-0018",
+    "codigo_barras": "RP-000017",
+    "nombre": "Silla Monarca",
+    "descripcion": "Skyplast ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "550.00",
+    "stock_minimo": 100,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:04:48.130Z",
+    "fecha_modificacion": "2026-03-07T22:04:48.130Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 19,
+  "fields": {
+    "sku": "PROD-0019",
+    "codigo_barras": "RP-000018",
+    "nombre": "Estufa Usada de 20",
+    "descripcion": "Economica",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "5000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:05:40.467Z",
+    "fecha_modificacion": "2026-03-07T22:05:40.467Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 20,
+  "fields": {
+    "sku": "PROD-0020",
+    "codigo_barras": "RP-000019",
+    "nombre": "Estufa de 30 Usada",
+    "descripcion": "Nedoca ",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:06:32.054Z",
+    "fecha_modificacion": "2026-03-07T22:06:32.054Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 21,
+  "fields": {
+    "sku": "PROD-0021",
+    "codigo_barras": "RP-000020",
+    "nombre": "Lavadora Usada 10L",
+    "descripcion": "Daewoo",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3800.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:07:14.169Z",
+    "fecha_modificacion": "2026-03-07T22:07:14.169Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 22,
+  "fields": {
+    "sku": "PROD-0022",
+    "codigo_barras": "RP-000021",
+    "nombre": "Lavadora Usada 12L",
+    "descripcion": "Daewoo",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "4700.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:07:45.039Z",
+    "fecha_modificacion": "2026-03-07T22:07:45.039Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 23,
+  "fields": {
+    "sku": "PROD-0023",
+    "codigo_barras": "RP-000022",
+    "nombre": "Lavadora Usada 16L",
+    "descripcion": "Daewoo",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "5500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:08:11.984Z",
+    "fecha_modificacion": "2026-03-07T22:08:11.984Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 24,
+  "fields": {
+    "sku": "PROD-0024",
+    "codigo_barras": "RP-000023",
+    "nombre": "Mesa Plastica 18x18",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "250.00",
+    "stock_minimo": 100,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:08:47.267Z",
+    "fecha_modificacion": "2026-03-07T22:09:05.819Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 25,
+  "fields": {
+    "sku": "PROD-0025",
+    "codigo_barras": "RP-000024",
+    "nombre": "Abanico Pequeño",
+    "descripcion": "Mastersonic",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "850.00",
+    "stock_minimo": 20,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:10:26.368Z",
+    "fecha_modificacion": "2026-03-07T22:24:19.579Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 26,
+  "fields": {
+    "sku": "PROD-0026",
+    "codigo_barras": "RP-000025",
+    "nombre": "Silla Plegable ",
+    "descripcion": "Silla plastica ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1500.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:11:00.628Z",
+    "fecha_modificacion": "2026-03-07T22:11:00.629Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 27,
+  "fields": {
+    "sku": "PROD-0027",
+    "codigo_barras": "RP-000026",
+    "nombre": "Organizador frutas ",
+    "descripcion": "Organizador plastico por unidad",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "90.00",
+    "stock_minimo": 100,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:12:12.702Z",
+    "fecha_modificacion": "2026-03-07T22:12:12.702Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 28,
+  "fields": {
+    "sku": "PROD-0028",
+    "codigo_barras": "RP-000027",
+    "nombre": "Mesedora de fibra Grande",
+    "descripcion": "Juego de 4 con mesa",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "18800.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:18:47.052Z",
+    "fecha_modificacion": "2026-03-07T22:18:47.052Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 29,
+  "fields": {
+    "sku": "PROD-0029",
+    "codigo_barras": "RP-000028",
+    "nombre": "Mesedora de fibra Mediana",
+    "descripcion": "Juego de 4 con mesa",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "17500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:19:25.781Z",
+    "fecha_modificacion": "2026-03-07T22:19:25.781Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 30,
+  "fields": {
+    "sku": "PROD-0030",
+    "codigo_barras": "RP-000029",
+    "nombre": "Estufa de 20 Nueva",
+    "descripcion": "Premium",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:20:16.264Z",
+    "fecha_modificacion": "2026-03-07T22:26:31.986Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 31,
+  "fields": {
+    "sku": "PROD-0031",
+    "codigo_barras": "RP-000030",
+    "nombre": "Estufa de 20 Nueva",
+    "descripcion": "Danilux",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:20:49.669Z",
+    "fecha_modificacion": "2026-03-07T22:26:19.960Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 32,
+  "fields": {
+    "sku": "PROD-0032",
+    "codigo_barras": "RP-000031",
+    "nombre": "Comedor 4 sillas Reducido",
+    "descripcion": "Reducido importado",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "12500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:21:34.095Z",
+    "fecha_modificacion": "2026-03-07T22:21:34.095Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 33,
+  "fields": {
+    "sku": "PROD-0033",
+    "codigo_barras": "RP-000032",
+    "nombre": "Colchon economico 54",
+    "descripcion": "Postopedico",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "5800.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:22:22.059Z",
+    "fecha_modificacion": "2026-03-07T22:22:22.059Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 34,
+  "fields": {
+    "sku": "PROD-0034",
+    "codigo_barras": "RP-000033",
+    "nombre": "Colchon economico 60",
+    "descripcion": "Postopedico",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-07T22:22:56.119Z",
+    "fecha_modificacion": "2026-03-07T22:22:56.119Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 35,
+  "fields": {
+    "sku": "PROD-0035",
+    "codigo_barras": "RP-000034",
+    "nombre": "Espaldar cama acolchados ",
+    "descripcion": "Espaldar económico ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:11:26.325Z",
+    "fecha_modificacion": "2026-03-14T20:11:26.325Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 36,
+  "fields": {
+    "sku": "PROD-0036",
+    "codigo_barras": "RP-000035",
+    "nombre": "Colchon liso 54",
+    "descripcion": "Ortopédico",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "4500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:12:06.943Z",
+    "fecha_modificacion": "2026-03-14T20:12:06.943Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 37,
+  "fields": {
+    "sku": "PROD-0037",
+    "codigo_barras": "RP-000036",
+    "nombre": "Colchon liso 39 ",
+    "descripcion": "Ortopédico",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3700.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:12:52.388Z",
+    "fecha_modificacion": "2026-03-14T20:12:52.388Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 38,
+  "fields": {
+    "sku": "PROD-0038",
+    "codigo_barras": "RP-000037",
+    "nombre": "Colchon Doble Pillowtop de 60 ",
+    "descripcion": "Colchones del yaque ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "24500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:14:04.605Z",
+    "fecha_modificacion": "2026-03-14T20:14:04.605Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 39,
+  "fields": {
+    "sku": "PROD-0039",
+    "codigo_barras": "RP-000038",
+    "nombre": "Estufa Premium 24",
+    "descripcion": "Nueva",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "14500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:14:47.503Z",
+    "fecha_modificacion": "2026-03-14T20:14:47.503Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 40,
+  "fields": {
+    "sku": "PROD-0040",
+    "codigo_barras": "RP-000039",
+    "nombre": "Estufa Premium 30 ",
+    "descripcion": "Nueva",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "18500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:15:19.326Z",
+    "fecha_modificacion": "2026-03-14T20:15:19.326Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 41,
+  "fields": {
+    "sku": "PROD-0041",
+    "codigo_barras": "RP-000040",
+    "nombre": "Licuadora Oster ",
+    "descripcion": "Nueva",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3600.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:15:50.839Z",
+    "fecha_modificacion": "2026-03-14T20:15:50.839Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 42,
+  "fields": {
+    "sku": "PROD-0042",
+    "codigo_barras": "RP-000041",
+    "nombre": "Estufa Electrica Premium ",
+    "descripcion": "2 hornillas ",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:16:40.813Z",
+    "fecha_modificacion": "2026-03-14T20:16:40.813Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 43,
+  "fields": {
+    "sku": "PROD-0043",
+    "codigo_barras": "RP-000042",
+    "nombre": "Licuadora Idaho ",
+    "descripcion": "R-295",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:19:15.351Z",
+    "fecha_modificacion": "2026-03-14T20:19:15.351Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 44,
+  "fields": {
+    "sku": "PROD-0044",
+    "codigo_barras": "RP-000043",
+    "nombre": "Estufa Premium Empotrada 30\"",
+    "descripcion": "",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8900.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:20:18.165Z",
+    "fecha_modificacion": "2026-03-14T20:20:18.173Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 45,
+  "fields": {
+    "sku": "PROD-0045",
+    "codigo_barras": "RP-000044",
+    "nombre": "Calderos 12 PCS Polishing ",
+    "descripcion": "Juego 12pcs",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "4250.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:21:22.927Z",
+    "fecha_modificacion": "2026-03-14T20:21:22.927Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 46,
+  "fields": {
+    "sku": "PROD-0046",
+    "codigo_barras": "RP-000045",
+    "nombre": "Estante Baño ",
+    "descripcion": "Estante Washing Machine",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "750.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:23:30.628Z",
+    "fecha_modificacion": "2026-03-14T20:23:30.629Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 47,
+  "fields": {
+    "sku": "PROD-0047",
+    "codigo_barras": "RP-000046",
+    "nombre": "Bebedero Premier",
+    "descripcion": "Botellon arriba",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "8500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:24:09.288Z",
+    "fecha_modificacion": "2026-03-14T20:24:09.288Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 48,
+  "fields": {
+    "sku": "PROD-0048",
+    "codigo_barras": "RP-000047",
+    "nombre": "Juego muebles Gris Diamante",
+    "descripcion": "3PCS Gris",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "29500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:25:08.565Z",
+    "fecha_modificacion": "2026-03-14T20:25:08.565Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 49,
+  "fields": {
+    "sku": "PROD-0049",
+    "codigo_barras": "RP-000048",
+    "nombre": "Juego muebles Marrón Diamante",
+    "descripcion": "4PCS Marron",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "32000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:26:02.338Z",
+    "fecha_modificacion": "2026-03-14T20:26:02.338Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 50,
+  "fields": {
+    "sku": "PROD-0050",
+    "codigo_barras": "RP-000049",
+    "nombre": "Juego muebles Cojines",
+    "descripcion": "5PCS Blanco y rosado ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "29500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:27:20.493Z",
+    "fecha_modificacion": "2026-03-14T20:27:20.493Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 51,
+  "fields": {
+    "sku": "PROD-0051",
+    "codigo_barras": "RP-000050",
+    "nombre": "Juego muebles Crema y rosado",
+    "descripcion": "4PCS Crema y rosado ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "26500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:28:50.162Z",
+    "fecha_modificacion": "2026-03-14T20:28:50.162Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 52,
+  "fields": {
+    "sku": "PROD-0052",
+    "codigo_barras": "RP-000051",
+    "nombre": "Juego muebles Gigante ",
+    "descripcion": "3PCS color crema ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "37000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:29:48.716Z",
+    "fecha_modificacion": "2026-03-14T20:29:48.716Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 53,
+  "fields": {
+    "sku": "PROD-0053",
+    "codigo_barras": "RP-000052",
+    "nombre": "Juego muebles Altos Diamante",
+    "descripcion": "4PCS Gris ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "26500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:31:26.955Z",
+    "fecha_modificacion": "2026-03-14T20:31:26.955Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 54,
+  "fields": {
+    "sku": "PROD-0054",
+    "codigo_barras": "RP-000053",
+    "nombre": "Juego muebles Altos Diamante",
+    "descripcion": "4PCS Crema",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "26500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:32:06.312Z",
+    "fecha_modificacion": "2026-03-14T20:32:06.313Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 55,
+  "fields": {
+    "sku": "PROD-0055",
+    "codigo_barras": "RP-000054",
+    "nombre": "Juego Comedor 4S Tope Cristal",
+    "descripcion": "Acolchados 4 sillas ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "14500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:33:14.010Z",
+    "fecha_modificacion": "2026-03-14T20:33:14.010Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 56,
+  "fields": {
+    "sku": "PROD-0056",
+    "codigo_barras": "RP-000055",
+    "nombre": "Juego Comedor 6S Tope Cristal",
+    "descripcion": "Acolchado 6 Sillas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "22500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:33:49.800Z",
+    "fecha_modificacion": "2026-03-14T20:33:49.801Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 57,
+  "fields": {
+    "sku": "PROD-0057",
+    "codigo_barras": "RP-000056",
+    "nombre": "Juego Comedor Tope Cristal",
+    "descripcion": "4 sillas de madera ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "21500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:35:27.190Z",
+    "fecha_modificacion": "2026-03-14T20:35:27.190Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 58,
+  "fields": {
+    "sku": "PROD-0058",
+    "codigo_barras": "RP-000057",
+    "nombre": "Mesa plastica 6S Duralon",
+    "descripcion": "6 Sillas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "2600.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:36:09.380Z",
+    "fecha_modificacion": "2026-03-14T20:36:09.380Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 59,
+  "fields": {
+    "sku": "PROD-0059",
+    "codigo_barras": "RP-000058",
+    "nombre": "Mesa plastica 4S Duralon",
+    "descripcion": "4 Sillas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:36:47.228Z",
+    "fecha_modificacion": "2026-03-14T20:36:47.228Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 60,
+  "fields": {
+    "sku": "PROD-0060",
+    "codigo_barras": "RP-000059",
+    "nombre": "Escoba Kika ",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "200.00",
+    "stock_minimo": 30,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:37:18.364Z",
+    "fecha_modificacion": "2026-03-14T20:37:18.364Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 61,
+  "fields": {
+    "sku": "PROD-0061",
+    "codigo_barras": "RP-000060",
+    "nombre": "Juego hoyas 12PCS Stainless",
+    "descripcion": "Stainless steel",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "2250.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:38:04.319Z",
+    "fecha_modificacion": "2026-03-14T20:38:04.319Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 62,
+  "fields": {
+    "sku": "PROD-0062",
+    "codigo_barras": "RP-000061",
+    "nombre": "Palo Cortinas metalico grande",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "575.00",
+    "stock_minimo": 15,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:38:48.657Z",
+    "fecha_modificacion": "2026-03-14T20:38:48.657Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 63,
+  "fields": {
+    "sku": "PROD-0063",
+    "codigo_barras": "RP-000062",
+    "nombre": "Palo Cortinas metalico pequeño",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "495.00",
+    "stock_minimo": 15,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:39:21.379Z",
+    "fecha_modificacion": "2026-03-14T20:39:21.380Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 64,
+  "fields": {
+    "sku": "PROD-0064",
+    "codigo_barras": "RP-000063",
+    "nombre": "Cubo con tapa 80L",
+    "descripcion": "80 Litros",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "450.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:40:09.399Z",
+    "fecha_modificacion": "2026-03-14T20:40:09.399Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 65,
+  "fields": {
+    "sku": "PROD-0065",
+    "codigo_barras": "RP-000064",
+    "nombre": "Cubo alambre ",
+    "descripcion": "Cubo pequeño con alambre",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "150.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:41:10.984Z",
+    "fecha_modificacion": "2026-03-14T20:41:10.984Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 66,
+  "fields": {
+    "sku": "PROD-0066",
+    "codigo_barras": "RP-000065",
+    "nombre": "Cubo con tapa 40L",
+    "descripcion": "40 Litros",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "350.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:41:50.521Z",
+    "fecha_modificacion": "2026-03-14T20:41:50.521Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 67,
+  "fields": {
+    "sku": "PROD-0067",
+    "codigo_barras": "RP-000066",
+    "nombre": "Cubo con tapa 30L",
+    "descripcion": "30 Litros",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "250.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:44:24.717Z",
+    "fecha_modificacion": "2026-03-14T20:44:24.717Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 68,
+  "fields": {
+    "sku": "PROD-0068",
+    "codigo_barras": "RP-000067",
+    "nombre": "Nevera Gold Premium 8",
+    "descripcion": "8 pies cubicos ",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "19500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:45:13.837Z",
+    "fecha_modificacion": "2026-03-14T20:45:13.837Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 69,
+  "fields": {
+    "sku": "PROD-0069",
+    "codigo_barras": "RP-000068",
+    "nombre": "Almohada Doña Maria",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "350.00",
+    "stock_minimo": 20,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:45:39.435Z",
+    "fecha_modificacion": "2026-03-14T20:45:39.435Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 70,
+  "fields": {
+    "sku": "PROD-0070",
+    "codigo_barras": "RP-000069",
+    "nombre": "Colchon Doble Pillowtop 54",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "21000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:46:22.137Z",
+    "fecha_modificacion": "2026-03-14T20:46:22.137Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 71,
+  "fields": {
+    "sku": "PROD-0071",
+    "codigo_barras": "RP-000070",
+    "nombre": "Abanico Universal Mamei",
+    "descripcion": "Abanico pedestal 18",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3300.00",
+    "stock_minimo": 10,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:48:32.599Z",
+    "fecha_modificacion": "2026-03-14T20:48:32.599Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 72,
+  "fields": {
+    "sku": "PROD-0072",
+    "codigo_barras": "RP-000071",
+    "nombre": "Juego espaldar piramide completo",
+    "descripcion": "Gabetero y mesas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "24500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:49:23.179Z",
+    "fecha_modificacion": "2026-03-14T20:49:23.179Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 73,
+  "fields": {
+    "sku": "PROD-0073",
+    "codigo_barras": "RP-000072",
+    "nombre": "Juego espaldar piramide",
+    "descripcion": "solo espaldar",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "16000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:49:48.461Z",
+    "fecha_modificacion": "2026-03-14T20:49:48.461Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 74,
+  "fields": {
+    "sku": "PROD-0074",
+    "codigo_barras": "RP-000073",
+    "nombre": "Gabetero 3 gab",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "950.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:50:45.839Z",
+    "fecha_modificacion": "2026-03-14T20:50:45.839Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 75,
+  "fields": {
+    "sku": "PROD-0075",
+    "codigo_barras": "RP-000074",
+    "nombre": "Juego comedor importado 4S",
+    "descripcion": "4 Sillas hierro ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "16500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:51:35.307Z",
+    "fecha_modificacion": "2026-03-14T20:51:35.316Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 76,
+  "fields": {
+    "sku": "PROD-0076",
+    "codigo_barras": "RP-000075",
+    "nombre": "Juego comedor 6S",
+    "descripcion": "6 sillas hierro",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "18500.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:52:10.397Z",
+    "fecha_modificacion": "2026-03-14T20:52:10.397Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 77,
+  "fields": {
+    "sku": "PROD-0077",
+    "codigo_barras": "RP-000076",
+    "nombre": "Gabetero 5 gab",
+    "descripcion": "skyplast",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1450.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:53:10.284Z",
+    "fecha_modificacion": "2026-03-14T20:53:10.284Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 78,
+  "fields": {
+    "sku": "PROD-0078",
+    "codigo_barras": "RP-000077",
+    "nombre": "Gabeteros de niños 6 gab",
+    "descripcion": "Plast cool",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1350.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:53:48.817Z",
+    "fecha_modificacion": "2026-03-14T20:53:48.817Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 79,
+  "fields": {
+    "sku": "PROD-0079",
+    "codigo_barras": "RP-000078",
+    "nombre": "Nevera ejecutiva Premier ",
+    "descripcion": "Nueva",
+    "categoria": 3,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "13400.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:54:26.944Z",
+    "fecha_modificacion": "2026-03-14T20:54:26.944Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 80,
+  "fields": {
+    "sku": "PROD-0080",
+    "codigo_barras": "RP-000079",
+    "nombre": "Juego hoyas 13PCS Granite ",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "6200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:54:55.228Z",
+    "fecha_modificacion": "2026-03-14T20:54:55.228Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 81,
+  "fields": {
+    "sku": "PROD-0081",
+    "codigo_barras": "RP-000080",
+    "nombre": "Jamper Jumbo ",
+    "descripcion": "Jamper plastico",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "250.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:55:27.595Z",
+    "fecha_modificacion": "2026-03-14T20:55:27.595Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 82,
+  "fields": {
+    "sku": "PROD-0082",
+    "codigo_barras": "RP-000081",
+    "nombre": "Zafacon grande pedal",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "850.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:56:08.687Z",
+    "fecha_modificacion": "2026-03-14T20:56:08.687Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 83,
+  "fields": {
+    "sku": "PROD-0083",
+    "codigo_barras": "RP-000082",
+    "nombre": "Zafacon Pequeño pedal",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "200.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:56:32.211Z",
+    "fecha_modificacion": "2026-03-14T20:56:32.211Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 84,
+  "fields": {
+    "sku": "PROD-0084",
+    "codigo_barras": "RP-000083",
+    "nombre": "Zafacon Niño pedal",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "150.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T20:56:57.603Z",
+    "fecha_modificacion": "2026-03-14T20:56:57.603Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 85,
+  "fields": {
+    "sku": "PROD-0085",
+    "codigo_barras": "RP-000084",
+    "nombre": "Alfombra Bienvenida",
+    "descripcion": "",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "100.00",
+    "stock_minimo": 10,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T21:28:28.561Z",
+    "fecha_modificacion": "2026-03-14T21:28:28.561Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 86,
+  "fields": {
+    "sku": "PROD-0086",
+    "codigo_barras": "RP-000085",
+    "nombre": "Regulador con medidor",
+    "descripcion": "Regulador gas",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "300.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T21:29:01.246Z",
+    "fecha_modificacion": "2026-03-14T21:29:01.246Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 87,
+  "fields": {
+    "sku": "PROD-0087",
+    "codigo_barras": "RP-000086",
+    "nombre": "Regulador mediano",
+    "descripcion": "Sin medidor ",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "250.00",
+    "stock_minimo": 50,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T21:29:26.649Z",
+    "fecha_modificacion": "2026-03-14T21:29:26.649Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 88,
+  "fields": {
+    "sku": "PROD-0088",
+    "codigo_barras": "RP-000087",
+    "nombre": "Juego calderos colores",
+    "descripcion": "juego de 8PCS",
+    "categoria": 4,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "3350.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-03-14T21:29:54.965Z",
+    "fecha_modificacion": "2026-03-14T21:29:54.968Z"
+  }
+},
+{
+  "model": "productos.producto",
+  "pk": 89,
+  "fields": {
+    "sku": "PROD-0089",
+    "codigo_barras": "RP-000088",
+    "nombre": "PRUEBA",
+    "descripcion": "01",
+    "categoria": 2,
+    "estado": "nuevo",
+    "marca": "",
+    "precio_venta": "1000.00",
+    "stock_minimo": 5,
+    "activo": true,
+    "imagen": "",
+    "atributos": {},
+    "fecha_creacion": "2026-04-15T15:33:42.818Z",
+    "fecha_modificacion": "2026-04-15T15:33:42.819Z"
+  }
+},
+{
+  "model": "productos.categoria",
+  "pk": 1,
+  "fields": {
+    "nombre": "Bebidas Test",
+    "descripcion": "CategorÃ­a de prueba",
+    "activa": true,
+    "tipo_negocio": "general",
+    "atributos_configurados": {},
+    "fecha_creacion": "2026-02-01T23:27:40.502Z",
+    "fecha_modificacion": "2026-02-01T23:27:40.502Z"
+  }
+},
+{
+  "model": "productos.categoria",
+  "pk": 2,
+  "fields": {
+    "nombre": "Snacks",
+    "descripcion": "Snacks y botanas",
+    "activa": true,
+    "tipo_negocio": "general",
+    "atributos_configurados": {},
+    "fecha_creacion": "2026-02-01T23:46:58.462Z",
+    "fecha_modificacion": "2026-02-01T23:46:58.462Z"
+  }
+},
+{
+  "model": "productos.categoria",
+  "pk": 3,
+  "fields": {
+    "nombre": "Electrodomesticos",
+    "descripcion": "",
+    "activa": true,
+    "tipo_negocio": "general",
+    "atributos_configurados": {},
+    "fecha_creacion": "2026-03-07T20:51:44.961Z",
+    "fecha_modificacion": "2026-03-07T20:51:44.961Z"
+  }
+},
+{
+  "model": "productos.categoria",
+  "pk": 4,
+  "fields": {
+    "nombre": "Articulos del hogar",
+    "descripcion": "",
+    "activa": true,
+    "tipo_negocio": "general",
+    "atributos_configurados": {},
+    "fecha_creacion": "2026-03-07T20:52:25.809Z",
+    "fecha_modificacion": "2026-03-07T20:52:25.809Z"
+  }
+},
+{
+  "model": "productos.categoria",
+  "pk": 5,
+  "fields": {
+    "nombre": "Utensilios de cocina",
+    "descripcion": "",
+    "activa": true,
+    "tipo_negocio": "general",
+    "atributos_configurados": {},
+    "fecha_creacion": "2026-03-07T20:52:36.978Z",
+    "fecha_modificacion": "2026-03-07T20:52:36.978Z"
+  }
+},
+{
+  "model": "clientes.cliente",
+  "pk": 1,
+  "fields": {
+    "tipo": "PERSONAL",
+    "nombre": "Santiago Genao",
+    "cedula_rnc": "402-0877726-4",
+    "telefono": "809-207-3871",
+    "direccion": "C/3 #8",
+    "limite_credito": "0.00",
+    "condiciones_pago": null,
+    "notas": null,
+    "activo": true,
+    "fecha_creacion": "2026-02-13T23:14:55.931Z",
+    "fecha_modificacion": "2026-02-13T23:14:55.932Z"
+  }
+},
+{
+  "model": "clientes.cliente",
+  "pk": 2,
+  "fields": {
+    "tipo": "PERSONAL",
+    "nombre": "Jose Osoria",
+    "cedula_rnc": "402-1333662-7",
+    "telefono": null,
+    "direccion": "Bonagua",
+    "limite_credito": "0.00",
+    "condiciones_pago": null,
+    "notas": null,
+    "activo": true,
+    "fecha_creacion": "2026-04-15T15:38:01.527Z",
+    "fecha_modificacion": "2026-04-16T21:10:52.071Z"
+  }
+}
+]

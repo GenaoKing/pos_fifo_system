@@ -1,0 +1,493 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Anulaciones - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Ventas</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Anulaciones</span>
+{% endblock %}
+
+{% block content %}
+{# Hidratación de datos #}
+{{ init_data_json|json_script:"anulaciones-init-data" }}
+
+<div x-data="anulacionesApp()" x-init="init()">
+
+    {# ── Header ── #}
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Anulación de Ventas</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                Límite de anulación: <span class="font-semibold" x-text="diasLimite + ' días'"></span>
+            </p>
+        </div>
+        <div class="mt-3 sm:mt-0 flex items-center space-x-2">
+            <span class="badge-success text-xs" x-show="ventas.filter(v => v.estado === 'COMPLETADA').length > 0"
+                  x-text="ventas.filter(v => v.estado === 'COMPLETADA').length + ' completadas'"></span>
+            <span class="badge-danger text-xs" x-show="ventas.filter(v => v.estado === 'ANULADA').length > 0"
+                  x-text="ventas.filter(v => v.estado === 'ANULADA').length + ' anuladas'"></span>
+        </div>
+    </div>
+
+    {# ── Filtros ── #}
+    <div class="card mb-6">
+        <div class="card-body">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {# Búsqueda por número #}
+                <div>
+                    <label class="form-label">Buscar venta</label>
+                    <input type="text"
+                           x-model="filtros.busqueda"
+                           @input.debounce.300ms="filtrar()"
+                           placeholder="Número de venta..."
+                           class="form-input w-full">
+                </div>
+
+                {# Fecha desde #}
+                <div>
+                    <label class="form-label">Fecha desde</label>
+                    <input type="date"
+                           x-model="filtros.fechaDesde"
+                           @change="filtrar()"
+                           class="form-input w-full">
+                </div>
+
+                {# Fecha hasta #}
+                <div>
+                    <label class="form-label">Fecha hasta</label>
+                    <input type="date"
+                           x-model="filtros.fechaHasta"
+                           @change="filtrar()"
+                           class="form-input w-full">
+                </div>
+
+                {# Filtro estado #}
+                <div>
+                    <label class="form-label">Estado</label>
+                    <select x-model="filtros.estado" @change="filtrar()" class="form-select w-full">
+                        <option value="">Todos</option>
+                        <option value="COMPLETADA">Completadas</option>
+                        <option value="ANULADA">Anuladas</option>
+                    </select>
+                </div>
+            </div>
+
+            {# Botón limpiar #}
+            <div class="mt-3 flex justify-end"
+                 x-show="filtros.busqueda || filtros.fechaDesde || filtros.fechaHasta || filtros.estado">
+                <button @click="limpiarFiltros()" class="btn-ghost btn-sm">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Limpiar filtros
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Tabla de ventas ── #}
+    <div class="card">
+        <div class="overflow-x-auto">
+            <table class="table w-full">
+                <thead class="table-header">
+                    <tr>
+                        <th class="table-header-cell">Número</th>
+                        <th class="table-header-cell">Fecha</th>
+                        <th class="table-header-cell">Cajero</th>
+                        <th class="table-header-cell">Cliente</th>
+                        <th class="table-header-cell text-right">Total</th>
+                        <th class="table-header-cell text-center">Estado</th>
+                        <th class="table-header-cell text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="table-body">
+                    <template x-for="venta in ventasFiltradas" :key="venta.id">
+                        <tr class="table-row-hover">
+                            <td class="table-cell">
+                                <span class="font-mono text-sm font-semibold" x-text="venta.numero_venta"></span>
+                            </td>
+                            <td class="table-cell text-sm text-gray-600" x-text="venta.fecha"></td>
+                            <td class="table-cell text-sm" x-text="venta.cajero"></td>
+                            <td class="table-cell text-sm" x-text="venta.cliente"></td>
+                            <td class="table-cell text-right font-semibold" x-text="'$' + parseFloat(venta.total).toFixed(2)"></td>
+                            <td class="table-cell text-center">
+                                <span x-show="venta.estado === 'COMPLETADA'" class="badge-success">Completada</span>
+                                <span x-show="venta.estado === 'ANULADA'" class="badge-danger">Anulada</span>
+                            </td>
+                            <td class="table-cell text-center">
+                                {# Botón anular (solo si puede anularse) #}
+                                <template x-if="venta.estado === 'COMPLETADA' && venta.puede_anularse">
+                                    <button @click="abrirModalAnulacion(venta)"
+                                            class="btn-danger btn-sm">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+                                        </svg>
+                                        Anular
+                                    </button>
+                                </template>
+
+                                {# Info de anulación #}
+                                <template x-if="venta.estado === 'ANULADA'">
+                                    <button @click="verDetalleAnulacion(venta)"
+                                            class="btn-ghost btn-sm text-gray-500">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        Detalle
+                                    </button>
+                                </template>
+
+                                {# Ventas fuera de plazo #}
+                                <template x-if="venta.estado === 'COMPLETADA' && !venta.puede_anularse">
+                                    <span class="text-xs text-gray-400">Fuera de plazo</span>
+                                </template>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        {# Estado vacío #}
+        <div x-show="ventasFiltradas.length === 0" class="p-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <p x-text="filtrosActivos ? 'No se encontraron ventas con los filtros aplicados' : 'No hay ventas recientes'"></p>
+        </div>
+    </div>
+
+    {# ══════════════════════════════════════════ #}
+    {# MODAL: Confirmar Anulación                #}
+    {# ══════════════════════════════════════════ #}
+    <template x-if="showModalAnulacion">
+        <div class="fixed inset-0 z-50 overflow-y-auto" @keydown.escape.window="cerrarModal()">
+            <div class="flex items-center justify-center min-h-screen px-4">    
+                {# Backdrop #}
+                <div class="fixed inset-0 bg-black/50 transition-opacity" @click="cerrarModal()"></div>
+
+                {# Card #}
+                <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
+
+                    {# Icono + Título #}
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="w-11 h-11 rounded-xl bg-red-100 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.999L13.732 4.001c-.77-1.333-2.694-1.333-3.464 0L3.34 16.001C2.57 17.334 3.532 19 5.072 19z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900">Anular Venta</h3>
+                            <p class="text-sm text-gray-500">Esta acción devolverá el stock a los lotes originales</p>
+                        </div>
+                    </div>
+
+                    {# Datos de la venta #}
+                    <div class="bg-gray-50 rounded-lg p-4 mb-4 space-y-2 text-sm" x-show="ventaSeleccionada">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Número:</span>
+                            <span class="font-mono font-semibold" x-text="ventaSeleccionada?.numero_venta"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Fecha:</span>
+                            <span x-text="ventaSeleccionada?.fecha"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Cajero:</span>
+                            <span x-text="ventaSeleccionada?.cajero"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Cliente:</span>
+                            <span x-text="ventaSeleccionada?.cliente"></span>
+                        </div>
+                        <div class="flex justify-between border-t pt-2">
+                            <span class="text-gray-600 font-semibold">Total:</span>
+                            <span class="font-bold text-lg text-red-600" x-text="'$' + parseFloat(ventaSeleccionada?.total || 0).toFixed(2)"></span>
+                        </div>
+                    </div>
+
+                    {# Separador + Campo motivo #}
+                    <div class="border-t border-gray-200 mt-6 pt-5">
+                        <label class="form-label">
+                            Motivo de anulación <span class="text-red-500">*</span>
+                        </label>
+                        <textarea x-model="motivoAnulacion"
+                                x-ref="motivoInput"
+                                rows="3"
+                                placeholder="Describe el motivo de la anulación (mínimo 10 caracteres)..."
+                                class="form-input w-full"
+                                :class="{ 'border-red-400': motivoError }"></textarea>
+                        <p class="text-xs mt-1" :class="motivoError ? 'text-red-500' : 'text-gray-400'">
+                            <span x-text="motivoAnulacion.length"></span>/10 caracteres mínimo
+                        </p>
+                    </div>
+
+                    {# Botones #}
+                    <div class="flex space-x-3 mt-5">
+                        <button @click="showModalAnulacion = false; motivoAnulacion = ''; motivoError = false"
+                                class="btn-outline flex-1"
+                                :disabled="procesando">
+                            Cancelar
+                        </button>
+                        <button @click="ejecutarAnulacion()"
+                                class="btn-danger flex-1"
+                                :disabled="procesando || motivoAnulacion.trim().length < 10">
+                            <template x-if="procesando">
+                                <span class="inline-flex items-center">
+                                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                    </svg>
+                                    Anulando...
+                                </span>
+                            </template>
+                            <template x-if="!procesando">
+                                <span class="inline-flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+                                    </svg>
+                                    Confirmar Anulación
+                                </span>
+                            </template>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    {# ══════════════════════════════════════════ #}
+    {# MODAL: Detalle de Anulación               #}
+    {# ══════════════════════════════════════════ #}
+    <template x-if="showModalDetalle">
+        <div class="fixed inset-0 z-50 overflow-y-auto" @keydown.escape.window="cerrarModal()">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                {# Backdrop #}
+                <div class="fixed inset-0 bg-black/50 transition-opacity" @click="cerrarModal()"></div>
+
+                {# Card #}
+                <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
+                    {# Icono + Título #}
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900">Detalle de Anulación</h3>
+                            <p class="text-sm text-gray-500 font-mono" x-text="ventaDetalle?.numero_venta"></p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Venta original:</span>
+                            <span x-text="ventaDetalle?.fecha"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Total:</span>
+                            <span class="font-semibold" x-text="'$' + parseFloat(ventaDetalle?.total || 0).toFixed(2)"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Anulada por:</span>
+                            <span class="font-semibold" x-text="ventaDetalle?.anulada_por"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Fecha anulación:</span>
+                            <span x-text="ventaDetalle?.fecha_anulacion"></span>
+                        </div>
+                        <div class="border-t border-gray-200 pt-3">
+                            <span class="text-gray-600 block mb-1">Motivo:</span>
+                            <p class="bg-red-50 rounded-lg p-3 text-red-800" x-text="ventaDetalle?.motivo_anulacion"></p>
+                        </div>
+                    </div>
+
+                    <div class="mt-5">
+                        <button @click="showModalDetalle = false" class="btn-outline w-full">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+</div>
+
+<script>
+function anulacionesApp() {
+    return {
+        // Estado
+        ventas: [],
+        ventasFiltradas: [],
+        diasLimite: 15,
+
+        // Filtros
+        filtros: {
+            busqueda: '',
+            fechaDesde: '',
+            fechaHasta: '',
+            estado: '',
+        },
+
+        // Modal anulación
+        showModalAnulacion: false,
+        ventaSeleccionada: null,
+        motivoAnulacion: '',
+        motivoError: false,
+        procesando: false,
+
+        // Modal detalle
+        showModalDetalle: false,
+        ventaDetalle: null,
+
+        // Computed
+        get filtrosActivos() {
+            return this.filtros.busqueda || this.filtros.fechaDesde ||
+                   this.filtros.fechaHasta || this.filtros.estado;
+        },
+
+        init() {
+            const data = JSON.parse(
+                document.getElementById('anulaciones-init-data').textContent
+            );
+            this.ventas = data.ventas;
+            this.diasLimite = data.dias_limite;
+            this.filtrar();
+        },
+
+        filtrar() {
+            let resultado = [...this.ventas];
+
+            // Filtro por búsqueda (número de venta)
+            if (this.filtros.busqueda) {
+                const q = this.filtros.busqueda.toLowerCase();
+                resultado = resultado.filter(v =>
+                    v.numero_venta.toLowerCase().includes(q)
+                );
+            }
+
+            // Filtro por fecha desde
+            if (this.filtros.fechaDesde) {
+                resultado = resultado.filter(v =>
+                    v.fecha_iso >= this.filtros.fechaDesde
+                );
+            }
+
+            // Filtro por fecha hasta
+            if (this.filtros.fechaHasta) {
+                resultado = resultado.filter(v =>
+                    v.fecha_iso <= this.filtros.fechaHasta
+                );
+            }
+
+            // Filtro por estado
+            if (this.filtros.estado) {
+                resultado = resultado.filter(v =>
+                    v.estado === this.filtros.estado
+                );
+            }
+
+            this.ventasFiltradas = resultado;
+        },
+
+        limpiarFiltros() {
+            this.filtros = { busqueda: '', fechaDesde: '', fechaHasta: '', estado: '' };
+            this.filtrar();
+        },
+
+        abrirModalAnulacion(venta) {
+            this.ventaSeleccionada = venta;
+            this.motivoAnulacion = '';
+            this.motivoError = false;
+            this.showModalAnulacion = true;
+            this.$nextTick(() => {
+                this.$refs.motivoInput?.focus();
+            });
+        },
+
+        cerrarModal() {
+            this.showModalAnulacion = false;
+            this.showModalDetalle = false;
+            this.ventaSeleccionada = null;
+            this.ventaDetalle = null;
+            this.motivoAnulacion = '';
+            this.motivoError = false;
+        },
+
+        async ejecutarAnulacion() {
+            // Validar motivo
+            if (this.motivoAnulacion.trim().length < 10) {
+                this.motivoError = true;
+                showToast('warning', 'El motivo debe tener al menos 10 caracteres.');
+                return;
+            }
+
+            // Confirmar con showConfirm
+            const ok = await showConfirm(
+                '¿Confirmar anulación?',
+                `Se anulará la venta ${this.ventaSeleccionada.numero_venta} por $${parseFloat(this.ventaSeleccionada.total).toFixed(2)}. El stock será devuelto a los lotes originales.`,
+                {
+                    confirmText: 'Sí, anular',
+                    cancelText: 'Cancelar',
+                    type: 'danger'
+                }
+            );
+            if (!ok) return;
+
+            this.procesando = true;
+            this.motivoError = false;
+
+            try {
+                const response = await fetch('/pos/api/anular-venta/', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        venta_id: this.ventaSeleccionada.id,
+                        motivo: this.motivoAnulacion.trim(),
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Actualizar la venta en la lista local
+                    const idx = this.ventas.findIndex(v => v.id === this.ventaSeleccionada.id);
+                    if (idx !== -1) {
+                        this.ventas[idx].estado = 'ANULADA';
+                        this.ventas[idx].puede_anularse = false;
+                        this.ventas[idx].motivo_anulacion = data.venta.motivo_anulacion;
+                        this.ventas[idx].anulada_por = data.venta.anulada_por;
+                        this.ventas[idx].fecha_anulacion = data.venta.fecha_anulacion;
+                    }
+
+                    this.filtrar();
+                    this.showModalAnulacion = false;
+                    this.motivoAnulacion = '';
+
+                    showToast('success',
+                        `Venta ${data.venta.numero_venta} anulada. ` +
+                        `${data.venta.cantidad_devuelta} unidades devueltas a ${data.venta.lotes_actualizados} lote(s).`
+                    );
+                } else {
+                    showToast('error', data.error || 'Error al anular la venta.');
+                }
+            } catch (e) {
+                console.error('Error anulando venta:', e);
+                showToast('error', 'Error de conexión al procesar la anulación.');
+            } finally {
+                this.procesando = false;
+            }
+        },
+
+        verDetalleAnulacion(venta) {
+            this.ventaDetalle = venta;
+            this.showModalDetalle = true;
+        },
+    };
+}
+</script>
+{% endblock %}

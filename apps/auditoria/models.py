@@ -182,6 +182,16 @@ class Auditoria(models.Model):
         verbose_name='Mensaje de error',
         help_text='Detalle del error si la acción falló'
     )
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.SET_NULL,
+        related_name='registros_auditoria',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal donde se genero este registro'
+    )
     
     # === IMPORTANCIA ===
     class NivelImportancia(models.TextChoices):
@@ -210,6 +220,7 @@ class Auditoria(models.Model):
             models.Index(fields=['-fecha_hora']),
             models.Index(fields=['nivel_importancia', '-fecha_hora']),
             models.Index(fields=['exito', '-fecha_hora']),
+            models.Index(fields=['sucursal', '-fecha_hora']),
         ]
     
     def __str__(self):

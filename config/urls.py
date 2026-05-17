@@ -37,9 +37,14 @@ urlpatterns = [
     path('cotizaciones/', include('apps.cotizaciones.urls')),
     path('reportes/', include('apps.reportes.urls')),
     path('caja/', include('apps.caja.urls')),
-     # Autenticacion (sin prefijo, queda como /login/ y /logout/)
+    path('auditoria/', include('apps.auditoria.urls')),
+
     path('', include('apps.usuarios.urls')),
-     # Impresión automática (POST desde POS)
+    
+    # API REST V1
+    path('api/', include('apps.api.urls')),
+
+    path('facturacion-electronica/', include('apps.facturacion_electronica.urls')),
     
 ]
 

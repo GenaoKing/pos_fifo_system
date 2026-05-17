@@ -445,19 +445,23 @@ function categoriasManager() {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    alert('Error: ' + (data.message || 'No se pudo guardar la categoría'));
+                    showToast('error', 'Error: ' + (data.message || 'No se pudo guardar la categoría'));
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('Error al guardar la categoría');
+                showToast('error', 'Error al guardar la categoría');
             }
         },
         
         async toggleEstado(categoria) {
-            if (!confirm(`¿Deseas ${categoria.activa ? 'desactivar' : 'activar'} esta categoría?`)) {
-                return;
-            }
-            
+            const action = categoria.activa ? 'desactivar' : 'activar';
+            const ok = await showConfirm(
+                `¿Deseas ${action} esta categoría?`,
+                `La categoría será ${categoria.activa ? 'desactivada' : 'activada'} y ${categoria.activa ? 'no estará disponible para productos' : 'podrá ser usada para productos'}.`,
+                { confirmText: action.charAt(0).toUpperCase() + action.slice(1), type: categoria.activa ? 'warning' : 'success' }
+            );
+            if (!ok) return;
+
             try {
                 const response = await fetch(`{% url "productos:categorias" %}${categoria.id}/toggle-estado/`, {
                     method: 'POST',
@@ -474,7 +478,7 @@ function categoriasManager() {
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('Error al cambiar el estado de la categoría');
+                showToast('error', 'Error al cambiar el estado de la categoría');
             }
         }
     };

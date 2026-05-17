@@ -37,4 +37,8 @@ urlpatterns = [
     path('financiacion/api/registrar/', views.registrar_financiacion, name='api_registrar'),
     path('financiacion/<int:venta_id>/', views.vista_financiacion, name='detalle'),
     path('financiacion/<int:venta_id>/pdf/', views.generar_pdf_financiacion, name='pdf'),
+
+    # Anulaciones
+    path('anulaciones/', views.vista_anulaciones, name='anulaciones'),
+    path('api/anular-venta/', views.api_anular_venta, name='api_anular_venta'),
 ]
