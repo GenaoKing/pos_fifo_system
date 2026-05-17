@@ -271,7 +271,7 @@
 
 {% block content %}
 {{ pos_config_json|json_script:"pos-config-data" }}
-
+{{ permitir_inventario_negativo|json_script:"pos-config-inv-negativo" }}
 
 
 <!-- 
@@ -937,12 +937,17 @@
                 <button 
                     @click="confirmarVenta()"
                     class="btn-success flex-1"
-                    :disabled="!validarPago()"
+                    :disabled="!validarPago() || procesandoVenta"
                 >
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                    Confirmar
+                    <template x-if="procesandoVenta">
+                        <span class="spinner inline-block mr-2"></span>
+                    </template>
+                    <template x-if="!procesandoVenta">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </template>
+                    <span x-text="procesandoVenta ? 'Procesando...' : 'Confirmar'"></span>
                 </button>
             </div>
         </div>
@@ -1017,11 +1022,18 @@ function posData() {
         montoTransferencia: 0,
         cambio: 0,
         
+        procesandoVenta: false,
+        
         // ============================================
         // INICIALIZACIÓN
         // ============================================
         init() {
             console.log('POS inicializado - Parte 2: Descuentos + Pago');
+            console.log('Permitir Inventario Negativo:', this.permitirInvNegativo);
+          
+            this.permitirInvNegativo = JSON.parse(
+                document.getElementById('pos-config-inv-negativo').textContent
+            );
             
             // ============================================
             // INICIALIZAR SCANNER DE CODIGO DE BARRAS
@@ -1178,6 +1190,9 @@ function posData() {
          */
         eliminarDelCarrito(index) {
             this.carrito.splice(index, 1);
+            if (this.carrito.length === 0) {
+                this.panelPagoActivo = false;
+            }
         },
         
         /**
@@ -1238,6 +1253,7 @@ function posData() {
             this.cotizacionId = null;
             this.focusScanner();
             this.referenciaTarjeta = '';
+            this.procesandoVenta = false;
         },
         
         // ============================================
@@ -1514,11 +1530,7 @@ function posData() {
             
             try {
                 // Mostrar loading
-                const btnConfirmar = document.querySelector('button[\\@click="confirmarVenta()"]');
-                if (btnConfirmar) {
-                    btnConfirmar.disabled = true;
-                    btnConfirmar.innerHTML = '<span class="spinner inline-block mr-2"></span>Procesando...';
-                }
+                this.procesandoVenta = true;
                 
                 // Enviar al backend
                 const response = await fetch('/pos/api/procesar-venta/', {
@@ -1554,7 +1566,7 @@ function posData() {
                         `Fecha: ${data.venta.fecha}\n\n` +
                         `${data.mensaje}`
                     );
-                    
+                    this.procesandoVenta = false;
                     // Limpiar carrito
                     this.limpiarCarrito();
 
@@ -1580,22 +1592,15 @@ function posData() {
                     showToast('error', `Error al procesar la venta:\n\n${data.error}`);
                     
                     // Restaurar botón
-                    if (btnConfirmar) {
-                        btnConfirmar.disabled = false;
-                        btnConfirmar.innerHTML = '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Confirmar';
-                    }
+                    this.procesandoVenta = false;
+                
                 }
                 
             } catch (error) {
                 console.error('❌ Error de red:', error);
                 showToast('error', 'Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
                 
-                // Restaurar botón
-                const btnConfirmar = document.querySelector('button[\\@click="confirmarVenta()"]');
-                if (btnConfirmar) {
-                    btnConfirmar.disabled = false;
-                    btnConfirmar.innerHTML = '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Confirmar';
-                }
+                 this.procesandoVenta = false;
             }
         },
          

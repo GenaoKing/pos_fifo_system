@@ -22,7 +22,7 @@ class ReporteManager:
         """
         if fecha is None:
             from django.utils import timezone
-            fecha = timezone.now().date()
+            fecha = timezone.localdate()
         
         # Verificar si ya existe
         cierre_existente = CierreCaja.objects.filter(fecha=fecha).first()
@@ -165,7 +165,7 @@ class ReporteManager:
         """
         if fecha is None:
             from django.utils import timezone
-            fecha = timezone.now().date()
+            fecha = timezone.localdate()
         
         # Verificar si ya existe
         inventario_existente = InventarioValorizado.objects.filter(

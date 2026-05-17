@@ -97,6 +97,7 @@ def punto_venta(request):
             'permite_mixto': len(metodos_pago) > 1,
             'permitir_inventario_negativo': get_config().permitir_inventario_negativo,
         },
+        'permitir_inventario_negativo': get_config().permitir_inventario_negativo,
     }
  
     return render(request, 'pos/punto_venta.html', context)
@@ -604,7 +605,7 @@ def vista_anulaciones(request):
     context = {
         'init_data_json': {
             'ventas': ventas_data,
-            'dias_limite': config.dias_limite_anulacion,
+            'dias_limite': config.dias_anulacion,
         },
     }
  

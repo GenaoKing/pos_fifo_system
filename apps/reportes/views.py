@@ -39,8 +39,8 @@ def dashboard(request):
     """
     Dashboard principal - muestra version Admin o Cajera segun el rol
     """
-    hoy = timezone.now().date()
-    ahora = timezone.now()
+    hoy = timezone.localdate()
+    ahora = timezone.localtime()
     inicio_semana = hoy - timedelta(days=hoy.weekday())
     inicio_mes = hoy.replace(day=1)
 
@@ -263,7 +263,7 @@ def api_metricas_hoy(request):
     """
     Endpoint JSON para actualizar metricas en tiempo real via Alpine.js
     """
-    hoy = timezone.now().date()
+    hoy = timezone.localdate()
 
     ventas_qs = Venta.objects.filter(
         fecha_venta__date=hoy,
@@ -271,7 +271,7 @@ def api_metricas_hoy(request):
     )
 
     if request.user.es_cajera:
-        ventas_qs = ventas_qs.filter(cajero=request.user)
+        ventas_qs = ventas_qs.filter(usuario=request.user)
 
     resumen = ventas_qs.aggregate(
         total=Coalesce(Sum('total'), Decimal('0.00'), output_field=DecimalField()),
@@ -322,7 +322,7 @@ def reportes_on_demand(request):
 
     context = {
         'cajeros': list(cajeros),
-        'fecha_hoy': timezone.now().date().isoformat(),
+        'fecha_hoy': timezone.localdate().isoformat(),
     }
     return render(request, 'reportes/on_demand.html', context)
 
@@ -352,7 +352,7 @@ def api_cierre_manual(request):
         fecha = date.fromisoformat(fecha_str)
 
         # No permitir fechas futuras
-        if fecha > timezone.now().date():
+        if fecha > timezone.localdate():
             return JsonResponse({'error': 'No se puede generar cierre para fechas futuras'}, status=400)
 
         cierre = ReporteManager.generar_cierre_diario(
@@ -427,7 +427,7 @@ def api_ventas_periodo(request):
         )
 
         if cajero_id:
-            ventas_qs = ventas_qs.filter(cajero_id=cajero_id)
+            ventas_qs = ventas_qs.filter(usuario_id=cajero_id)
 
         # Totales generales
         totales = ventas_qs.aggregate(
@@ -585,7 +585,7 @@ def api_inventario_valorizado(request):
     try:
         data = json.loads(request.body)
         fecha_str = data.get('fecha')
-        fecha = date.fromisoformat(fecha_str) if fecha_str else timezone.now().date()
+        fecha = date.fromisoformat(fecha_str) if fecha_str else timezone.localdate()
 
         # Consultar lotes activos con stock
         lotes = Lote.objects.filter(
