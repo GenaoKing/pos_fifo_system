@@ -25,6 +25,7 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
                 'modulo_cotizaciones', 'modulo_impresion_termica',
                 'modulo_barcode_scanner', 'modulo_reportes_ondemand',
                 'modulo_ecf', 'modulo_dashboard',
+                'permitir_inventario_negativo',
             )
         }),
         ('Metodos de Pago', {

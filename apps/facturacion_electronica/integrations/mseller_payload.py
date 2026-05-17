@@ -54,43 +54,83 @@ def _build_id_doc(ecf_data: dict, encf: str) -> dict:
     """
     Sección IdDoc del encabezado. Varía según tipo de e-CF.
 
-    Tipo 31: requiere FechaVencimientoSecuencia, FechaLimitePago si
-             TipoPago=2, TotalPaginas. La validez de la secuencia la
-             gestiona MSeller, pero hay que enviar el campo.
+    Tipo 31: requiere FechaVencimientoSecuencia. En pruebas recientes
+             DGII devolvio rechazo explicito cuando
+             `IndicadorEnvioDiferido != 1`, asi que mantenemos 1 como
+             default salvo override explicito desde configuracion.
     Tipo 32: NO lleva FechaVencimientoSecuencia ni FechaLimitePago.
     Tipo 34: requiere IndicadorNotaCredito y la sección
              InformacionReferencia (en otro lugar del payload).
     """
     tipo = ecf_data['tipo']
     metadata = ecf_data['metadata']
-
-    id_doc: dict[str, Any] = {
-        'TipoeCF': tipo,
-        'eNCF': encf,
-        'IndicadorEnvioDiferido': 0,
-        'TipoIngresos': '01',
-        'TipoPago': 1,  # default contado; el POS no maneja crédito hoy
-    }
+    emisor = ecf_data.get('emisor') or {}
+    indicador_envio_diferido = emisor.get('indicador_envio_diferido')
+    tipo_ingresos = emisor.get('tipo_ingresos') or '01'
+    tipo_pago = emisor.get('tipo_pago')
+    if tipo_pago is None:
+        tipo_pago = 1
+    fecha_limite_pago = emisor.get('fecha_limite_pago')
 
     if tipo == '31':
-        # FechaVencimientoSecuencia: la secuencia DGII vence al cierre
-        # del año. Usamos 31-12 del año en curso. MSeller también la
-        # valida del lado del proveedor.
-        anio = metadata['fecha_emision'].year
-        id_doc['FechaVencimientoSecuencia'] = f'31-12-{anio}'
-        id_doc['IndicadorMontoGravado'] = 0
-        id_doc['TotalPaginas'] = 1
+        if indicador_envio_diferido is None:
+            indicador_envio_diferido = 1
+        # La fecha de vencimiento de secuencia no debe inferirse a ciegas
+        # en todos los entornos. Si el Emisor trae una fecha explícita en
+        # config_proveedor (inyectada al sub-dict `emisor`), la usamos.
+        # Si no existe, mantenemos el fallback histórico de 31-12 del año
+        # de emisión, útil para ciertos escenarios de sandbox.
+        fecha_vencimiento = (
+            emisor.get('fecha_vencimiento_secuencia')
+            or f'31-12-{metadata["fecha_emision"].year}'
+        )
+        # Para tipo 31, MSeller/DGII son sensibles al orden de los
+        # campos dentro de IdDoc. Armamos el dict completo en el orden
+        # de la variante mas simple observada en la documentacion y en
+        # el troubleshooting actual.
+        #
+        # Importante: nuestros MontoItem representan base gravable sin
+        # ITBIS incluido. Por eso IndicadorMontoGravado debe enviarse
+        # explicitamente en 0.
+        id_doc = {
+            'TipoeCF': tipo,
+            'eNCF': encf,
+            'FechaVencimientoSecuencia': fecha_vencimiento,
+            'IndicadorEnvioDiferido': indicador_envio_diferido,
+            'IndicadorMontoGravado': 0,
+            'TipoIngresos': tipo_ingresos,
+            'TipoPago': tipo_pago,
+        }
+        if tipo_pago == 2 and fecha_limite_pago:
+            id_doc['FechaLimitePago'] = fecha_limite_pago
+        return id_doc
 
-    elif tipo == '32':
-        id_doc['IndicadorMontoGravado'] = 0
+    if tipo == '32':
+        if indicador_envio_diferido is None:
+            indicador_envio_diferido = 0
+        return {
+            'TipoeCF': tipo,
+            'eNCF': encf,
+            'IndicadorEnvioDiferido': indicador_envio_diferido,
+            'IndicadorMontoGravado': 0,
+            'TipoIngresos': tipo_ingresos,
+            'TipoPago': tipo_pago,
+        }
 
-    elif tipo == '34':
-        id_doc['IndicadorNotaCredito'] = '0'
-        id_doc['IndicadorMontoGravado'] = 0
-        # Tipo 34 no requiere FechaVencimientoSecuencia ni TotalPaginas
-        # según la doc; la sección InformacionReferencia va aparte.
+    if tipo == '34':
+        if indicador_envio_diferido is None:
+            indicador_envio_diferido = 0
+        return {
+            'TipoeCF': tipo,
+            'eNCF': encf,
+            'IndicadorEnvioDiferido': indicador_envio_diferido,
+            'IndicadorNotaCredito': '0',
+            'IndicadorMontoGravado': 0,
+            'TipoIngresos': tipo_ingresos,
+            'TipoPago': tipo_pago,
+        }
 
-    return id_doc
+    raise ValueError(f'Tipo e-CF no soportado para IdDoc: {tipo}')
 
 
 def _build_emisor(ecf_data: dict) -> dict:
@@ -127,12 +167,16 @@ def _build_comprador(ecf_data: dict) -> dict | None:
     if comprador is None:
         return None
 
-    out = {
-        'RazonSocialComprador': comprador['razon_social'],
-    }
+    # Igual que en Encabezado e IdDoc, MSeller/DGII están siendo
+    # sensibles al orden de serialización. Para Comprador colocamos
+    # primero RNCComprador y luego RazonSocialComprador, siguiendo
+    # el orden de los ejemplos oficiales y el mensaje de rechazo
+    # observado en tipo 31.
+    out: dict[str, Any] = {}
     rnc = comprador.get('rnc_o_cedula')
     if rnc:
         out['RNCComprador'] = rnc
+    out['RazonSocialComprador'] = comprador['razon_social']
     direccion = comprador.get('direccion')
     if direccion:
         out['DireccionComprador'] = direccion
@@ -161,6 +205,10 @@ def _build_totales(ecf_data: dict) -> dict:
 
     monto_gravado_total = t['monto_gravado_18'] + t['monto_gravado_16']
 
+    # Igual que en Encabezado/IdDoc/Comprador, MSeller-DGII está siendo
+    # sensible al orden. Para Totales seguimos el orden del ejemplo
+    # oficial: gravados, exento, ITBIS porcentuales, ITBIS totales,
+    # monto total y no facturable.
     totales: dict[str, Any] = {}
 
     if monto_gravado_total > 0:
@@ -168,14 +216,18 @@ def _build_totales(ecf_data: dict) -> dict:
 
     if t['monto_gravado_18'] > 0:
         totales['MontoGravadoI1'] = _num(t['monto_gravado_18'])
-        totales['ITBIS1'] = 18
 
     if t['monto_gravado_16'] > 0:
         totales['MontoGravadoI2'] = _num(t['monto_gravado_16'])
-        totales['ITBIS2'] = 16
 
     if t['monto_exento'] > 0:
         totales['MontoExento'] = _num(t['monto_exento'])
+
+    if t['monto_gravado_18'] > 0:
+        totales['ITBIS1'] = 18
+
+    if t['monto_gravado_16'] > 0:
+        totales['ITBIS2'] = 16
 
     if t['total_itbis'] > 0:
         totales['TotalITBIS'] = _num(t['total_itbis'])
@@ -187,6 +239,42 @@ def _build_totales(ecf_data: dict) -> dict:
     totales['MontoTotal'] = _num(t['monto_total'])
 
     return totales
+
+
+def _build_paginacion(ecf_data: dict) -> dict:
+    """
+    Construye la sección Paginacion.
+
+    Por ahora emitimos una sola página porque el POS actual no parte
+    renglones de e-CF en varias páginas. Esto alinea mejor el tipo 31
+    con el ejemplo de MSeller, que incluye TotalPaginas=1 y su bloque
+    de paginación correspondiente.
+    """
+    t = ecf_data['totales']
+    items = ecf_data['items']
+    ultima_linea = items[-1]['numero_linea'] if items else 1
+
+    pagina = {
+        'PaginaNo': 1,
+        'NoLineaDesde': 1,
+        'NoLineaHasta': ultima_linea,
+        'SubtotalMontoGravadoPagina': _num(
+            t['monto_gravado_18'] + t['monto_gravado_16']
+        ),
+        'SubtotalMontoGravado1Pagina': _num(t['monto_gravado_18']),
+        'SubtotalExentoPagina': _num(t['monto_exento']),
+        'SubtotalItbisPagina': _num(t['total_itbis']),
+        'SubtotalItbis1Pagina': _num(t['total_itbis_18']),
+        'MontoSubtotalPagina': _num(t['monto_total']),
+        'SubtotalMontoNoFacturablePagina': 0,
+    }
+
+    if t['monto_gravado_16'] > 0:
+        pagina['SubtotalMontoGravado2Pagina'] = _num(t['monto_gravado_16'])
+    if t['total_itbis_16'] > 0:
+        pagina['SubtotalItbis2Pagina'] = _num(t['total_itbis_16'])
+
+    return {'Pagina': [pagina]}
 
 
 def _build_items(ecf_data: dict) -> dict:
@@ -268,21 +356,34 @@ def build_mseller_payload(ecf_data: dict, encf: str) -> dict:
         "DetallesItems": {...}, "InformacionReferencia": {...}}}
         listo para enviarse como body JSON al endpoint.
     """
+    # El orden de las claves del encabezado importa para la transformación
+    # JSON -> XML de MSeller. En pruebas con tipo 31 observamos que
+    # serializar `Comprador` después de `Totales` termina generando un XML
+    # inválido para DGII. Mantenemos el mismo orden que muestran los ejemplos
+    # oficiales de MSeller: Version, IdDoc, Emisor, Comprador, Totales.
     encabezado = {
         'Version': '1.0',
         'IdDoc': _build_id_doc(ecf_data, encf),
         'Emisor': _build_emisor(ecf_data),
-        'Totales': _build_totales(ecf_data),
     }
 
     comprador = _build_comprador(ecf_data)
     if comprador is not None:
         encabezado['Comprador'] = comprador
 
+    encabezado['Totales'] = _build_totales(ecf_data)
+
     ecf_root: dict[str, Any] = {
         'Encabezado': encabezado,
         'DetallesItems': _build_items(ecf_data),
     }
+
+    if ecf_data['tipo'] == '31':
+        # Estrategia actual para tipo 31: payload mínimo viable.
+        # No enviamos Paginacion, TotalPaginas, MontoNoFacturable ni
+        # FechaHoraFirma para reducir superficie de rechazo mientras
+        # alineamos el contrato exacto con MSeller/DGII.
+        pass
 
     if ecf_data['tipo'] == '34':
         ecf_root['InformacionReferencia'] = _build_informacion_referencia(ecf_data)

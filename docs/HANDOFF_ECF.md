@@ -1,9 +1,9 @@
 # HANDOFF — Implementación e-CF en `pos_fifo_system`
 
-**Última actualización:** 2 de mayo 2026
+**Última actualización:** 10 de mayo 2026
 **Autor original:** Santiago + Claude Opus 4.7 (sesiones de chat web)
 **Destinatario:** próxima sesión Claude / Codex agentic / Santiago en futuro
-**Estado de la implementación:** Fase Inicial — backend operativo + UI principal integrada, pendiente smoke test y cierre operativo
+**Estado de la implementación:** Fase Inicial — backend y flujo principal validados en development, pendiente cierre operativo de producción
 
 ---
 
@@ -88,13 +88,20 @@ La arquitectura está diseñada para ser **agnóstica al proveedor**: en Fase 2 
 
 ### 2.2 Lo que NO está terminado
 
-- ❌ Inclusión de `apps.facturacion_electronica.urls` en `config/urls.py`
-- ❌ Configuración de `LOGGING` para los loggers `ecf.*` en `settings.py`
 - ❌ Configuración de Task Scheduler de Windows para correr `ecf_procesar_pendientes` cada 30s
-- ❌ Smoke test contra TesteCF de MSeller
 - ❌ Tests unitarios y de integración
 - ❌ Validación manual de los 3 modos de impresión con térmica real
 - ❌ Onboarding del primer cliente piloto en producción
+
+### 2.3 Lo que ya fue validado en testing development
+
+- ✅ Mapper `venta_a_ecf_data()` con venta real tipo `32`
+- ✅ Builder `build_mseller_payload()` con estructura coherente para MSeller
+- ✅ Cola de emisión `encolar_emision()` creando `ECF` + `EventoECF`
+- ✅ HTTP real contra TesteCF: auth, emisión y consulta
+- ✅ Procesador end-to-end: `PENDIENTE -> ENVIADO -> APROBADO`
+- ✅ Flujo real desde POS con badge de `venta_exitosa` mostrando `APROBADO` y `eNCF` correcto
+- ✅ Smoke test posterior al fix de `validate`: la emisión real ya sale con `params=None`
 
 ---
 
@@ -310,7 +317,7 @@ Estas variables se referencian (no se almacenan) desde `Emisor.config_proveedor`
   "password_env": "MSELLER_PASSWORD_ROYAL",
   "api_key_env": "MSELLER_API_KEY_ROYAL",
   "entorno": "TesteCF",
-  "validar_antes_enviar": true
+  "validar_antes_enviar": false
 }
 ```
 
@@ -508,6 +515,8 @@ urlpatterns = [
 
 - **El patch de impresión se adaptó a la arquitectura real del proyecto.** En vez de mover toda la lógica a `manager.py`, se decidió que `manager.py` solo enriquezca `venta_data` y que `termica.py` siga siendo quien renderiza el ticket. Esto preserva la separación actual de responsabilidades.
 
+- **`validate=true` NO forma parte del flujo normal de emisión.** Tras las pruebas contra TesteCF se decidió que la emisión real siempre llame a MSeller con `validar=False`. El modo `validate=true` queda reservado para debugging/manual testing porque en sandbox puede retornar un documento completo y no se comporta como un dry-run puro.
+
 ---
 
 ## 6. Convenciones del proyecto que deben respetarse
@@ -546,11 +555,19 @@ urlpatterns = [
 
 ---
 
-## 7. Smoke test recomendado (próxima sesión)
+## 7. Smoke test ejecutado
 
-Antes de invertir en tests automatizados, validar end-to-end contra TesteCF:
+La validación end-to-end contra TesteCF ya se ejecutó en development. El detalle operativo y los resultados concretos quedaron documentados en `docs/TESTING_ECF_2026-05-09.md`.
 
-### 7.1 Pre-requisitos
+### 7.1 Resultado general
+
+- Se validaron capas aisladas (mapper, payload, cola).
+- Se validó HTTP real contra MSeller TesteCF.
+- Se validó procesador end-to-end hasta `APROBADO`.
+- Se validó el flujo real desde POS hasta `venta_exitosa`.
+- Se identificó y corrigió la ambigüedad de `validate=true` en el flujo normal.
+
+### 7.2 Pre-requisitos
 
 - ✅ Todos los archivos creados y patches aplicados
 - ✅ Migraciones corridas
@@ -558,7 +575,7 @@ Antes de invertir en tests automatizados, validar end-to-end contra TesteCF:
 - ✅ Emisor creado en admin con `entorno=TesteCF`
 - ✅ `ConfiguracionNegocio.modulo_ecf=True` y `emisor_activo` apuntando al Emisor
 
-### 7.2 Pasos del smoke test
+### 7.3 Script de referencia del smoke test
 
 ```python
 # manage.py shell
@@ -600,7 +617,7 @@ for evento in ecf.eventos.order_by('fecha'):
     print(f'{evento.fecha}: {evento.estado_anterior} → {evento.estado_nuevo}: {evento.mensaje}')
 ```
 
-### 7.3 Casos a probar
+### 7.4 Casos cubiertos / sugeridos
 
 1. **Venta normal con cliente CONTADO** → tipo 32, sin sección Comprador en payload
 2. **Venta con cliente real con RNC** → tipo 32, con Comprador
@@ -618,7 +635,7 @@ for evento in ecf.eventos.order_by('fecha'):
 ### 8.1 Fase Inicial (en curso)
 
 - ✅ Semana 0-3 — código completo
-- 🔜 Semana 3-4 — smoke test, wiring final y testing/debugging
+- ✅ Semana 3-4 — smoke test y testing/debugging ejecutados en development
 - 🔜 Onboarding del primer cliente piloto en producción
 - 🔜 Estabilización (~2-3 semanas en producción real con MSeller)
 
@@ -764,9 +781,41 @@ ecf.save()
 
 ### 11.2 Bugs encontrados en testing/debugging
 
-*(Por documentar a medida que aparezcan)*
+- **Ambigüedad de `validate=true` en TesteCF**: durante las pruebas se observó que `?validate=true` puede retornar un documento completo y no comportarse como un dry-run puro. **Resuelto a nivel de diseño actual**: `MSellerEmisor.emitir()` ahora fuerza `validar=False` en el flujo normal, y `validate=true` queda reservado para debugging/manual testing.
 
-- (vacío hasta sesión de testing)
+- **Tipo `31` fallando por orden de `Comprador` en el payload**: en una prueba con cliente con RNC, DGII devolvió error de XML inválido indicando `Encabezado` con hijo `Comprador` no esperado. La causa fue el orden de serialización del `Encabezado` en `build_mseller_payload()` (`Comprador` quedaba después de `Totales`). **Resuelto**: el builder ahora arma el orden `Version -> IdDoc -> Emisor -> Comprador -> Totales`.
+
+- **Tipo `31` también sensible al orden interno de `IdDoc`**: tras corregir `Comprador`, una nueva prueba devolvió error de XML inválido indicando `IdDoc` con hijo `FechaVencimientoSecuencia` fuera de lugar. La causa fue que `_build_id_doc()` agregaba esa clave al final por inserción incremental. **Resuelto**: `_build_id_doc()` ahora construye el dict de tipo `31` completo en el orden esperado por MSeller/DGII.
+
+- **Tipo `31` también sensible al orden interno de `Comprador`**: una prueba posterior devolvió rechazo indicando `Comprador` con hijo `RazonSocialComprador` fuera de lugar y esperando `RNCComprador` primero. **Resuelto**: `_build_comprador()` ahora serializa en orden `RNCComprador -> RazonSocialComprador -> DireccionComprador`.
+
+- **Reemisión del mismo ECF no actualizaba al intento vigente**: durante troubleshooting de tipo `31`, el modelo `ECF` seguía mostrando el primer `encf` aunque ya existía una segunda secuencia generada. La causa fue que `_aplicar_resultado_emision()` solo persistía `encf`/`codigo_seguridad` si los campos estaban vacíos. **Resuelto**: el procesador ahora sobrescribe `encf`, `track_id`, `codigo_seguridad`, `xml_firmado` y `xml_respuesta` con la respuesta del intento actual.
+
+- **Rechazo por secuencia ya utilizada tras varios reintentos manuales en dev**: durante el troubleshooting de tipo `31`, un intento posterior recibió `Este número de secuencia ya ha sido utilizado.` para `E310000000002`. La lectura más probable es una desalineación temporal entre la secuencia ya usada remotamente y la última persistida localmente, causada por los reintentos sobre el mismo `ECF` mientras se corregía el tracking del `encf`. **Interpretación**: artefacto de pruebas en development, no comportamiento esperado del flujo limpio.
+
+- **Tipo `31` sensible a la fecha real de vencimiento de secuencia**: una prueba limpia posterior devolvió `Fecha de vencimiento de secuencia inválida.` La inferencia automática `31-12-año_actual` no resultó válida para ese emisor/entorno. **Ajuste realizado**: `build_mseller_payload()` ahora soporta `fecha_vencimiento_secuencia` configurable desde `Emisor.config_proveedor`, inyectada por `MSellerEmisor`.
+
+- **Tipo `31` requiere mayor alineación con el ejemplo oficial de MSeller**: tras compartir el ejemplo JSON esperado, se extendió la inyección de configuración para soportar `indicador_envio_diferido`, `tipo_ingresos`, `tipo_pago` y `fecha_limite_pago`, y se agregó `Paginacion` + `FechaHoraFirma` + campos explícitos de totales para acercar el payload del builder al contrato mostrado por MSeller.
+
+- **Tipo `31` también sensible al orden interno de `Totales`**: una prueba posterior devolvió rechazo indicando `Totales` con hijo `MontoExento` fuera de lugar. La causa fue que `_build_totales()` estaba serializando `ITBIS1` antes de `MontoExento`. **Resuelto**: `_build_totales()` ahora sigue un orden más alineado con el ejemplo oficial de MSeller para tipo `31`.
+
+- **`FechaHoraFirma=""` rechazado por DGII en tipo `31`**: tras acercar el payload al ejemplo oficial, una prueba nueva devolvió `El campo FechaHoraFirma de la sección FechaHoraFirma no es válido.` **Resuelto**: se dejó de enviar `FechaHoraFirma` vacío; el builder ahora omite ese campo para tipo `31`.
+
+- **Estrategia actual de troubleshooting para tipo `31`: payload mínimo viable**: tras varios rechazos estructurales y de validación, el builder se simplificó para `31` removiendo `Paginacion`, `TotalPaginas`, `MontoNoFacturable` y `MontoExento=0` cuando no aplica. Se confirmó además que `IndicadorEnvioDiferido` debe permanecer en `1` para `31`: una prueba con `0` fue rechazada explícitamente por DGII, así que el builder volvió a default `1` para ese tipo.
+- **Ajuste posterior de `IndicadorMontoGravado` en tipo `31`**: a partir de una referencia encontrada en el portal DGII, se concluyó que cuando `MontoItem` representa base gravable sin ITBIS incluido, `Encabezado.IdDoc.IndicadorMontoGravado` debe enviarse en `0`. El builder de tipo `31` volvió a incluirlo explícitamente con ese valor.
+- **Tipo `31` finalmente validado en TesteCF**: una emisión posterior fue aceptada por DGII con `encf=E310000000013`. La combinación que destrabó el flujo fue:
+  - `FechaVencimientoSecuencia=31-12-2028`
+  - `IndicadorEnvioDiferido=1`
+  - `IndicadorMontoGravado=0`
+  - `TipoIngresos=01`
+  - `TipoPago=1`
+  - payload minimalista sin `Paginacion`, `TotalPaginas` ni `MontoExento` cuando no aplica
+
+- **Lectura importante sobre la consulta pública DGII en rechazos**: durante pruebas fallidas de tipo `31`, el portal mostraba `Razón social comprador = -` y `Total de ITBIS = -` aunque esos datos sí estaban presentes en el XML firmado. Esto sugiere que la consulta pública de documentos rechazados puede mostrar una vista parcial y no debe usarse como evidencia definitiva de ausencia de campos en el payload.
+
+- **`validate=true` documentado por MSeller vs comportamiento observado en TesteCF**: aunque MSeller lo describe como validación previa sin generación real, en pruebas del sandbox la respuesta siguió incluyendo `ecf`, `internalTrackId`, `securityCode`, `qr_url` y `signedDate`. **Interpretación actual**: no usarlo en el flujo normal, pero reconocer que en TesteCF devuelve metadata suficiente para el troubleshooting.
+
+- **Transición visual en vivo del badge no observada todavía**: en la prueba GUI el badge cargó ya resuelto en `APROBADO`, por lo que quedó validado el estado final y el polling, pero no una transición visual real desde estado intermedio. No bloquea producción inicial.
 
 ---
 

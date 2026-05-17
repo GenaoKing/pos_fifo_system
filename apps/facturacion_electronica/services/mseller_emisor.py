@@ -142,6 +142,15 @@ class MSellerEmisor(EmisorECFInterface):
             'razon_social': self.emisor.razon_social,
             'nombre_comercial': self.emisor.nombre_comercial or '',
             'direccion': self.emisor.direccion or '',
+            'fecha_vencimiento_secuencia': (
+                self.emisor.config_proveedor.get('fecha_vencimiento_secuencia')
+            ),
+            'indicador_envio_diferido': (
+                self.emisor.config_proveedor.get('indicador_envio_diferido')
+            ),
+            'tipo_ingresos': self.emisor.config_proveedor.get('tipo_ingresos'),
+            'tipo_pago': self.emisor.config_proveedor.get('tipo_pago'),
+            'fecha_limite_pago': self.emisor.config_proveedor.get('fecha_limite_pago'),
         }
 
     def _ecf_data_para_venta(
@@ -179,7 +188,12 @@ class MSellerEmisor(EmisorECFInterface):
         )
 
         try:
-            response = self.http.enviar_documento(payload)
+            # El flujo normal de emisión SIEMPRE debe enviar el documento
+            # real al proveedor. El modo `validate=true` se reserva para
+            # pruebas/manual debugging porque en TesteCF observamos que
+            # no se comporta como un dry-run puro y puede retornar un
+            # documento completo.
+            response = self.http.enviar_documento(payload, validar=False)
         except MSellerValidationError as exc:
             # Error estructural en el documento. NO es transitorio:
             # reintentar lo mismo va a fallar igual. El caller debe

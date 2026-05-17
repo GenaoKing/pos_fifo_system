@@ -319,7 +319,11 @@ def _aplicar_resultado_emision(
     """
     with transaction.atomic():
         ecf.estado = resultado.estado_inicial
-        if resultado.encf and not ecf.encf:
+        # En re-emisiones del mismo ECF (ej: secuencia previa rechazada),
+        # la nueva respuesta puede traer un eNCF distinto. Debemos
+        # sobrescribirlo para que el documento siga apuntando al intento
+        # vigente y futuras consultas/polling usen la secuencia correcta.
+        if resultado.encf:
             ecf.encf = resultado.encf
         if resultado.track_id:
             ecf.track_id = resultado.track_id
@@ -329,14 +333,14 @@ def _aplicar_resultado_emision(
         # firmar localmente). Los persistimos para que el ticket
         # térmico los pueda imprimir.
         raw = resultado.raw_response or {}
-        if raw.get('securityCode') and not ecf.codigo_seguridad:
+        if raw.get('securityCode'):
             ecf.codigo_seguridad = raw['securityCode']
 
         # Persistir el JSON enviado como evidencia local (Semana 2
         # decisión: en MSeller no podemos descargar el XML firmado,
-        # guardamos el payload JSON).
-        if not ecf.xml_firmado:
-            ecf.xml_firmado = json.dumps(ecf_data, default=str, indent=2)
+        # guardamos el payload JSON. En reintentos guardamos la última
+        # versión enviada, que es la relevante para troubleshooting.
+        ecf.xml_firmado = json.dumps(ecf_data, default=str, indent=2)
 
         ecf.xml_respuesta = json.dumps(raw, default=str, indent=2)
         ecf.intentos += 1

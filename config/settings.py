@@ -169,7 +169,96 @@ SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
 SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
 
+# =============================================================================
+# LOGGING — config básico, principalmente para módulos e-CF y ventas
+# =============================================================================
+# En desarrollo todo va a consola. En producción (settings_production.py)
+# se sobrescribe con rotación a archivo en logs/ecf.log.
+#
+# Loggers configurados:
+#   ecf              — app facturacion_electronica (general)
+#   ecf.mseller      — HTTP client + emisor MSeller
+#   ecf.procesador   — management command y procesador de cola
+#   ecf.cola         — encolar_emision / encolar_nota_credito
+#   ecf.views        — endpoint AJAX de estado
+#   ecf.mapper       — mapper venta_to_ecf (warnings de tasas raras)
+#   ventas.service   — services de procesar_venta y anular_venta
+#
+# Ajustar level a 'DEBUG' temporalmente cuando estés debuggeando flujos.
 
+import os
+
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname:<8} [{name}] {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '{levelname:<8} [{name}] {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+            'level': 'DEBUG',
+        },
+        'ecf_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'ecf.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'level': 'DEBUG',
+            'encoding': 'utf-8',
+        },
+    },
+    'loggers': {
+        'ecf': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'ecf.mseller': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'ecf.procesador': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'ecf.cola': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'ecf.views': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'ecf.mapper': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'ventas.service': {
+            'handlers': ['console', 'ecf_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 
 

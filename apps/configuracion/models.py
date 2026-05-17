@@ -68,6 +68,15 @@ class ConfiguracionNegocio(models.Model):
         help_text='Logo para tickets, PDFs y cotizaciones'
     )
 
+
+    permitir_inventario_negativo = models.BooleanField(
+        'Permitir inventario negativo',
+        default=False,
+        help_text='Si True, el sistema no bloquea ventas aunque el stock sea insuficiente. '
+                  'Usar con precaucion, puede llevar a inconsistencias si no se controla bien'
+                    'el flujo de compras e ingresos de mercancia.'
+    )
+
     # =========================================================================
     # FEATURE FLAGS - MODULOS
     # =========================================================================

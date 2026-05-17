@@ -366,8 +366,10 @@ class MSellerHTTPClient:
 
         Retorna el dict de respuesta tal cual:
             {rnc, ecf, internalTrackId, securityCode, qr_url, signedDate}
-        Si validar=True, MSeller valida sin consumir secuencia y retorna:
-            {valid: true, message: "..."}
+        Si validar=True, delega a la semántica que exponga MSeller para
+        `?validate=true`. En testing observamos que TesteCF puede
+        retornar un documento completo, así que NO debe asumirse como
+        dry-run inocuo del flujo productivo.
 
         Levanta MSellerValidationError con detalles si MSeller rechaza
         por estructura/cálculos.
