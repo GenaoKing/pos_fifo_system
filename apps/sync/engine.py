@@ -357,6 +357,10 @@ class SyncEngine:
                 'precio_venta': item.get('precio_venta', '0'),
                 'codigo_barras': item.get('codigo_barras') or '',
                 'activo': item.get('activo', True),
+                'estado': item.get('estado') or 'nuevo',
+                'marca': item.get('marca') or '',
+                'stock_minimo': item.get('stock_minimo', 5),
+                'atributos': item.get('atributos') or {},
             }
             if categoria:
                 defaults['categoria'] = categoria

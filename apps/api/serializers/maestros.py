@@ -85,6 +85,84 @@ class ProductoSerializer(serializers.ModelSerializer):
             return obj.imagen.url
         return None
 
+class ProductoWriteSerializer(serializers.ModelSerializer):
+    """
+    Serializer para CREATE/UPDATE de Producto desde el portal admin.
+
+    Campos editables (versus inventario que NO se sincroniza):
+        sku           creates only — bloqueado en updates
+        nombre, descripcion, marca
+        precio_venta  caso de uso principal
+        codigo_barras
+        categoria
+        activo, estado
+        stock_minimo  define alertas
+        atributos     JSONField con presets futuros
+
+    Campos read-only (calculados o de inventario):
+        stock_actual, costo_promedio, lotes, fechas, imagen_url
+    """
+
+    class Meta:
+        model = Producto
+        fields = [
+            'sku',
+            'nombre',
+            'descripcion',
+            'precio_venta',
+            'codigo_barras',
+            'categoria',
+            'activo',
+            'estado',
+            'marca',
+            'stock_minimo',
+            'atributos',
+        ]
+        extra_kwargs = {
+            'descripcion': {'required': False, 'allow_blank': True},
+            'codigo_barras': {
+                'required': False, 'allow_blank': True, 'allow_null': True,
+            },
+            'marca': {'required': False, 'allow_blank': True},
+            'stock_minimo': {'required': False},
+            'atributos': {'required': False},
+        }
+
+    def update(self, instance, validated_data):
+        # SKU no se cambia después de creado — rompería la sincronización
+        # con sucursal porque ahí es la clave de update_or_create.
+        validated_data.pop('sku', None)
+        return super().update(instance, validated_data)
+
+    def validate_precio_venta(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError(
+                'El precio debe ser mayor a cero.'
+            )
+        return value
+
+    def validate_stock_minimo(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                'El stock mínimo no puede ser negativo.'
+            )
+        return value
+
+    def validate_atributos(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                'Los atributos deben ser un objeto JSON (clave-valor).'
+            )
+        # Validación liviana: claves deben ser strings y no vacías.
+        for k in value.keys():
+            if not isinstance(k, str) or not k.strip():
+                raise serializers.ValidationError(
+                    'Las claves de atributos deben ser texto no vacío.'
+                )
+        return value
+
 
 class ClienteSerializer(serializers.ModelSerializer):
     """

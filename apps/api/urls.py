@@ -37,6 +37,12 @@ urlpatterns_v1 = [
     # Health check (sin autenticación)
     path('health/', health_check, name='api-health'),
 
+    # Autenticación (tokens JWT)
+    path('auth/', include('apps.api.auth_urls')),
+
+    # Sucursales (Fase 5)
+    path('sucursales/', include('apps.api.sucursales_urls')),
+
     # Datos maestros (router DRF)
     path('', include(router_v1.urls)),
 
