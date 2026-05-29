@@ -30,7 +30,9 @@ from ..serializers.maestros import (
     ProductoSerializer,
     ProductoWriteSerializer,
     CategoriaSerializer,
+    CategoriaWriteSerializer,
     ClienteSerializer,
+    ClienteWriteSerializer,
 )
 from ..pagination import LargePagination
 
@@ -179,22 +181,40 @@ class ProductoViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
         )
         return Response(read_serializer.data)
 
-class CategoriaViewSet(SyncIncrementalMixin, viewsets.ReadOnlyModelViewSet):
+class CategoriaViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
     """
-    ViewSet de Categorías (solo lectura).
-    
+    ViewSet de Categorías.
+
+    Lecturas (list, retrieve): autenticación de sucursal (SucursalToken)
+    o admin (JWT). Las sucursales lo usan para sync incremental con ?desde=.
+
+    Escrituras (create, update, partial_update, destroy): solo admins
+    del portal autenticados con JWT.
+
     Endpoints:
-        GET /api/v1/maestros/categorias/           → Lista paginada
-        GET /api/v1/maestros/categorias/<id>/       → Detalle
-        GET /api/v1/maestros/categorias/?desde=...  → Sync incremental
-    
-    Filtros adicionales:
-        ?activa=true/false    → Filtrar por estado
+        GET    /api/v1/maestros/categorias/           lista
+        GET    /api/v1/maestros/categorias/?desde=...  sync incremental
+        GET    /api/v1/maestros/categorias/<id>/       detalle
+        POST   /api/v1/maestros/categorias/           crear (admin)
+        PATCH  /api/v1/maestros/categorias/<id>/       editar (admin)
+        DELETE /api/v1/maestros/categorias/<id>/       borrar (admin)
+
+    Filtros:
+        ?activa=true/false    → estado
+        ?search=<texto>       → nombre (icontains)
     """
-    serializer_class = CategoriaSerializer
-    permission_classes = [EsSoloLectura]
     pagination_class = LargePagination
     throttle_scope = 'maestros'
+
+    def get_serializer_class(self):
+        if self.action in ('list', 'retrieve'):
+            return CategoriaSerializer
+        return CategoriaWriteSerializer
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [IsAuthenticated(), EsSoloLectura()]
+        return [IsAuthenticated(), EsAdminOSysadmin()]
 
     def get_queryset(self):
         queryset = Categoria.objects.all()
@@ -203,27 +223,74 @@ class CategoriaViewSet(SyncIncrementalMixin, viewsets.ReadOnlyModelViewSet):
         if activa is not None:
             queryset = queryset.filter(activa=activa.lower() == 'true')
 
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(nombre__icontains=search)
+
         self.queryset = queryset
         return super().get_queryset()
 
+    def create(self, request, *args, **kwargs):
+        write_serializer = self.get_serializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        categoria = write_serializer.save()
 
-class ClienteViewSet(SyncIncrementalMixin, viewsets.ReadOnlyModelViewSet):
+        read_serializer = CategoriaSerializer(
+            categoria, context=self.get_serializer_context()
+        )
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+
+        write_serializer = self.get_serializer(
+            instance, data=request.data, partial=partial
+        )
+        write_serializer.is_valid(raise_exception=True)
+        categoria = write_serializer.save()
+
+        read_serializer = CategoriaSerializer(
+            categoria, context=self.get_serializer_context()
+        )
+        return Response(read_serializer.data)
+
+
+class ClienteViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
     """
-    ViewSet de Clientes (solo lectura).
-    
+    ViewSet de Clientes.
+
+    Lecturas (list, retrieve): autenticación de sucursal (SucursalToken)
+    o admin (JWT).
+
+    Escrituras (create, update, partial_update, destroy): solo admins
+    del portal autenticados con JWT.
+
     Endpoints:
-        GET /api/v1/maestros/clientes/           → Lista paginada
-        GET /api/v1/maestros/clientes/<id>/       → Detalle
-        GET /api/v1/maestros/clientes/?desde=...  → Sync incremental
-    
-    Filtros adicionales:
-        ?tipo=PERSONAL/CORPORATIVO/CONTADO  → Filtrar por tipo
-        ?activo=true/false                  → Filtrar por estado
+        GET    /api/v1/maestros/clientes/           lista
+        GET    /api/v1/maestros/clientes/?desde=...  sync incremental
+        GET    /api/v1/maestros/clientes/<id>/       detalle
+        POST   /api/v1/maestros/clientes/           crear (admin)
+        PATCH  /api/v1/maestros/clientes/<id>/       editar (admin)
+        DELETE /api/v1/maestros/clientes/<id>/       borrar (admin)
+
+    Filtros:
+        ?tipo=PERSONAL/CORPORATIVO/CONTADO  → tipo de cliente
+        ?activo=true/false                  → estado
+        ?search=<texto>                     → nombre o cedula_rnc (icontains)
     """
-    serializer_class = ClienteSerializer
-    permission_classes = [EsSoloLectura]
     pagination_class = LargePagination
     throttle_scope = 'maestros'
+
+    def get_serializer_class(self):
+        if self.action in ('list', 'retrieve'):
+            return ClienteSerializer
+        return ClienteWriteSerializer
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [IsAuthenticated(), EsSoloLectura()]
+        return [IsAuthenticated(), EsAdminOSysadmin()]
 
     def get_queryset(self):
         queryset = Cliente.objects.all()
@@ -236,5 +303,38 @@ class ClienteViewSet(SyncIncrementalMixin, viewsets.ReadOnlyModelViewSet):
         if activo is not None:
             queryset = queryset.filter(activo=activo.lower() == 'true')
 
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(nombre__icontains=search)
+                | Q(cedula_rnc__icontains=search)
+            )
+
         self.queryset = queryset
         return super().get_queryset()
+
+    def create(self, request, *args, **kwargs):
+        write_serializer = self.get_serializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        cliente = write_serializer.save()
+
+        read_serializer = ClienteSerializer(
+            cliente, context=self.get_serializer_context()
+        )
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+
+        write_serializer = self.get_serializer(
+            instance, data=request.data, partial=partial
+        )
+        write_serializer.is_valid(raise_exception=True)
+        cliente = write_serializer.save()
+
+        read_serializer = ClienteSerializer(
+            cliente, context=self.get_serializer_context()
+        )
+        return Response(read_serializer.data)

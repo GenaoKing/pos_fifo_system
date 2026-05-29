@@ -81,8 +81,6 @@ class PrecioProductoCacheTests(TestCase):
             return engine._pull_productos()
 
     def test_pos_lee_precio_actualizado_despues_del_pull_con_config_cacheada(self):
-        # Calienta el cache de ConfiguracionNegocio antes del cambio de precio.
-        # Ese cache no debe congelar Producto.precio_venta.
         get_config()
 
         count = self._pull_precio('125.00')
@@ -100,4 +98,3 @@ class PrecioProductoCacheTests(TestCase):
         self.assertEqual(busqueda.json()['productos'][0]['precio_formateado'], '$125.00')
         self.assertEqual(scanner.json()['producto']['precio_venta'], 125.0)
         self.assertEqual(scanner.json()['producto']['precio_formateado'], '$125.00')
-

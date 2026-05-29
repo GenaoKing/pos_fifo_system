@@ -1,3 +1,9 @@
+"""
+Script de prueba manual del sistema FIFO de inventario.
+Ejecutar desde la raíz del proyecto con el entorno activado:
+    python scripts/manual_test_fifo_inventario.py
+NO usar con manage.py test — no es un TestCase de Django.
+"""
 import os
 import django
 
@@ -112,14 +118,10 @@ print(f"   (50 × $1.00 + 30 × $1.20 = ${50*1.00 + 30*1.20})")
 
 # 8. Procesar venta FIFO de 60 unidades
 print("\n8. PROCESANDO VENTA FIFO de 60 unidades...")
-print("   Debe consumir:")
-print("   - 50 del Lote 1 (más antiguo)")
-print("   - 10 del Lote 2")
-
 resultado = procesar_venta_fifo(
     producto_id=producto.id,
     cantidad_solicitada=60,
-    venta_id=999,  # ID ficticio de venta
+    venta_id=999,
     usuario=usuario
 )
 
@@ -128,50 +130,30 @@ print(f"   - Vendido: {resultado['cantidad_vendida']}")
 print(f"   - Faltante: {resultado['cantidad_faltante']}")
 print(f"   - Stock completo: {resultado['tiene_stock_completo']}")
 print(f"   - Costo FIFO: ${resultado['costo_fifo']}")
-print(f"   - Lotes consumidos: {resultado['lotes_consumidos']}")
-print(f"   - Movimientos creados: {len(resultado['movimientos'])}")
 
-# 9. Verificar lotes después de venta
+# 9. Estado de lotes
 print("\n9. Estado de lotes después de venta:")
 lote1.refresh_from_db()
 lote2.refresh_from_db()
 print(f"   Lote 1: {lote1.cantidad_actual}/{lote1.cantidad_inicial} (debe ser 0/50)")
 print(f"   Lote 2: {lote2.cantidad_actual}/{lote2.cantidad_inicial} (debe ser 20/30)")
 
-# 10. Verificar stock restante
+# 10. Stock restante
 print("\n10. Stock restante:")
 stock_restante = obtener_stock_disponible(producto.id)
 print(f"Stock actual: {stock_restante} unidades (debe ser 20)")
 
-valor_restante = calcular_valuacion_fifo(producto.id)
-print(f"Valor restante: ${valor_restante}")
-print(f"   (20 × $1.20 = ${20*1.20})")
-
-# 11. Probar anulación
+# 11. Anulación
 print("\n11. ANULANDO VENTA...")
-resultado_anulacion = anular_venta_devolver_stock(
-    venta_id=999,
-    usuario=usuario
-)
+resultado_anulacion = anular_venta_devolver_stock(venta_id=999, usuario=usuario)
 
 if resultado_anulacion['success']:
     print(f"Venta anulada exitosamente")
-    print(f"   - Lotes actualizados: {resultado_anulacion['lotes_actualizados']}")
-    print(f"   - Cantidad devuelta: {resultado_anulacion['cantidad_devuelta']}")
-    
-    # Verificar que volvió el stock
     lote1.refresh_from_db()
     lote2.refresh_from_db()
-    print(f"\n   Estado después de anulación:")
     print(f"   Lote 1: {lote1.cantidad_actual}/{lote1.cantidad_inicial} (debe ser 50/50)")
     print(f"   Lote 2: {lote2.cantidad_actual}/{lote2.cantidad_inicial} (debe ser 30/30)")
-    
-    stock_final = obtener_stock_disponible(producto.id)
-    print(f"\n   Stock total: {stock_final} unidades (debe ser 80)")
 
 print("\n" + "="*60)
 print("PRUEBA COMPLETADA")
 print("="*60)
-print("\nSi todos los valores coinciden, el sistema FIFO está funcionando correctamente!")
-
-

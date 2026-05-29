@@ -376,25 +376,26 @@ class SyncEngine:
         from apps.clientes.models import Cliente
 
         def apply(item):
-            # Identificador natural: cedula_rnc cuando existe, sino nombre
+            # Identificador natural: cedula_rnc cuando existe, sino nombre+tipo
             cedula = item.get('cedula_rnc')
             if cedula:
                 lookup = {'cedula_rnc': cedula}
             else:
-                lookup = {'nombre': item['nombre'], 'tipo': item.get('tipo', 'CONTADO')}
+                lookup = {'nombre': item['nombre'], 'tipo': item.get('tipo', 'PERSONAL')}
 
-            defaults = {
-                'nombre': item.get('nombre', ''),
-                'tipo': item.get('tipo', 'CONTADO'),
-                'telefono': item.get('telefono', '') or '',
-                'email': item.get('email', '') or '',
-                'direccion': item.get('direccion', '') or '',
-                'activo': item.get('activo', True),
-            }
-            if cedula:
-                defaults['cedula_rnc'] = cedula
-
-            Cliente.objects.update_or_create(**lookup, defaults=defaults)
+            Cliente.objects.update_or_create(
+                **lookup,
+                defaults={
+                    'nombre': item.get('nombre', ''),
+                    'tipo': item.get('tipo', 'PERSONAL'),
+                    'telefono': item.get('telefono'),
+                    'direccion': item.get('direccion'),
+                    'limite_credito': item.get('limite_credito', '0.00') or '0.00',
+                    'condiciones_pago': item.get('condiciones_pago'),
+                    'notas': item.get('notas'),
+                    'activo': item.get('activo', True),
+                },
+            )
 
         return self._pull_generic('clientes', '/api/v1/maestros/clientes/', apply)
 
