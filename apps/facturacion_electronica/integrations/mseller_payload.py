@@ -67,10 +67,14 @@ def _build_id_doc(ecf_data: dict, encf: str) -> dict:
     emisor = ecf_data.get('emisor') or {}
     indicador_envio_diferido = emisor.get('indicador_envio_diferido')
     tipo_ingresos = emisor.get('tipo_ingresos') or '01'
-    tipo_pago = emisor.get('tipo_pago')
+    tipo_pago = metadata.get('tipo_pago')
+    if tipo_pago is None:
+        tipo_pago = emisor.get('tipo_pago')
     if tipo_pago is None:
         tipo_pago = 1
-    fecha_limite_pago = emisor.get('fecha_limite_pago')
+    fecha_limite_pago = metadata.get('fecha_limite_pago') or emisor.get('fecha_limite_pago')
+    if hasattr(fecha_limite_pago, 'strftime'):
+        fecha_limite_pago = _fmt_fecha(fecha_limite_pago)
 
     if tipo == '31':
         if indicador_envio_diferido is None:

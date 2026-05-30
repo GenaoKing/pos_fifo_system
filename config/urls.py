@@ -34,6 +34,7 @@ urlpatterns = [
     path('impresion/', include('utils.impresoras.urls')),
     path('productos/', include('apps.productos.urls')),
     path('clientes/', include('apps.clientes.urls')),
+    path('cuentas-por-cobrar/', include('apps.cuentas_por_cobrar.urls')),
     path('cotizaciones/', include('apps.cotizaciones.urls')),
     path('reportes/', include('apps.reportes.urls')),
     path('caja/', include('apps.caja.urls')),

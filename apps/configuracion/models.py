@@ -8,6 +8,7 @@ Backward compatible: si no hay sucursal configurada, carga la primera config exi
 """
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -294,3 +295,98 @@ class ConfiguracionNegocio(models.Model):
             'ecf': self.modulo_ecf,
             'dashboard': self.modulo_dashboard,
         }
+
+
+class AccesoRapidoPOS(models.Model):
+    """Boton configurable para acelerar la seleccion en el POS."""
+
+    TIPO_PRODUCTO = 'producto'
+    TIPO_CATEGORIA = 'categoria'
+    TIPO_CHOICES = (
+        (TIPO_PRODUCTO, 'Producto'),
+        (TIPO_CATEGORIA, 'Categoria'),
+    )
+
+    COLOR_CHOICES = (
+        ('azul', 'Azul'),
+        ('verde', 'Verde'),
+        ('ambar', 'Ambar'),
+        ('gris', 'Gris'),
+    )
+
+    etiqueta = models.CharField(
+        'Etiqueta',
+        max_length=80,
+        blank=True,
+        help_text='Texto visible en el boton. Si se deja vacio, se usa el nombre del producto o categoria.',
+    )
+    tipo = models.CharField(
+        'Tipo',
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default=TIPO_PRODUCTO,
+    )
+    producto = models.ForeignKey(
+        'productos.Producto',
+        on_delete=models.PROTECT,
+        related_name='accesos_rapidos_pos',
+        blank=True,
+        null=True,
+        help_text='Requerido cuando el tipo es Producto.',
+    )
+    categoria = models.ForeignKey(
+        'productos.Categoria',
+        on_delete=models.PROTECT,
+        related_name='accesos_rapidos_pos',
+        blank=True,
+        null=True,
+        help_text='Requerida cuando el tipo es Categoria.',
+    )
+    color = models.CharField(
+        'Color',
+        max_length=20,
+        choices=COLOR_CHOICES,
+        default='azul',
+    )
+    orden = models.PositiveIntegerField(
+        'Orden',
+        default=0,
+        help_text='Menor numero aparece primero.',
+    )
+    activo = models.BooleanField('Activo', default=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_modificacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Acceso rapido POS'
+        verbose_name_plural = 'Accesos rapidos POS'
+        ordering = ['orden', 'id']
+
+    def __str__(self):
+        return self.etiqueta_visible
+
+    @property
+    def etiqueta_visible(self):
+        if self.etiqueta:
+            return self.etiqueta
+        if self.tipo == self.TIPO_PRODUCTO and self.producto_id:
+            return self.producto.nombre
+        if self.tipo == self.TIPO_CATEGORIA and self.categoria_id:
+            return self.categoria.nombre
+        return 'Acceso rapido POS'
+
+    def clean(self):
+        errors = {}
+        if self.tipo == self.TIPO_PRODUCTO:
+            if not self.producto_id:
+                errors['producto'] = 'Seleccione un producto para este acceso rapido.'
+            if self.categoria_id:
+                errors['categoria'] = 'Un acceso de producto no debe tener categoria.'
+        elif self.tipo == self.TIPO_CATEGORIA:
+            if not self.categoria_id:
+                errors['categoria'] = 'Seleccione una categoria para este acceso rapido.'
+            if self.producto_id:
+                errors['producto'] = 'Un acceso de categoria no debe tener producto.'
+
+        if errors:
+            raise ValidationError(errors)

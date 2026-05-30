@@ -18,11 +18,13 @@ Cobertura:
 8. Edge cases (venta sin detalles, nombres largos, metadata)
 """
 import logging
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from django.core.cache import cache
 
+from apps.cuentas_por_cobrar.models import CuentaPorCobrar, MetodoPlazoCredito
 from apps.facturacion_electronica.services.venta_to_ecf import (
     _indicador_facturacion,
     _normalizar_rnc,
@@ -578,6 +580,38 @@ class TestEdgeCases:
         assert result['metadata']['venta_id'] == venta.id
         assert result['metadata']['numero_venta'] == 'V-TEST-METADATA-001'
         assert result['metadata']['fecha_emision'] == venta.fecha_venta.date()
+
+    def test_metadata_tipo_pago_contado_y_credito_desde_venta(self, config_negocio):
+        contado = crear_venta_con_detalles()
+        contado_data = venta_a_ecf_data(contado, tipo_ecf='32')
+
+        cliente = ClienteConRNCFactory()
+        credito = crear_venta_con_detalles(
+            cliente=cliente,
+            condicion_pago='CREDITO',
+            total=Decimal('118.00'),
+        )
+        metodo = MetodoPlazoCredito.objects.create(
+            nombre='Credito fiscal metadata',
+            tipo=MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO,
+            dias_vencimiento=30,
+        )
+        CuentaPorCobrar.objects.create(
+            cliente=cliente,
+            venta=credito,
+            metodo_plazo=metodo,
+            total=Decimal('118.00'),
+            monto_inicial=Decimal('0.00'),
+            saldo=Decimal('118.00'),
+            fecha_limite=date(2026, 7, 15),
+            creado_por=credito.usuario,
+        )
+        credito_data = venta_a_ecf_data(credito, tipo_ecf='31')
+
+        assert contado_data['metadata']['tipo_pago'] == 1
+        assert contado_data['metadata']['fecha_limite_pago'] is None
+        assert credito_data['metadata']['tipo_pago'] == 2
+        assert credito_data['metadata']['fecha_limite_pago'] == date(2026, 7, 15)
 
     def test_nc_tipo_34_propaga_metadata_de_referencia(self, config_negocio):
         """Para NC tipo 34, motivo y eNCF referenciado quedan en metadata."""

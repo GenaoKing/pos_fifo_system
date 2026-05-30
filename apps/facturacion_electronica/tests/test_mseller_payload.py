@@ -219,6 +219,24 @@ class TestPayloadTipo31:
         assert id_doc['TipoPago'] == 2
         assert id_doc['FechaLimitePago'] == '31-12-2028'
 
+    def test_tipo_31_prefiere_tipo_pago_de_metadata_sobre_emisor(self, config_negocio):
+        cliente = ClienteConRNCFactory()
+        venta = crear_venta_con_detalles(cliente=cliente)
+        ecf_data = _inyectar_emisor(
+            venta_a_ecf_data(venta, tipo_ecf='31'),
+            tipo_pago=1,
+            fecha_limite_pago=None,
+        )
+        ecf_data['metadata']['tipo_pago'] = 2
+        ecf_data['metadata']['fecha_limite_pago'] = '15-07-2026'
+
+        id_doc = build_mseller_payload(
+            ecf_data, encf='E310000000015'
+        )['ECF']['Encabezado']['IdDoc']
+
+        assert id_doc['TipoPago'] == 2
+        assert id_doc['FechaLimitePago'] == '15-07-2026'
+
 
 class TestPayloadTipo34:
     """Nota de credito: referencia al e-CF original."""

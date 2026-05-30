@@ -29,6 +29,7 @@ Assert de integridad:
     handler aqui, Django no arranca (error loud, no silent).
 """
 import logging
+from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
@@ -193,6 +194,10 @@ def _extraer_referencia(tipo_evento, payload):
         return f"Ajuste-{payload.get('ajuste_id_local', '?')}"
     if tipo_evento == 'COMPRA_REGISTRADA':
         return payload.get('numero_compra', '')
+    if tipo_evento in ('CXC_CREADA', 'CXC_ANULADA'):
+        return payload.get('numero_venta', '')
+    if tipo_evento == 'CXC_PAGO_REGISTRADO':
+        return f"{payload.get('numero_venta', '')}-P{payload.get('pago_id_local', '?')}"
     return ''
 
 
@@ -277,6 +282,7 @@ def _handler_venta_creada(sucursal, payload):
         descuento_total=Decimal(payload.get('descuento_total', '0')),
         total=Decimal(payload.get('total', '0')),
         estado=payload.get('estado', 'COMPLETADA'),
+        condicion_pago=payload.get('condicion_pago', 'CONTADO'),
         notas=payload.get('notas', '') or '',
     )
 
@@ -518,6 +524,112 @@ def _handler_compra(sucursal, payload):
     )
 
 
+# ---- CUENTAS POR COBRAR ----
+
+def _handler_cxc_creada(sucursal, payload):
+    """Replica una cuenta por cobrar recibida desde sucursal."""
+    from apps.clientes.models import Cliente
+    from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, MetodoPlazoCredito
+    from apps.ventas.models import Venta
+
+    numero_venta = payload.get('numero_venta')
+    if not numero_venta:
+        raise ValueError('Payload CxC sin numero_venta')
+
+    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    if not venta:
+        raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
+
+    if CuentaPorCobrar.objects.filter(venta=venta).exists():
+        logger.info('CxC para venta %s ya existe en cloud, skip', numero_venta)
+        return
+
+    cliente = None
+    if payload.get('cliente_cedula_rnc'):
+        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+    if cliente is None and venta.cliente_id:
+        cliente = venta.cliente
+    if cliente is None:
+        raise ValueError(f'Cliente de CxC {numero_venta} no existe en cloud')
+
+    metodo, _ = MetodoPlazoCredito.objects.get_or_create(
+        nombre=payload.get('metodo_plazo') or 'Credito importado',
+        defaults={'activo': True},
+    )
+
+    cuenta = CuentaPorCobrar.objects.create(
+        cliente=cliente,
+        venta=venta,
+        metodo_plazo=metodo,
+        total=Decimal(payload.get('total', '0')),
+        monto_inicial=Decimal(payload.get('monto_inicial', '0')),
+        saldo=Decimal(payload.get('saldo', '0')),
+        estado=payload.get('estado', 'ABIERTA'),
+        fecha_emision=date.fromisoformat(payload['fecha_emision']),
+        fecha_limite=date.fromisoformat(payload['fecha_limite']),
+        creado_por=venta.usuario,
+        sucursal=sucursal,
+    )
+
+    for cuota in payload.get('cuotas', []):
+        CuotaCxC.objects.create(
+            cuenta=cuenta,
+            numero=cuota.get('numero'),
+            monto=Decimal(cuota.get('monto', '0')),
+            saldo=Decimal(cuota.get('saldo', '0')),
+            fecha_vencimiento=date.fromisoformat(cuota['fecha_vencimiento']),
+            estado=cuota.get('estado', 'PENDIENTE'),
+        )
+
+
+def _handler_cxc_pago(sucursal, payload):
+    """Registra un pago CxC replicado desde sucursal."""
+    from apps.cuentas_por_cobrar.models import CuentaPorCobrar, PagoCxC
+    from apps.ventas.models import Venta
+
+    numero_venta = payload.get('numero_venta')
+    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    if not venta:
+        raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
+
+    cuenta = CuentaPorCobrar.objects.filter(venta=venta).first()
+    if not cuenta:
+        raise ValueError(f'CxC de venta {numero_venta} no existe en cloud todavia')
+
+    fecha_pago = parse_datetime(payload['fecha_pago']) if payload.get('fecha_pago') else timezone.now()
+    monto = Decimal(payload.get('monto', '0'))
+    if PagoCxC.objects.filter(cuenta=cuenta, fecha_pago=fecha_pago, monto=monto).exists():
+        logger.info('Pago CxC para venta %s ya existe en cloud, skip', numero_venta)
+        return
+
+    PagoCxC.objects.create(
+        cuenta=cuenta,
+        metodo=payload.get('metodo', 'EFECTIVO'),
+        monto=monto,
+        referencia=payload.get('referencia', '') or '',
+        fecha_pago=fecha_pago,
+        registrado_por=_resolver_usuario(payload.get('registrado_por_username')) or cuenta.creado_por,
+        estado=payload.get('estado', 'APLICADO'),
+        aplicaciones=payload.get('aplicaciones') or [],
+    )
+    cuenta.saldo = Decimal(payload.get('saldo_cuenta', cuenta.saldo))
+    cuenta.recalcular_estado(guardar=True)
+
+
+def _handler_cxc_anulada(sucursal, payload):
+    """Marca una CxC como anulada."""
+    from apps.cuentas_por_cobrar.models import CuentaPorCobrar
+    from apps.ventas.models import Venta
+
+    numero_venta = payload.get('numero_venta')
+    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    if not venta:
+        raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
+    cuenta = CuentaPorCobrar.objects.filter(venta=venta).first()
+    if cuenta:
+        cuenta.marcar_anulada()
+
+
 # ============================================================================
 # Registry + Assert de integridad
 # ============================================================================
@@ -530,6 +642,9 @@ HANDLERS = {
     'CIERRE_CAJA': _handler_cierre_caja,
     'AJUSTE_INVENTARIO': _handler_ajuste_inventario,
     'COMPRA_REGISTRADA': _handler_compra,
+    'CXC_CREADA': _handler_cxc_creada,
+    'CXC_PAGO_REGISTRADO': _handler_cxc_pago,
+    'CXC_ANULADA': _handler_cxc_anulada,
 }
 
 

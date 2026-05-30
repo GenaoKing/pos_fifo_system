@@ -15,6 +15,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from decimal import Decimal
@@ -284,6 +285,267 @@ def compra_detalle(request, compra_id):
     }
     
     return render(request, 'inventario/compra_detalle.html', context)
+
+
+# ============================================
+# EDITAR UNA COMPRA (corrección de errores de captura)
+# ============================================
+#
+# ⚠️ Integridad FIFO: una línea de compra (DetalleCompra) genera UN Lote.
+# Solo se permite editar producto/cantidad/costo de una línea mientras su
+# lote esté INTACTO (nunca vendido ni ajustado). Si el lote ya tuvo
+# movimiento, la línea queda bloqueada y la corrección debe hacerse vía
+# Ajustes de Inventario. La cabecera (proveedor/factura/notas) siempre es
+# editable porque no toca el FIFO.
+
+def _estado_linea_compra(lote):
+    """
+    Determina si una línea de compra puede editarse según el estado de su lote.
+
+    Un lote está "intacto" si: no se ha consumido (cantidad_actual ==
+    cantidad_inicial), no tiene movimientos distintos del COMPRA inicial y no
+    tiene ajustes de inventario.
+    """
+    if lote is None:
+        return {'editable': False, 'vendido': 0,
+                'motivo': 'La línea no tiene lote asociado.'}
+
+    vendido = lote.cantidad_inicial - lote.cantidad_actual
+    tiene_otros_mov = lote.movimientos.exclude(tipo='COMPRA').exists()
+    tiene_ajustes = lote.ajustes.exists()
+
+    if vendido > 0 or tiene_otros_mov or tiene_ajustes:
+        if vendido > 0:
+            motivo = (f'El lote ya tiene movimiento ({vendido} unidad(es) '
+                      f'consumidas). Corregí el stock vía Ajustes de Inventario.')
+        else:
+            motivo = ('El lote ya registra ajustes/movimientos. Corregí el '
+                      'stock vía Ajustes de Inventario.')
+        return {'editable': False, 'vendido': vendido, 'motivo': motivo}
+
+    return {'editable': True, 'vendido': 0, 'motivo': ''}
+
+
+def _snapshot_compra(compra):
+    """Captura el estado de una compra para auditoría (antes/después)."""
+    return {
+        'proveedor': compra.proveedor,
+        'numero_factura': compra.numero_factura,
+        'notas': compra.notas,
+        'total': str(compra.total),
+        'lineas': [
+            {
+                'producto': d.producto.nombre,
+                'producto_id': d.producto_id,
+                'cantidad': d.cantidad,
+                'costo_unitario': str(d.costo_unitario),
+            }
+            for d in compra.detalles.select_related('producto').all()
+        ],
+    }
+
+
+def _validar_linea(cantidad, costo_unitario):
+    if cantidad <= 0:
+        raise ValueError('La cantidad debe ser mayor a 0.')
+    if costo_unitario <= 0:
+        raise ValueError('El costo unitario debe ser mayor a 0.')
+
+
+@login_required
+def compra_editar(request, compra_id):
+    """
+    Editar una compra existente para corregir errores de captura.
+
+    GET  → formulario precargado (líneas con lote consumido salen bloqueadas).
+    POST → aplica los cambios dentro de una transacción, propagando al Lote y
+           al MovimientoLote(COMPRA) de cada línea intacta editada.
+    """
+    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+        messages.error(request, 'No tienes permisos para editar compras.')
+        return redirect('inventario:compras_lista')
+
+    compra = get_object_or_404(Compra, id=compra_id)
+
+    if request.method == 'GET':
+        productos = Producto.objects.filter(activo=True).order_by('nombre')
+        detalles = compra.detalles.select_related('producto', 'lote').all()
+
+        lineas = []
+        for d in detalles:
+            lote = getattr(d, 'lote', None)
+            estado = _estado_linea_compra(lote)
+            lineas.append({
+                'detalle_id': d.id,
+                'producto_id': d.producto_id,
+                'producto_nombre': d.producto.nombre,
+                'cantidad': d.cantidad,
+                'costo_unitario': float(d.costo_unitario),
+                'numero_lote': lote.numero_lote if lote else None,
+                'editable': estado['editable'],
+                'vendido': estado['vendido'],
+                'motivo_bloqueo': estado['motivo'],
+            })
+
+        context = {
+            'compra': compra,
+            'productos': productos,
+            'init_data_json': {
+                'compra': {
+                    'proveedor': compra.proveedor,
+                    'numero_factura': compra.numero_factura or '',
+                    'notas': compra.notas or '',
+                },
+                'lineas': lineas,
+            },
+        }
+        return render(request, 'inventario/compra_editar.html', context)
+
+    # ---- POST: aplicar cambios ----
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Datos inválidos.'}, status=400)
+
+    proveedor = (data.get('proveedor') or '').strip()
+    numero_factura = (data.get('numero_factura') or '').strip()
+    notas = (data.get('notas') or '').strip()
+    lineas_data = data.get('lineas', [])
+
+    if not proveedor:
+        return JsonResponse({'success': False, 'error': 'El proveedor es requerido'}, status=400)
+    if not lineas_data:
+        return JsonResponse({'success': False, 'error': 'La compra debe tener al menos un producto'}, status=400)
+
+    try:
+        with transaction.atomic():
+            datos_anteriores = _snapshot_compra(compra)
+
+            # Cabecera (siempre editable, no toca FIFO)
+            compra.proveedor = proveedor
+            compra.numero_factura = numero_factura or None
+            compra.notas = notas or None
+
+            detalles_existentes = {
+                d.id: d for d in compra.detalles.select_related('lote', 'producto').all()
+            }
+            lineas_finales = 0
+
+            for ln in lineas_data:
+                detalle_id = ln.get('detalle_id')
+                eliminar = bool(ln.get('eliminar'))
+                producto_id = ln.get('producto_id')
+                producto_id = int(producto_id) if producto_id not in (None, '') else None
+                cantidad = int(ln.get('cantidad') or 0)
+                costo_unitario = Decimal(str(ln.get('costo_unitario') or 0)).quantize(Decimal('0.01'))
+
+                if detalle_id:
+                    detalle = detalles_existentes.get(int(detalle_id))
+                    if detalle is None:
+                        raise ValueError(f'La línea {detalle_id} no pertenece a esta compra.')
+
+                    lote = getattr(detalle, 'lote', None)
+                    estado = _estado_linea_compra(lote)
+
+                    cambio = (
+                        eliminar
+                        or producto_id != detalle.producto_id
+                        or cantidad != detalle.cantidad
+                        or costo_unitario != detalle.costo_unitario
+                    )
+
+                    # Guarda de integridad: no permitir tocar líneas con lote consumido
+                    if not estado['editable'] and cambio:
+                        raise ValueError(
+                            f'La línea "{detalle.producto.nombre}" no se puede modificar: '
+                            f'{estado["motivo"]}'
+                        )
+
+                    if eliminar:
+                        if lote is not None:
+                            lote.delete()  # CASCADE borra sus MovimientoLote
+                        detalle.delete()
+                        continue
+
+                    if not cambio:
+                        lineas_finales += 1
+                        continue
+
+                    # Línea intacta con cambios → propagar a detalle + lote + movimiento
+                    _validar_linea(cantidad, costo_unitario)
+                    producto = Producto.objects.get(id=producto_id)
+
+                    detalle.producto = producto
+                    detalle.cantidad = cantidad
+                    detalle.costo_unitario = costo_unitario
+                    detalle._lote_creado = True  # evita que save() genere un lote nuevo
+                    detalle.save()
+
+                    if lote is not None:
+                        lote.producto = producto
+                        lote.cantidad_inicial = cantidad
+                        lote.cantidad_actual = cantidad
+                        lote.costo_unitario = costo_unitario
+                        lote.save()
+
+                        mov = lote.movimientos.filter(tipo='COMPRA').first()
+                        if mov:
+                            mov.cantidad = cantidad
+                            mov.cantidad_nueva = cantidad
+                            mov.notas = f'Compra corregida - {compra.numero_compra}'
+                            mov.save()
+
+                    lineas_finales += 1
+                else:
+                    # Nueva línea → DetalleCompra.save() auto-genera el lote
+                    if eliminar:
+                        continue
+                    _validar_linea(cantidad, costo_unitario)
+                    producto = Producto.objects.get(id=producto_id)
+                    DetalleCompra.objects.create(
+                        compra=compra,
+                        producto=producto,
+                        cantidad=cantidad,
+                        costo_unitario=costo_unitario,
+                        subtotal=cantidad * costo_unitario,
+                    )
+                    asignar_codigo_si_vacio(producto)
+                    lineas_finales += 1
+
+            if lineas_finales == 0:
+                raise ValueError('La compra debe conservar al menos un producto.')
+
+            # Recalcular total desde los detalles actuales
+            compra.total = compra.detalles.aggregate(t=Sum('subtotal'))['t'] or Decimal('0')
+            compra.save()
+
+            Auditoria.registrar(
+                accion=Auditoria.TipoAccion.EDITAR,
+                descripcion=f'Compra {compra.numero_compra} editada (corrección)',
+                usuario=request.user,
+                content_object=compra,
+                datos_anteriores=datos_anteriores,
+                datos_nuevos=_snapshot_compra(compra),
+                ip_address=get_client_ip(request),
+                nivel_importancia='ALTA',
+                sucursal=getattr(request, 'sucursal', None),
+            )
+
+            transaction.on_commit(lambda c=compra: sync_events.evento_compra_registrada(c))
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Compra actualizada correctamente.',
+            'compra_id': compra.id,
+            'total': float(compra.total),
+        })
+
+    except Producto.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Uno de los productos seleccionados no existe'}, status=400)
+    except ValueError as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': f'Error al actualizar la compra: {str(e)}'}, status=500)
 
 
 @login_required

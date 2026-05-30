@@ -14,6 +14,12 @@ import json
 from .models import Cliente
 
 
+def _resumen_credito(cliente):
+    from apps.cuentas_por_cobrar.services import resumen_credito_cliente
+
+    return resumen_credito_cliente(cliente)
+
+
 @login_required
 def lista_clientes(request):
     """Lista de clientes con filtros"""
@@ -26,6 +32,7 @@ def lista_clientes(request):
 
     clientes_data = []
     for cliente in clientes:
+        credito = _resumen_credito(cliente)
         clientes_data.append({
             'id': cliente.id,
             'tipo': cliente.tipo,
@@ -39,6 +46,9 @@ def lista_clientes(request):
             'activo': cliente.activo,
             'total_compras': cliente.total_compras,
             'monto_total_compras': str(cliente.monto_total_compras),
+            'saldo_pendiente': str(credito['saldo_pendiente']),
+            'credito_disponible': str(credito['credito_disponible']),
+            'monto_vencido': str(credito['monto_vencido']),
         })
 
     context = {
@@ -204,6 +214,8 @@ def buscar_clientes(request):
                 'telefono': c.telefono or '',
                 'direccion': c.direccion or '',
                 'limite_credito': str(c.limite_credito),
+                'saldo_pendiente': str(_resumen_credito(c)['saldo_pendiente']),
+                'credito_disponible': str(_resumen_credito(c)['credito_disponible']),
             }
             for c in clientes
         ]

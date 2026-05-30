@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.auditoria',
     'apps.reportes',
     'apps.clientes',
+    'apps.cuentas_por_cobrar',
     'apps.cotizaciones',
     'apps.configuracion',
     'apps.caja',

@@ -116,7 +116,7 @@
             <div class="lg:col-span-2 space-y-6">
 
                 {# KPIs del turno #}
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
                     <div class="card">
                         <div class="card-body text-center py-4">
                             <p class="text-xs text-gray-500 uppercase tracking-wider">Fondo Inicial</p>
@@ -127,6 +127,12 @@
                         <div class="card-body text-center py-4">
                             <p class="text-xs text-green-600 uppercase tracking-wider">Ventas Efectivo</p>
                             <p class="text-lg font-bold text-green-700 mt-1">$<span x-text="fmt(desglose.efectivo_ventas)"></span></p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body text-center py-4">
+                            <p class="text-xs text-emerald-600 uppercase tracking-wider">Cobros CxC</p>
+                            <p class="text-lg font-bold text-emerald-700 mt-1">$<span x-text="fmt(desglose.efectivo_cxc || 0)"></span></p>
                         </div>
                     </div>
                     <div class="card">
@@ -308,6 +314,10 @@
                             <span class="text-green-600">+$<span x-text="fmt(resultadoCierre.efectivo_ventas)"></span></span>
                         </div>
                         <div class="flex justify-between">
+                            <span class="text-gray-500">Cobros CxC</span>
+                            <span class="text-emerald-600">+$<span x-text="fmt(resultadoCierre.efectivo_cxc || 0)"></span></span>
+                        </div>
+                        <div class="flex justify-between">
                             <span class="text-gray-500">Ingresos</span>
                             <span class="text-blue-600">+$<span x-text="fmt(resultadoCierre.ingresos)"></span></span>
                         </div>
@@ -460,6 +470,10 @@
                     <div class="flex justify-between">
                         <span class="text-gray-500">+ Ventas efectivo</span>
                         <span class="text-green-600 font-medium">$<span x-text="fmt(desglose.efectivo_ventas)"></span></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">+ Cobros CxC efectivo</span>
+                        <span class="text-emerald-600 font-medium">$<span x-text="fmt(desglose.efectivo_cxc || 0)"></span></span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-500">+ Ingresos</span>

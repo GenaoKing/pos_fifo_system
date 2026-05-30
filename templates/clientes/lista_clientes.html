@@ -113,6 +113,7 @@
                             <th class="table-header-cell">Cedula/RNC</th>
                             <th class="table-header-cell">Telefono</th>
                             <th class="table-header-cell">Compras</th>
+                            <th class="table-header-cell">Credito</th>
                             <th class="table-header-cell">Estado</th>
                             <th class="table-header-cell text-right">Acciones</th>
                         </tr>
@@ -138,6 +139,10 @@
                                     <p class="text-xs text-gray-500" x-text="'$' + parseFloat(cliente.monto_total_compras).toFixed(2)"></p>
                                 </td>
                                 <td class="px-6 py-4">
+                                    <p class="text-sm font-medium text-gray-900" x-text="'Pend: $' + parseFloat(cliente.saldo_pendiente || 0).toFixed(2)"></p>
+                                    <p class="text-xs" :class="parseFloat(cliente.monto_vencido || 0) > 0 ? 'text-danger-600' : 'text-gray-500'" x-text="'Disp: $' + parseFloat(cliente.credito_disponible || 0).toFixed(2)"></p>
+                                </td>
+                                <td class="px-6 py-4">
                                     <span
                                         :class="cliente.activo ? 'badge-success' : 'badge-danger'"
                                         x-text="cliente.activo ? 'Activo' : 'Inactivo'"
@@ -145,6 +150,11 @@
                                 </td>
                                 <td class="px-6 py-4 text-right">
                                     <div class="flex items-center justify-end space-x-2">
+                                        <a :href="'/cuentas-por-cobrar/cliente/' + cliente.id + '/'" class="btn-ghost btn-sm" title="Estado de cuenta">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 012-2z"></path>
+                                            </svg>
+                                        </a>
                                         <button @click="editarCliente(cliente)" class="btn-ghost btn-sm" title="Editar">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
