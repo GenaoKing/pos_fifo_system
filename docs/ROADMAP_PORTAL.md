@@ -1,7 +1,7 @@
 # Roadmap Portal Cloud (Fase 5)
 
-Documento vivo. Estado al **25 mayo 2026**.
-Branch backend: `features/cloud-dashboard`
+Documento vivo. Estado al **30 mayo 2026**.
+Branch backend: `features/cloud-dashboard` (CxC se está integrando desde `features/refactor-pos`).
 Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ---
@@ -11,23 +11,26 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 | Capa | Sub-fase | Estado |
 |------|----------|--------|
 | Backend | 5.A | Done (B1-B5) |
-| Frontend | 5.A | Base operativa: login/layout/dashboard |
+| Frontend | 5.A | Done: F1-F4 (login/layout/dashboard real con polling 30s) |
 | Backend + Frontend | 5.C | Done: CRUD productos + smoke E2E manual OK |
-| Próximo foco | 5.D | CRUD categorías + clientes |
-| Resto | 5.B, 5.E-5.G | Pendiente |
+| Frontend | 5.D | Done en código (F7); falta B11 backend + smoke contra API real |
+| Frontend | 5.G | Parcial: hardening frontend sin dependencia de backend hecho (ver checklist) |
+| Frontend | 5.H | Done (scaffolding read-only `/cuentas`); espera endpoint de lectura backend |
+| Resto | 5.B, 5.E, 5.F | Pendiente (5.B diferido) |
 
 ---
 
 ## Mapa de sub-fases
 
 ```
-5.A  Dashboard MVP (KPIs + estado sucursales)
+5.A  Dashboard MVP (KPIs + estado sucursales)          <- DONE
 5.B  Comparativo entre sucursales con gráficos          <- DIFERIDO: clientes actuales single-sucursal
 5.C  CRUD de productos                                  <- DONE
-5.D  CRUD de categorías y clientes                      <- ACTUAL
+5.D  CRUD de categorías y clientes                      <- DONE (frontend); B11 backend pendiente
 5.E  Reportes consolidados on-demand
 5.F  Deploy a producción (backend + frontend)
-5.G  Hardening + polish (cross-cutting)
+5.G  Hardening + polish (cross-cutting)                 <- PARCIAL (frontend)
+5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE (backend B15 + frontend); pendiente conectar BASE_PATH
 ```
 
 ---
@@ -44,10 +47,12 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### Frontend
 
-- [ ] **F1** — Bootstrap Vite + React 18 + TS + Tailwind v3
-- [ ] **F2** — Auth foundation: `api.ts` (axios + interceptor refresh), `AuthContext`, `Login`, `ProtectedRoute`
-- [ ] **F3** — Layout shell: sidebar colapsable + header con user/logout, ruta `/dashboard` placeholder
-- [ ] **F4** — Dashboard real:
+- [x] **F1** — Bootstrap Vite + React + TS + Tailwind v3
+  - Nota: el bootstrap real quedó en **React 19** (no 18), Vite 8 y TypeScript 6. Sin impacto funcional.
+- [x] **F2** — Auth foundation: `api.ts` (axios + interceptor refresh), `AuthContext`, `Login`, `ProtectedRoute`
+  - Interceptor con promise singleton anti-refresh-concurrente y distinción 401 (refresh) vs 403 (permisos).
+- [x] **F3** — Layout shell: sidebar colapsable + header con user/logout
+- [x] **F4** — Dashboard real:
   - Card de KPIs por sucursal (ventas hoy, anulaciones, desglose de pagos)
   - Sección estado de sucursales con semáforo
   - Refetch automático cada 30s (TanStack Query `refetchInterval`)
@@ -263,21 +268,21 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 
 ### UX
 
-- [ ] Loading skeletons en cada página (no spinners genéricos)
-- [ ] Empty states ("Sin datos para mostrar" con CTA cuando aplique)
-- [ ] Error boundaries en React con fallback útil
-- [ ] Toast global para errores de red (TanStack Query `onError`)
-- [ ] Confirmación pre-acción destructiva
-- [ ] Atajos de teclado básicos (Esc cierra modales, `/` enfoca búsqueda)
-- [ ] **Responsive — tablet/móvil** (importante: los dueños usan móvil mucho)
+- [x] Loading skeletons en cada página (no spinners genéricos) — dashboard, productos, categorías, clientes, cuentas
+- [x] Empty states ("Sin datos para mostrar" con CTA cuando aplique)
+- [x] Error boundaries en React con fallback útil — `src/components/ErrorBoundary.tsx`, envuelve el `<Outlet/>` en `AppLayout` con `key={pathname}` (resetea al navegar). Punto de enganche para Sentry en `componentDidCatch`.
+- [x] Toast global para errores de red (TanStack Query `onError`) — `src/lib/toast.ts` (bus pub/sub) + `src/components/Toaster.tsx`, cableado en `QueryCache.onError` (`main.tsx`). Solo notifica fallos de **refetch en segundo plano** (`query.state.data !== undefined`) y excluye 401; el primer load y las mutaciones siguen mostrando error inline (no se duplican mensajes).
+- [x] Confirmación pre-acción destructiva — `window.confirm` en toggle/eliminar de productos/categorías/clientes
+- [~] Atajos de teclado básicos — **Esc cierra modales** hecho (`src/hooks/useEscapeKey.ts` en los 4 modales). Pendiente: `/` enfoca búsqueda.
+- [x] **Responsive — tablet/móvil** — tabla desktop + filas compactas móvil en todas las páginas
 
 ### Auth + Seguridad
 
-- [ ] App `token_blacklist` instalada (instala app + correr migración + cambiar `BLACKLIST_AFTER_ROTATION=True`)
-- [ ] Endpoint `POST /api/v1/auth/logout/` que blacklista el refresh
-- [ ] Sesión expirada: redirect a `/login?expired=1` con mensaje
-- [ ] Cambio de password desde `/perfil`
-- [ ] Rate limiting en `/login/` (`django-ratelimit`)
+- [ ] App `token_blacklist` instalada (instala app + correr migración + cambiar `BLACKLIST_AFTER_ROTATION=True`) — backend
+- [ ] Endpoint `POST /api/v1/auth/logout/` que blacklista el refresh — backend; el frontend hoy hace logout local (limpia tokens en memoria)
+- [x] Sesión expirada: redirect a `/login?expired=1` con mensaje — `AuthContext` distingue logout manual vs por expiración; `ProtectedRoute` redirige con `?expired=1`; `Login` muestra el aviso leyendo el query param
+- [ ] Cambio de password desde `/perfil` — requiere endpoint backend
+- [ ] Rate limiting en `/login/` (`django-ratelimit`) — backend
 
 ### Observability
 
@@ -297,6 +302,60 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 - [ ] `README.md` en `pos-cloud-dashboard` con setup
 - [ ] `HANDOFF_FASE5.md` (este doc evoluciona y se vuelve handoff al cerrar)
 - [ ] Vitest + React Testing Library para los componentes críticos: `AuthContext`, `ProtectedRoute`, `Login`, `api.ts` interceptor
+
+---
+
+## Sub-fase 5.H — Cartera / Cuentas por cobrar (portal read-only)
+
+> A diferencia de los maestros (el portal **escribe** y la sucursal hace pull), CxC fluye **sucursal → cloud por eventos** (`CXC_CREADA`, `CXC_PAGO_REGISTRADO`, `CXC_ANULADA`). El alta de crédito, abonos y anulaciones nacen en el POS. **En el portal CxC es SOLO LECTURA / presentación.** Ver `ROADMAP_CLOUD.md` → "Decision record: Credito y cuentas por cobrar v1".
+
+### Backend (lo que ya existe)
+
+- [x] Modelos `MetodoPlazoCredito`, `CuentaPorCobrar`, `CuotaCxC`, `PagoCxC` (`apps/cuentas_por_cobrar/models.py`)
+- [x] Servicios de crédito/abono/anulación + `resumen_credito_cliente()` (`apps/cuentas_por_cobrar/services.py`)
+- [x] Sync sucursal→cloud: helpers de evento (`apps/sync/events.py`), tipos en `apps/sync/constants.py`, serializers y **handlers cloud que replican la cartera completa** (`apps/api/views/sync.py::_handler_cxc_*`)
+
+### Backend (cerrado)
+
+- [x] **B15** — Endpoint(s) de **lectura** para el portal (read-only DRF). Implementado siguiendo el patrón canónico de `ProductoViewSet` pero como `ReadOnlyModelViewSet` (solo `list`/`retrieve` + acción `resumen/`). Ruta servida en `/api/v1/cuentas-por-cobrar/` (coincide con `src/lib/cxc.ts → BASE_PATH`, no hace falta tocar la constante).
+  - Archivos: `apps/api/views/cuentas_por_cobrar.py`, `apps/api/serializers/cuentas_por_cobrar.py`, ruta en `apps/api/urls.py`, propiedad `CuentaPorCobrar.esta_vencida` en `apps/cuentas_por_cobrar/models.py`. Tests: `apps/api/tests/test_cuentas_por_cobrar_viewset.py` (13 tests).
+  - `GET /api/v1/cuentas-por-cobrar/?search=&estado=&vencidas=&page=&page_size=` → `PaginatedResponse<CuentaCxC>` (`StandardPagination`: page_size 50, max 200).
+    - `CuentaCxC`: `id, numero_venta, cliente_id, cliente_nombre, cliente_cedula_rnc, sucursal_codigo, metodo_plazo_nombre, total, monto_inicial, saldo, estado(ABIERTA|PARCIAL|PAGADA|VENCIDA|ANULADA), fecha_emision, fecha_limite, esta_vencida`
+  - `GET /api/v1/cuentas-por-cobrar/<id>/` → `CuentaCxCDetalle` (la cuenta + `cuotas[]` + `pagos[]`)
+    - `CuotaCxC`: `id, numero, monto, saldo, fecha_vencimiento, estado(PENDIENTE|PARCIAL|PAGADA|VENCIDA|ANULADA), fecha_pago`
+    - `PagoCxC`: `id, metodo, monto, referencia, fecha_pago, estado, registrado_por` (`registrado_por` = username)
+  - `GET /api/v1/cuentas-por-cobrar/resumen/` → `CarteraResumen`: `cartera_total, saldo_vencido, cuentas_abiertas, cuentas_vencidas, clientes_con_saldo` (agregados de TODA la cartera en **una sola** query de agregación condicional; `cartera`/`vencido` solo cuentan estados con saldo vivo: ABIERTA/PARCIAL/VENCIDA).
+  - Permisos: `IsAuthenticated + EsSoloLectura` (mismo patrón que maestros: leen sucursal + admin). Sin endpoints de escritura desde el portal en v1.
+  - `search` cubre `venta.numero_venta`, `cliente.nombre` y `cliente.cedula_rnc`.
+  - **`esta_vencida` se calcula por fecha, no por `estado`.** El campo `estado` solo se recalcula por eventos (abono/anulación), así que una cuenta ABIERTA/PARCIAL puede estar vencida de hecho. La propiedad y el filtro `?vencidas=true` usan `esta_abierta AND fecha_limite < hoy`. Por eso `?estado=VENCIDA` (valor almacenado) y `?vencidas=true` (cálculo por fecha) son controles distintos a propósito.
+  - Eficiencia: `select_related(cliente, venta, metodo_plazo, sucursal)` siempre; `prefetch_related(cuotas, pagos_cxc__registrado_por)` solo en `retrieve`.
+
+### Decisiones futuras (post-v1, NO bloquean el cierre de 5.H)
+
+> Estas quedaron explícitamente fuera del alcance de B15. Anotarlas aquí para no re-descubrirlas en la auditoría.
+
+1. **Scoping por sucursal en lecturas.** Hoy un token de sucursal puede leer la cartera de **todas** las sucursales (igual que maestros). Inocuo mientras el producto sea single-sucursal, pero al entrar multi-sucursal hay que decidir si el endpoint filtra por la sucursal del token o se restringe a admin/sysadmin. Punto de cambio: `CuentaPorCobrarViewSet.get_permissions()` / `get_queryset()`.
+2. **Aging por buckets (0-30 / 31-60 / 61-90 / 90+).** El frontend lo difirió; el `resumen/` actual solo da total y vencido global. Cuando se pida, agregar al payload de `resumen/` (otra agregación condicional por rangos de `fecha_limite`).
+3. **Alertas de vencimiento / próximos a vencer.** No expuestas en v1. `services.resumen_credito_cliente()` ya calcula `proximo_vencimiento` por cliente; evaluar si el portal lo consume vía un endpoint nuevo o se agrega al detalle.
+4. **Escritura de abonos desde el portal.** Explícitamente NO en v1 (los abonos nacen en el POS y fluyen por eventos). Si alguna vez se quiere cobrar desde el portal, hay que diseñar el flujo inverso cloud→sucursal, que hoy no existe.
+5. **Filtro `?desde=` (sync incremental) para CxC.** B15 no incluye el `SyncIncrementalMixin` porque el portal no hace pull incremental de cartera (la consume on-demand). Si en el futuro otra instalación quisiera sincronizar cartera por cursor, habría que sumarlo.
+
+### Frontend
+
+- [x] **F9** — Página `/cuentas` (read-only)
+  - Tarjetas de resumen de cartera (cartera total, saldo vencido, cuentas abiertas/vencidas) desde `resumen/`; si el resumen falla, se ocultan sin romper la tabla (el toast global avisa).
+  - Tabla paginada con búsqueda (venta/cliente/RNC), filtro por estado y toggle "solo vencidas".
+  - Modal de detalle con encabezado + tabla de **cuotas** y tabla de **abonos**; cierra con Esc.
+  - Sin modales de create/edit ni toggles: CxC no se edita desde el portal (origen en sucursal).
+  - Fechas date-only formateadas en local para evitar shift por timezone (`formatDate` en `src/lib/format.ts`).
+  - Archivos: `src/pages/Cuentas.tsx`, `src/lib/cxc.ts`, `src/hooks/useCxc.ts`; ruta en `src/App.tsx`; nav en `src/components/layout/Sidebar.tsx`.
+  - Verificación frontend: `npm run lint` y `npm run build` OK.
+  - **Conexión:** B15 ya expone el endpoint en `/api/v1/cuentas-por-cobrar/`, que coincide con `BASE_PATH` actual en `src/lib/cxc.ts` — no requiere cambios de ruta. Pendiente: smoke E2E del portal contra el backend desplegado (validar que las cifras cuadran con el POS de la sucursal).
+
+### DoD 5.H
+
+- Owner consulta la cartera consolidada (saldos, vencidos, cuotas y abonos por cuenta) desde el portal
+- Las cifras cuadran contra la cartera del POS de la sucursal de origen
 
 ---
 

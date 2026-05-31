@@ -88,6 +88,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# Test runner: aisla el cache entre tests (ver config/test_runner.py).
+# Solo se usa al correr `manage.py test`; no afecta runtime de produccion.
+TEST_RUNNER = 'config.test_runner.CacheIsolatedTestRunner'
+
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases

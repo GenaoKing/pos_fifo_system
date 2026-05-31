@@ -153,6 +153,17 @@ class CuentaPorCobrar(models.Model):
     def esta_abierta(self):
         return self.estado in (self.ESTADO_ABIERTA, self.ESTADO_PARCIAL, self.ESTADO_VENCIDA)
 
+    @property
+    def esta_vencida(self):
+        """Cuenta con saldo pendiente cuya fecha limite ya paso.
+
+        El campo `estado` solo se recalcula por eventos (abono/anulacion),
+        asi que una cuenta ABIERTA/PARCIAL puede estar vencida de hecho sin
+        que `estado == VENCIDA`. Esta propiedad calcula el vencimiento real
+        contra la fecha de hoy.
+        """
+        return self.esta_abierta and self.fecha_limite < timezone.localdate()
+
     def recalcular_estado(self, guardar=True):
         if self.estado == self.ESTADO_ANULADA:
             return self.estado

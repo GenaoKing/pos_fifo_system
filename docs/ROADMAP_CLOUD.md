@@ -14,6 +14,7 @@
 - Modelos completos: Producto, Categoría, Lote, MovimientoLote, Venta, DetalleVenta, Pago, Compra, DetalleCompra, AjusteInventario
 - Lógica FIFO completa en `fifo_logic.py`: consumo automático por fecha, valuación, stock disponible
 - POS operativo: carrito dinámico, escaneo código de barras, descuentos por línea, pagos múltiples (efectivo/transferencia/mixto/tarjeta)
+- Ventas a credito y cuentas por cobrar v1: venta a credito desde POS, cuenta CxC, cuotas, abonos, limite de credito bloqueante, override ADMIN/SYSADMIN, caja/reportes/e-CF/sync integrados; lectura de cartera expuesta al portal cloud read-only (B15: `/api/v1/cuentas-por-cobrar/` lista + detalle + resumen)
 - Sistema de impresión: térmica 80mm (2Connect) + etiquetas Zebra LP 2824 (EPL2) + PrintManager singleton
 - Cotizaciones: crear, listar, convertir a venta, PDF
 - Clientes: CRUD + cliente contado + búsqueda en POS
@@ -42,6 +43,144 @@
 - **Dashboard auditoría frontend**: vistas stubbed en `auditoria/views.py`, templates pendientes
 - **Migración ConfiguracionNegocio Fase 3**: mover `settings.BUSINESS_INFO` y `settings.THERMAL_PRINTER` hardcodeados a `get_config()` — se hace incrementalmente
 - **Métodos de pago dinámicos en POS**: que el POS lea `get_metodos_pago()` en vez de tener los métodos hardcodeados en el template
+
+---
+
+## Decision record: Credito y cuentas por cobrar v1
+
+**Estado:** implementado localmente como base de producto. Pendiente validar UX completa en operacion real y llevar reporting/portal cloud a profundidad.
+
+### Alcance implementado
+
+- Nueva app `apps/cuentas_por_cobrar` para separar el dominio CxC del dominio de ventas.
+- Modelos:
+  - `MetodoPlazoCredito`: define vencimiento unico o cuotas, dias, frecuencia, inicial minima, activo y sucursal opcional.
+  - `CuentaPorCobrar`: una cuenta por venta a credito, con cliente, total, saldo, estado, metodo, fecha limite y override admin auditado.
+  - `CuotaCxC`: calendario de vencimientos por cuenta, con monto, saldo, fecha y estado.
+  - `PagoCxC`: abonos posteriores, metodo, referencia, cajero, aplicaciones a cuotas y estado.
+- `Venta` ahora tiene `condicion_pago = CONTADO|CREDITO`.
+- `Pago` ahora acepta `CREDITO` para representar el saldo financiado al cerrar la venta.
+- `procesar_venta_service` acepta payload `credito`, mantiene FIFO/e-CF/sync como hoy y crea la venta, pagos, cuenta y cuotas dentro del mismo `transaction.atomic`.
+- El limite de credito es bloqueante: `limite_credito - saldo_pendiente_no_anulado`.
+- El override de limite reutiliza el patron de soft-login admin de caja (`/caja/api/validar-admin/`) y queda registrado en auditoria.
+- POS:
+  - Selector de credito como metodo de pago.
+  - Selector de metodo de plazo.
+  - Inicial opcional.
+  - Resumen de limite, saldo pendiente, disponible y vencido del cliente.
+  - Autorizacion admin cuando el saldo nuevo excede limite.
+- Clientes:
+  - Lista muestra saldo pendiente, vencido y credito disponible.
+  - Acceso al estado de cuenta por cliente.
+- Cuentas por cobrar:
+  - Vista global.
+  - Vista por cliente.
+  - Registro de abonos.
+  - Filtros por estado y busqueda.
+- Caja/reportes:
+  - Cobros CxC en efectivo suman al efectivo esperado de caja.
+  - Dashboard separa credito facturado y cobros CxC para no inflar ventas del dia.
+  - Cierre de caja guarda `total_cobros_cxc`.
+- e-CF/MSeller:
+  - `venta_a_ecf_data` expone `metadata.tipo_pago` desde la venta.
+  - `build_mseller_payload` prefiere el dato por venta sobre `Emisor.config_proveedor`.
+  - Credito envia `TipoPago=2`.
+  - `FechaLimitePago` sale de la CxC y solo aplica en v1 al flujo tipo 31.
+- Sync/API:
+  - Serializacion de venta incluye `condicion_pago` y resumen de CxC.
+  - Eventos nuevos: `CXC_CREADA`, `CXC_PAGO_REGISTRADO`, `CXC_ANULADA`.
+  - Handlers cloud **implementados** (`apps/api/views/sync.py::_handler_cxc_*`): replican cuenta, cuotas y pagos en los mismos modelos del cloud, con idempotencia por hash + chequeos secundarios. El assert de integridad en ese archivo obliga a tener handler por cada tipo declarado en `constants.py`.
+  - APIs internas locales para metodos de plazo, resumen de credito por cliente y registro de abonos.
+  - **[Estado may 2026] Endpoint de LECTURA para el portal cloud IMPLEMENTADO** (B15, read-only DRF). `apps/api/urls.py` ahora registra `cuentas-por-cobrar/` además de `maestros/*`, `sync/*` y `reportes/*`. `CuentaPorCobrarViewSet` (`ReadOnlyModelViewSet` + acción `resumen/`) sirve `GET /api/v1/cuentas-por-cobrar/` lista + `<id>/` detalle + `resumen/`. Contrato y detalles en `ROADMAP_PORTAL.md` → 5.H/B15. Decisiones futuras (scoping por sucursal, aging por buckets, alertas, escritura desde portal) listadas ahí mismo.
+- Pruebas agregadas:
+  - Venta a credito con vencimiento unico.
+  - Venta a credito en cuotas.
+  - Limite bloqueante con rollback.
+  - Override ADMIN/SYSADMIN.
+  - Abonos parciales contra cuotas antiguas primero.
+  - Contrato fiscal contado vs credito.
+  - Builder MSeller prefiriendo metadata de venta.
+
+### Decisiones de arquitectura
+
+1. **CxC vive fuera de `ventas`.**
+   - `Venta` sigue siendo el documento comercial/fiscal que descuenta inventario FIFO y alimenta e-CF.
+   - `CuentaPorCobrar` es el ledger operativo del saldo pendiente.
+   - Esto evita que cada abono sea una nueva venta y protege los reportes de ventas reales.
+
+2. **La venta a credito es una venta real desde el inicio.**
+   - Se factura, descuenta inventario y puede entrar al flujo e-CF igual que contado.
+   - La diferencia es la condicion de pago y el calendario CxC.
+
+3. **`Pago(CREDITO)` representa financiamiento, no dinero recibido.**
+   - Los pagos reales de inicial se registran como efectivo/transferencia/tarjeta.
+   - El saldo queda como `Pago(CREDITO)` para cuadrar la venta y explicar el cierre.
+   - Los abonos posteriores son `PagoCxC`, no `Pago` de venta.
+
+4. **Los cobros CxC no crean ventas.**
+   - Son flujo de caja y reduccion de saldo.
+   - Caja los considera para efectivo esperado.
+   - Dashboard/reportes los muestran separados para no inflar facturacion del dia.
+
+5. **Atomicidad primero.**
+   - Venta, detalles, FIFO, pagos, CxC y cuotas se crean en una sola transaccion.
+   - Si el limite falla o el metodo de plazo es invalido, no queda venta parcial ni stock consumido.
+
+6. **Override explicito y auditable.**
+   - Solo ADMIN/SYSADMIN puede autorizar exceso de limite.
+   - Se guarda usuario autorizador y motivo.
+   - La auditoria queda como evento critico.
+
+7. **Regla simple de credito disponible en v1.**
+   - `credito_disponible = limite_credito - saldo_pendiente_no_anulado`.
+   - No hay intereses, mora automatica, refinanciacion ni contabilidad de doble partida en v1.
+
+8. **MSeller recibe condicion fiscal por venta.**
+   - La configuracion del emisor mantiene defaults.
+   - La venta puede sobrescribir `TipoPago` mediante metadata.
+   - Esto evita que una config global fuerce contado/credito incorrectamente.
+
+9. **`FinanciacionCooperativa` queda separada.**
+   - No se migro ni mezclo con CxC.
+   - Sigue siendo otro flujo de negocio para cooperativa/financiacion especial.
+
+10. **Sync por eventos explicitos.**
+    - Igual que ventas, CxC emite eventos despues del commit.
+    - La nube puede reconstruir estado de cartera sin consultar la BD local directamente.
+
+### Pendiente y futuro del modulo Credito/CxC
+
+- Validar en operacion real el flujo POS completo: seleccion de cliente, autorizacion, cierre, impresion y posterior abono.
+- Agregar permisos granulares para CxC: ver cartera, registrar abonos, anular abonos, autorizar exceso de limite.
+- Implementar anulacion/reversa de `PagoCxC`; v1 registra abonos aplicados, pero no trae flujo completo de reversa.
+- Mejorar aging:
+  - buckets 0-30, 31-60, 61-90, 90+.
+  - saldo vencido por cuota, no solo por fecha limite de cuenta.
+  - proyeccion de vencimientos proximos.
+- Definir politica de mora/interes:
+  - mora automatica diaria o mensual.
+  - cargos por atraso.
+  - condonaciones autorizadas.
+- Definir refinanciaciones:
+  - reestructurar cuotas.
+  - consolidar varias cuentas.
+  - mantener trazabilidad del saldo original.
+- Definir castigos/incobrables:
+  - estado `CASTIGADA` o flujo separado.
+  - auditoria y permisos de gerencia.
+- Agregar recibos/impresion de abonos CxC.
+- Agregar export PDF/Excel de estado de cuenta.
+- Exponer CxC en el portal cloud:
+  - cartera por cliente.
+  - aging consolidado.
+  - cobros por sucursal/cajero.
+  - alertas de vencimiento.
+  - **[Estado may 2026] Backend + frontend listos.** Frontend `/cuentas` (read-only) implementado en `pos-cloud-dashboard`: lista filtrable, resumen de cartera (total/vencido/abiertas/vencidas) y detalle con cuotas + abonos. Endpoint de lectura backend (B15) **implementado** (`/api/v1/cuentas-por-cobrar/`); falta solo el smoke E2E contra el backend desplegado. **Pendientes diferidos (decisiones futuras):** aging por buckets (0-30/31-60/61-90/90+), alertas de vencimiento, cobros por sucursal/cajero y scoping de lectura por sucursal — todos listados en `ROADMAP_PORTAL.md` → 5.H "Decisiones futuras".
+- Endurecer endpoints API para cloud/portal con DRF, permisos y paginacion; los endpoints actuales son internos/locales.
+- Definir si `MetodoPlazoCredito` sera global, por empresa, por sucursal o por cliente en modo SaaS.
+- Agregar pruebas E2E de UI para POS credito y registro de abonos.
+- Agregar validacion de contratos sync CxC contra cloud staging.
+- Agregar contabilidad formal solo si el producto evoluciona hacia doble partida.
 
 ---
 
@@ -144,6 +283,20 @@ api/serializers.py
     ConfiguracionSerializer (parcial, solo campos relevantes)
 ```
 
+**3.2b Serializers de cartera / CxC**
+```
+apps/api/serializers/cuentas_por_cobrar.py
+    CuentaPorCobrarSerializer          (lista)
+    CuentaPorCobrarDetalleSerializer   (detalle: + cuotas[] + pagos[])
+    CuotaCxCSerializer
+    PagoCxCSerializer
+    CarteraResumenSerializer           (forma de resumen/)
+```
+- Exponer saldo por cliente, aging y movimientos para portal cloud.
+- Mantener escritura de abonos bajo permisos ADMIN/SYSADMIN o permiso operativo especifico.
+- No mezclar abonos CxC con ventas nuevas.
+- **[Estado may 2026] Implementado (B15).** Serializers de lectura creados en `apps/api/serializers/cuentas_por_cobrar.py` y servidos por `CuentaPorCobrarViewSet`. En v1 el portal es **solo lectura**: no expone escritura de abonos (los abonos nacen en el POS y fluyen por eventos sucursal→cloud). El **aging consolidado** descrito arriba quedó diferido — el `resumen/` v1 da total/vencido global, no buckets. Decisiones futuras en `ROADMAP_PORTAL.md` → 5.H.
+
 **3.3 Endpoints de datos maestros (cloud → sucursal)**
 ```
 GET  /api/v1/maestros/productos/?desde=<timestamp>
@@ -159,13 +312,21 @@ POST /api/v1/sync/eventos/         # Enviar batch de eventos
 GET  /api/v1/sync/status/          # Estado de sincronización de la sucursal
 ```
 
+- Eventos de cartera incluidos en el contrato: `CXC_CREADA`, `CXC_PAGO_REGISTRADO`, `CXC_ANULADA`.
+- La nube debe poder reconstruir cartera por cliente desde eventos confirmados.
+- Los eventos CxC deben ser idempotentes igual que ventas/cierres.
+
 **3.5 Endpoints de reportes (cloud → dashboard)**
 ```
 GET  /api/v1/reportes/ventas-hoy/            # Todas las sucursales
 GET  /api/v1/reportes/ventas-hoy/<sucursal>/
 GET  /api/v1/reportes/comparativo-sucursales/
 GET  /api/v1/reportes/inventario-consolidado/
+GET  /api/v1/reportes/cuentas-por-cobrar/
+GET  /api/v1/reportes/cuentas-por-cobrar/<cliente>/
 ```
+- Separar siempre ventas facturadas, ventas a credito y cobros CxC.
+- **[Estado may 2026] Decisión tomada.** La cartera se sirve como recurso propio bajo **`/api/v1/cuentas-por-cobrar/`** (la propuesta del frontend), NO bajo `/reportes/`. Razón: es un recurso navegable (lista + detalle + agregados), no un reporte calculado; encaja con el router DRF y el patrón de maestros. `/reportes/cuentas-por-cobrar/` queda libre por si más adelante se quiere un reporte analítico distinto (p.ej. aging consolidado multi-sucursal con corte por fecha). El frontend ya apunta a esta ruta vía `src/lib/cxc.ts → BASE_PATH`.
 
 ---
 
@@ -187,7 +348,7 @@ apps/sync/
 ```python
 class EventoSync(models.Model):
     sucursal = ForeignKey(Sucursal)
-    tipo_evento = CharField  # VENTA_CREADA, VENTA_ANULADA, CIERRE_CAJA
+    tipo_evento = CharField  # VENTA_CREADA, VENTA_ANULADA, CIERRE_CAJA, CXC_CREADA, CXC_PAGO_REGISTRADO, CXC_ANULADA
     payload = JSONField      # Datos serializados completos
     estado = CharField       # PENDIENTE → ENVIADO → CONFIRMADO / ERROR
     created_at = DateTimeField(auto_now_add)
@@ -287,6 +448,7 @@ pos-cloud-dashboard/
 - Comparativo entre sucursales: gráficas Recharts/Chart.js
 - Gestión de productos: crear, editar precio, activar/desactivar (se propaga a sucursales)
 - Gestión de categorías y clientes
+- Cuentas por cobrar: cartera por cliente, aging, vencidas, pagos recibidos y alertas de credito
 - Estado de sucursales: última sincronización, eventos pendientes, alertas
 - Reportes consolidados: reutilizar lógica de `ReporteManager` con agregación multi-sucursal
 
@@ -338,6 +500,7 @@ pos-cloud-dashboard/
 **App móvil para el dueño**
 - React Native o PWA del portal cloud
 - Notificaciones push de ventas, alertas de stock, cierre de caja
+- Alertas de credito: cuotas vencidas, clientes sobre limite, cobros del dia
 
 ---
 
