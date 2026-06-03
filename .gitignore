@@ -52,6 +52,7 @@ secrets.json
 
 # Cloud credentials (NUNCA commitear)
 deploy/env_*_local.bat
+deploy/env_cloud.local
 
 # Logs de debug cloud
 cloud_debug.log

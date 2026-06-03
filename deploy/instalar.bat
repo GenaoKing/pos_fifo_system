@@ -103,6 +103,7 @@ if not exist "%PROJECT_DIR%\deploy\env_cliente.bat" (
     echo  Se abrira el archivo de configuracion.
     echo  DEBE editar al menos:
     echo    - DB_PASSWORD (contrasena para el usuario de la BD del POS)
+    echo    - INITIAL_SYSADMIN_PASSWORD (password temporal del primer SYSADMIN)
     echo    - NEGOCIO_NOMBRE (nombre del negocio)
     echo    - NEGOCIO_PRESET (tipo de negocio)
     echo.
@@ -116,6 +117,27 @@ call "%PROJECT_DIR%\deploy\env_cliente.bat"
 
 if "%DB_PASSWORD%"=="CAMBIAR-CONTRASENA-BD" (
     echo   [ERROR] Debe configurar DB_PASSWORD en deploy\env_cliente.bat
+    notepad "%PROJECT_DIR%\deploy\env_cliente.bat"
+    pause
+    exit /b 1
+)
+
+if "%INITIAL_SYSADMIN_PASSWORD%"=="CAMBIAR-PASSWORD-INICIAL-SYSADMIN" (
+    echo   [ERROR] Debe configurar INITIAL_SYSADMIN_PASSWORD en deploy\env_cliente.bat
+    notepad "%PROJECT_DIR%\deploy\env_cliente.bat"
+    pause
+    exit /b 1
+)
+
+if "%INITIAL_SYSADMIN_PASSWORD%"=="" (
+    echo   [ERROR] INITIAL_SYSADMIN_PASSWORD no puede estar vacio.
+    notepad "%PROJECT_DIR%\deploy\env_cliente.bat"
+    pause
+    exit /b 1
+)
+
+if "%INITIAL_SYSADMIN_USERNAME%"=="" (
+    echo   [ERROR] INITIAL_SYSADMIN_USERNAME no puede estar vacio.
     notepad "%PROJECT_DIR%\deploy\env_cliente.bat"
     pause
     exit /b 1
@@ -277,20 +299,23 @@ echo [FASE 8/10] Configurando sistema...
 REM --- Crear usuario SYSADMIN (Santiago) ---
 echo   Creando usuario SYSADMIN...
 python manage.py shell --settings=config.settings_production -c "
+import os
 from django.contrib.auth import get_user_model
 User = get_user_model()
-if not User.objects.filter(username='Santiago').exists():
-    u = User.objects.create_superuser(username='Santiago', password='Prueba123', email='')
+username = os.environ.get('INITIAL_SYSADMIN_USERNAME', 'Santiago')
+password = os.environ.get('INITIAL_SYSADMIN_PASSWORD')
+if not User.objects.filter(username=username).exists():
+    u = User.objects.create_superuser(username=username, password=password, email='')
     u.rol = 'SYSADMIN'
     u.save()
-    print('  [OK] Usuario Santiago (SYSADMIN) creado')
+    print(f'  [OK] Usuario {username} (SYSADMIN) creado')
 else:
-    u = User.objects.get(username='Santiago')
+    u = User.objects.get(username=username)
     u.rol = 'SYSADMIN'
     u.is_superuser = True
     u.is_staff = True
     u.save()
-    print('  [OK] Usuario Santiago ya existe, rol actualizado a SYSADMIN')
+    print(f'  [OK] Usuario {username} ya existe, rol actualizado a SYSADMIN')
 "
 
 REM --- Crear ConfiguracionNegocio con preset ---
@@ -354,9 +379,9 @@ echo  ============================================================
 echo    INSTALACION COMPLETADA EXITOSAMENTE
 echo  ============================================================
 echo.
-echo  Usuario:     Santiago (SYSADMIN)
-echo  Contrasena:  Prueba123
-echo  IMPORTANTE:  Cambie la contrasena despues del primer login
+echo  Usuario inicial: %INITIAL_SYSADMIN_USERNAME% (SYSADMIN)
+echo  Contrasena:     configurada en deploy\env_cliente.bat
+echo  IMPORTANTE:     Cambie la contrasena despues del primer login
 echo.
 echo  Para iniciar el sistema:
 echo    deploy\iniciar_servidor.bat

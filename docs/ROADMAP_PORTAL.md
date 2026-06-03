@@ -1,6 +1,6 @@
 # Roadmap Portal Cloud (Fase 5)
 
-Documento vivo. Estado al **30 mayo 2026**.
+Documento vivo. Estado al **31 mayo 2026**.
 Branch backend: `features/cloud-dashboard` (CxC se está integrando desde `features/refactor-pos`).
 Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
@@ -14,9 +14,12 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 | Frontend | 5.A | Done: F1-F4 (login/layout/dashboard real con polling 30s) |
 | Backend + Frontend | 5.C | Done: CRUD productos + smoke E2E manual OK |
 | Frontend | 5.D | Done en código (F7); falta B11 backend + smoke contra API real |
-| Frontend | 5.G | Parcial: hardening frontend sin dependencia de backend hecho (ver checklist) |
+| Frontend | 5.G | Parcial: hardening + tests críticos (Vitest/RTL, 43 tests) hechos; falta `/`-focus, README, observability |
 | Frontend | 5.H | Done (scaffolding read-only `/cuentas`); espera endpoint de lectura backend |
-| Resto | 5.B, 5.E, 5.F | Pendiente (5.B diferido) |
+| Backend | 5.B / 5.E | Done para reportes JSON cloud: comparativo real + ventas por cajero + top productos + cierre consolidado |
+| Frontend | 5.E | Done (frontend): `/inventario` (F10) + `/reportes` (F8) consumen B13/B14; falta smoke contra API real |
+| Frontend | 5.B | Diferido: tipos `ComparativoResponse` listos en `reports.ts`; `/comparativo` (F5) NO habilitado por indicación |
+| Frontend | 5.F | Prep frontend listo: `staticwebapp.config.json`, `.env.example`, README, CI (lint+test+build), config seam multi-tenant. Falta recurso Azure (D8/D9 deploy/D11) |
 
 ---
 
@@ -24,11 +27,11 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ```
 5.A  Dashboard MVP (KPIs + estado sucursales)          <- DONE
-5.B  Comparativo entre sucursales con gráficos          <- DIFERIDO: clientes actuales single-sucursal
+5.B  Comparativo entre sucursales con gráficos          <- BACKEND DONE; frontend pendiente
 5.C  CRUD de productos                                  <- DONE
 5.D  CRUD de categorías y clientes                      <- DONE (frontend); B11 backend pendiente
-5.E  Reportes consolidados on-demand
-5.F  Deploy a producción (backend + frontend)
+5.E  Reportes consolidados on-demand                    <- BACKEND JSON DONE; /inventario F10 + /reportes F8 hechos
+5.F  Deploy a producción (backend + frontend)          <- PREP FRONTEND DONE (config/CI/SWA); falta recurso Azure
 5.G  Hardening + polish (cross-cutting)                 <- PARCIAL (frontend)
 5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE (backend B15 + frontend); pendiente conectar BASE_PATH
 ```
@@ -60,7 +63,7 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### DoD 5.A
 
-- Login `Santiago/Prueba123` → redirige a `/dashboard`
+- Login con usuario admin de prueba configurado por ambiente -> redirige a `/dashboard`
 - Dashboard muestra datos reales de SD-001 actualizándose solo
 - Si el access token expira a los 30 min, refresh automático sin interrumpir UX
 - Logout local (borrar tokens en memoria) + redirect a `/login`
@@ -71,10 +74,14 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### Backend
 
-- [ ] **B6** — Refactor real de `comparativo_sucursales/`:
-  - Query params: `desde`, `hasta`, `agrupacion` (`dia` / `semana` / `mes`)
-  - Output: serie temporal por sucursal con métricas (ventas $, # transacciones, ticket promedio)
-  - Reutilizar `_estado_sync` helper
+- [x] **B6** — Refactor real de `comparativo_sucursales/`:
+  - Implementado en `apps/api/services/reporting.py` y expuesto por `GET /api/v1/reportes/comparativo/`.
+  - Query params: `desde`, `hasta`, `agrupacion` (`dia` / `semana` / `mes`) y `sucursal`.
+  - Output: serie temporal por sucursal con `cantidad_ventas`, `ventas_facturadas`, `credito_facturado`, `cobros_cxc` y `ticket_promedio`.
+  - Reutiliza `_estado_sync`; la funcion se mantiene importable desde `apps.api.views.reportes` para no romper `sucursales/status/`.
+  - Ventas `sucursal=NULL` no entran al consolidado multi-sucursal y se reportan en `metadata.legacy_ventas_omitidas`.
+  - Decision: `apps/reportes` queda como modulo local/POS; el portal cloud usa servicios query-based sobre la BD cloud, no `ReporteManager`.
+  - Cobertura: `apps/api/tests/test_reportes_cloud.py`.
 
 ### Frontend
 
@@ -163,6 +170,16 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
   - Clientes: verificar que `tipo`, `nombre`, `cedula_rnc`, `telefono`, `email`, `direccion`, `limite_credito`, `condiciones_pago`, `notas`, `activo` llegan a sucursal.
   - Igual que productos, no depender de eventos `CATEGORIA_ACTUALIZADA` / `CLIENTE_ACTUALIZADO`; la propagación debe quedar cubierta por lectura incremental de maestros.
   - Hallazgo backend: timestamps ISO con UTC (`+00:00`) se corrompen si se concatenan manualmente en URLs porque `+` llega como espacio y el filtro `?desde=` puede no aplicar. Tests backend deben usar `urllib.parse.quote()` cuando construyan URLs manuales; frontend debe usar `axios` con `{ params }` o `encodeURIComponent()` si arma la URL a mano.
+- [ ] **B11b** — Escrituras locales de maestros deben ir al cloud
+  - Decisión: el **cloud es la fuente de verdad** de productos, categorías y clientes.
+  - Crear/editar/desactivar maestros desde una pantalla local de sucursal **no debe** crear un registro local esperando que viaje por sync. En v1 no hay eventos `CLIENTE_*` ni `CATEGORIA_*`.
+  - Si un ADMIN/SYSADMIN usa una pantalla local para editar maestros, esa vista debe:
+    1. requerir conexión cloud (`@requiere_conexion_cloud` o equivalente),
+    2. escribir directamente en `/api/v1/maestros/...` con credenciales admin/cloud válidas,
+    3. refrescar la copia local con la respuesta cloud o disparar un pull inmediato.
+  - Si no hay conexión cloud, bloquear la operación administrativa con mensaje claro.
+  - Excepción futura no implementada: cliente temporal offline, sin crédito y sin cartera, con reconciliación explícita posterior.
+  - Smoke esperado: crear cliente/categoría desde portal cloud → pull sucursal → aparece local. Crear cliente/categoría local con flujo legacy **no** debe considerarse propagación soportada.
 
 ### Frontend
 
@@ -186,24 +203,48 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 ### Backend
 
 - [ ] **B12** — Refactor de `inventario_consolidado/` para multi-sucursal real
-- [ ] **B13** — Endpoints nuevos de reportes on-demand:
-  - `GET /reportes/ventas-por-cajero/?desde=&hasta=&sucursal=`
-  - `GET /reportes/top-productos/?desde=&hasta=&sucursal=&limit=10`
-  - `GET /reportes/cierre-consolidado/?fecha=`
-  - `GET /reportes/inventario-valorizado/?sucursal=` (con `?format=pdf`)
-- [ ] **B14** — Reutilizar `ReporteManager` agregando un agregador multi-sucursal
+  - Decision tomada: no inferir inventario multi-sucursal desde ventas ni desde `Producto.stock_actual`.
+  - El endpoint mantiene el contrato actual `stock_por_sucursal: {"LOCAL": n}` para no romper `/inventario`.
+  - Pendiente real: agregar evento/snapshot `INVENTARIO_SNAPSHOT` por sucursal y expandir `stock_por_sucursal` con codigos reales.
+  - En el contrato actual se agregaron campos opcionales no rompientes: `ultima_actualizacion_por_sucursal` y `sucursales_sin_datos`.
+- [x] **B13** — Endpoints nuevos de reportes on-demand JSON:
+  - `GET /api/v1/reportes/ventas-por-cajero/?desde=&hasta=&sucursal=`
+  - `GET /api/v1/reportes/top-productos/?desde=&hasta=&sucursal=&limit=10`
+  - `GET /api/v1/reportes/cierre-consolidado/?fecha=&sucursal=`
+  - Los tres separan ventas facturadas, credito facturado y cobros CxC. Los cobros CxC no inflan ventas nuevas.
+  - Todos interpretan fechas como dia local de negocio (`timezone.localdate()` para defaults y filtros date-only).
+  - Permisos: `ADMIN`/`SYSADMIN`.
+  - Pendiente fuera de B13 JSON: `inventario-valorizado` con `?format=pdf`.
+- [x] **B14** — Servicio compartido de reporteria cloud
+  - Implementado como `apps/api/services/reporting.py`.
+  - Decision de arquitectura: no reutilizar `ReporteManager` local como motor del portal. `ReporteManager`, cierres/PDFs y dashboards Django quedan en `apps/reportes` para POS local.
+  - Razon: algunos snapshots locales no son fuente cloud multi-sucursal y `CierreCaja.fecha` no modela cierre unico por sucursal.
 
 ### Frontend
 
-- [ ] **F8** — Página `/reportes`:
-  - Selector de tipo de reporte (dropdown)
-  - Formulario dinámico según el tipo seleccionado
-  - Preview en pantalla
-  - Botón "Descargar PDF" / "Exportar CSV"
+- [x] **F10** — Página `/inventario` (read-only, inventario consolidado)
+  - Consume el endpoint REAL existente `GET /api/v1/reportes/inventario-consolidado/?categoria=&bajo_stock=&activo=`.
+  - KPIs: total productos, bajo stock, sin stock (del `resumen` del backend).
+  - Filtros server: categoría, solo bajo stock, solo activos. Búsqueda (producto/SKU) y paginación **client-side** porque el endpoint no pagina ni expone `search`.
+  - Tabla con stock coloreado (rojo sin stock / ámbar reposición) y badge de reposición; responsive desktop/móvil.
+  - Archivos: `src/pages/Inventory.tsx`, `src/lib/inventory.ts`, `src/hooks/useInventory.ts`; ruta en `src/App.tsx`; nav en `src/components/layout/Sidebar.tsx`.
+  - Verificación frontend: `npm run lint` y `npm run build` OK.
+  - **Límite actual (backend):** `inventario_consolidado` aún es single-sucursal (`stock_por_sucursal = {"LOCAL": n}`, TODO Fase 2/B12). La página ya está lista para multi-sucursal sin cambios de forma cuando B12 cierre.
+- [x] **F8** — Página `/reportes` (reportes on-demand consolidados):
+  - Selector de tipo de reporte (dropdown): **Ventas por cajero**, **Top productos**, **Cierre consolidado**.
+  - Formulario dinámico: rango `desde`/`hasta` (cajero, top-productos) o `fecha` única (cierre), selector de sucursal (opcional, desde `/sucursales/status/`) y `Top N` (10/25/50) para productos. Validación `desde <= hasta`.
+  - Preview en pantalla: tabla por tipo de reporte con etiquetas separadas **Ventas facturadas / Ventas a crédito / Efectivo / Transferencia / Tarjeta / Cobros CxC**. Los cobros CxC NO se suman a ventas facturadas (columna y leyenda aparte).
+  - **Exportar CSV** client-side (BOM UTF-8 para Excel). PDF queda fuera de este corte (depende de `inventario-valorizado ?format=pdf` backend, aún pendiente).
+  - **Advertencia de sync**: banner si alguna sucursal involucrada está en `amarillo`/`rojo`/`sin_datos` (cruzado contra `/sucursales/status/`), porque sus cifras pueden estar atrasadas.
+  - `src/lib/reports.ts` con tipos explícitos `ComparativoResponse` (listo para F5), `VentasPorCajeroResponse`, `TopProductosResponse`, `CierreConsolidadoResponse`; todo vía `apiClient.get(url, { params })`.
+  - Archivos: `src/pages/Reports.tsx`, `src/lib/reports.ts`, `src/hooks/useReports.ts`; ruta en `src/App.tsx`; nav habilitado en `src/components/layout/Sidebar.tsx`.
+  - Verificación frontend: `npm run lint` y `npm run build` OK.
+  - Pendiente: smoke contra API real cuando el backend de reportes esté desplegado; `/comparativo` (F5) sigue deshabilitado por decision de producto, no por bloqueo backend.
 
 ### DoD 5.E
 
 - Owner genera consolidados desde el portal en lugar de pedir 4 PDFs por sucursal
+- [x] Owner consulta inventario consolidado (stock, bajo stock, reposición) desde el portal — vía `/inventario`
 
 ---
 
@@ -211,34 +252,70 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 > ⚠️ Hoy la "cloud" es solo la BD Azure PostgreSQL Flexible.
 > Aquí se decide e implementa el deploy real del backend Django + frontend.
+> Roadmap detallado: `docs/ROADMAP_DEPLOY_AZURE.md`.
+
+### Decision base
+
+- [x] **D1** — Decision de arquitectura: **Docker + Azure Container Apps** para backend.
+  - Azure App Service Linux sin Docker queda como plan B para demo rapida, no como arquitectura objetivo.
+  - Razon: imagen Docker reproducible, Container Apps Jobs para migraciones/comandos, revisiones/rollback y mejor camino hacia workers/sync/multi-tenant.
+  - Frontend se mantiene en Azure Static Web Apps.
+  - DB cloud se mantiene en Azure PostgreSQL Flexible Server.
 
 ### Backend cloud
 
-- [ ] **D1** — Decisión: **Azure App Service (Linux)** vs **Azure Container Apps con Docker**
-  - App Service: setup más rápido, sin Docker; bueno para empezar
-  - Container Apps: alinea con visión Docker futura; mejor pero más complejo
-- [ ] **D2** — `Dockerfile` (si va por contenedor) — multi-stage con WhiteNoise para static
-- [ ] **D3** — `config/settings_production.py` para Azure (vs `settings_azure_pg.py` que es dev contra Azure DB)
-- [ ] **D4** — Variables de entorno producción:
-  - `SECRET_KEY` (Azure Key Vault o App Service secrets)
+- [ ] **D0** — Readiness previo a cloud:
+  - rotar secretos que hayan vivido en scripts/docs/settings,
+  - reemplazar valores reales por env vars/placeholders,
+  - health endpoint con DB/version/ambiente,
+  - settings cloud con `DEBUG=False`.
+- [ ] **D2** — `Dockerfile` backend:
+  - Python + dependencias,
+  - `collectstatic`,
+  - Gunicorn,
+  - logs a stdout/stderr,
+  - sin migraciones automaticas en startup.
+- [ ] **D3** — `config/settings_cloud.py` o endurecer `config/settings_production.py` para Azure:
+  - `settings_azure_pg.py` queda como dev local contra Azure DB, no como production settings.
+- [ ] **D4** — Variables de entorno/secrets:
+  - `SECRET_KEY` (Azure Key Vault o Container Apps secrets)
   - `ALLOWED_HOSTS=api.tudominio.com`
   - `DEBUG=False`
   - `CORS_ALLOWED_ORIGINS=https://portal.tudominio.com`
   - `JWT_ACCESS_MINUTES=30`, `JWT_REFRESH_DAYS=7`
-- [ ] **D5** — GitHub Actions backend:
-  - Job lint (`ruff` o `flake8`)
-  - Job tests (`pytest` si hay tests; agregar smoke tests mínimos)
-  - Job build + deploy en merge a `main`
-- [ ] **D6** — Migración inicial del schema en Azure DB (ya está hecha desde sync)
-- [ ] **D7** — Crear usuario SYSADMIN del portal vía management command
+- [ ] **D5** — Terraform dev minimo:
+  - Resource Group,
+  - Azure Container Registry,
+  - Container Apps Environment,
+  - Container App `api`,
+  - Container Apps Job `migrate`,
+  - PostgreSQL Flexible Server o referencia al existente,
+  - Log Analytics / Application Insights,
+  - Key Vault o secrets de Container Apps.
+- [ ] **D5b** — Floci/Terraform lab opcional:
+  - `infra/floci-lab/` para aprender Terraform sin costo.
+  - No sustituye staging real; no valida Container Apps/ACR/PostgreSQL/domains/RBAC.
+- [ ] **D6** — GitHub Actions backend:
+  - PR: `manage.py check` + tests criticos.
+  - Merge `develop`: build Docker image, tag con SHA, push a ACR, deploy a Container Apps dev.
+  - Ejecutar migraciones con job/control explicito, no dentro del startup del contenedor.
+  - Smoke: health, login, reportes, sucursales/status.
+- [ ] **D7** — Inicializacion operativa:
+  - migracion inicial del schema en Azure DB,
+  - crear SYSADMIN via management command,
+  - documentar rollback por revision/imagen.
 
 ### Frontend (Azure Static Web Apps)
 
-- [ ] **D8** — Crear recurso ASWA conectado a `pos-cloud-dashboard`
-- [ ] **D9** — GitHub Actions auto-generado por ASWA (build + deploy)
-- [ ] **D10** — Env vars production: `VITE_API_URL=https://api.tudominio.com`
-- [ ] **D11** — Custom domain `portal.tudominio.com`
-- [ ] **D12** — `staticwebapp.config.json` con rewrites para SPA routing (todas las rutas → `/index.html`)
+- [ ] **D8** — Crear recurso ASWA conectado a `pos-cloud-dashboard` (requiere Azure; pendiente)
+- [~] **D9** — CI/CD:
+  - [x] `.github/workflows/ci.yml` (lint + tests + build en PR/push) — sin secretos, no rompe antes de existir el recurso.
+  - [ ] Workflow de deploy con el deployment token de ASWA (lo añade ASWA al crear el recurso).
+- [x] **D10** — Manejo de `VITE_API_URL` por ambiente:
+  - Centralizado en `src/lib/config.ts` (único punto que resuelve el backend). `.env.example` documenta dev/staging/prod.
+  - **Seam multi-tenant:** `config.ts` prioriza `window.__APP_CONFIG__.apiUrl` (runtime) sobre la env de build, para que un build inmutable sirva varios hosts de API (D8 SaaS) sin rebuild. Hoy se usa el modo build-time.
+- [ ] **D11** — Custom domain `portal.tudominio.com` (requiere Azure; pendiente)
+- [x] **D12** — `staticwebapp.config.json`: rewrites SPA a `/index.html` + headers de seguridad (CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`). CSP usa `connect-src 'self' https:` (multi-tenant friendly); endurecer al host de API exacto en prod.
 
 ### Pre-deploy checklist
 
@@ -255,10 +332,13 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### DoD 5.F
 
-- `portal.tudominio.com` carga desde ASWA
-- Login y todas las pantallas funcionan contra `api.tudominio.com` con HTTPS
-- `git push origin main` en cualquiera de los dos repos → deploy automático
-- Backend escalable horizontalmente (sin estado en disco local)
+- Ambiente `dev` real en Azure creado por Terraform.
+- Backend Django corre en Azure Container Apps desde imagen Docker taggeada por SHA.
+- Migraciones corren por Container Apps Job/pipeline, no por startup.
+- Portal dev carga desde Azure Static Web Apps y consume API dev.
+- Login, dashboard, reportes, CxC y maestros pasan smoke contra Azure.
+- Staging y produccion quedan definidos como ambientes separados antes de abrir a clientes reales.
+- Backend queda sin estado en disco local y listo para escalar horizontalmente.
 
 ---
 
@@ -293,15 +373,23 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 
 ### Performance
 
-- [ ] Índices compuestos en `EventoSync(sucursal_id, estado)` y `(sucursal_id, confirmed_at)`
-- [ ] Pagination en endpoints de listas grandes
-- [ ] Lighthouse >90 en `/login` y `/dashboard`
+- [ ] Índices compuestos en `EventoSync(sucursal_id, estado)` y `(sucursal_id, confirmed_at)` — backend
+- [ ] Pagination en endpoints de listas grandes — backend
+- [x] Code-splitting por ruta (React.lazy + Suspense): login eager, páginas autenticadas en chunks aparte. Chunk inicial 442KB→324KB (gzip 122→104KB); cada página se baja on-demand. `<Suspense>` con `PageLoader` dentro del `ErrorBoundary` (captura también fallos de carga de chunk).
+- [x] Versión del build visible en UI (Header → "Versión &lt;sha&gt;"), `VITE_APP_VERSION` inyectada por CI (SHA corto); seam en `src/lib/config.ts`. Alinea con el `version/commit` del health del backend (D0/D7).
+- [ ] Lighthouse >90 en `/login` y `/dashboard` (medir post-deploy; code-splitting ya ayuda)
+- [ ] Opcional: vendor chunk dedicado (`manualChunks`) para mejorar cache cross-deploy.
 
 ### DX / Docs
 
-- [ ] `README.md` en `pos-cloud-dashboard` con setup
+- [x] `README.md` en `pos-cloud-dashboard` con setup (stack, env, scripts, estructura, auth, deploy ASWA)
 - [ ] `HANDOFF_FASE5.md` (este doc evoluciona y se vuelve handoff al cerrar)
-- [ ] Vitest + React Testing Library para los componentes críticos: `AuthContext`, `ProtectedRoute`, `Login`, `api.ts` interceptor
+- [x] Vitest + React Testing Library para los componentes críticos: `AuthContext`, `ProtectedRoute`, `Login`, `api.ts` interceptor
+  - Toolchain: Vitest 4 + jsdom + RTL 16 (React 19) + `axios-mock-adapter`. Scripts: `npm test` (watch), `test:run`, `test:coverage`. Config en `vite.config.ts` (`test.env.VITE_API_URL`) + `src/test/setup.ts` (jest-dom + cleanup).
+  - **43 tests / 8 archivos**. Cobertura del camino crítico: `api.ts` interceptor 100% líneas, `AuthContext` 96%, `Login` 95%, `errors` 100%, `ProtectedRoute` cubierto.
+  - `api.ts` (riesgo #5 del roadmap): cubre refresh único ante 401, **refresh compartido entre requests concurrentes**, 403 NO refresca, fallo de refresh → limpia tokens + `onSessionExpired`, sin loop infinito ante 401 persistente, y sin refresh-token disponible.
+  - Alineado SaaS multi-tenant: `AuthContext` verifica que `tenant_id` y `rol` se preservan en login; `reports.ts`/`cxc.ts` verifican que el filtro `sucursal` se envía vía `{ params }` (no concatenación manual) — base del aislamiento multi-sucursal.
+  - Fuera de este corte: tests de páginas/tablas (Products/Categories/Clients/Cuentas/Inventory/Reports) — se priorizó la capa auth/datos.
 
 ---
 
@@ -362,12 +450,13 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 ## Decisiones pendientes (NO bloquean hoy)
 
 1. **Tokens en memoria vs `sessionStorage` para el refresh.** Roadmap original dice "memory only". Implicación: cada reload obliga a re-login. ¿Aceptable o usamos `sessionStorage` (se borra al cerrar la tab) como compromiso?
-2. **App Service vs Container Apps.** Decidir antes de D1.
+2. **App Service vs Container Apps.** Decidido: Docker + Azure Container Apps como arquitectura objetivo; App Service Linux sin Docker queda como plan B para demo rapida.
 3. **WebSocket vs polling.** TanStack Query con `refetchInterval: 30000` cubre el 90% de los casos. WebSocket sería overkill.
 4. **Cuándo introducir `django-tenants`.** No bloquea Fase 5 — los hooks `TENANCY` ya están dispuestos. Detonante natural: segundo cliente pagando.
 5. **Mobile-responsive: prioridad.** Si los dueños usan móvil mucho → desde F4. Si solo PC en oficina → diferir a 5.G.
 6. **i18n.** Probablemente no en esta fase (todos los clientes son DO, español).
-7. **Comparativos multi-sucursal.** Diferir 5.B mientras todos los clientes estén en una sola sucursal; retomar cuando exista un cliente con 2+ sucursales o cuando el backend deje de ser placeholder/local.
+7. **Comparativos multi-sucursal.** Backend listo y sin placeholder local. La decision pendiente es de producto/frontend: habilitar `/comparativo` cuando tenga sentido comercial para clientes con 2+ sucursales o para demos de la vision multi-sucursal.
+8. **Escritura local de maestros.** Decisión tomada: cloud como fuente de verdad. Pendiente implementar proxy/local admin flow para que vistas locales de clientes/categorías/productos escriban en la API cloud y refresquen la copia local. No implementar sync bidireccional por eventos para maestros en v1.
 
 ---
 

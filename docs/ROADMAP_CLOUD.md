@@ -35,6 +35,7 @@
 - Reportes On-Demand backend completo: cierre de caja, ventas por período, top productos, inventario valorizado FIFO, ventas por cajero
 - Reportes On-Demand frontend completo: formularios dinámicos, Chart.js, export PDF
 - PDF Generator con ReportLab
+- Reporteria cloud multi-sucursal v1: servicio query-based para portal (`apps/api/services/reporting.py`), comparativo real por sucursal, ventas por cajero, top productos, cierre consolidado, separacion de credito facturado y cobros CxC.
 
 ### Pendiente del sistema local (🔲)
 
@@ -184,6 +185,70 @@
 
 ---
 
+## Decision record: Reporteria cloud multi-sucursal
+
+**Estado:** backend JSON implementado para portal cloud. Frontend de `/comparativo` y `/reportes` pendiente de consumir el contrato.
+
+### Decision principal
+
+- `apps/reportes` queda como modulo local/POS para dashboard Django, cierres locales, PDFs y reportes on-demand de una sucursal.
+- `apps/api/views/reportes.py` queda como capa HTTP del portal cloud.
+- `apps/api/services/reporting.py` es el motor query-based de reportería cloud sobre la BD cloud.
+- No se estira `ReporteManager` local como motor del portal. Sus snapshots y cierres locales no son una fuente limpia para multi-sucursal; ademas `CierreCaja.fecha` no modela cierre unico por sucursal.
+
+### Contrato implementado
+
+```
+GET /api/v1/reportes/ventas-hoy/
+GET /api/v1/reportes/ventas-hoy/<sucursal>/
+GET /api/v1/reportes/comparativo/?desde=&hasta=&agrupacion=dia|semana|mes&sucursal=
+GET /api/v1/reportes/ventas-por-cajero/?desde=&hasta=&sucursal=
+GET /api/v1/reportes/top-productos/?desde=&hasta=&sucursal=&limit=10
+GET /api/v1/reportes/cierre-consolidado/?fecha=&sucursal=
+GET /api/v1/reportes/inventario-consolidado/?categoria=&bajo_stock=&activo=
+```
+
+- Auth: `ADMIN`/`SYSADMIN`.
+- Fechas: `YYYY-MM-DD`, interpretadas como dia local de negocio.
+- Decimales: strings con 2 decimales.
+- `sucursal` filtra por codigo; si no viene, se incluyen todas las sucursales activas.
+- Ventas con `sucursal=NULL` se excluyen del consolidado multi-sucursal y se reportan en `metadata.legacy_ventas_omitidas`.
+- Metricas estandar:
+  - `ventas_facturadas`: ventas completadas.
+  - `credito_facturado`: ventas completadas con `condicion_pago=CREDITO`.
+  - `cobros_cxc`: `PagoCxC` aplicado, separado de ventas nuevas.
+  - `ticket_promedio`: `ventas_facturadas / cantidad_ventas`.
+- `ventas-hoy/` conserva el contrato previo (`total_ventas`, desglose de pagos, anulaciones) y agrega campos nuevos no rompientes (`ventas_facturadas`, `credito_facturado`, `cobros_cxc`, `metadata`).
+
+### Inventario
+
+- `inventario-consolidado/` mantiene `stock_por_sucursal: {"LOCAL": n}` por compatibilidad con `/inventario`.
+- Multi-sucursal real de inventario queda pendiente hasta agregar un evento/snapshot por sucursal, recomendado como `INVENTARIO_SNAPSHOT`.
+- No inferir stock cloud desde ventas: eso no reconstruye ajustes, compras, mermas, anulaciones ni lotes FIFO locales.
+
+### Consideraciones frontend
+
+- Crear `src/lib/reports.ts` con tipos de `ComparativoResponse`, `VentasPorCajeroResponse`, `TopProductosResponse` y `CierreConsolidadoResponse`.
+- Usar `apiClient.get(url, { params })`; no concatenar fechas manualmente.
+- Etiquetar siempre por separado: "Ventas facturadas", "Ventas a credito", "Cobros CxC" y "Flujo de caja".
+- No sumar cobros CxC a ventas facturadas en graficas principales; pueden ir como serie separada.
+- Mostrar advertencia visual cuando `estado_sync` sea amarillo/rojo/sin_datos.
+- `/inventario` puede seguir leyendo el contrato actual; cuando llegue `INVENTARIO_SNAPSHOT`, la tabla puede generar columnas desde `Object.keys(stock_por_sucursal)`.
+
+### Pruebas
+
+- Cobertura agregada en `apps/api/tests/test_reportes_cloud.py`.
+- Cubre permisos admin, fechas, filtro por sucursal, dos sucursales activas con una sin ventas, legacy omitido, comparativo, ventas por cajero, top productos, cierre consolidado, contrato de inventario y separacion CxC vs ventas.
+
+### Pendiente futuro
+
+- Implementar `INVENTARIO_SNAPSHOT` y expandir inventario real por sucursal.
+- Agregar export CSV/PDF para reportes cloud si el portal lo requiere.
+- Agregar `inventario-valorizado` cloud si se decide llevar valuacion FIFO al portal; debe venir de snapshots locales o de una fuente cloud formal, no de `Producto.stock_actual`.
+- Optimizar queries con indices compuestos cuando existan volumenes reales.
+
+---
+
 ## Roadmap por fases
 
 ### FASE 0 — Completar sistema local (prioridad inmediata)
@@ -264,6 +329,18 @@ apps/sucursales/
 - Producto, Categoría — son globales (datos maestros)
 - Usuario — global (un SYSADMIN opera en todas las sucursales)
 
+**Decisión clave: fuente de verdad de datos maestros**
+- El **cloud es la fuente de verdad** para datos maestros: productos, categorías y clientes.
+- La propagación normal de maestros es **cloud → sucursal** mediante `pull_maestros()` y `?desde=<cursor>`.
+- En v1 **no existen eventos sucursal → cloud** para maestros (`CLIENTE_CREADO`, `CLIENTE_ACTUALIZADO`, `CATEGORIA_CREADA`, `CATEGORIA_ACTUALIZADA`, etc.).
+- Si un admin/SYSADMIN edita maestros desde una pantalla local de sucursal, esa pantalla debe requerir conexión cloud y escribir **directamente en la API cloud** (`/api/v1/maestros/...`), no crear primero el registro local esperando que el sync lo empuje.
+- Después de una escritura cloud exitosa, la sucursal puede:
+  - ejecutar un pull inmediato de la tabla afectada, o
+  - actualizar su copia local desde la respuesta cloud y dejar que el cursor lo confirme en el siguiente ciclo.
+- Si no hay conexión cloud, la operación administrativa se bloquea con mensaje claro. No se crea un maestro local "pendiente" en v1.
+- Excepción operativa permitida a futuro: "cliente temporal" para venta offline, sin crédito y sin efecto en cartera, hasta que se diseñe un flujo formal de reconciliación.
+- Razón: evita conflictos bidireccionales, duplicados por identificadores naturales, y estados divergentes entre sucursales.
+
 ---
 
 ### FASE 3 — API REST (capa de comunicación)
@@ -320,12 +397,15 @@ GET  /api/v1/sync/status/          # Estado de sincronización de la sucursal
 ```
 GET  /api/v1/reportes/ventas-hoy/            # Todas las sucursales
 GET  /api/v1/reportes/ventas-hoy/<sucursal>/
-GET  /api/v1/reportes/comparativo-sucursales/
+GET  /api/v1/reportes/comparativo/?desde=&hasta=&agrupacion=&sucursal=
+GET  /api/v1/reportes/ventas-por-cajero/?desde=&hasta=&sucursal=
+GET  /api/v1/reportes/top-productos/?desde=&hasta=&sucursal=&limit=10
+GET  /api/v1/reportes/cierre-consolidado/?fecha=&sucursal=
 GET  /api/v1/reportes/inventario-consolidado/
-GET  /api/v1/reportes/cuentas-por-cobrar/
-GET  /api/v1/reportes/cuentas-por-cobrar/<cliente>/
 ```
 - Separar siempre ventas facturadas, ventas a credito y cobros CxC.
+- **[Estado may 2026] Implementado.** La capa cloud de reportes vive en `apps/api/services/reporting.py`; los endpoints HTTP quedan en `apps/api/views/reportes.py`. `comparativo/` ya no devuelve placeholder `LOCAL`, agrupa por `Venta.sucursal`, incluye `metadata.legacy_ventas_omitidas` y separa CxC de ventas.
+- `inventario-consolidado/` conserva contrato backward-compatible con `stock_por_sucursal: {"LOCAL": n}`. Multi-sucursal real de inventario queda pendiente de `INVENTARIO_SNAPSHOT`.
 - **[Estado may 2026] Decisión tomada.** La cartera se sirve como recurso propio bajo **`/api/v1/cuentas-por-cobrar/`** (la propuesta del frontend), NO bajo `/reportes/`. Razón: es un recurso navegable (lista + detalle + agregados), no un reporte calculado; encaja con el router DRF y el patrón de maestros. `/reportes/cuentas-por-cobrar/` queda libre por si más adelante se quiere un reporte analítico distinto (p.ej. aging consolidado multi-sucursal con corte por fecha). El frontend ya apunta a esta ruta vía `src/lib/cxc.ts → BASE_PATH`.
 
 ---
@@ -419,6 +499,7 @@ python manage.py sincronizar --settings=config.settings_sucursal
 - Verifica `SyncEngine.check_connection()` antes de permitir la operación
 - Si offline: muestra mensaje "Cambios administrativos no disponibles sin conexión"
 - La edición se envía directamente a la API cloud, no se guarda localmente primero
+- **Pendiente de implementación:** el decorador por sí solo no debe considerarse suficiente. Las vistas locales de maestros deben cambiar de "guardar ORM local" a "POST/PATCH/DELETE contra API cloud + refrescar copia local". Hasta cerrar ese cambio, crear/editar cliente o categoría desde el POS local no se replica al portal cloud y debe tratarse como dato local/legacy.
 
 ---
 
@@ -450,12 +531,19 @@ pos-cloud-dashboard/
 - Gestión de categorías y clientes
 - Cuentas por cobrar: cartera por cliente, aging, vencidas, pagos recibidos y alertas de credito
 - Estado de sucursales: última sincronización, eventos pendientes, alertas
-- Reportes consolidados: reutilizar lógica de `ReporteManager` con agregación multi-sucursal
+- Reportes consolidados: consumir la capa cloud query-based (`apps/api/services/reporting.py`), no `ReporteManager` local
 
 **5.3 Deployment**
-- Azure Static Web Apps (gratis con cuenta educativa)
-- Build: `npm run build` → deploy automático desde GitHub
-- Consume la API Django (que puede estar en Azure App Service o en una VM)
+- Decision base: **Docker + Azure Container Apps** para backend Django.
+- Azure App Service Linux sin Docker queda como plan B para demo rapida, no como arquitectura objetivo.
+- Azure Static Web Apps para el portal React.
+- Azure PostgreSQL Flexible Server como DB cloud.
+- Azure Container Registry para imagenes Docker del backend.
+- Azure Container Apps Job para migraciones y comandos operativos (`manage.py migrate`, bootstrap SYSADMIN, tareas futuras).
+- Terraform como fuente de verdad de infraestructura (`infra/azure/`), con `infra/floci-lab/` opcional para aprendizaje local sin costo.
+- Build backend: GitHub Actions → Docker image taggeada con SHA → ACR → Container Apps.
+- Build frontend: `npm run build` → Azure Static Web Apps.
+- Roadmap operativo detallado: `docs/ROADMAP_DEPLOY_AZURE.md`.
 
 **5.4 Autenticación**
 - JWT tokens (djangorestframework-simplejwt)
@@ -485,6 +573,13 @@ pos-cloud-dashboard/
 ---
 
 ### FASE 7+ — Horizonte futuro
+
+> **Visión de producto / priorización de valor:** ver
+> [VISION_PRODUCTO_2026.md](VISION_PRODUCTO_2026.md). Argumenta que la línea de
+> mayor valor a futuro es *Cumplimiento & Contabilidad* (e-CF completo → captura
+> de facturas de compra por foto+IA → libros DGII 606/607/608 → inteligencia de
+> ITBIS), con un reloj legal: e-CF obligatorio para pequeños contribuyentes el
+> 15-nov-2026.
 
 **Facturación electrónica (e-CF / DGII)**
 - Flag `modulo_ecf` ya existe en ConfiguracionNegocio
