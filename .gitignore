@@ -60,3 +60,11 @@ cloud_debug_sql.log
 
 # Resultados de latencia (contienen hostnames)
 docs/latency_results_*.json
+
+# Terraform local state/cache (contiene metadata y puede contener secretos)
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/*.tfplan
+**/*.tfvars
+!**/*.tfvars.example

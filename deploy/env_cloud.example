@@ -12,6 +12,9 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 CSRF_TRUSTED_ORIGINS=http://localhost:8000
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 
+# Local Docker corre por HTTP. En Azure/prod dejar true o no definirlo.
+SECURE_SSL_REDIRECT=false
+
 # Para Docker Desktop hablando con PostgreSQL en tu host Windows:
 DB_HOST=host.docker.internal
 DB_PORT=5432

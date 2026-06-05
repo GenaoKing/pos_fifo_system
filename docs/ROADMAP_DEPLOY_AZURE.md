@@ -141,20 +141,20 @@ infra/
 
 Recursos dev minimos:
 
-- [ ] Resource Group.
+- [ ] Resource Group. (HCL scaffold en `infra/azure/environments/dev`)
 - [ ] Azure Container Registry.
 - [ ] Container Apps Environment.
 - [ ] Container App `api`.
 - [ ] Container App Job `migrate`.
 - [ ] Azure PostgreSQL Flexible Server o referencia al existente.
-- [ ] Log Analytics Workspace.
-- [ ] Application Insights.
+- [ ] Log Analytics Workspace. (HCL scaffold en modulo `observability`)
+- [ ] Application Insights. (HCL scaffold en modulo `observability`)
 - [ ] Key Vault o secretos de Container Apps para el primer corte.
-- [ ] Static Web App para frontend dev.
+- [ ] Static Web App para frontend dev. (HCL scaffold en modulo `static-web-app`)
 
 State:
 
-- [ ] Local state solo para aprendizaje inicial.
+- [ ] Local state solo para aprendizaje inicial. (configurado para `dev`; falta `init/plan/apply`)
 - [ ] Remote state en Azure Storage antes de trabajo compartido o prod.
 - [ ] Separar state por ambiente: `dev`, `staging`, `prod`.
 
@@ -163,6 +163,37 @@ DoD:
 - `terraform plan` es revisable.
 - `terraform apply` crea ambiente dev desde cero.
 - Outputs incluyen URLs, nombres de recursos y registry.
+
+Notas de avance D2:
+
+- Foundation aplicada en Azure for Students con `static-web-app` deshabilitado
+  por policy regional.
+- Agregado scaffold incremental para ACR + Container Apps Environment + API/job
+  opcionales. Tutorial: `docs/TERRAFORM_AZURE_D2_CONTAINER_APPS.md`.
+- ACR, Container Apps Environment, Container App `api` y Container App Job
+  `migrate` creados en dev usando imagen
+  `posfifodevacr.azurecr.io/pos-fifo-backend:dev`.
+- Health cloud validado: `/api/v1/health/` responde `200 OK` con `status=ok`
+  y `db=ok` desde Azure Container Apps.
+- Deuda dev documentada en `docs/D2_DEV_HANDOFF_DEBT.md`: secrets actuales en
+  Container Apps/Terraform state, ASWA apagado, versionado manual y probes
+  separados por `/api/v1/health/live/`.
+
+Notas de avance D3:
+
+- Agregado modulo `key-vault` y wiring dev opcional con `enable_key_vault`.
+- Tutorial D3 creado en `docs/TERRAFORM_AZURE_D3_KEY_VAULT.md`.
+- Decision D3A: crear Key Vault primero y cargar secrets con Azure CLI para no
+  guardar valores en Terraform state.
+
+Notas de implementacion D2:
+
+- Primer tutorial: `docs/TERRAFORM_AZURE_D2_FOUNDATION.md`.
+- Primer root module: `infra/azure/environments/dev`.
+- Modulos iniciales: `observability` y `static-web-app`.
+- Region dev por defecto ajustada a `canadacentral` por policy de suscripcion.
+- En esta maquina aun falta instalar Terraform CLI y Azure CLI para correr
+  `init/validate/plan/apply`.
 
 ## Fase D2b - Floci/Terraform lab opcional
 

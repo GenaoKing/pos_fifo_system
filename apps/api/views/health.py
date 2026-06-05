@@ -49,3 +49,18 @@ def health_check(request):
         return Response(payload, status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
 
     return Response(payload)
+def health_live(request):
+    """Health liviano para probes de plataforma.
+
+    No toca la base de datos. Container Apps lo usa para saber si el proceso
+    HTTP/Django esta vivo sin reiniciar la app por un incidente breve de DB.
+    """
+    return JsonResponse(
+        {
+            "status": "ok",
+            "app": "ok",
+            "environment": getattr(settings, "CLOUD_ENVIRONMENT", "unknown"),
+            "version": getattr(settings, "APP_VERSION", "unknown"),
+            "commit": getattr(settings, "GIT_COMMIT_SHA", "unknown"),
+        }
+    )

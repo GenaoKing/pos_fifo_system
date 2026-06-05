@@ -40,7 +40,13 @@ Para PostgreSQL corriendo en Windows desde Docker Desktop, usa:
 DB_HOST=host.docker.internal
 DB_PORT=5432
 DB_SSLMODE=disable
+SECURE_SSL_REDIRECT=false
 ```
+
+`SECURE_SSL_REDIRECT=false` es solo para Docker local por HTTP. Si queda en
+`true`, Django responde `301` hacia `https://localhost:8000/...`; Gunicorn no
+sirve TLS dentro del contenedor y el navegador/curl parecen quedarse sin
+respuesta util.
 
 Si usas Azure PostgreSQL dev, cambia `DB_HOST`, `DB_USER`, `DB_PASSWORD` y deja:
 
@@ -157,6 +163,9 @@ En Azure, esto debe convertirse en Container Apps Job o paso explicito de CI/CD.
   bloquea D1 si `docker build` o `docker run` fallan.
 - **`health` devuelve `503`**: el contenedor arranco, pero no llega a la DB.
   Revisar `DB_HOST`, firewall, usuario/password, puerto y `DB_SSLMODE`.
+- **`health` devuelve `301` hacia HTTPS**: falta `SECURE_SSL_REDIRECT=false` en
+  `deploy/env_cloud.local` para pruebas locales por HTTP. En Azure/prod se usa
+  HTTPS real y puede quedar en `true`.
 - **`ModuleNotFoundError: win32print`**: no deberia pasar en cloud; el driver
   Zebra ahora tolera Linux. Si aparece, buscar otro import Windows top-level.
 - **Static devuelve 404**: confirmar que el archivo existe en `static/` y que el
@@ -177,6 +186,7 @@ DB_HOST=...
 DB_PORT=5432
 DB_SSLMODE=require|disable
 CORS_ALLOWED_ORIGINS=...
+SECURE_SSL_REDIRECT=false   # solo local Docker por HTTP
 CLOUD_ENVIRONMENT=dev
 APP_VERSION=...
 GIT_COMMIT_SHA=...

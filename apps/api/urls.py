@@ -20,7 +20,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views.maestros import ProductoViewSet, CategoriaViewSet, ClienteViewSet
 from .views.cuentas_por_cobrar import CuentaPorCobrarViewSet
-from .views.health import health_check
+from .views.health import health_check, health_live
 
 # ============================================
 # ROUTER DRF — ViewSets de datos maestros
