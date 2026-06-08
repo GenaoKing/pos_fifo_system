@@ -22,6 +22,7 @@ from django.db.models.functions import Coalesce, TruncDate
 
 from .models import CierreCaja, TopProducto, InventarioValorizado
 from apps.ventas.models import Venta, DetalleVenta, Pago
+from apps.cuentas_por_cobrar.models import PagoCxC
 from apps.productos.models import Producto, Categoria
 from apps.inventario.models import Lote, Compra
 from apps.usuarios.models import Usuario
@@ -76,6 +77,15 @@ def dashboard(request):
     efectivo_hoy = pagos_dict.get('EFECTIVO', {}).get('total', Decimal('0.00'))
     transferencia_hoy = pagos_dict.get('TRANSFERENCIA', {}).get('total', Decimal('0.00'))
     tarjeta_hoy = pagos_dict.get('TARJETA', {}).get('total', Decimal('0.00'))
+    credito_facturado_hoy = ventas_hoy_qs.filter(
+        condicion_pago='CREDITO'
+    ).aggregate(total=Coalesce(Sum('total'), Decimal('0.00'), output_field=DecimalField()))['total']
+    cobros_cxc_qs = PagoCxC.objects.filter(fecha_pago__date=hoy, estado='APLICADO')
+    if request.user.es_cajera:
+        cobros_cxc_qs = cobros_cxc_qs.filter(registrado_por=request.user)
+    cobros_cxc_hoy = cobros_cxc_qs.aggregate(
+        total=Coalesce(Sum('monto'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
 
     # Ultimas ventas
     ultimas_ventas = Venta.objects.filter(
@@ -231,6 +241,8 @@ def dashboard(request):
         'efectivo_hoy': efectivo_hoy,
         'transferencia_hoy': transferencia_hoy,
         'tarjeta_hoy': tarjeta_hoy,
+        'credito_facturado_hoy': credito_facturado_hoy,
+        'cobros_cxc_hoy': cobros_cxc_hoy,
         'ultimas_ventas': ultimas_ventas,
         **context_admin,
     }
@@ -243,6 +255,8 @@ def dashboard(request):
         'efectivo': float(efectivo_hoy),
         'transferencia': float(transferencia_hoy),
         'tarjeta': float(tarjeta_hoy),
+        'credito_facturado': float(credito_facturado_hoy),
+        'cobros_cxc': float(cobros_cxc_hoy),
     }
     context['metricas_init_json'] = json.dumps(metricas_init)    
 
@@ -285,6 +299,15 @@ def api_metricas_hoy(request):
     )
 
     pagos_dict = {p['metodo']: float(p['total']) for p in pagos}
+    credito_facturado = ventas_qs.filter(
+        condicion_pago='CREDITO'
+    ).aggregate(total=Coalesce(Sum('total'), Decimal('0.00'), output_field=DecimalField()))['total']
+    cobros_cxc_qs = PagoCxC.objects.filter(fecha_pago__date=hoy, estado='APLICADO')
+    if request.user.es_cajera:
+        cobros_cxc_qs = cobros_cxc_qs.filter(registrado_por=request.user)
+    cobros_cxc = cobros_cxc_qs.aggregate(
+        total=Coalesce(Sum('monto'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
 
     return JsonResponse({
         'total_ventas': float(resumen['total']),
@@ -292,6 +315,8 @@ def api_metricas_hoy(request):
         'efectivo': pagos_dict.get('EFECTIVO', 0),
         'transferencia': pagos_dict.get('TRANSFERENCIA', 0),
         'tarjeta': pagos_dict.get('TARJETA', 0),
+        'credito_facturado': float(credito_facturado),
+        'cobros_cxc': float(cobros_cxc),
     })
 
 
@@ -381,6 +406,7 @@ def api_cierre_manual(request):
                 'total_ventas': str(cierre.total_ventas or Decimal('0.00')),
                 'total_efectivo': str(cierre.total_efectivo or Decimal('0.00')),
                 'total_transferencia': str(cierre.total_transferencia or Decimal('0.00')),
+                'total_cobros_cxc': str(cierre.total_cobros_cxc or Decimal('0.00')),
                 'resumen_cajeros': cierre.resumen_cajeros or {},
                 'generado_automaticamente': cierre.generado_automaticamente,
                 'tiene_pdf': bool(cierre.archivo_pdf),

@@ -180,6 +180,14 @@
                 Clientes
             </a>
 
+            <a href="{% url 'cuentas_por_cobrar:lista' %}"
+               class="{% if request.resolver_match.app_name == 'cuentas_por_cobrar' %}sidebar-item-active{% else %}sidebar-item{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 012-2z"></path>
+                </svg>
+                Cuentas por Cobrar
+            </a>
+
             {% if config.modulo_cotizaciones %}
             <a href="{% url 'cotizaciones:lista' %}"
                class="{% if request.resolver_match.app_name == 'cotizaciones' %}sidebar-item-active{% else %}sidebar-item{% endif %}">

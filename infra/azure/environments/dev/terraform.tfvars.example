@@ -1,0 +1,62 @@
+# Copiar este archivo como terraform.tfvars y completar valores reales.
+# terraform.tfvars esta ignorado por git.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+project_slug = "posfifo"
+environment  = "dev"
+location     = "canadacentral"
+
+# Tu suscripcion de estudiante/free puede limitar regiones. Canada Central fue
+# el region permitido para PostgreSQL en pruebas previas.
+observability_location  = null
+static_web_app_location = "canadacentral"
+static_web_app_sku_tier = "Free"
+static_web_app_sku_size = "Free"
+
+log_retention_days = 30
+
+extra_tags = {
+  owner = "santiago"
+}
+enable_static_web_app = false
+
+# Backend container platform.
+# Primer apply: crear ACR + Container Apps Environment, pero todavia no API/job.
+project_name            = "posfifo"
+container_apps_location = null
+acr_name                = null
+acr_sku                 = "Basic"
+
+enable_api_container_app = false
+enable_migrate_job       = false
+
+container_image_repository = "pos-fifo-backend"
+container_image_tag        = "dev"
+
+# Requeridos solo cuando enable_api_container_app o enable_migrate_job sean true.
+django_secret_key = null
+db_name           = null
+db_user           = null
+db_password       = null
+db_host           = null
+db_port           = "5432"
+db_sslmode        = "require"
+
+api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"
+api_cors_allowed_origins  = ""
+api_csrf_trusted_origins  = ""
+api_min_replicas          = 0
+api_max_replicas          = 1
+app_version               = "dev"
+git_commit_sha            = "unknown"
+
+# D3 secrets foundation.
+enable_key_vault                                = true
+key_vault_name                                  = null
+key_vault_location                              = null
+key_vault_purge_protection_enabled              = false
+grant_current_user_key_vault_secrets_officer    = true
+use_key_vault_secrets                           = false
+django_secret_key_secret_name                   = "django-secret-key"
+db_password_secret_name                         = "db-password"

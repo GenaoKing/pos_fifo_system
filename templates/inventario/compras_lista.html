@@ -54,7 +54,7 @@
                                         </span>
                                     </td>
                                     <td class="table-cell">
-                                        {{ compra.fecha|date:"d/m/Y H:i" }}
+                                        {{ compra.fecha_compra|date:"d/m/Y H:i" }}
                                     </td>
                                     <td class="table-cell">
                                         {{ compra.proveedor }}
@@ -75,12 +75,22 @@
                                         {{ compra.usuario.get_full_name|default:compra.usuario.username }}
                                     </td>
                                     <td class="table-cell">
-                                        <a 
-                                            href="{% url 'inventario:compra_detalle' compra.id %}"
-                                            class="text-primary-600 hover:text-primary-800"
-                                        >
-                                            Ver detalle
-                                        </a>
+                                        <div class="flex items-center space-x-3">
+                                            <a
+                                                href="{% url 'inventario:compra_detalle' compra.id %}"
+                                                class="text-primary-600 hover:text-primary-800"
+                                            >
+                                                Ver detalle
+                                            </a>
+                                            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+                                            <a
+                                                href="{% url 'inventario:compra_editar' compra.id %}"
+                                                class="text-gray-600 hover:text-gray-900"
+                                            >
+                                                Editar
+                                            </a>
+                                            {% endif %}
+                                        </div>
                                     </td>
                                 </tr>
                             {% endfor %}

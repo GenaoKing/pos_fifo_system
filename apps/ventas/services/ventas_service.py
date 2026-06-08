@@ -56,6 +56,8 @@ from utils.impresoras.manager import print_manager
 from ..models import DetalleVenta, Pago, Venta
 from .exceptions import (
     CarritoVacioError,
+    ClienteCreditoInvalidoError,
+    MetodoPlazoCreditoInvalidoError,
     PagoMixtoInconsistenteError,
     ProductoInexistenteError,
     StockInsuficienteError,
@@ -100,7 +102,7 @@ def procesar_venta_service(
                      'descuento': str|float (opcional)},
                     ...
                 ],
-                'metodo_pago': 'efectivo' | 'transferencia' | 'tarjeta' | 'mixto',
+                'metodo_pago': 'efectivo' | 'transferencia' | 'tarjeta' | 'mixto' | 'credito',
                 'monto_efectivo': str|float (opcional),
                 'monto_transferencia': str|float (opcional),
                 'monto_tarjeta': str|float (opcional),
@@ -121,6 +123,8 @@ def procesar_venta_service(
     # ----------------------- Parseo y validación de tipos primitivos
     carrito = datos.get('carrito') or []
     metodo_pago = datos.get('metodo_pago', 'efectivo')
+    es_credito = metodo_pago == 'credito'
+    credito_data = datos.get('credito') or {}
     monto_efectivo = _decimal(datos.get('monto_efectivo', 0))
     monto_transferencia = _decimal(datos.get('monto_transferencia', 0))
     monto_tarjeta = _decimal(datos.get('monto_tarjeta', 0))
@@ -149,6 +153,24 @@ def procesar_venta_service(
                 f'transferencia: ${monto_transferencia}, '
                 f'tarjeta: ${monto_tarjeta}).'
             )
+    elif es_credito:
+        monto_inicial = _decimal(credito_data.get('monto_inicial', 0))
+        metodo_inicial = (credito_data.get('metodo_inicial') or 'efectivo').strip()
+        if monto_inicial <= 0:
+            pass
+        elif metodo_inicial == 'mixto':
+            suma_inicial = (
+                _decimal(credito_data.get('monto_efectivo', monto_efectivo))
+                + _decimal(credito_data.get('monto_transferencia', monto_transferencia))
+                + _decimal(credito_data.get('monto_tarjeta', monto_tarjeta))
+            )
+            if abs(suma_inicial - monto_inicial) > Decimal('0.01'):
+                raise PagoMixtoInconsistenteError(
+                    f'La suma del inicial no coincide. '
+                    f'Inicial: ${monto_inicial}, suma: ${suma_inicial}.'
+                )
+        elif metodo_inicial not in ('efectivo', 'transferencia', 'tarjeta'):
+            raise MetodoPlazoCreditoInvalidoError('Metodo de inicial para credito invalido.')
 
     config = get_config()
 
@@ -161,6 +183,7 @@ def procesar_venta_service(
             carrito=carrito,
             cliente_id=cliente_id,
             total_esperado=total_esperado,
+            condicion_pago='CREDITO' if es_credito else 'CONTADO',
         )
 
         _crear_detalles_y_consumir_fifo(
@@ -176,7 +199,18 @@ def procesar_venta_service(
             monto_transferencia=monto_transferencia,
             monto_tarjeta=monto_tarjeta,
             referencia_tarjeta=referencia_tarjeta,
+            credito_data=credito_data,
         )
+
+        if es_credito:
+            from apps.cuentas_por_cobrar.services import crear_cuenta_para_venta
+
+            crear_cuenta_para_venta(
+                venta=venta,
+                usuario=usuario,
+                credito_data=credito_data,
+                ip_address=ip_address,
+            )
 
         # Auditoría dentro del atomic (atómica con la venta)
         Auditoria.registrar_venta(
@@ -262,6 +296,7 @@ def _crear_venta(
     carrito: list[dict],
     cliente_id: int | None,
     total_esperado: Decimal,
+    condicion_pago: str,
 ) -> Venta:
     """
     Crea la cabecera Venta. Calcula totales desde el carrito y los
@@ -294,12 +329,19 @@ def _crear_venta(
             # como contado (null). Se mantiene para no romper UI.
             cliente = None
 
+    if condicion_pago == 'CREDITO':
+        if cliente is None or not cliente.activo or cliente.es_contado:
+            raise ClienteCreditoInvalidoError(
+                'La venta a credito requiere un cliente real activo.'
+            )
+
     return Venta.objects.create(
         usuario=usuario,
         cliente=cliente,
         subtotal=subtotal,
         descuento_total=descuento_total,
         total=total,
+        condicion_pago=condicion_pago,
         estado='COMPLETADA',
     )
 
@@ -363,6 +405,7 @@ def _registrar_pagos(
     monto_transferencia: Decimal,
     monto_tarjeta: Decimal,
     referencia_tarjeta: str,
+    credito_data: dict[str, Any] | None = None,
 ) -> None:
     """
     Persiste los Pago de la venta. Para métodos puros, un solo Pago
@@ -370,6 +413,7 @@ def _registrar_pagos(
     """
     numero = venta.numero_venta
     total = venta.total
+    credito_data = credito_data or {}
 
     if metodo_pago == 'efectivo':
         Pago.objects.create(
@@ -413,6 +457,66 @@ def _registrar_pagos(
                 metodo='TARJETA',
                 monto=monto_tarjeta,
                 referencia=f'Tarjeta (Mixto) {referencia_tarjeta} - {numero}',
+            )
+    elif metodo_pago == 'credito':
+        monto_inicial = _decimal(credito_data.get('monto_inicial', 0))
+        saldo_credito = total - monto_inicial
+        metodo_inicial = (credito_data.get('metodo_inicial') or 'efectivo').strip()
+
+        if monto_inicial > 0:
+            if metodo_inicial == 'efectivo':
+                Pago.objects.create(
+                    venta=venta,
+                    metodo='EFECTIVO',
+                    monto=monto_inicial,
+                    referencia=f'Inicial credito efectivo - {numero}',
+                )
+            elif metodo_inicial == 'transferencia':
+                Pago.objects.create(
+                    venta=venta,
+                    metodo='TRANSFERENCIA',
+                    monto=monto_inicial,
+                    referencia=f'Inicial credito transferencia - {numero}',
+                )
+            elif metodo_inicial == 'tarjeta':
+                Pago.objects.create(
+                    venta=venta,
+                    metodo='TARJETA',
+                    monto=monto_inicial,
+                    referencia=f'Inicial credito tarjeta {referencia_tarjeta} - {numero}',
+                )
+            elif metodo_inicial == 'mixto':
+                inicial_efectivo = _decimal(credito_data.get('monto_efectivo', 0))
+                inicial_transferencia = _decimal(credito_data.get('monto_transferencia', 0))
+                inicial_tarjeta = _decimal(credito_data.get('monto_tarjeta', 0))
+                if inicial_efectivo > 0:
+                    Pago.objects.create(
+                        venta=venta,
+                        metodo='EFECTIVO',
+                        monto=inicial_efectivo,
+                        referencia=f'Inicial credito efectivo mixto - {numero}',
+                    )
+                if inicial_transferencia > 0:
+                    Pago.objects.create(
+                        venta=venta,
+                        metodo='TRANSFERENCIA',
+                        monto=inicial_transferencia,
+                        referencia=f'Inicial credito transferencia mixto - {numero}',
+                    )
+                if inicial_tarjeta > 0:
+                    Pago.objects.create(
+                        venta=venta,
+                        metodo='TARJETA',
+                        monto=inicial_tarjeta,
+                        referencia=f'Inicial credito tarjeta mixto {referencia_tarjeta} - {numero}',
+                    )
+
+        if saldo_credito > 0:
+            Pago.objects.create(
+                venta=venta,
+                metodo='CREDITO',
+                monto=saldo_credito,
+                referencia=f'CxC - {numero}',
             )
 
 

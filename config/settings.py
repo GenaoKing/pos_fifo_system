@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.auditoria',
     'apps.reportes',
     'apps.clientes',
+    'apps.cuentas_por_cobrar',
     'apps.cotizaciones',
     'apps.configuracion',
     'apps.caja',
@@ -86,6 +87,10 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+# Test runner: aisla el cache entre tests (ver config/test_runner.py).
+# Solo se usa al correr `manage.py test`; no afecta runtime de produccion.
+TEST_RUNNER = 'config.test_runner.CacheIsolatedTestRunner'
 
 
 # Database

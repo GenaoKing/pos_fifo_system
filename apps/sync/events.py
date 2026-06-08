@@ -189,3 +189,54 @@ def evento_compra_registrada(compra):
         referencia=getattr(compra, 'numero_compra', '') or f'Compra-{compra.pk}',
         objeto_id_local=compra.pk,
     )
+
+
+def evento_cxc_creada(cuenta):
+    """Encola un evento CXC_CREADA."""
+    try:
+        payload = serializers.serializar_cxc(cuenta)
+    except Exception as exc:
+        logger.exception('No se pudo serializar CxC %s: %s', cuenta.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='CXC_CREADA',
+        payload=payload,
+        referencia=cuenta.venta.numero_venta,
+        objeto_id_local=cuenta.pk,
+        sucursal=cuenta.sucursal,
+    )
+
+
+def evento_cxc_pago_registrado(pago):
+    """Encola un evento CXC_PAGO_REGISTRADO."""
+    try:
+        payload = serializers.serializar_pago_cxc(pago)
+    except Exception as exc:
+        logger.exception('No se pudo serializar pago CxC %s: %s', pago.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='CXC_PAGO_REGISTRADO',
+        payload=payload,
+        referencia=f'{pago.cuenta.venta.numero_venta}-P{pago.pk}',
+        objeto_id_local=pago.pk,
+        sucursal=pago.cuenta.sucursal,
+    )
+
+
+def evento_cxc_anulada(cuenta):
+    """Encola un evento CXC_ANULADA."""
+    try:
+        payload = serializers.serializar_cxc(cuenta)
+    except Exception as exc:
+        logger.exception('No se pudo serializar anulacion CxC %s: %s', cuenta.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='CXC_ANULADA',
+        payload=payload,
+        referencia=cuenta.venta.numero_venta,
+        objeto_id_local=cuenta.pk,
+        sucursal=cuenta.sucursal,
+    )

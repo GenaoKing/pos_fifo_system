@@ -5,6 +5,7 @@ from datetime import date
 
 from .models import CierreCaja, TopProducto, InventarioValorizado
 from apps.ventas.models import Venta, DetalleVenta, Pago
+from apps.cuentas_por_cobrar.models import PagoCxC
 from apps.productos.models import Producto
 from apps.inventario.models import Lote
 
@@ -57,6 +58,11 @@ class ReporteManager:
             venta__in=ventas,
             metodo='TARJETA'
         ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+
+        cobros_cxc = PagoCxC.objects.filter(
+            fecha_pago__date=fecha,
+            estado='APLICADO',
+        ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
         
         # Anulaciones
         anulaciones = Venta.objects.filter(
@@ -97,6 +103,7 @@ class ReporteManager:
             total_efectivo=pagos_efectivo,
             total_transferencia=pagos_transferencia,
             total_tarjeta=pagos_tarjeta,
+            total_cobros_cxc=cobros_cxc,
             cantidad_anulaciones=anulaciones['cantidad'] or 0,
             total_anulaciones=anulaciones['total'] or Decimal('0.00'),
             resumen_cajeros=resumen_cajeros,

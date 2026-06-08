@@ -54,6 +54,13 @@ class CierreCaja(models.Model):
         decimal_places=2,
         default=Decimal('0.00')
     )
+
+    total_cobros_cxc = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text="Total cobrado de cuentas por cobrar en el dia"
+    )
     
     # Anulaciones
     cantidad_anulaciones = models.IntegerField(

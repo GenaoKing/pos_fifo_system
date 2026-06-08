@@ -12,6 +12,7 @@ Este módulo maneja:
 
 from django.http import JsonResponse, HttpResponse
 
+from apps.configuracion.models import AccesoRapidoPOS
 from apps.configuracion.utils import get_config
 
 from .models import Venta, FinanciacionCooperativa
@@ -39,7 +40,6 @@ from apps.productos.models import Producto
 from apps.inventario.models import Lote, MovimientoLote
 from apps.inventario.fifo_logic import procesar_venta_fifo
 
-from apps.productos.models import Producto
 import pytz
 
 
@@ -89,18 +89,71 @@ def punto_venta(request):
             'label': 'Tarjeta',
             'icon': 'card',
         })
+
+    from apps.cuentas_por_cobrar.models import MetodoPlazoCredito
+    metodos_credito = [
+        {
+            'id': m.id,
+            'nombre': m.nombre,
+            'tipo': m.tipo,
+            'dias_vencimiento': m.dias_vencimiento,
+            'cantidad_cuotas': m.cantidad_cuotas,
+            'frecuencia': m.frecuencia,
+            'inicial_minima_porcentaje': str(m.inicial_minima_porcentaje),
+        }
+        for m in MetodoPlazoCredito.objects.filter(activo=True).order_by('nombre')
+    ]
  
     context = {
         'usuario': request.user,
         'pos_config_json': {
             'metodos_pago': metodos_pago,
+            'metodos_credito': metodos_credito,
             'permite_mixto': len(metodos_pago) > 1,
-            'permitir_inventario_negativo': get_config().permitir_inventario_negativo,
+            'permitir_inventario_negativo': config.permitir_inventario_negativo,
+            'modulo_ecf': config.modulo_ecf,
         },
-        'permitir_inventario_negativo': get_config().permitir_inventario_negativo,
     }
  
     return render(request, 'pos/punto_venta.html', context)
+
+
+def _stock_disponible_producto(producto):
+    return Lote.objects.filter(
+        producto=producto,
+        cantidad_actual__gt=0,
+        activo=True
+    ).aggregate(total=Sum('cantidad_actual'))['total'] or 0
+
+
+def _producto_pos_data(producto):
+    stock_disponible = _stock_disponible_producto(producto)
+    return {
+        'id': producto.id,
+        'nombre': producto.nombre,
+        'sku': producto.sku,
+        'codigo_barras': producto.codigo_barras or '',
+        'precio_venta': float(producto.precio_venta),
+        'stock_disponible': stock_disponible,
+        'tiene_stock': stock_disponible > 0,
+        'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoria',
+        'categoria_id': producto.categoria_id,
+        'precio_formateado': f"${producto.precio_venta:,.2f}",
+        'imagen': producto.imagen.url if producto.imagen else '',
+    }
+
+
+def _acceso_rapido_pos_data(acceso):
+    return {
+        'id': acceso.id,
+        'etiqueta': acceso.etiqueta_visible,
+        'tipo': acceso.tipo,
+        'color': acceso.color,
+        'producto_id': acceso.producto_id,
+        'categoria_id': acceso.categoria_id,
+        'producto_nombre': acceso.producto.nombre if acceso.producto_id else '',
+        'categoria_nombre': acceso.categoria.nombre if acceso.categoria_id else '',
+    }
  
 # ============================================
 # API: BUSCAR PRODUCTOS
@@ -129,10 +182,14 @@ def buscar_productos(request):
         - tiene_stock (boolean)
     """
     query = request.GET.get('q', '').strip()
-    limit = int(request.GET.get('limit', 20))
+    categoria_id = request.GET.get('categoria_id')
+    try:
+        limit = int(request.GET.get('limit', 20))
+    except (TypeError, ValueError):
+        limit = 20
     
     # Validar que el término tenga al menos 2 caracteres
-    if len(query) < 2:
+    if len(query) < 2 and not categoria_id:
         return JsonResponse({
             'success': True,
             'productos': [],
@@ -140,42 +197,25 @@ def buscar_productos(request):
         })
     
     # Buscar productos activos que coincidan
-    productos = Producto.objects.filter(
-        activo=True
-    ).filter(
-        # Buscar por nombre (case-insensitive)
-        Q(nombre__icontains=query) |
-        # O por SKU
-        Q(sku__icontains=query) |
-        # O por código de barras (exacto)
-        Q(codigo_barras__iexact=query)
-    ).select_related('categoria')[:limit]
-    
-    # Construir respuesta con información completa
-    productos_data = []
-    for producto in productos:
-        # Calcular stock disponible (suma de todos los lotes activos)
-        stock_disponible = Lote.objects.filter(
-            producto=producto,
-            cantidad_actual__gt=0,
-            activo=True
-        ).aggregate(
-            total=Sum('cantidad_actual')
-        )['total'] or 0
-        
-        productos_data.append({
-            'id': producto.id,
-            'nombre': producto.nombre,
-            'sku': producto.sku,
-            'codigo_barras': producto.codigo_barras or '',
-            'precio_venta': float(producto.precio_venta),
-            'stock_disponible': stock_disponible,
-            'tiene_stock': stock_disponible > 0,
-            'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoría',
-            # Información adicional útil para el POS
-            'precio_formateado': f"${producto.precio_venta:,.2f}",
-            'imagen': producto.imagen.url if producto.imagen else '',
-        })
+    productos = Producto.objects.filter(activo=True).select_related('categoria')
+
+    if categoria_id:
+        productos = productos.filter(categoria_id=categoria_id, categoria__activa=True)
+
+    if query:
+        productos = productos.filter(
+            # Buscar por nombre (case-insensitive)
+            Q(nombre__icontains=query) |
+            # O por SKU
+            Q(sku__icontains=query) |
+            # O por codigo de barras (exacto)
+            Q(codigo_barras__iexact=query) |
+            # O por categoria para accesos rapidos
+            Q(categoria__nombre__icontains=query)
+        )
+
+    productos = productos[:limit]
+    productos_data = [_producto_pos_data(producto) for producto in productos]
     
     return JsonResponse({
         'success': True,
@@ -209,29 +249,9 @@ def producto_por_codigo(request, codigo_barras):
             activo=True
         )
         
-        # Calcular stock disponible
-        stock_disponible = Lote.objects.filter(
-            producto=producto,
-            cantidad_actual__gt=0,
-            activo=True
-        ).aggregate(
-            total=Sum('cantidad_actual')
-        )['total'] or 0
-        
         return JsonResponse({
             'success': True,
-            'producto': {
-                'id': producto.id,
-                'nombre': producto.nombre,
-                'sku': producto.sku,
-                'codigo_barras': producto.codigo_barras,
-                'precio_venta': float(producto.precio_venta),
-                'stock_disponible': stock_disponible,
-                'tiene_stock': stock_disponible > 0,
-                'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoría',
-                'precio_formateado': f"${producto.precio_venta:,.2f}",
-                'imagen': producto.imagen.url if producto.imagen else '',
-            }
+            'producto': _producto_pos_data(producto),
         })
     
     except Producto.DoesNotExist:
@@ -239,6 +259,57 @@ def producto_por_codigo(request, codigo_barras):
             'success': False,
             'error': f'Producto con código de barras "{codigo_barras}" no encontrado'
         }, status=404)
+
+
+@login_required
+@require_http_methods(["GET"])
+def producto_por_id(request, producto_id):
+    """
+    API para consultar un producto activo por ID desde el POS.
+
+    Se usa para accesos rapidos de producto, manteniendo precio y stock frescos.
+    """
+    try:
+        producto = Producto.objects.select_related('categoria').get(
+            id=producto_id,
+            activo=True,
+        )
+    except Producto.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'Producto no encontrado o inactivo',
+        }, status=404)
+
+    return JsonResponse({
+        'success': True,
+        'producto': _producto_pos_data(producto),
+    })
+
+
+@login_required
+@require_http_methods(["GET"])
+def accesos_rapidos_pos(request):
+    """Lista los botones configurables globales del POS."""
+    accesos = (
+        AccesoRapidoPOS.objects
+        .filter(activo=True)
+        .select_related('producto', 'categoria')
+        .order_by('orden', 'id')
+    )
+
+    accesos_validos = []
+    for acceso in accesos:
+        if acceso.tipo == AccesoRapidoPOS.TIPO_PRODUCTO:
+            if acceso.producto_id and acceso.producto.activo:
+                accesos_validos.append(_acceso_rapido_pos_data(acceso))
+        elif acceso.tipo == AccesoRapidoPOS.TIPO_CATEGORIA:
+            if acceso.categoria_id and acceso.categoria.activa:
+                accesos_validos.append(_acceso_rapido_pos_data(acceso))
+
+    return JsonResponse({
+        'success': True,
+        'accesos': accesos_validos,
+    })
 
 
 # ============================================
@@ -380,8 +451,10 @@ def procesar_venta(request):
             'id': venta.id,
             'numero_venta': venta.numero_venta,
             'total': float(venta.total),
+            'condicion_pago': venta.condicion_pago,
             'fecha': venta.fecha_venta.strftime('%d/%m/%Y %H:%M'),
             'items_count': venta.detalles.count(),
+            'saldo_credito': float(getattr(getattr(venta, 'cuenta_por_cobrar', None), 'saldo', 0) or 0),
         },
         'mensaje': f'Venta {venta.numero_venta} procesada exitosamente',
     })

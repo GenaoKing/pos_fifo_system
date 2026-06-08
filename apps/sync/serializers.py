@@ -50,9 +50,11 @@ def serializar_venta(venta):
         'descuento_total': _d(venta.descuento_total),
         'total': _d(venta.total),
         'estado': venta.estado,
+        'condicion_pago': getattr(venta, 'condicion_pago', 'CONTADO'),
         'notas': venta.notas or '',
         'detalles': [_serializar_detalle(d) for d in venta.detalles.all()],
         'pagos': [_serializar_pago(p) for p in venta.pagos.all()],
+        'cuenta_por_cobrar': _serializar_cuenta_cxc(getattr(venta, 'cuenta_por_cobrar', None)),
     }
 
 
@@ -95,6 +97,80 @@ def serializar_anulacion_venta(venta):
             venta.anulada_por.username if venta.anulada_por_id else None
         ),
         'motivo_anulacion': venta.motivo_anulacion or '',
+    }
+
+
+def _serializar_cuenta_cxc(cuenta):
+    if cuenta is None:
+        return None
+    return {
+        'cuenta_id_local': cuenta.id,
+        'metodo_plazo': cuenta.metodo_plazo.nombre,
+        'total': _d(cuenta.total),
+        'monto_inicial': _d(cuenta.monto_inicial),
+        'saldo': _d(cuenta.saldo),
+        'estado': cuenta.estado,
+        'fecha_limite': cuenta.fecha_limite.isoformat() if cuenta.fecha_limite else None,
+        'cuotas': [
+            {
+                'numero': c.numero,
+                'monto': _d(c.monto),
+                'saldo': _d(c.saldo),
+                'estado': c.estado,
+                'fecha_vencimiento': c.fecha_vencimiento.isoformat(),
+            }
+            for c in cuenta.cuotas.all()
+        ],
+    }
+
+
+def serializar_cxc(cuenta):
+    return {
+        'cuenta_id_local': cuenta.id,
+        'numero_venta': cuenta.venta.numero_venta,
+        'sucursal_codigo': cuenta.sucursal.codigo if cuenta.sucursal_id else None,
+        'cliente_cedula_rnc': cuenta.cliente.cedula_rnc or None,
+        'cliente_nombre': cuenta.cliente.nombre,
+        'metodo_plazo': cuenta.metodo_plazo.nombre,
+        'total': _d(cuenta.total),
+        'monto_inicial': _d(cuenta.monto_inicial),
+        'saldo': _d(cuenta.saldo),
+        'estado': cuenta.estado,
+        'fecha_emision': cuenta.fecha_emision.isoformat(),
+        'fecha_limite': cuenta.fecha_limite.isoformat(),
+        'override_autorizado_por_username': (
+            cuenta.override_autorizado_por.username
+            if cuenta.override_autorizado_por_id else None
+        ),
+        'cuotas': [
+            {
+                'numero': c.numero,
+                'monto': _d(c.monto),
+                'saldo': _d(c.saldo),
+                'fecha_vencimiento': c.fecha_vencimiento.isoformat(),
+                'estado': c.estado,
+            }
+            for c in cuenta.cuotas.all()
+        ],
+    }
+
+
+def serializar_pago_cxc(pago):
+    cuenta = pago.cuenta
+    return {
+        'pago_id_local': pago.id,
+        'cuenta_id_local': cuenta.id,
+        'numero_venta': cuenta.venta.numero_venta,
+        'sucursal_codigo': cuenta.sucursal.codigo if cuenta.sucursal_id else None,
+        'cliente_cedula_rnc': cuenta.cliente.cedula_rnc or None,
+        'metodo': pago.metodo,
+        'monto': _d(pago.monto),
+        'referencia': pago.referencia or '',
+        'fecha_pago': _dt(pago.fecha_pago),
+        'registrado_por_username': pago.registrado_por.username if pago.registrado_por_id else None,
+        'estado': pago.estado,
+        'aplicaciones': pago.aplicaciones or [],
+        'saldo_cuenta': _d(cuenta.saldo),
     }
 
 

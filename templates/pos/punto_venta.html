@@ -271,7 +271,6 @@
 
 {% block content %}
 {{ pos_config_json|json_script:"pos-config-data" }}
-{{ permitir_inventario_negativo|json_script:"pos-config-inv-negativo" }}
 
 
 <!-- 
@@ -528,7 +527,35 @@
                     class="form-input search-input w-full"
                 >
             </div>
-            
+
+            <div
+                x-show="accesosRapidos.length > 0"
+                class="mt-3 flex gap-2 overflow-x-auto pb-1"
+            >
+                <template x-for="acceso in accesosRapidos" :key="acceso.id">
+                    <button
+                        type="button"
+                        @click="usarAccesoRapido(acceso)"
+                        :disabled="panelPagoActivo || loadingAccesosRapidos"
+                        class="inline-flex min-w-[7.5rem] max-w-[10rem] items-center justify-center gap-1 rounded-md border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+                        :class="clasesAccesoRapido(acceso)"
+                        :title="acceso.tipo === 'producto' ? acceso.producto_nombre : acceso.categoria_nombre"
+                    >
+                        <template x-if="acceso.tipo === 'producto'">
+                            <svg class="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                            </svg>
+                        </template>
+                        <template x-if="acceso.tipo === 'categoria'">
+                            <svg class="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h6v6H4V6zm10 0h6v6h-6V6zM4 16h6v2H4v-2zm10 0h6v2h-6v-2z"></path>
+                            </svg>
+                        </template>
+                        <span class="truncate" x-text="acceso.etiqueta"></span>
+                    </button>
+                </template>
+            </div>
+             
             <!-- Indicador de resultados -->
             <div class="mt-2 flex items-center justify-between text-sm">
                 <span class="text-gray-600">
@@ -641,7 +668,7 @@
                             <p class="text-xs text-primary-600" x-text="clienteSeleccionado.cedula_rnc || clienteSeleccionado.telefono || ''"></p>
                         </div>
                         <button 
-                            @click="clienteSeleccionado = null; clienteBusqueda = ''"
+                            @click="limpiarClientePOS()"
                             class="ml-2 p-1 text-primary-400 hover:text-primary-600 hover:bg-primary-100 rounded flex-shrink-0"
                             title="Quitar cliente"
                         >
@@ -649,6 +676,19 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                             </svg>
                         </button>
+                    </div>
+                </template>
+
+                <template x-if="clienteSeleccionado && creditoResumen">
+                    <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <div class="p-2 bg-gray-50 border border-gray-200 rounded">
+                            <span class="text-gray-500">Pendiente</span>
+                            <p class="font-semibold text-gray-900" x-text="'$' + parseFloat(creditoResumen.saldo_pendiente || 0).toFixed(2)"></p>
+                        </div>
+                        <div class="p-2 bg-gray-50 border border-gray-200 rounded">
+                            <span class="text-gray-500">Disponible</span>
+                            <p class="font-semibold" :class="creditoDisponible() < 0 ? 'text-danger-600' : 'text-gray-900'" x-text="'$' + creditoDisponible().toFixed(2)"></p>
+                        </div>
                     </div>
                 </template>
 
@@ -787,6 +827,19 @@
                                 <p class="text-sm font-medium">Pago Mixto</p>
                             </div>
                         </div>
+
+                        <div x-show="metodosCreditoConfig.length > 0"
+                            @click="seleccionarMetodoPago('credito')"
+                            class="metodo-pago-btn mt-2"
+                            :class="{ 'activo': metodoPago === 'credito' }"
+                        >
+                            <div class="flex items-center justify-center">
+                                <svg class="w-6 h-6 mr-2" :class="metodoPago === 'credito' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 012-2z"></path>
+                                </svg>
+                                <p class="text-sm font-medium">Credito</p>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Campos de pago segun metodo -->
@@ -914,6 +967,80 @@
                                 </div>
                             </div>
                         </template>
+
+                        <template x-if="metodoPago === 'credito'">
+                            <div class="space-y-3">
+                                <template x-if="!clienteSeleccionado">
+                                    <div class="p-3 bg-warning-50 border border-warning-200 rounded-lg text-sm text-warning-800">
+                                        Selecciona un cliente para vender a credito.
+                                    </div>
+                                </template>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Metodo de plazo</label>
+                                    <select x-model="credito.metodo_plazo_id" class="form-select w-full">
+                                        <template x-for="m in metodosCreditoConfig" :key="m.id">
+                                            <option :value="m.id" x-text="m.nombre"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Inicial</label>
+                                        <input type="number" x-model.number="credito.monto_inicial" min="0" step="0.01" class="form-input w-full">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Metodo inicial</label>
+                                        <select x-model="credito.metodo_inicial" class="form-select w-full">
+                                            <option value="efectivo">Efectivo</option>
+                                            <option value="transferencia">Transferencia</option>
+                                            <option value="tarjeta">Tarjeta</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cuotas</label>
+                                        <input type="number" x-model.number="credito.cantidad_cuotas" min="1" class="form-input w-full">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Primer venc.</label>
+                                        <input type="date" x-model="credito.fecha_primer_vencimiento" class="form-input w-full">
+                                    </div>
+                                </div>
+
+                                <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600">Saldo a credito:</span>
+                                        <span class="font-semibold" x-text="'$' + saldoCreditoNuevo().toFixed(2)"></span>
+                                    </div>
+                                    <div class="flex justify-between text-sm" x-show="creditoResumen">
+                                        <span class="text-gray-600">Disponible:</span>
+                                        <span class="font-semibold" :class="creditoExcedeLimite() ? 'text-danger-600' : 'text-success-600'" x-text="'$' + creditoDisponible().toFixed(2)"></span>
+                                    </div>
+                                </div>
+
+                                <template x-if="creditoExcedeLimite()">
+                                    <div class="p-3 bg-danger-50 border border-danger-200 rounded-lg space-y-2">
+                                        <p class="text-sm font-medium text-danger-800">Requiere autorizacion ADMIN</p>
+                                        <template x-if="!credito.admin_override_id">
+                                            <div class="space-y-2">
+                                                <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin">
+                                                <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena">
+                                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo">
+                                                <button type="button" class="btn-outline btn-sm w-full" @click="validarAdminCredito()" :disabled="credito.auth_validando">Autorizar</button>
+                                                <p class="text-xs text-danger-700" x-show="credito.auth_error" x-text="credito.auth_error"></p>
+                                            </div>
+                                        </template>
+                                        <template x-if="credito.admin_override_id">
+                                            <p class="text-sm text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></p>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </template>
@@ -957,941 +1084,5 @@
 
 <!-- Alpine.js Component Script (CONTINUARÁ EN SIGUIENTE MENSAJE) -->
 
-<script>
-/**
- * POS - Punto de Venta
- * JavaScript Component (Alpine.js)
- * 
- * PARTE 2: Descuentos + Panel de Pago
- */
-
-function posData() {
-    return {
-        // ============================================
-        // ESTADO DEL CARRITO
-        // ============================================
-        carrito: [],
-        
-        // ============================================
-        // ESTADO DE BÚSQUEDA
-        // ============================================
-        busqueda: '',
-        productos: [],
-        loading: false,
-        
-       // ============================================
-        // ESTADO DEL SCANNER
-        // ============================================
-        scannerProcessing: false,
-        scannerState: 'ready',
-        scannerToastVisible: false,
-        scannerToastMessage: '',
-        scannerToastType: 'success',
-        scannerToastTimeout: null,
-        scannerFocusInterval: null,
-
-        // ============================================
-        // ESTADO DE TARJETA
-        referenciaTarjeta: '',
-
-        // ============================================
-        // ESTADO DE CLIENTE Y COTIZACION
-        // ============================================
-        clienteSeleccionado: null,
-        clienteBusqueda: '',
-        clientesResultados: [],
-        mostrarClientesDropdown: false,
-        cotizacionId: null,
-
-        // ============================================
-        // CONFIGURACIÓN DE MÉTODOS DE PAGO 
-        // (CARGADA DESDE EL BACKEND)
-        metodosPagoConfig: [],
-        permiteMixto: true,
-        permitirInvNegativo: false,
-
-        // ============================================
-        // ESTADO DE PAGO (NUEVO EN PARTE 2)
-        // ============================================
-        panelPagoActivo: false,
-        metodoPago: 'efectivo', // 'efectivo', 'transferencia', 'mixto'
-        moduloEcfActivo: {{ config.modulo_ecf|yesno:"true,false" }},
-        tipoEcf: '32',
-        montoPagado: 0,
-        montoEfectivo: 0,
-        montoTransferencia: 0,
-        cambio: 0,
-        
-        procesandoVenta: false,
-        
-        // ============================================
-        // INICIALIZACIÓN
-        // ============================================
-        init() {
-            console.log('POS inicializado - Parte 2: Descuentos + Pago');
-            console.log('Permitir Inventario Negativo:', this.permitirInvNegativo);
-          
-            this.permitirInvNegativo = JSON.parse(
-                document.getElementById('pos-config-inv-negativo').textContent
-            );
-            
-            // ============================================
-            // INICIALIZAR SCANNER DE CODIGO DE BARRAS
-            // ============================================
-            // ============================================
-            // INICIALIZAR SCANNER DE CODIGO DE BARRAS
-            // ============================================
-            this.initScanner();
-
-            const posConfig = JSON.parse(
-                document.getElementById('pos-config-data').textContent
-            );
-            this.metodosPagoConfig = posConfig.metodos_pago;
-            this.permiteMixto = posConfig.permite_mixto;
-            this.permitsInvNegativo = posConfig.permitir_inventario_negativo;
-            // Redirigir focus al scanner cuando se hace click fuera de inputs
-            document.addEventListener('click', (e) => {
-                if (!this.panelPagoActivo && 
-                    e.target.tagName !== 'INPUT' && 
-                    e.target.tagName !== 'BUTTON' &&
-                    e.target.tagName !== 'SELECT' &&
-                    e.target.tagName !== 'TEXTAREA') {
-                    this.focusScanner();
-                }
-            });
-
-            // Focus automático en el campo de búsqueda
-            this.$nextTick(() => {
-                this.$refs.searchInput.focus();
-            });
-
-            const urlParams = new URLSearchParams(window.location.search);
-            const cotizacionId = urlParams.get('cotizacion');
-            if (cotizacionId) {
-                this.cargarCotizacion(cotizacionId);
-            }
-            
-            // Atajos de teclado globales
-            document.addEventListener('keydown', async (e) => {
-                // F2: Focus en búsqueda
-                if (e.key === 'F2') {
-                    e.preventDefault();
-                    if (!this.panelPagoActivo) {
-                        this.$refs.searchInput.focus();
-                    }
-                }
-                
-                // F4: Proceder a pago / Confirmar venta
-                if (e.key === 'F4') {
-                    e.preventDefault();
-                    if (!this.panelPagoActivo && this.validarCarrito()) {
-                        this.habilitarPanelPago();
-                    } else if (this.panelPagoActivo && this.validarPago()) {
-                        this.confirmarVenta();
-                    }
-                }
-                
-                // F8: Cancelar
-                // F8: Cancelar
-                if (e.key === 'F8') {
-                    e.preventDefault();
-                    if (this.panelPagoActivo) {
-                        this.cancelarPago();
-                    } else if (this.carrito.length > 0) {
-                        const ok = await showConfirm(
-                            '¿Cancelar la venta actual?',
-                            'Se vaciará el carrito completo.',
-                            { confirmText: 'Sí, cancelar', type: 'danger' }
-                        );
-                        if (ok) this.limpiarCarrito();
-                    }
-                }
-            });
-        },
-        
-        // ============================================
-        // BÚSQUEDA DE PRODUCTOS
-        // ============================================
-        
-        /**
-         * Busca productos via API
-         * Búsqueda por nombre, SKU o código de barras
-         */
-        async buscarProductos() {
-            // Validar longitud mínima
-            if (this.busqueda.trim().length < 2) {
-                this.productos = [];
-                return;
-            }
-            
-            this.loading = true;
-            
-            try {
-                const response = await fetch(
-                    `/pos/api/buscar/?q=${encodeURIComponent(this.busqueda)}&limit=20`
-                );
-                const data = await response.json();
-                
-                if (data.success) {
-                    this.productos = data.productos;
-                }
-            } catch (error) {
-                console.error('Error al buscar productos:', error);
-                showToast('error', 'Error al buscar productos');
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        // ============================================
-        // GESTIÓN DEL CARRITO
-        // ============================================
-        
-        /**
-         * Agrega un producto al carrito
-         * Si ya existe, incrementa la cantidad
-         */
-        agregarAlCarrito(producto) {
-            if (!producto.tiene_stock && !this.permitirInvNegativo) {
-                showToast('error', `${producto.nombre} no tiene stock disponible`);
-                return;
-            }
-         
-            
-            // Buscar si ya existe en el carrito
-            const index = this.carrito.findIndex(item => item.id === producto.id);
-            
-            if (index !== -1) {
-                // Ya existe, aumentar cantidad
-                this.carrito[index].cantidad++;
-                this.actualizarSubtotal(index);
-            } else {
-                // Agregar nuevo item
-                this.carrito.push({
-                    id: producto.id,
-                    nombre: producto.nombre,
-                    sku: producto.sku,
-                    precio_venta: producto.precio_venta,
-                    cantidad: 1,
-                    stock_disponible: producto.stock_disponible,
-                    descuento: 0, // Descuento en monto fijo
-                    subtotal: producto.precio_venta
-                });
-            }
-            
-            // Limpiar búsqueda y resultados
-            this.busqueda = '';
-            this.productos = [];
-            this.$refs.searchInput.focus();
-        },
-        
-        /**
-         * Elimina un producto del carrito
-         */
-        eliminarDelCarrito(index) {
-            this.carrito.splice(index, 1);
-            if (this.carrito.length === 0) {
-                this.panelPagoActivo = false;
-            }
-        },
-        
-        /**
-         * Actualiza la cantidad de un item
-         */
-        actualizarCantidad(index, nuevaCantidad) {
-            if (nuevaCantidad < 1) return;
-            
-            this.carrito[index].cantidad = nuevaCantidad;
-            this.actualizarSubtotal(index);
-        },
-        
-        /**
-         * Actualiza el subtotal de un item
-         */
-        actualizarSubtotal(index) {
-            const item = this.carrito[index];
-            item.subtotal = item.cantidad * item.precio_venta;
-            
-            // Si el descuento es mayor al nuevo subtotal, ajustarlo
-            if (item.descuento > item.subtotal) {
-                item.descuento = item.subtotal;
-            }
-        },
-        
-
-        /**
-         * Aplica un descuento a un item del carrito
-         * Valida que no sea mayor al subtotal
-         */
-        aplicarDescuento(index) {
-            const item = this.carrito[index];
-            
-            // Validar que no sea negativo
-            if (item.descuento < 0) {
-                item.descuento = 0;
-            }
-            
-            // Validar que no sea mayor al subtotal
-            if (item.descuento > item.subtotal) {
-                item.descuento = item.subtotal;
-            }
-        },
-        
-        /**
-         * Limpia todo el carrito
-         */
-        limpiarCarrito() {
-            this.carrito = [];
-            this.busqueda = '';
-            this.productos = [];
-            this.panelPagoActivo = false;
-            this.tipoEcf = '32';
-            // Limpiar cliente y cotizacion
-            this.clienteSeleccionado = null;
-            this.clienteBusqueda = '';
-            this.clientesResultados = [];
-            this.cotizacionId = null;
-            this.focusScanner();
-            this.referenciaTarjeta = '';
-            this.procesandoVenta = false;
-        },
-        
-        // ============================================
-        // CÁLCULOS DE TOTALES
-        // ============================================
-        
-        /**
-         * Calcula el subtotal (sin descuentos)
-         */
-        calcularSubtotal() {
-            return this.carrito.reduce((sum, item) => sum + item.subtotal, 0);
-        },
-        
-        /**
-         * Calcula el total de descuentos
-         */
-        calcularDescuentoTotal() {
-            return this.carrito.reduce((sum, item) => sum + (item.descuento || 0), 0);
-        },
-        
-        /**
-         * Calcula el total final (subtotal - descuentos)
-         */
-        calcularTotal() {
-            return this.calcularSubtotal() - this.calcularDescuentoTotal();
-        },
-        
-        // ============================================
-        // GESTIÓN DE PAGO
-        // ============================================
-        
-        /**
-         * Habilita el panel de pago
-         */
-
-
-        // ============================================
-        // GESTION DE CLIENTE
-        // ============================================
-
-        /**
-         * Buscar clientes para el selector del POS
-         */
-        async buscarClientes() {
-            if (this.clienteBusqueda.length < 2) {
-                this.clientesResultados = [];
-                this.mostrarClientesDropdown = false;
-                return;
-            }
-            try {
-                const res = await fetch(`/clientes/api/buscar/?q=${encodeURIComponent(this.clienteBusqueda)}`);
-                const data = await res.json();
-                this.clientesResultados = data.clientes || [];
-                this.mostrarClientesDropdown = true;
-            } catch (e) {
-                console.error('Error buscando clientes:', e);
-            }
-        },
-
-        /**
-         * Selecciona un cliente en el POS
-         */
-        seleccionarClientePOS(cliente) {
-            this.clienteSeleccionado = cliente;
-            this.clienteBusqueda = '';
-            this.clientesResultados = [];
-            this.mostrarClientesDropdown = false;
-        },
-
-        // ============================================
-        // CARGA DE COTIZACION
-        // ============================================
-
-        /**
-         * Carga una cotizacion pendiente al carrito
-         */
-        async cargarCotizacion(cotizacionId) {
-            try {
-                const res = await fetch(`/cotizaciones/api/${cotizacionId}/datos/`);
-                const data = await res.json();
-
-                if (data.success) {
-                    this.carrito = data.productos.map(p => ({
-                        id: p.id,
-                        nombre: p.nombre,
-                        sku: p.sku,
-                        precio_venta: p.precio_venta,
-                        cantidad: p.cantidad,
-                        stock_disponible: p.stock_actual,
-                        descuento: p.descuento || 0,
-                        subtotal: p.precio_venta * p.cantidad,
-                    }));
-
-                    this.cotizacionId = cotizacionId;
-
-                    if (data.cliente) {
-                        this.clienteSeleccionado = data.cliente;
-                    }
-
-                    this.scannerFeedbackMsg('success',
-                        `Cotizacion ${data.numero_cotizacion} cargada (${data.productos.length} productos)`
-                    );
-                } else {
-                    this.scannerFeedbackMsg('error', data.error || 'Error al cargar cotizacion');
-                }
-            } catch (e) {
-                console.error('Error cargando cotizacion:', e);
-                this.scannerFeedbackMsg('error', 'Error de conexion al cargar cotizacion');
-            }
-        },
-
-
-        habilitarPanelPago() {
-            if (!this.validarCarrito()) {
-                showToast('warning', 'Revisa el carrito antes de proceder al pago');
-                return;
-            }
-            
-            this.panelPagoActivo = true;
-            this.metodoPago = 'efectivo';
-            this.montoPagado = 0;
-            this.montoEfectivo = 0;
-            this.montoTransferencia = 0;
-            this.cambio = 0;
-            
-            // Focus en input de monto
-            this.$nextTick(() => {
-                if (this.$refs.montoPagadoInput) {
-                    this.$refs.montoPagadoInput.focus();
-                }
-            });
-        },
-        
-        /**
-         * Cancela el pago y vuelve al carrito
-         */
-        cancelarPago() {
-            this.panelPagoActivo = false;
-            this.$nextTick(() => {
-                this.focusScanner();
-            });
-        },
-        
-        /**
-         * Selecciona un método de pago
-         */
-        seleccionarMetodoPago(metodo) {
-            this.metodoPago = metodo;
-            this.montoPagado = 0;
-            this.montoEfectivo = 0;
-            this.montoTransferencia = 0;
-            this.cambio = 0;
-            
-            // Focus en el input correspondiente
-            this.$nextTick(() => {
-                if (metodo === 'efectivo' && this.$refs.montoPagadoInput) {
-                    this.$refs.montoPagadoInput.focus();
-                }
-            });
-        },
-        
-        /**
-         * Calcula el cambio según el método de pago
-         */
-        calcularCambio() {
-            const total = this.calcularTotal();
-            
-            if (this.metodoPago === 'efectivo') {
-                this.cambio = this.montoPagado - total;
-            } else if (this.metodoPago === 'mixto') {
-                const totalPagado = this.montoEfectivo + this.montoTransferencia;
-                this.cambio = totalPagado - total;
-            } else {
-                this.cambio = 0;
-            }
-        },
-        
-        /**
-         * Valida que el carrito esté listo para pagar
-         */
-        validarCarrito() {
-            if (this.carrito.length === 0) return false;
-            
-            if (!this.permitirInvNegativo) {
-                for (let item of this.carrito) {
-                    if (item.cantidad > item.stock_disponible) return false;
-                }
-            }
-            return true;
-        },
-                
-        /**
-         * Valida que el pago esté completo
-         */
-        validarPago() {
-            const total = this.calcularTotal();
-            
-            if (this.metodoPago === 'efectivo') {
-                return this.montoPagado >= total;
-            } else if (this.metodoPago === 'transferencia') {
-                return true;  // Monto exacto
-            } else if (this.metodoPago === 'tarjeta') {
-                return true;  // Monto exacto por terminal
-            } else if (this.metodoPago === 'mixto') {
-                const totalMixto = this.montoEfectivo + this.montoTransferencia;
-                return totalMixto >= total;
-            }
-            return false;
-        },
-        
-        /**
-         * Obtiene el mensaje de validación de pago
-         */
-        obtenerMensajeValidacion() {
-            const total = this.calcularTotal();
-            
-            if (this.metodoPago === 'efectivo') {
-                if (this.montoPagado < total) {
-                    const falta = total - this.montoPagado;
-                    return `Falta $${falta.toFixed(2)} para completar el pago`;
-                }
-            } else if (this.metodoPago === 'mixto') {
-                const totalPagado = this.montoEfectivo + this.montoTransferencia;
-                if (totalPagado < total) {
-                    const falta = total - totalPagado;
-                    return `Falta $${falta.toFixed(2)} para completar el pago`;
-                }
-            }
-            
-            return 'Completa los datos de pago';
-        },
-        
-        /**
-         * Confirma la venta (Parte 3: enviar al backend)
-         */
-        async confirmarVenta() {
-            if (!this.validarPago()) {
-                showToast('warning', 'El monto pagado es insuficiente');
-                return;
-            }
-
-            if (this.moduloEcfActivo && this.tipoEcf === '31') {
-                if (!this.clienteSeleccionado || !this.clienteSeleccionado.cedula_rnc) {
-                    showToast(
-                        'error',
-                        'Credito Fiscal (31) requiere cliente con RNC asignado.'
-                    );
-                    return;
-                }
-            }
-            
-            // Preparar datos de la venta
-            const datosVenta = {
-                carrito: this.carrito.map(item => ({
-                    id: item.id,
-                    cantidad: item.cantidad,
-                    precio_venta: item.precio_venta,
-                    descuento: item.descuento || 0
-                })),
-                cliente_id: this.clienteSeleccionado?.id || null,  // <-- NUEVA LINEA
-                metodo_pago: this.metodoPago,
-                monto_efectivo: this.metodoPago === 'efectivo' ? this.montoPagado : 
-                                this.metodoPago === 'mixto' ? this.montoEfectivo : 0,
-                monto_transferencia: this.metodoPago === 'transferencia' ? this.calcularTotal() : 
-                                    this.metodoPago === 'mixto' ? this.montoTransferencia : 0,
-                monto_tarjeta: this.metodoPago === 'tarjeta' ? this.calcularTotal() : 0,
-                referencia_tarjeta: this.referenciaTarjeta,
-                cotizacion_id: this.cotizacionId || null,
-                total: this.calcularTotal(),
-                tipo_ecf: this.tipoEcf || '32',
-            };
-            
-            console.log('📤 Enviando venta al backend:', datosVenta);
-            
-            try {
-                // Mostrar loading
-                this.procesandoVenta = true;
-                
-                // Enviar al backend
-                const response = await fetch('/pos/api/procesar-venta/', {
-                    method: 'POST',
-                    headers: jsonHeaders(),
-                    body: JSON.stringify(datosVenta)
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // ✅ VENTA EXITOSA
-                    console.log('✅ Venta procesada:', data.venta);
-
-                    // Si viene de una cotizacion, marcarla como convertida
-                    if (data.success && this.cotizacionId) {
-                        try {
-                            await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
-                                method: 'POST',
-                                headers: jsonHeaders(),
-                                body: JSON.stringify({ venta_id: data.venta.id }),
-                            });
-                        } catch (e) {
-                            console.warn('No se pudo marcar cotizacion como convertida:', e);
-                        }
-                    }
-                    
-                    // Mostrar confirmación
-                    showToast('success',
-                        '🎉 ¡VENTA EXITOSA!\n\n' +
-                        `Número: ${data.venta.numero_venta}\n` +
-                        `Total: $${data.venta.total.toFixed(2)}\n` +
-                        `Fecha: ${data.venta.fecha}\n\n` +
-                        `${data.mensaje}`
-                    );
-                    this.procesandoVenta = false;
-                    // Limpiar carrito
-                    this.limpiarCarrito();
-
-                    // Si viene de cotizacion, marcarla como convertida
-                    if (this.cotizacionId) {
-                        try {
-                            await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
-                                method: 'POST',
-                                headers: jsonHeaders(),
-                                body: JSON.stringify({ venta_id: data.venta.id }),
-                            });
-                        } catch (e) {
-                            console.warn('No se pudo marcar cotizacion como convertida:', e);
-                        }
-                    }
-                    
-                    // Opcional: Redirigir a página de confirmación
-                    // window.location.href = `/pos/venta/${data.venta.id}/exito/`;
-                    
-                } else {
-                    // ❌ ERROR EN LA VENTA
-                    console.error('❌ Error:', data.error);
-                    showToast('error', `Error al procesar la venta:\n\n${data.error}`);
-                    
-                    // Restaurar botón
-                    this.procesandoVenta = false;
-                
-                }
-                
-            } catch (error) {
-                console.error('❌ Error de red:', error);
-                showToast('error', 'Error de conexión al procesar la venta.\nVerifica tu conexión e intenta nuevamente.');
-                
-                 this.procesandoVenta = false;
-            }
-        },
-         
-        
-        // ============================================
-        // SCANNER DE CODIGO DE BARRAS
-        // ============================================
-        // ============================================
-        // SCANNER DE CODIGO DE BARRAS
-        // ============================================
-        
-        /**
-         * Inicializa el scanner usando un input hidden dedicado.
-         * 
-         * El scanner 2Connect escribe en el campo que tenga focus.
-         * En vez de interceptar keydown (que pelea con Alpine x-model),
-         * mantenemos un input INVISIBLE siempre con focus.
-         * El scanner escribe ahi y nosotros leemos cuando llega Enter.
-         */
-        initScanner() {
-            console.log('Scanner inicializado - Modo: Input Dedicado');
-            
-            // Focus inicial en el scanner input
-            this.$nextTick(() => {
-                this.focusScanner();
-            });
-            
-            // Mantener focus en el scanner input cuando no hay otro input activo
-            // Verificamos cada 300ms si el focus se perdio
-            this.scannerFocusInterval = setInterval(() => {
-                if (this.panelPagoActivo) return;
-                
-                const activeEl = document.activeElement;
-                const isSearchInput = activeEl === this.$refs.searchInput;
-                const isScannerInput = activeEl === this.$refs.scannerInput;
-                const isOtherInput = activeEl && (
-                    activeEl.tagName === 'INPUT' || 
-                    activeEl.tagName === 'SELECT' || 
-                    activeEl.tagName === 'TEXTAREA'
-                );
-                
-                // Si no hay ningun input enfocado, enfocar el scanner
-                if (!isSearchInput && !isScannerInput && !isOtherInput) {
-                    this.focusScanner();
-                }
-            }, 300);
-            
-            // Cuando el campo de busqueda pierde el focus, 
-            // redirigir al scanner input
-            this.$refs.searchInput.addEventListener('blur', () => {
-                // Pequeno delay para permitir clicks en botones
-                setTimeout(() => {
-                    if (!this.panelPagoActivo) {
-                        const activeEl = document.activeElement;
-                        const isInput = activeEl && (
-                            activeEl.tagName === 'INPUT' || 
-                            activeEl.tagName === 'SELECT' || 
-                            activeEl.tagName === 'TEXTAREA' ||
-                            activeEl.tagName === 'BUTTON'
-                        );
-                        if (!isInput) {
-                            this.focusScanner();
-                        }
-                    }
-                }, 100);
-            });
-            
-            // Interceptar F2 para cambiar entre scanner input y search input
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'F2' && !this.panelPagoActivo) {
-                    e.preventDefault();
-                    // Si estamos en el scanner input, ir al search
-                    if (document.activeElement === this.$refs.scannerInput) {
-                        this.$refs.searchInput.focus();
-                    } else {
-                        // Si estamos en search, volver al scanner
-                        this.busqueda = '';
-                        this.focusScanner();
-                    }
-                }
-            });
-        },
-        
-        /**
-         * Enfoca el input invisible del scanner
-         */
-        focusScanner() {
-            if (this.$refs.scannerInput) {
-                this.$refs.scannerInput.value = '';
-                this.$refs.scannerInput.focus();
-            }
-        },
-        
-        /**
-         * Procesa el contenido del input del scanner cuando llega Enter.
-         * Se dispara via @keydown.enter en el input hidden.
-         */
-        async procesarScanDesdeInput() {
-            const scannerInput = this.$refs.scannerInput;
-            if (!scannerInput) return;
-            
-            const codigo = scannerInput.value.trim();
-            scannerInput.value = '';
-            
-            // Ignorar si esta vacio o muy corto
-            if (codigo.length < 3) return;
-            
-            // Ignorar si estamos en panel de pago
-            if (this.panelPagoActivo) return;
-            
-            // Evitar doble procesamiento
-            if (this.scannerProcessing) return;
-            this.scannerProcessing = true;
-            this.scannerState = 'scanning';
-            
-            console.log('Escaneado: ' + codigo);
-            
-            try {
-                const response = await fetch(
-                    '/pos/api/producto/' + encodeURIComponent(codigo) + '/'
-                );
-                const data = await response.json();
-                
-                if (data.success) {
-                    const producto = data.producto;
-                    
-                    // Verificar si ya esta en el carrito
-                    const index = this.carrito.findIndex(
-                        item => item.id === producto.id
-                    );
-                    
-                    if (index !== -1) {
-                        // Ya existe: sumar +1
-                        this.carrito[index].cantidad++;
-                        this.actualizarSubtotal(index);
-                        
-                        this.scannerFeedbackMsg(
-                            'success', 
-                            producto.nombre + ' (x' + this.carrito[index].cantidad + ')'
-                        );
-                    } else {
-                        // Nuevo item en carrito
-                        this.carrito.push({
-                            id: producto.id,
-                            nombre: producto.nombre,
-                            sku: producto.sku,
-                            precio_venta: producto.precio_venta,
-                            cantidad: 1,
-                            stock_disponible: producto.stock_disponible,
-                            descuento: 0,
-                            subtotal: producto.precio_venta
-                        });
-                        
-                        this.scannerFeedbackMsg(
-                            'success', 
-                            producto.nombre + ' agregado'
-                        );
-                    }
-                    
-                    // Alerta de stock si aplica
-                    if (producto.stock_disponible <= 0) {
-                        // Segundo toast de warning
-                        setTimeout(() => {
-                            this.scannerFeedbackMsg(
-                                'warning', 
-                                'Sin stock: ' + producto.nombre
-                            );
-                        }, 1500);
-                    }
-                    
-                    // Beep + Flash de exito
-                    this.scannerBeep('success');
-                    this.scannerFlash('success');
-                    
-                } else {
-                    // Producto no encontrado
-                    this.scannerFeedbackMsg(
-                        'error', 
-                        'Codigo no encontrado: ' + codigo
-                    );
-                    this.scannerBeep('error');
-                    this.scannerFlash('error');
-                }
-                
-            } catch (error) {
-                console.error('Error al procesar scan:', error);
-                this.scannerFeedbackMsg(
-                    'error', 
-                    'Error de conexion al buscar producto'
-                );
-                this.scannerBeep('error');
-                this.scannerFlash('error');
-            } finally {
-                this.scannerProcessing = false;
-                this.scannerState = 'ready';
-                
-                // Re-enfocar el scanner input para el siguiente scan
-                this.$nextTick(() => {
-                    this.focusScanner();
-                });
-            }
-        },
-        
-        /**
-         * Beep via Web Audio API (sin archivos externos)
-         */
-        scannerBeep(type) {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                gain.gain.value = 0.3;
-                
-                if (type === 'success') {
-                    osc.frequency.value = 1200;
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.1);
-                } else {
-                    osc.frequency.value = 400;
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.15);
-                    
-                    // Segundo beep mas grave
-                    setTimeout(() => {
-                        try {
-                            const osc2 = ctx.createOscillator();
-                            const gain2 = ctx.createGain();
-                            osc2.connect(gain2);
-                            gain2.connect(ctx.destination);
-                            osc2.frequency.value = 300;
-                            gain2.gain.value = 0.3;
-                            osc2.start();
-                            osc2.stop(ctx.currentTime + 0.15);
-                        } catch(e) {}
-                    }, 180);
-                }
-            } catch (e) {
-                console.warn('Audio no disponible para beep');
-            }
-        },
-        
-        /**
-         * Flash visual en el panel del carrito
-         */
-        scannerFlash(type) {
-            const panel = document.querySelector('.panel-carrito');
-            if (!panel) return;
-            
-            panel.classList.remove('scanner-flash-success', 'scanner-flash-error');
-            void panel.offsetWidth; // Forzar reflow
-            
-            panel.classList.add(
-                type === 'success' ? 'scanner-flash-success' : 'scanner-flash-error'
-            );
-            
-            setTimeout(() => {
-                panel.classList.remove('scanner-flash-success', 'scanner-flash-error');
-            }, 800);
-        },
-        
-        /**
-         * Toast de notificacion
-         */
-        scannerFeedbackMsg(type, message) {
-            if (this.scannerToastTimeout) {
-                clearTimeout(this.scannerToastTimeout);
-            }
-            
-            this.scannerToastType = type;
-            this.scannerToastMessage = message;
-            this.scannerToastVisible = true;
-            
-            this.scannerToastTimeout = setTimeout(() => {
-                this.scannerToastVisible = false;
-            }, type === 'error' ? 4000 : 2500);
-        },
-       
-      
-
-        // ============================================
-        // UTILIDADES
-        // ============================================
-        
-        /**
-         * Obtiene el token CSRF para las peticiones POST
-         */
-        
-    }
-}
-</script>
+<script src="{% static 'js/pos/punto_venta.js' %}"></script>
 {% endblock %}
