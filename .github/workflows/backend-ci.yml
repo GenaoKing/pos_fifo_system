@@ -120,6 +120,29 @@ jobs:
             fi
           done
 
+      - name: Show Azure target context
+        run: |
+          echo "Azure account:"
+          az account show --query "{name:name,id:id,tenantId:tenantId}" --output table
+
+          echo "Resource group:"
+          az group show \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --query "{name:name,id:id,location:location}" \
+            --output table
+
+          echo "Container Apps:"
+          az containerapp list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[].{name:name,location:location}" \
+            --output table
+
+          echo "Container App Jobs:"
+          az containerapp job list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[].{name:name,location:location,provisioningState:properties.provisioningState}" \
+            --output table
+
       - name: ACR login
         run: az acr login --name "$AZURE_ACR_NAME"
 
@@ -133,20 +156,6 @@ jobs:
 
       - name: Push image
         run: docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
-
-      - name: Update migrate job image
-        run: |
-          az containerapp job update \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_MIGRATE_JOB_NAME" \
-            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
-
-      - name: Start migrate job
-        if: (github.event_name == 'push' && vars.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations)
-        run: |
-          az containerapp job start \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_MIGRATE_JOB_NAME"
 
       - name: Update API image
         run: |
@@ -167,3 +176,22 @@ jobs:
           done
 
           exit 1
+
+      - name: Update migrate job image if present
+        shell: bash
+        run: |
+          if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_MIGRATE_JOB_NAME" \
+              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          else
+            echo "::warning::Container Apps job '$AZURE_MIGRATE_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping migrate job image update."
+          fi
+
+      - name: Start migrate job
+        if: (github.event_name == 'push' && vars.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations)
+        run: |
+          az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_MIGRATE_JOB_NAME"
