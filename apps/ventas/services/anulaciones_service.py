@@ -39,7 +39,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import get_config, modulo_activo
 from apps.sync import events as sync_events
 
 from ..models import Venta
@@ -155,8 +155,7 @@ def anular_venta_service(
         # nada que anular fiscalmente — la venta puede tener un ECF
         # en PENDIENTE/RECHAZADO/ERROR; en esos casos no se emite NC
         # (la propia cola se encarga de no enviar el ECF original).
-        config = get_config()
-        if config.modulo_ecf:
+        if modulo_activo('ecf'):
             transaction.on_commit(
                 lambda v=venta, m=motivo: _hook_encolar_nota_credito(v, m)
             )

@@ -159,3 +159,42 @@ class MaestroPermisoMixin:
             return [IsAuthenticated(), requiere_permiso(f'{self.permiso_base}.{sufijo}')()]
         # Fallback conservador para acciones no mapeadas.
         return [IsAuthenticated(), EsAdminOSysadmin()]
+
+
+# =============================================================================
+# Entitlement de modulos (suscripcion del tenant) — apps/suscripciones
+# =============================================================================
+# Capa ortogonal a los permisos: el permiso dice "este usuario PUEDE"; el modulo
+# dice "el plan del negocio INCLUYE". Una funcion esta disponible sii ambas se
+# cumplen. Combinar con requiere_permiso(...) en permission_classes.
+
+
+class RequiereModulo(BasePermission):
+    """
+    Concede acceso solo si el modulo `modulo` esta activo para el negocio del
+    usuario (su tenant). Fail-open si el usuario no tiene negocio resuelto
+    (los modulos son comerciales, no de seguridad).
+    """
+    modulo = None
+    message = 'Este modulo no esta incluido en el plan del negocio.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        key = self.modulo or getattr(view, 'modulo_requerido', None)
+        if not key:
+            return True
+        from apps.suscripciones.engine import modulo_activo
+        negocio = getattr(user, 'negocio', None)
+        return modulo_activo(key, negocio=negocio)
+
+
+def requiere_modulo(key):
+    """Factory: subclase de RequiereModulo atada a `key`.
+
+    Uso: permission_classes = [IsAuthenticated, requiere_modulo('cuentas_por_cobrar'),
+                               requiere_permiso('cuentas_por_cobrar.ver')]
+    """
+    nombre = 'RequiereModulo_' + key
+    return type(nombre, (RequiereModulo,), {'modulo': key})

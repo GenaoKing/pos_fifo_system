@@ -46,7 +46,7 @@ from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 
 from apps.auditoria.models import Auditoria
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import get_config, modulo_activo
 from apps.inventario.fifo_logic import procesar_venta_fifo
 from apps.inventario.models import Lote
 from apps.productos.models import Producto
@@ -58,6 +58,7 @@ from .exceptions import (
     CarritoVacioError,
     ClienteCreditoInvalidoError,
     MetodoPlazoCreditoInvalidoError,
+    ModuloInactivoError,
     PagoMixtoInconsistenteError,
     ProductoInexistenteError,
     StockInsuficienteError,
@@ -172,6 +173,15 @@ def procesar_venta_service(
         elif metodo_inicial not in ('efectivo', 'transferencia', 'tarjeta'):
             raise MetodoPlazoCreditoInvalidoError('Metodo de inicial para credito invalido.')
 
+    # El modulo de cuentas por cobrar debe estar activo para vender a credito.
+    # Falla rapido antes de tocar inventario/transaccion. La UI del POS no debe
+    # ofrecer credito si el modulo esta off; este es el guard de servidor.
+    if es_credito and not modulo_activo('cuentas_por_cobrar'):
+        raise ModuloInactivoError(
+            'El modulo de cuentas por cobrar no esta incluido en el plan del negocio; '
+            'no se puede registrar una venta a credito.'
+        )
+
     config = get_config()
 
     # ----------------------- Transacción atómica
@@ -238,7 +248,7 @@ def procesar_venta_service(
         # ecf_procesar_pendientes lo levanta y lo emite contra MSeller.
         # Esto desacopla el flujo de venta del flujo fiscal: la cajera
         # no espera por DGII.
-        if config.modulo_ecf:
+        if modulo_activo('ecf'):
             transaction.on_commit(
                 lambda v=venta, t=tipo_ecf: _hook_encolar_ecf(v, t)
             )

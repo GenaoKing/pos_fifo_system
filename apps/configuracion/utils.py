@@ -47,17 +47,57 @@ def get_config():
     return config
 
 
+# Nombres legacy (sufijo del flag de ConfiguracionNegocio) que difieren de la
+# key del registro de modulos. Solo 'financiacion_coop' -> 'financiacion'.
+_ALIAS_LEGACY = {'financiacion_coop': 'financiacion'}
+
+
 def modulo_activo(nombre_modulo):
     """
-    Shortcut para verificar si un modulo esta activo.
-    Uso: modulo_activo('etiquetas_zebra') -> True/False
+    Verifica si un modulo esta activo. Acepta tanto los nombres legacy
+    (sufijo del flag, ej. 'financiacion_coop') como las keys del registro
+    (ej. 'financiacion').
 
-    Nombres validos:
-        etiquetas_zebra, financiacion_coop, cotizaciones,
-        impresion_termica, barcode_scanner, reportes_ondemand,
-        ecf, dashboard
+    Resolucion:
+      - Si se puede resolver el Negocio (tenant) de la sucursal actual ->
+        usa el entitlement por tenant (apps/suscripciones/engine).
+      - Si no (instalacion sin tenant provisionado) -> fallback al flag legacy
+        de ConfiguracionNegocio, preservando la conducta anterior.
     """
-    return getattr(get_config(), f'modulo_{nombre_modulo}', False)
+    from apps.suscripciones import registry  # lazy: evita ciclos de import
+
+    key = _ALIAS_LEGACY.get(nombre_modulo, nombre_modulo)
+
+    sucursal = _sucursal_actual()
+    negocio = getattr(sucursal, 'negocio', None) if sucursal is not None else None
+    if negocio is not None:
+        from apps.suscripciones.engine import modulo_activo as _modulo_activo_tenant
+        return _modulo_activo_tenant(key, negocio=negocio, sucursal=sucursal)
+
+    return _modulo_default_legacy(key)
+
+
+def _sucursal_actual():
+    from apps.sucursales.models import get_sucursal_actual
+    return get_sucursal_actual()
+
+
+def _modulo_default_legacy(key):
+    """Conducta historica cuando no hay tenant resuelto:
+      - core -> siempre activo.
+      - con flag_legacy -> lee el flag de ConfiguracionNegocio.
+      - vendible sin flag (ej. cuentas_por_cobrar) -> historicamente siempre on.
+    """
+    from apps.suscripciones import registry
+    modulo = registry.modulo(key)
+    if modulo is None:
+        # Compatibilidad: nombre suelto sin entrada en el registro.
+        return getattr(get_config(), f'modulo_{key}', False)
+    if modulo.core:
+        return True
+    if modulo.flag_legacy:
+        return getattr(get_config(), modulo.flag_legacy, False)
+    return True
 
 
 def get_metodos_pago():

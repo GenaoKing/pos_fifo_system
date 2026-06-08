@@ -119,3 +119,9 @@ class FIFORollbackError(ErrorVentaBase):
 class PermisoDenegadoError(ErrorVentaBase):
     """El usuario no tiene rol para la operación solicitada."""
     status_code = 403
+
+
+class ModuloInactivoError(ErrorVentaBase):
+    """La operación requiere un módulo que no está incluido en el plan del negocio
+    (ej: venta a crédito con el módulo de cuentas por cobrar desactivado)."""
+    status_code = 403
