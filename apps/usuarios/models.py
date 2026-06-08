@@ -60,7 +60,21 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField('Nombre', max_length=150, blank=True)
     last_name = models.CharField('Apellido', max_length=150, blank=True)
     
-    # Rol del usuario
+    # Negocio (tenant) al que pertenece el usuario.
+    # Null = usuario global (ej. SYSADMIN). Alimenta el claim tenant_id del JWT.
+    negocio = models.ForeignKey(
+        'negocios.Negocio',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='usuarios',
+        verbose_name='Negocio',
+    )
+
+    # Rol del usuario.
+    # NOTA: legacy. El enforcement real vive en el motor RBAC
+    # (apps.permisos / AsignacionRol). Este campo se conserva como informativo
+    # y como semilla de la migracion; 'SYSADMIN' aun otorga acceso total.
     rol = models.CharField(
         'Rol',
         max_length=10,
@@ -123,23 +137,17 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         """Retorna True si el usuario es cajera"""
         return self.rol == 'CAJERA'
     
-    def tiene_permiso(self, permiso):
+    def tiene_permiso(self, permiso, sucursal=None):
         """
-        Verifica si el usuario tiene un permiso específico.
-        Los admins siempre tienen todos los permisos.
+        Verifica si el usuario tiene un permiso (codigo del catalogo, ej.
+        'clientes.crear'). Delega en el motor RBAC data-driven, que resuelve
+        los permisos a partir de los roles asignados al usuario en su negocio.
+
+        Default deny: salvo SYSADMIN/superuser (acceso total), un usuario sin
+        roles que otorguen el permiso recibe False.
+
+        `sucursal` acota la resolucion a las asignaciones de esa sucursal
+        (mas las globales del negocio).
         """
-        if self.es_sysadmin or self.es_admin:
-            return True
-        
-        # Aquí se pueden agregar reglas específicas para cajeras
-        permisos_cajera = [
-            'puede_vender',
-            'puede_aplicar_descuento',
-            'puede_anular_venta',
-            'puede_reimprimir_ticket',
-        ]
-        
-        if self.es_cajera and permiso in permisos_cajera:
-            return True
-        
-        return False
+        from apps.permisos.engine import tiene_permiso as _tiene_permiso
+        return _tiene_permiso(self, permiso, sucursal=sucursal)

@@ -30,7 +30,9 @@ INSTALLED_APPS = [
     'django_extensions',
     
     # Apps del proyecto
+    'apps.negocios',
     'apps.usuarios',
+    'apps.permisos',
     'apps.productos',
     'apps.ventas',
     'apps.inventario',

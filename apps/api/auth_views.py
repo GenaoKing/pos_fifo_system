@@ -38,10 +38,9 @@ class PortalTokenObtainPairSerializer(TokenObtainPairSerializer):
             else user.username
         )
 
-        # TENANCY: hoy el cloud collector es single-tenant. Cuando entre
-        # django-tenants, este claim llevará el slug del tenant y el
-        # frontend lo usará para subdomain routing o header X-Tenant.
-        token['tenant_id'] = None
+        # TENANCY: el claim lleva el slug del Negocio (tenant) del usuario.
+        # Null para usuarios globales (ej. SYSADMIN sin negocio asignado).
+        token['tenant_id'] = user.negocio.slug if getattr(user, 'negocio_id', None) else None
         return token
 
     def validate(self, attrs):
@@ -89,7 +88,23 @@ def perfil_actual(request):
 
 def _user_payload(user):
     """Forma canónica del usuario para el frontend. Centralizada para
-    que login y /me/ devuelvan exactamente la misma shape."""
+    que login y /me/ devuelvan exactamente la misma shape.
+
+    Incluye `permisos` (codigos efectivos del catalogo) para que el frontend
+    refleje lo que el backend concede, y `negocio` (tenant) para el contexto.
+    El enforcement real vive server-side; `permisos` aquí es para UX.
+    """
+    from apps.permisos.engine import permisos_de_usuario
+
+    negocio = getattr(user, 'negocio', None)
+    negocio_payload = None
+    if negocio is not None:
+        negocio_payload = {
+            'id': negocio.id,
+            'slug': negocio.slug,
+            'nombre': negocio.nombre,
+        }
+
     return {
         'id': user.id,
         'username': user.username,
@@ -102,5 +117,7 @@ def _user_payload(user):
             else user.username
         ),
         'rol': getattr(user, 'rol', None),
-        'tenant_id': None,  # TENANCY
+        'negocio': negocio_payload,
+        'tenant_id': negocio.slug if negocio is not None else None,
+        'permisos': sorted(permisos_de_usuario(user)),
     }

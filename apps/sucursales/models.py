@@ -19,6 +19,16 @@ class Sucursal(models.Model):
     Punto de venta fisico.
     Cada PC corriendo el POS apunta a una sucursal via settings.SUCURSAL_CODIGO.
     """
+    negocio = models.ForeignKey(
+        'negocios.Negocio',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='sucursales',
+        verbose_name='Negocio',
+        help_text='Negocio (tenant) al que pertenece esta sucursal.'
+    )
+
     codigo = models.CharField(
         max_length=20,
         unique=True,

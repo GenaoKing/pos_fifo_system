@@ -18,10 +18,9 @@ Todos los modelos ya tienen `fecha_modificacion` con auto_now=True.
 
 from django.utils.dateparse import parse_datetime
 from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..permissions import EsSoloLectura, EsAdminOSysadmin
+from ..permissions import MaestroPermisoMixin
 
 from apps.productos.models import Producto, Categoria
 from apps.clientes.models import Cliente
@@ -86,7 +85,7 @@ class SyncIncrementalMixin:
         return response
 
 
-class ProductoViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
+class ProductoViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Productos.
 
@@ -110,18 +109,12 @@ class ProductoViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     pagination_class = LargePagination
     throttle_scope = 'maestros'
+    permiso_base = 'productos'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return ProductoSerializer
         return ProductoWriteSerializer
-
-    def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            # Lecturas para sucursales (sync) y admins (portal).
-            return [IsAuthenticated(), EsSoloLectura()]
-        # Escrituras: solo admin/sysadmin vía JWT.
-        return [IsAuthenticated(), EsAdminOSysadmin()]
 
     def get_queryset(self):
         queryset = Producto.objects.select_related('categoria').all()
@@ -181,7 +174,7 @@ class ProductoViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
         )
         return Response(read_serializer.data)
 
-class CategoriaViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
+class CategoriaViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Categorías.
 
@@ -205,16 +198,12 @@ class CategoriaViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     pagination_class = LargePagination
     throttle_scope = 'maestros'
+    permiso_base = 'categorias'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return CategoriaSerializer
         return CategoriaWriteSerializer
-
-    def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated(), EsSoloLectura()]
-        return [IsAuthenticated(), EsAdminOSysadmin()]
 
     def get_queryset(self):
         queryset = Categoria.objects.all()
@@ -256,7 +245,7 @@ class CategoriaViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
         return Response(read_serializer.data)
 
 
-class ClienteViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
+class ClienteViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Clientes.
 
@@ -281,16 +270,12 @@ class ClienteViewSet(SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     pagination_class = LargePagination
     throttle_scope = 'maestros'
+    permiso_base = 'clientes'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return ClienteSerializer
         return ClienteWriteSerializer
-
-    def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated(), EsSoloLectura()]
-        return [IsAuthenticated(), EsAdminOSysadmin()]
 
     def get_queryset(self):
         queryset = Cliente.objects.all()
