@@ -27,7 +27,7 @@ from rest_framework.response import Response
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar
 
 from ..pagination import StandardPagination
-from ..permissions import EsSoloLectura
+from ..permissions import PuedeLeerMaestro
 from ..serializers.cuentas_por_cobrar import (
     CuentaPorCobrarDetalleSerializer,
     CuentaPorCobrarSerializer,
@@ -52,9 +52,11 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
 
     pagination_class = StandardPagination
     throttle_scope = 'maestros'
+    # Lectura: token de servicio de sucursal (sync) o permiso 'cuentas_por_cobrar.ver'.
+    permiso_base = 'cuentas_por_cobrar'
 
     def get_permissions(self):
-        return [IsAuthenticated(), EsSoloLectura()]
+        return [IsAuthenticated(), PuedeLeerMaestro()]
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
