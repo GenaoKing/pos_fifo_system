@@ -17,6 +17,13 @@ Cache:
     Se cachea por (usuario, sucursal) con una version global. Cualquier cambio
     en Rol / Rol.permisos / AsignacionRol / Permiso bumpea la version (via
     signals), invalidando todo de forma portable (sin wildcard delete).
+
+    ASUNCION: la version global vive en el cache compartido del proceso. Con
+    LocMemCache de un solo worker (config actual de dev y Azure) la invalidacion
+    es consistente. Si en el futuro se escala a multiples workers/replicas, usar
+    un backend de cache compartido (Redis/memcached) para que el bump de version
+    se propague; de lo contrario los cambios de permisos podrian tardar hasta
+    CACHE_TIMEOUT en reflejarse en otros procesos.
 """
 from django.core.cache import cache
 
@@ -113,5 +120,14 @@ def _resolver_permisos(usuario, sucursal_id):
 
 
 def tiene_permiso(usuario, codigo, sucursal=None):
-    """True si el usuario tiene el permiso `codigo` en la sucursal dada."""
+    """True si el usuario tiene el permiso `codigo` en la sucursal dada.
+
+    El acceso total (SYSADMIN/ADMIN/superuser) se resuelve por corto-circuito,
+    sin depender del contenido del catalogo: asi un admin nunca queda bloqueado
+    por un catalogo vacio o por un codigo que aun no se sembro.
+    """
+    if not usuario or not getattr(usuario, 'is_authenticated', False):
+        return False
+    if es_acceso_total(usuario):
+        return True
     return codigo in permisos_de_usuario(usuario, sucursal)

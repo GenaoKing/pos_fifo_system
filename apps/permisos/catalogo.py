@@ -62,13 +62,16 @@ CATALOGO = [
 
 
 # Permisos que recibe por defecto el rol "Cajero" al hacer el seed inicial.
-# Replica EXACTAMENTE la conducta hardcoded historica de CAJERA
-# (Usuario.tiene_permiso: puede_vender, puede_aplicar_descuento,
-#  puede_anular_venta, puede_reimprimir_ticket).
+#
+# Se alinean con la conducta REAL del POS local (no con el viejo `permisos_cajera`,
+# que era codigo muerto e incoherente):
+#   - vender, aplicar descuento y reimprimir: el cajero los hace hoy (sin gate).
+#   - anular: NO. La regla real (apps/ventas/services/anulaciones_service.py:
+#     _puede_anular) gatea las anulaciones a ADMIN/SYSADMIN. Por eso 'ventas.anular'
+#     NO esta aqui. Ver docs/RBAC_PERMISOS.md (seccion "Rol Cajero por defecto").
 PERMISOS_CAJERO_DEFAULT = [
     'ventas.crear',
     'ventas.aplicar_descuento',
-    'ventas.anular',
     'ventas.reimprimir',
 ]
 
