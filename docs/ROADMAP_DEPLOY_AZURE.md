@@ -271,6 +271,9 @@ Notas de avance D3 CI:
 - Frontera dev: Terraform gestiona infra/config/secrets y GitHub Actions
   gestiona imagen desplegada; el modulo ignora drift de `container.image` para
   evitar rollback accidental.
+- Alternativa Azure for Students documentada/implementada: crear User Assigned
+  Managed Identity + federated credential con Terraform cuando Entra bloquea
+  App registrations.
 
 ## Fase D4 - CI frontend
 

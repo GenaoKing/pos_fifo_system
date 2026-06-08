@@ -60,3 +60,11 @@ grant_current_user_key_vault_secrets_officer    = true
 use_key_vault_secrets                           = false
 django_secret_key_secret_name                   = "django-secret-key"
 db_password_secret_name                         = "db-password"
+
+# D3 GitHub Actions OIDC identity.
+# Usar esta opcion si Azure for Students/Entra bloquea App registrations.
+enable_github_actions_identity = false
+github_actions_identity_name   = null
+github_repository_owner        = null
+github_repository_name         = null
+github_deploy_branch           = "develop"
