@@ -33,14 +33,16 @@ Job `checks`:
 Job `deploy-dev`:
 
 - Login a Azure con OIDC.
+- Imprime contexto Azure no sensible: subscription, resource group, Container
+  Apps y jobs.
 - Login a ACR.
 - Build de Docker image.
 - Tag con SHA de commit.
 - Push a ACR.
-- Actualiza imagen del job `migrate`.
-- Opcionalmente ejecuta migraciones.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
+- Actualiza imagen del job `migrate` si existe.
+- Opcionalmente ejecuta migraciones.
 
 ## Secrets de GitHub
 
@@ -54,6 +56,33 @@ AZURE_SUBSCRIPTION_ID
 
 Estos no son secretos de la app Django. Son datos para que GitHub haga login a
 Azure con OIDC.
+
+### Crear los secrets en la UI de GitHub
+
+Ruta:
+
+```text
+GitHub repo -> Settings -> Secrets and variables -> Actions -> Secrets
+```
+
+Crear cada uno con `New repository secret`:
+
+```text
+AZURE_CLIENT_ID=<Application client ID de la identidad/app registration>
+AZURE_TENANT_ID=<Directory tenant ID>
+AZURE_SUBSCRIPTION_ID=<Subscription ID de Azure for Students>
+```
+
+No crear aqui:
+
+```text
+DJANGO_SECRET_KEY
+DB_PASSWORD
+connection strings
+tokens e-CF/MSeller
+```
+
+Esos secretos ya viven en Azure Key Vault.
 
 ## Variables de GitHub
 
@@ -73,6 +102,28 @@ RUN_MIGRATIONS_ON_DEPLOY=false
 Si quieres que cada push a `develop` dispare el job de migraciones, cambiar a
 `true`.
 
+### Crear las variables en la UI de GitHub
+
+Ruta:
+
+```text
+GitHub repo -> Settings -> Secrets and variables -> Actions -> Variables
+```
+
+Crear cada una con `New repository variable`:
+
+```text
+AZURE_RESOURCE_GROUP=posfifo-dev-rg
+AZURE_ACR_NAME=posfifodevacr
+AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
+AZURE_CONTAINER_APP_NAME=posfifo-dev-api
+AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
+AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
+RUN_MIGRATIONS_ON_DEPLOY=false
+```
+
+Variables no son secretas. Son nombres de recursos y URLs operativas.
+
 ## Crear identidad OIDC en Azure
 
 La forma recomendada es crear un App Registration o Managed Identity federada
@@ -86,6 +137,257 @@ Permisos minimos sugeridos para dev:
 Si el workflow necesita leer otros recursos, ajustar con permisos mas finos. No
 usar Owner salvo para pruebas muy cortas.
 
+## Branches: main, develop y features
+
+Flujo recomendado para este repo:
+
+```text
+features/cloud-dashboard -> PR -> develop -> deploy dev
+develop probado -> PR -> main
+```
+
+Como `main` es la default branch, GitHub necesita que el archivo del workflow
+exista tambien en `main` para que aparezca normalmente en la pestana Actions y
+para poder usar `Run workflow`.
+
+Para deploy real, el branch autorizado por OIDC es:
+
+```text
+develop
+```
+
+Por eso el federated credential usa:
+
+```text
+repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop
+```
+
+No autorizar ramas `features/*` para deploy cloud salvo una prueba muy puntual.
+Las ramas feature deberian validar por PR checks; el deploy dev ocurre al hacer
+merge a `develop`.
+
+## Si Azure for Students bloquea App registrations
+
+Si al entrar a:
+
+```text
+Microsoft Entra ID -> App registrations
+```
+
+Azure muestra:
+
+```text
+You don't have access
+Insufficient privileges to complete the operation
+```
+
+no significa que el backend cloud este mal. Significa que tu usuario no tiene
+permiso en el tenant de Microsoft Entra para crear aplicaciones.
+
+Esto puede pasar aunque seas owner/contributor de la suscripcion Azure for
+Students. Son planos de permisos distintos:
+
+- Azure Subscription/RG: recursos como ACR, Container Apps, Key Vault.
+- Microsoft Entra ID: identidades, app registrations, service principals.
+
+La alternativa recomendada para este repo es crear una **User Assigned Managed
+Identity** con federated credential desde Terraform.
+
+### Crear Managed Identity OIDC con Terraform
+
+En `infra/azure/environments/dev/terraform.tfvars`:
+
+```hcl
+enable_github_actions_identity = true
+
+github_repository_owner = "TU-USUARIO-U-ORG"
+github_repository_name  = "TU-REPO"
+github_deploy_branch    = "develop"
+```
+
+Ejemplo para este repo:
+
+```hcl
+github_repository_owner = "GenaoKing"
+github_repository_name  = "pos_fifo_system"
+github_deploy_branch    = "develop"
+```
+
+No usar la URL completa:
+
+```hcl
+# Incorrecto
+github_repository_name = "https://github.com/GenaoKing/pos_fifo_system"
+```
+
+El `subject` esperado debe verse asi:
+
+```text
+repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop
+```
+
+Si accidentalmente creaste el credential con owner/repo incorrecto, el plan debe
+mostrar un update in-place parecido a:
+
+```text
+subject = "repo:valor-viejo:ref:refs/heads/develop" -> "repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop"
+Plan: 0 to add, 1 to change, 0 to destroy.
+```
+
+Eso es seguro de aplicar.
+
+Si Terraform dice que el recurso ya existe pero no esta en state, importar:
+
+```powershell
+terraform import `
+  'azurerm_federated_identity_credential.github_actions_develop[0]' `
+  '/subscriptions/e88372f6-b224-4d73-bf17-c61f32559c45/resourceGroups/posfifo-dev-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/posfifo-dev-github-actions-id/federatedIdentityCredentials/github-develop'
+```
+
+Despues repetir:
+
+```powershell
+terraform plan
+terraform apply
+```
+
+Opcionalmente puedes fijar nombre:
+
+```hcl
+github_actions_identity_name = "posfifo-dev-github-actions-id"
+```
+
+Ejecutar:
+
+```powershell
+cd C:\Proyectos\pos_fifo_system\infra\azure\environments\dev
+
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+terraform apply
+```
+
+Ver output:
+
+```powershell
+terraform output github_actions_identity
+```
+
+El output devuelve:
+
+```text
+client_id
+principal_id
+subject
+```
+
+Usa `client_id` como:
+
+```text
+AZURE_CLIENT_ID
+```
+
+Los otros secrets siguen igual:
+
+```text
+AZURE_TENANT_ID
+AZURE_SUBSCRIPTION_ID
+```
+
+Terraform tambien asigna:
+
+- `AcrPush` sobre `posfifodevacr`.
+- `Container Apps Contributor` sobre `posfifo-dev-rg`.
+
+Este camino evita crear App Registration manualmente.
+
+### Crear App Registration por Azure Portal
+
+Usa esta ruta solo si tienes acceso a Microsoft Entra ID/App registrations.
+
+1. Ir a:
+
+```text
+Azure Portal -> Microsoft Entra ID -> App registrations -> New registration
+```
+
+2. Nombre sugerido:
+
+```text
+posfifo-github-actions-dev
+```
+
+3. Supported account types:
+
+```text
+Accounts in this organizational directory only
+```
+
+4. Crear y copiar:
+
+```text
+Application (client) ID -> AZURE_CLIENT_ID
+Directory (tenant) ID   -> AZURE_TENANT_ID
+```
+
+5. Copiar tambien el Subscription ID:
+
+```text
+Azure Portal -> Subscriptions -> Azure for Students -> Subscription ID
+```
+
+Ese valor va en:
+
+```text
+AZURE_SUBSCRIPTION_ID
+```
+
+### Agregar federated credential para GitHub
+
+En el App Registration:
+
+```text
+Certificates & secrets -> Federated credentials -> Add credential
+```
+
+Usar:
+
+```text
+Federated credential scenario: GitHub Actions deploying Azure resources
+Organization: <tu usuario u organizacion GitHub>
+Repository: <nombre del repo>
+Entity type: Branch
+Branch: develop
+Name: github-develop
+```
+
+Esto permite que el workflow en la rama `develop` haga login sin password.
+
+### Asignar roles en Azure
+
+Dar permisos minimos a la App Registration.
+
+En ACR:
+
+```text
+Azure Portal -> posfifodevacr -> Access control (IAM) -> Add role assignment
+Role: AcrPush
+Members: posfifo-github-actions-dev
+```
+
+En Resource Group:
+
+```text
+Azure Portal -> posfifo-dev-rg -> Access control (IAM) -> Add role assignment
+Role: Container Apps Contributor
+Members: posfifo-github-actions-dev
+```
+
+Si Azure tarda en reconocer los permisos, esperar 1-3 minutos y repetir el
+workflow.
+
 ## Probar manualmente
 
 Desde GitHub:
@@ -93,14 +395,24 @@ Desde GitHub:
 1. Ir a `Actions`.
 2. Seleccionar `Backend CI/CD`.
 3. `Run workflow`.
-4. `deploy_dev = true`.
-5. `run_migrations = false` para primer test.
+4. Seleccionar branch `develop`.
+5. `deploy_dev = true`.
+6. `run_migrations = false` para primer test.
 
 Si el deploy pasa, probar de nuevo con:
 
 ```text
 run_migrations = true
 ```
+
+Si `Backend CI/CD` no aparece en Actions, primero hay que subir al repo el
+archivo:
+
+```text
+.github/workflows/backend-ci.yml
+```
+
+GitHub no muestra workflows que solo existen localmente.
 
 ## Deploy automatico desde develop
 
@@ -159,6 +471,50 @@ Ese endpoint toca DB. Si falla:
 - revisar Key Vault references,
 - revisar PostgreSQL/firewall,
 - revisar que migraciones hayan corrido si hubo cambios de schema.
+
+## Error: migrate job does not exist
+
+Si GitHub Actions falla con:
+
+```text
+ERROR: The containerapps job 'posfifo-dev-migrate' does not exist
+```
+
+pero localmente este comando si lo ve:
+
+```powershell
+az containerapp job list `
+  --resource-group posfifo-dev-rg `
+  --output table
+```
+
+entonces el runner de GitHub probablemente esta usando otro contexto:
+
+- `AZURE_SUBSCRIPTION_ID` incorrecto.
+- `AZURE_RESOURCE_GROUP` incorrecto.
+- OIDC entrando a otro tenant/subscription.
+- El job fue borrado en Azure pero sigue en Terraform state local.
+
+Valores esperados para dev:
+
+```text
+AZURE_SUBSCRIPTION_ID=e88372f6-b224-4d73-bf17-c61f32559c45
+AZURE_RESOURCE_GROUP=posfifo-dev-rg
+AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
+```
+
+El workflow ahora imprime:
+
+- `az account show`
+- `az group show`
+- `az containerapp list`
+- `az containerapp job list`
+
+Usa esa salida para comparar GitHub vs local.
+
+Para no bloquear el deploy de API, el workflow actualiza primero la API y luego
+actualiza el job de migraciones solo si existe. Si `run_migrations=true`, el job
+si debe existir y el workflow fallara si no lo encuentra.
 
 ## Deuda pendiente antes de prod
 
