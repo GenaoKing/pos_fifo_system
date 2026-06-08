@@ -57,3 +57,6 @@ key_vault_name                                  = null
 key_vault_location                              = null
 key_vault_purge_protection_enabled              = false
 grant_current_user_key_vault_secrets_officer    = true
+use_key_vault_secrets                           = false
+django_secret_key_secret_name                   = "django-secret-key"
+db_password_secret_name                         = "db-password"

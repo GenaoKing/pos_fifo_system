@@ -84,14 +84,14 @@ Usar Azure CLI:
 
 ```powershell
 az keyvault secret set `
-  --vault-name <key_vault_name> `
+  --vault-name posfifodevkv `
   --name django-secret-key `
   --value "<NUEVO-SECRETO-LARGO>"
 ```
 
 ```powershell
 az keyvault secret set `
-  --vault-name <key_vault_name> `
+  --vault-name posfifodevkv `
   --name db-password `
   --value "<PASSWORD-POSTGRES>"
 ```
@@ -154,4 +154,110 @@ Luego Container Apps podra referenciar:
 ```text
 https://<vault>.vault.azure.net/secrets/django-secret-key
 https://<vault>.vault.azure.net/secrets/db-password
+```
+
+## D3B/D3C: conectar Container Apps a Key Vault
+
+Una vez creados los secrets en Key Vault, activar:
+
+```hcl
+use_key_vault_secrets = true
+
+django_secret_key_secret_name = "django-secret-key"
+db_password_secret_name       = "db-password"
+```
+
+El modulo hace tres cosas:
+
+- Asigna `Key Vault Secrets User` a `posfifo-dev-api-id`.
+- Asigna `Key Vault Secrets User` a `posfifo-dev-migrate-id`.
+- Cambia los secrets de Container Apps para que sean referencias a Key Vault.
+
+Ejecutar:
+
+```powershell
+cd C:\Proyectos\pos_fifo_system\infra\azure\environments\dev
+
+terraform fmt
+terraform validate
+terraform plan
+terraform apply
+```
+
+Si falla por permisos inmediatamente despues de crear el rol, espera 1-3 minutos
+y repite `terraform apply`. RBAC en Azure a veces tarda en propagarse.
+
+Validar:
+
+```powershell
+curl -v --max-time 20 https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io/api/v1/health/live/
+curl -v --max-time 20 https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io/api/v1/health/
+```
+
+Tambien puedes revisar en Azure Portal que los secrets de la Container App ahora
+aparezcan como referencias a Key Vault.
+
+## Limpiar valores directos en tfvars
+
+Cuando la API responda con Key Vault:
+
+```hcl
+django_secret_key = null
+db_password       = null
+```
+
+Mantener:
+
+```hcl
+use_key_vault_secrets = true
+```
+
+Aplicar otra vez:
+
+```powershell
+terraform plan
+terraform apply
+```
+
+Esto evita que futuros planes dependan de secretos directos en `terraform.tfvars`.
+
+Importante: si esos secretos estuvieron antes en Terraform state local, considera
+el state como sensible aunque el recurso haya cambiado. Para prod/staging:
+
+- migrar a remote state protegido,
+- limitar acceso al storage de state,
+- rotar secretos que hayan quedado expuestos en pruebas,
+- no compartir `terraform.tfstate` ni backups locales.
+
+## Si Container Apps no puede leer Key Vault
+
+Sintomas posibles:
+
+- revision no saludable,
+- error de secret reference,
+- logs del sistema indicando acceso denegado a Key Vault.
+
+Revisar:
+
+```powershell
+az containerapp logs show `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-api `
+  --type system `
+  --follow
+```
+
+Confirmar roles:
+
+```powershell
+az role assignment list `
+  --assignee <principal-id-de-la-identity> `
+  --scope <key-vault-id> `
+  --output table
+```
+
+La identity debe tener:
+
+```text
+Key Vault Secrets User
 ```

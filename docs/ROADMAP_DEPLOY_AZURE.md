@@ -185,6 +185,11 @@ Notas de avance D3:
 - Tutorial D3 creado en `docs/TERRAFORM_AZURE_D3_KEY_VAULT.md`.
 - Decision D3A: crear Key Vault primero y cargar secrets con Azure CLI para no
   guardar valores en Terraform state.
+- Agregado `use_key_vault_secrets` para que Container Apps use referencias a
+  Key Vault con Managed Identity + `Key Vault Secrets User`.
+- Deuda D3 pendiente: limpiar valores directos de `terraform.tfvars`, tratar el
+  state local historico como sensible y rotar secretos antes de staging/prod si
+  fueron expuestos.
 
 Notas de implementacion D2:
 
@@ -225,10 +230,10 @@ Objetivo: validar cada PR antes de construir/deployar.
 
 Workflow PR:
 
-- [ ] Checkout.
-- [ ] Setup Python.
-- [ ] Instalar dependencias.
-- [ ] `python manage.py check`.
+- [x] Checkout.
+- [x] Setup Python.
+- [x] Instalar dependencias.
+- [x] `python manage.py check`.
 - [ ] Tests criticos:
   - API auth/maestros
   - sync
@@ -239,13 +244,13 @@ Workflow PR:
 
 Workflow merge a `develop`:
 
-- [ ] Build Docker image.
-- [ ] Tag con SHA.
-- [ ] Push a ACR.
-- [ ] Deploy a Container Apps dev.
-- [ ] Ejecutar job de migracion manual/controlado.
-- [ ] Smoke test automatico:
-  - `/api/v1/health/`
+- [x] Build Docker image.
+- [x] Tag con SHA.
+- [x] Push a ACR.
+- [x] Deploy a Container Apps dev.
+- [x] Ejecutar job de migracion manual/controlado.
+- [x] Smoke test automatico:
+  - [x] `/api/v1/health/`
   - login admin
   - `/api/v1/reportes/ventas-hoy/`
   - `/api/v1/sucursales/status/`
@@ -254,6 +259,18 @@ DoD:
 
 - PR falla antes de deploy si rompe checks/tests.
 - Merge a `develop` produce una revision dev comprobable.
+
+Notas de avance D3 CI:
+
+- Workflow creado en `.github/workflows/backend-ci.yml`.
+- Tutorial creado en `docs/GITHUB_ACTIONS_BACKEND_AZURE.md`.
+- Deploy dev usa OIDC hacia Azure, build Docker, tag SHA, push a ACR,
+  `az containerapp update` y smoke test `/api/v1/health/`.
+- Migraciones quedan controladas por `workflow_dispatch.run_migrations` o por
+  `RUN_MIGRATIONS_ON_DEPLOY=true`; no se fuerzan sin opt-in.
+- Frontera dev: Terraform gestiona infra/config/secrets y GitHub Actions
+  gestiona imagen desplegada; el modulo ignora drift de `container.image` para
+  evitar rollback accidental.
 
 ## Fase D4 - CI frontend
 

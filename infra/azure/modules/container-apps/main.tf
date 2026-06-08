@@ -1,3 +1,8 @@
+locals {
+  django_secret_key_vault_uri = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.django_secret_key_secret_name}"
+  db_password_vault_uri       = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.db_password_secret_name}"
+}
+
 resource "azurerm_container_app_environment" "main" {
   name                       = var.environment_name
   location                   = var.location
@@ -43,6 +48,22 @@ resource "azurerm_role_assignment" "migrate_acr_pull" {
   principal_id         = azurerm_user_assigned_identity.migrate[0].principal_id
 }
 
+resource "azurerm_role_assignment" "api_key_vault_secrets_user" {
+  count = var.enable_api && var.use_key_vault_secrets ? 1 : 0
+
+  scope                = var.key_vault_id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.api[0].principal_id
+}
+
+resource "azurerm_role_assignment" "migrate_key_vault_secrets_user" {
+  count = var.enable_migrate_job && var.use_key_vault_secrets ? 1 : 0
+
+  scope                = var.key_vault_id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.migrate[0].principal_id
+}
+
 resource "azurerm_container_app" "api" {
   count = var.enable_api ? 1 : 0
 
@@ -62,13 +83,17 @@ resource "azurerm_container_app" "api" {
   }
 
   secret {
-    name  = "django-secret-key"
-    value = var.django_secret_key
+    name                = "django-secret-key"
+    value               = var.use_key_vault_secrets ? null : var.django_secret_key
+    key_vault_secret_id = var.use_key_vault_secrets ? local.django_secret_key_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.api[0].id : null
   }
 
   secret {
-    name  = "db-password"
-    value = var.db_password
+    name                = "db-password"
+    value               = var.use_key_vault_secrets ? null : var.db_password
+    key_vault_secret_id = var.use_key_vault_secrets ? local.db_password_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.api[0].id : null
   }
 
   ingress {
@@ -194,7 +219,16 @@ resource "azurerm_container_app" "api" {
 
   tags = var.tags
 
-  depends_on = [azurerm_role_assignment.api_acr_pull]
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
+  }
+
+  depends_on = [
+    azurerm_role_assignment.api_acr_pull,
+    azurerm_role_assignment.api_key_vault_secrets_user,
+  ]
 }
 
 resource "azurerm_container_app_job" "migrate" {
@@ -219,13 +253,17 @@ resource "azurerm_container_app_job" "migrate" {
   }
 
   secret {
-    name  = "django-secret-key"
-    value = var.django_secret_key
+    name                = "django-secret-key"
+    value               = var.use_key_vault_secrets ? null : var.django_secret_key
+    key_vault_secret_id = var.use_key_vault_secrets ? local.django_secret_key_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.migrate[0].id : null
   }
 
   secret {
-    name  = "db-password"
-    value = var.db_password
+    name                = "db-password"
+    value               = var.use_key_vault_secrets ? null : var.db_password
+    key_vault_secret_id = var.use_key_vault_secrets ? local.db_password_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.migrate[0].id : null
   }
 
   manual_trigger_config {
@@ -312,5 +350,14 @@ resource "azurerm_container_app_job" "migrate" {
 
   tags = var.tags
 
-  depends_on = [azurerm_role_assignment.migrate_acr_pull]
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
+  }
+
+  depends_on = [
+    azurerm_role_assignment.migrate_acr_pull,
+    azurerm_role_assignment.migrate_key_vault_secrets_user,
+  ]
 }

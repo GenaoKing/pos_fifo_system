@@ -41,5 +41,11 @@ module "container_apps" {
   db_port              = var.db_port
   db_sslmode           = var.db_sslmode
 
+  use_key_vault_secrets         = var.use_key_vault_secrets
+  key_vault_id                  = var.enable_key_vault ? module.key_vault[0].id : null
+  key_vault_uri                 = var.enable_key_vault ? module.key_vault[0].vault_uri : null
+  django_secret_key_secret_name = var.django_secret_key_secret_name
+  db_password_secret_name       = var.db_password_secret_name
+
   tags = local.container_tags
 }

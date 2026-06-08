@@ -27,3 +27,21 @@ variable "grant_current_user_key_vault_secrets_officer" {
   type        = bool
   default     = true
 }
+
+variable "use_key_vault_secrets" {
+  description = "Hace que Container Apps lea django-secret-key y db-password desde Key Vault."
+  type        = bool
+  default     = false
+}
+
+variable "django_secret_key_secret_name" {
+  description = "Nombre del secreto de Key Vault para DJANGO_SECRET_KEY."
+  type        = string
+  default     = "django-secret-key"
+}
+
+variable "db_password_secret_name" {
+  description = "Nombre del secreto de Key Vault para DB_PASSWORD."
+  type        = string
+  default     = "db-password"
+}

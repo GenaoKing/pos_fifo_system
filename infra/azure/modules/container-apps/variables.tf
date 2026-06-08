@@ -146,6 +146,38 @@ variable "db_connect_timeout" {
   default     = "5"
 }
 
+variable "use_key_vault_secrets" {
+  description = "Usa referencias a Key Vault para django-secret-key y db-password en vez de valores directos en Terraform."
+  type        = bool
+  default     = false
+}
+
+variable "key_vault_id" {
+  description = "ID del Key Vault usado para asignar permisos a las Managed Identities."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "key_vault_uri" {
+  description = "URI del Key Vault, por ejemplo https://vault.vault.azure.net/."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "django_secret_key_secret_name" {
+  description = "Nombre del secreto en Key Vault para DJANGO_SECRET_KEY."
+  type        = string
+  default     = "django-secret-key"
+}
+
+variable "db_password_secret_name" {
+  description = "Nombre del secreto en Key Vault para DB_PASSWORD."
+  type        = string
+  default     = "db-password"
+}
+
 variable "api_cpu" {
   description = "CPU de la API en plan Consumption."
   type        = number
