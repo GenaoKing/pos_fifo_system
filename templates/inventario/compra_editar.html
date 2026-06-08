@@ -1,0 +1,351 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Editar Compra {{ compra.numero_compra }} - Sistema POS{% endblock %}
+
+{% block breadcrumb %}
+    <span>Inventario</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span>Compras</span>
+    <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+    </svg>
+    <span class="text-gray-900 font-medium">Editar {{ compra.numero_compra }}</span>
+{% endblock %}
+
+{% block content %}
+{{ init_data_json|json_script:"compra-init-data" }}
+
+<div class="max-w-6xl mx-auto" x-data="compraEditar()" x-init="init()">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Editar Compra</h1>
+            <p class="text-gray-600 mt-1">
+                <span class="font-mono font-semibold">{{ compra.numero_compra }}</span>
+                · Corrige errores de captura (producto, cantidad o costo)
+            </p>
+        </div>
+        <a href="{% url 'inventario:compra_detalle' compra.id %}" class="btn-outline">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+            </svg>
+            Volver
+        </a>
+    </div>
+
+    <!-- Aviso de integridad FIFO -->
+    <div class="mb-6 flex items-start space-x-3 p-4 rounded-lg border bg-info-50 border-info-200">
+        <svg class="w-5 h-5 text-info-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <p class="text-sm text-info-800">
+            Solo se pueden editar las líneas cuyo <strong>lote sigue intacto</strong> (sin ventas ni ajustes).
+            Las líneas con mercancía ya consumida aparecen bloqueadas; para corregir su stock usá
+            <strong>Ajustes de Inventario</strong>.
+        </p>
+    </div>
+
+    <div class="space-y-6">
+
+        <!-- Card: Datos de la Compra -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-lg font-semibold">Datos de la Compra</h2>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor <span class="text-danger-600">*</span></label>
+                        <input type="text" x-model="compraData.proveedor" class="form-input" placeholder="Nombre del proveedor" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Número de Factura (opcional)</label>
+                        <input type="text" x-model="compraData.numero_factura" class="form-input" placeholder="FAC-001">
+                    </div>
+                    <div class="form-group md:col-span-2">
+                        <label class="form-label">Notas (opcional)</label>
+                        <textarea x-model="compraData.notas" class="form-input" rows="2" placeholder="Observaciones de la compra"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card: Productos -->
+        <div class="card">
+            <div class="card-header">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-semibold">Productos de la Compra</h2>
+                    <button type="button" @click="agregarLinea()" class="btn-primary btn-sm">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Agregar Producto
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="table-header-cell">Producto</th>
+                                <th class="table-header-cell">Cantidad</th>
+                                <th class="table-header-cell">Costo Unitario</th>
+                                <th class="table-header-cell">Subtotal</th>
+                                <th class="table-header-cell">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="table-body">
+                            <template x-if="lineasVisibles() === 0">
+                                <tr>
+                                    <td colspan="5" class="table-cell text-center text-gray-500 py-8">
+                                        No hay productos. Agregá al menos uno.
+                                    </td>
+                                </tr>
+                            </template>
+
+                            <template x-for="(item, index) in lineas" :key="index">
+                                <tr class="table-row-hover" x-show="!item.eliminar"
+                                    :class="{ 'bg-gray-50': !item.editable }">
+
+                                    <!-- Producto -->
+                                    <td class="table-cell">
+                                        <!-- Editable: selector -->
+                                        <template x-if="item.editable">
+                                            <select x-model="item.producto_id" class="form-select w-full" required>
+                                                <option value="">Seleccionar producto...</option>
+                                                {% for producto in productos %}
+                                                    <option value="{{ producto.id }}">{{ producto.nombre }} (SKU: {{ producto.sku }})</option>
+                                                {% endfor %}
+                                            </select>
+                                        </template>
+                                        <!-- Bloqueado: nombre + candado -->
+                                        <template x-if="!item.editable">
+                                            <div>
+                                                <div class="flex items-center font-medium text-gray-900">
+                                                    <svg class="w-4 h-4 mr-1.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                                                    </svg>
+                                                    <span x-text="item.producto_nombre"></span>
+                                                </div>
+                                                <p class="text-xs text-warning-700 mt-1" x-text="item.motivo_bloqueo"></p>
+                                                <span class="text-xs text-gray-400 font-mono" x-text="item.numero_lote"></span>
+                                            </div>
+                                        </template>
+                                    </td>
+
+                                    <!-- Cantidad -->
+                                    <td class="table-cell">
+                                        <template x-if="item.editable">
+                                            <input type="number" x-model.number="item.cantidad" min="1" class="form-input w-24" placeholder="0" required>
+                                        </template>
+                                        <template x-if="!item.editable">
+                                            <span class="font-semibold" x-text="item.cantidad"></span>
+                                        </template>
+                                    </td>
+
+                                    <!-- Costo Unitario -->
+                                    <td class="table-cell">
+                                        <template x-if="item.editable">
+                                            <input type="number" x-model.number="item.costo_unitario" min="0.01" step="0.01" class="form-input w-32" placeholder="0.00" required>
+                                        </template>
+                                        <template x-if="!item.editable">
+                                            <span>$<span x-text="Number(item.costo_unitario).toFixed(2)"></span></span>
+                                        </template>
+                                    </td>
+
+                                    <!-- Subtotal -->
+                                    <td class="table-cell">
+                                        <span class="font-semibold text-gray-900">
+                                            $<span x-text="((item.cantidad || 0) * (item.costo_unitario || 0)).toFixed(2)"></span>
+                                        </span>
+                                    </td>
+
+                                    <!-- Acciones -->
+                                    <td class="table-cell">
+                                        <template x-if="item.editable">
+                                            <button type="button" @click="quitarLinea(index)" class="btn-danger btn-sm">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </template>
+                                        <template x-if="!item.editable">
+                                            <span class="badge-gray">Bloqueada</span>
+                                        </template>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+
+                        <tfoot x-show="lineasVisibles() > 0">
+                            <tr class="bg-gray-50">
+                                <td colspan="3" class="px-6 py-4 text-right font-semibold text-gray-900">Total de la Compra:</td>
+                                <td class="px-6 py-4">
+                                    <span class="text-2xl font-bold text-primary-600">$<span x-text="calcularTotal().toFixed(2)"></span></span>
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card-footer">
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-gray-600">
+                        <span x-text="lineasVisibles()"></span> producto(s)
+                    </div>
+                    <div class="flex space-x-3">
+                        <a href="{% url 'inventario:compra_detalle' compra.id %}" class="btn-outline">Cancelar</a>
+                        <button type="button" @click="guardar()" :disabled="loading || lineasVisibles() === 0" class="btn-success">
+                            <svg x-show="!loading" class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                            </svg>
+                            <svg x-show="loading" class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span x-text="loading ? 'Guardando...' : 'Guardar Cambios'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    function compraEditar() {
+        return {
+            initData: JSON.parse(document.getElementById('compra-init-data').textContent),
+            compraData: { proveedor: '', numero_factura: '', notas: '' },
+            lineas: [],
+            loading: false,
+
+            init() {
+                this.compraData = { ...this.initData.compra };
+                this.lineas = this.initData.lineas.map(l => ({
+                    detalle_id: l.detalle_id,
+                    producto_id: l.detalle_id ? String(l.producto_id) : '',
+                    producto_nombre: l.producto_nombre,
+                    cantidad: l.cantidad,
+                    costo_unitario: l.costo_unitario,
+                    numero_lote: l.numero_lote,
+                    editable: l.editable,
+                    vendido: l.vendido,
+                    motivo_bloqueo: l.motivo_bloqueo,
+                    eliminar: false,
+                }));
+            },
+
+            agregarLinea() {
+                this.lineas.push({
+                    detalle_id: null,
+                    producto_id: '',
+                    producto_nombre: '',
+                    cantidad: 1,
+                    costo_unitario: 0,
+                    numero_lote: null,
+                    editable: true,
+                    vendido: 0,
+                    motivo_bloqueo: '',
+                    eliminar: false,
+                });
+            },
+
+            // Líneas existentes se marcan para borrar; las nuevas se quitan del array
+            quitarLinea(index) {
+                const item = this.lineas[index];
+                if (item.detalle_id) {
+                    item.eliminar = true;
+                } else {
+                    this.lineas.splice(index, 1);
+                }
+            },
+
+            lineasVisibles() {
+                return this.lineas.filter(l => !l.eliminar).length;
+            },
+
+            calcularTotal() {
+                return this.lineas
+                    .filter(l => !l.eliminar)
+                    .reduce((sum, l) => sum + (l.cantidad || 0) * (l.costo_unitario || 0), 0);
+            },
+
+            validar() {
+                if (!this.compraData.proveedor.trim()) {
+                    showToast('warning', 'El proveedor es requerido');
+                    return false;
+                }
+                if (this.lineasVisibles() === 0) {
+                    showToast('warning', 'La compra debe tener al menos un producto');
+                    return false;
+                }
+                let i = 0;
+                for (const item of this.lineas) {
+                    i++;
+                    if (item.eliminar || !item.editable) continue;
+                    if (!item.producto_id) {
+                        showToast('warning', `Línea ${i}: seleccioná un producto`);
+                        return false;
+                    }
+                    if (!item.cantidad || item.cantidad <= 0) {
+                        showToast('warning', `Línea ${i}: la cantidad debe ser mayor a 0`);
+                        return false;
+                    }
+                    if (!item.costo_unitario || item.costo_unitario <= 0) {
+                        showToast('warning', `Línea ${i}: el costo unitario debe ser mayor a 0`);
+                        return false;
+                    }
+                }
+                return true;
+            },
+
+            async guardar() {
+                if (!this.validar()) return;
+                this.loading = true;
+                try {
+                    const data = {
+                        proveedor: this.compraData.proveedor,
+                        numero_factura: this.compraData.numero_factura,
+                        notas: this.compraData.notas,
+                        lineas: this.lineas.map(l => ({
+                            detalle_id: l.detalle_id,
+                            producto_id: l.producto_id,
+                            cantidad: l.cantidad,
+                            costo_unitario: l.costo_unitario,
+                            eliminar: l.eliminar || false,
+                        })),
+                    };
+
+                    const response = await fetch("{% url 'inventario:compra_editar' compra.id %}", {
+                        method: 'POST',
+                        headers: jsonHeaders(),
+                        body: JSON.stringify(data),
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        showToast('success', '✅ Compra actualizada correctamente');
+                        window.location.href = "{% url 'inventario:compra_detalle' compra.id %}";
+                    } else {
+                        showToast('error', 'Error: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showToast('error', 'Error al guardar los cambios. Intentá nuevamente.');
+                } finally {
+                    this.loading = false;
+                }
+            },
+        }
+    }
+</script>
+{% endblock %}

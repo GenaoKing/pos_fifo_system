@@ -18,6 +18,7 @@ Including another URLconf
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
+from apps.api.views.health import health_live
 from apps.usuarios.views import styleguide
 from django.views.generic import RedirectView
 from django.conf.urls.static import static  # ← AGREGAR
@@ -26,6 +27,7 @@ from django.views.static import serve
 
 
 urlpatterns = [
+    path("api/v1/health/live/", health_live, name="api-health-live"),
     path("admin/", admin.site.urls),
     path('', RedirectView.as_view(pattern_name='reportes:dashboard'), name='home'),
     path('styleguide/', styleguide, name='styleguide'),
@@ -34,6 +36,7 @@ urlpatterns = [
     path('impresion/', include('utils.impresoras.urls')),
     path('productos/', include('apps.productos.urls')),
     path('clientes/', include('apps.clientes.urls')),
+    path('cuentas-por-cobrar/', include('apps.cuentas_por_cobrar.urls')),
     path('cotizaciones/', include('apps.cotizaciones.urls')),
     path('reportes/', include('apps.reportes.urls')),
     path('caja/', include('apps.caja.urls')),

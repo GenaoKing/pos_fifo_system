@@ -75,6 +75,21 @@ class TipoECFInvalidoError(ErrorVentaBase):
     status_code = 400
 
 
+class ClienteCreditoInvalidoError(ErrorVentaBase):
+    """La venta a credito no tiene un cliente real activo apto para CxC."""
+    status_code = 400
+
+
+class MetodoPlazoCreditoInvalidoError(ErrorVentaBase):
+    """El metodo de plazo solicitado no existe, esta inactivo o no aplica."""
+    status_code = 400
+
+
+class LimiteCreditoExcedidoError(ErrorVentaBase):
+    """El saldo pendiente mas la nueva venta excede el limite del cliente."""
+    status_code = 403
+
+
 # =============================================================================
 # Errores de anular_venta
 # =============================================================================

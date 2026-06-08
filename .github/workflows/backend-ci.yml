@@ -1,0 +1,169 @@
+name: Backend CI/CD
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      deploy_dev:
+        description: "Deploy backend dev after checks"
+        required: true
+        type: boolean
+        default: false
+      run_migrations:
+        description: "Start Container Apps migrate job after deploy"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  DJANGO_SETTINGS_MODULE: config.settings_cloud
+  IMAGE_REPOSITORY: pos-fifo-backend
+
+jobs:
+  checks:
+    name: Django checks
+    runs-on: ubuntu-latest
+
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret-key-with-more-than-fifty-characters-1234567890
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      CLOUD_ENVIRONMENT: ci
+      APP_VERSION: ci
+      GIT_COMMIT_SHA: ${{ github.sha }}
+      DB_NAME: ci_check
+      DB_USER: ci_check
+      DB_PASSWORD: ci_check
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_SSLMODE: disable
+      SECURE_SSL_REDIRECT: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements_cloud.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_cloud.txt
+
+      - name: Django system check
+        run: python manage.py check --settings=config.settings_cloud
+
+      - name: Collect static dry run
+        run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
+
+  deploy-dev:
+    name: Build and deploy dev
+    runs-on: ubuntu-latest
+    needs: checks
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_dev)
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+      AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
+      AZURE_CONTAINER_APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+      AZURE_MIGRATE_JOB_NAME: ${{ vars.AZURE_MIGRATE_JOB_NAME }}
+      AZURE_API_BASE_URL: ${{ vars.AZURE_API_BASE_URL }}
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate required variables
+        shell: bash
+        run: |
+          required=(
+            AZURE_RESOURCE_GROUP
+            AZURE_ACR_NAME
+            AZURE_ACR_LOGIN_SERVER
+            AZURE_CONTAINER_APP_NAME
+            AZURE_MIGRATE_JOB_NAME
+            AZURE_API_BASE_URL
+          )
+
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "$name is required as a GitHub Actions variable."
+              exit 1
+            fi
+          done
+
+      - name: ACR login
+        run: az acr login --name "$AZURE_ACR_NAME"
+
+      - name: Build image
+        run: |
+          docker build \
+            --label org.opencontainers.image.revision="${GITHUB_SHA}" \
+            --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG" \
+            .
+
+      - name: Push image
+        run: docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+      - name: Update migrate job image
+        run: |
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_MIGRATE_JOB_NAME" \
+            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+      - name: Start migrate job
+        if: (github.event_name == 'push' && vars.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations)
+        run: |
+          az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_MIGRATE_JOB_NAME"
+
+      - name: Update API image
+        run: |
+          az containerapp update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+      - name: Smoke test health
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --max-time 20 "$AZURE_API_BASE_URL/api/v1/health/"; then
+              exit 0
+            fi
+
+            echo "Health check failed, retrying in 10s ($attempt/12)..."
+            sleep 10
+          done
+
+          exit 1

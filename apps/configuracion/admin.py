@@ -3,7 +3,7 @@ apps/configuracion/admin.py
 FASE 2: Ya no restringe a un solo registro. Ahora permite una config por sucursal.
 """
 from django.contrib import admin
-from .models import ConfiguracionNegocio
+from .models import AccesoRapidoPOS, ConfiguracionNegocio
 
 
 @admin.register(ConfiguracionNegocio)
@@ -44,3 +44,38 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(AccesoRapidoPOS)
+class AccesoRapidoPOSAdmin(admin.ModelAdmin):
+    list_display = (
+        'orden',
+        'etiqueta_visible',
+        'tipo',
+        'producto',
+        'categoria',
+        'color',
+        'activo',
+        'fecha_modificacion',
+    )
+    list_filter = ('tipo', 'activo', 'color')
+    list_display_links = ('etiqueta_visible',)
+    search_fields = (
+        'etiqueta',
+        'producto__nombre',
+        'producto__sku',
+        'producto__codigo_barras',
+        'categoria__nombre',
+    )
+    autocomplete_fields = ('producto', 'categoria')
+    list_editable = ('orden', 'activo')
+    ordering = ('orden', 'id')
+    fieldsets = (
+        ('Boton', {
+            'fields': ('etiqueta', 'tipo', 'color', 'orden', 'activo')
+        }),
+        ('Destino', {
+            'fields': ('producto', 'categoria'),
+            'description': 'Use producto para agregar al carrito; use categoria para filtrar resultados en el POS.',
+        }),
+    )

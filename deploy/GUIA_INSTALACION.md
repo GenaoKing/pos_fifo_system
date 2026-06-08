@@ -36,7 +36,7 @@ El instalador hace todo automaticamente:
 - Crea usuario y base de datos en PostgreSQL
 - Ejecuta migraciones
 - Recolecta archivos estaticos
-- Crea usuario **Santiago** (SYSADMIN) con contrasena **Prueba123**
+- Crea el usuario SYSADMIN inicial con la contrasena temporal configurada en `env_cliente.bat`
 - Configura el negocio con el preset seleccionado (ConfiguracionNegocio)
 - Crea la **Caja Principal**
 - Genera SECRET_KEY unica
@@ -49,7 +49,7 @@ Abrir en el navegador: `http://localhost:8080`
 
 Login:
 - **Usuario:** Santiago
-- **Contrasena:** Prueba123
+- **Contrasena:** la configurada en `INITIAL_SYSADMIN_PASSWORD`
 - **Cambiar la contrasena despues del primer login**
 
 ### Paso 5: Configurar el negocio

@@ -336,7 +336,7 @@
                                     <span class="font-mono text-xs">{{ venta.numero_venta }}</span>
                                 </td>
                                 <td class="table-cell text-gray-600">
-                                    {{ venta.cajero.get_short_name }}
+                                    {{ venta.usuario.get_short_name }}
                                 </td>
                                 <td class="table-cell text-right font-bold">${{ venta.total|floatformat:2 }}</td>
                                 <td class="table-cell text-right text-gray-500 text-xs">

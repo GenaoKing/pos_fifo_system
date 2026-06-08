@@ -4,13 +4,16 @@ Health check endpoint.
 
 Usado por:
 - Sucursales para verificar conectividad con el cloud
-- Monitoreo para confirmar que la API está operativa
+- Monitoreo para confirmar que la API esta operativa
 - SyncEngine.check_connection() en Fase 4
 
-No requiere autenticación.
+No requiere autenticacion.
 """
 
+from django.conf import settings
+from django.db import connection
 from django.utils import timezone
+from rest_framework import status as http_status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -24,21 +27,40 @@ API_VERSION = '1.0.0'
 def health_check(request):
     """
     GET /api/v1/health/
-    
-    Retorna estado del servidor y timestamp.
-    La sucursal usa este endpoint para:
-    1. Verificar que hay conexión con el cloud
-    2. Obtener la hora del servidor (para detectar desync de reloj)
-    
-    Response:
+
+    Returns app status, DB status, version, commit and environment.
+    """
+    payload = {
+        'status': 'ok',
+        'db': 'ok',
+        'version': getattr(settings, 'APP_VERSION', API_VERSION),
+        'commit': getattr(settings, 'GIT_COMMIT_SHA', 'unknown'),
+        'environment': getattr(settings, 'CLOUD_ENVIRONMENT', 'local'),
+        'timestamp': timezone.now(),
+    }
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+    except Exception:
+        payload['status'] = 'degraded'
+        payload['db'] = 'error'
+        return Response(payload, status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    return Response(payload)
+def health_live(request):
+    """Health liviano para probes de plataforma.
+
+    No toca la base de datos. Container Apps lo usa para saber si el proceso
+    HTTP/Django esta vivo sin reiniciar la app por un incidente breve de DB.
+    """
+    return JsonResponse(
         {
             "status": "ok",
-            "version": "1.0.0",
-            "timestamp": "2026-04-17T14:30:00-04:00"
+            "app": "ok",
+            "environment": getattr(settings, "CLOUD_ENVIRONMENT", "unknown"),
+            "version": getattr(settings, "APP_VERSION", "unknown"),
+            "commit": getattr(settings, "GIT_COMMIT_SHA", "unknown"),
         }
-    """
-    return Response({
-        'status': 'ok',
-        'version': API_VERSION,
-        'timestamp': timezone.now(),
-    })
+    )

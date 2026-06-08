@@ -30,12 +30,12 @@ set SUCURSAL_CODIGO=SD-001
 REM --- Cloud API (apunta a la otra ventana corriendo Azure PG) ---
 REM Si Azure corre con run_azure_pg.bat runserver por default en 8000,
 REM cambia ese a 8001 y deja la sucursal en 8000.
-set CLOUD_API_URL=http://localhost:8002
+if "%CLOUD_API_URL%"=="" set "CLOUD_API_URL=http://localhost:8002"
 
-REM --- PEGA AQUI EL TOKEN que te dio vincular_sucursal_token ---
-REM Ejemplo (no es un token real):
-REM set CLOUD_API_TOKEN=7a3e9b8c4d5f6e2a1b0c9d8e7f6a5b4c3d2e1f0a
-set CLOUD_API_TOKEN=46e7ba02adba37c9a6e4eb98bab6ea176f28d4cc
+REM --- Token de sucursal ---
+REM Definir CLOUD_API_TOKEN en el ambiente local antes de ejecutar este script.
+REM Generarlo con: deploy\run_azure_pg.bat vincular_sucursal_token --sucursal SD-001
+if "%CLOUD_API_TOKEN%"=="" set "CLOUD_API_TOKEN=PEGAR-TOKEN-DE-vincular_sucursal_token-AQUI"
 
 REM --- Sync engine settings ---
 set SYNC_ENABLED=true

@@ -20,6 +20,12 @@ urlpatterns = [
     # API: Buscar productos (autocompletado)
     path('api/buscar/', views.buscar_productos, name='buscar_productos'),
 
+    # API: Accesos rapidos configurables
+    path('api/accesos-rapidos/', views.accesos_rapidos_pos, name='accesos_rapidos_pos'),
+
+    # API: Obtener producto por ID (accesos rapidos)
+    path('api/producto-id/<int:producto_id>/', views.producto_por_id, name='producto_por_id'),
+
     # API: Obtener producto por codigo de barras
     path('api/producto/<str:codigo_barras>/', views.producto_por_codigo, name='producto_por_codigo'),
 

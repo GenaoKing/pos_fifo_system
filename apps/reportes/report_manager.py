@@ -5,6 +5,7 @@ from datetime import date
 
 from .models import CierreCaja, TopProducto, InventarioValorizado
 from apps.ventas.models import Venta, DetalleVenta, Pago
+from apps.cuentas_por_cobrar.models import PagoCxC
 from apps.productos.models import Producto
 from apps.inventario.models import Lote
 
@@ -22,7 +23,7 @@ class ReporteManager:
         """
         if fecha is None:
             from django.utils import timezone
-            fecha = timezone.now().date()
+            fecha = timezone.localdate()
         
         # Verificar si ya existe
         cierre_existente = CierreCaja.objects.filter(fecha=fecha).first()
@@ -56,6 +57,11 @@ class ReporteManager:
         pagos_tarjeta = Pago.objects.filter(
             venta__in=ventas,
             metodo='TARJETA'
+        ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+
+        cobros_cxc = PagoCxC.objects.filter(
+            fecha_pago__date=fecha,
+            estado='APLICADO',
         ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
         
         # Anulaciones
@@ -97,6 +103,7 @@ class ReporteManager:
             total_efectivo=pagos_efectivo,
             total_transferencia=pagos_transferencia,
             total_tarjeta=pagos_tarjeta,
+            total_cobros_cxc=cobros_cxc,
             cantidad_anulaciones=anulaciones['cantidad'] or 0,
             total_anulaciones=anulaciones['total'] or Decimal('0.00'),
             resumen_cajeros=resumen_cajeros,
@@ -165,7 +172,7 @@ class ReporteManager:
         """
         if fecha is None:
             from django.utils import timezone
-            fecha = timezone.now().date()
+            fecha = timezone.localdate()
         
         # Verificar si ya existe
         inventario_existente = InventarioValorizado.objects.filter(

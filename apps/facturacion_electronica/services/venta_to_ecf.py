@@ -304,6 +304,8 @@ def venta_a_ecf_data(
             'venta_id': venta.id,
             'numero_venta': venta.numero_venta,
             'fecha_emision': venta.fecha_venta.date(),
+            'tipo_pago': 2 if getattr(venta, 'condicion_pago', 'CONTADO') == 'CREDITO' else 1,
+            'fecha_limite_pago': _fecha_limite_pago_venta(venta),
             'motivo_nc': motivo_nc,
             'encf_referencia': encf_referencia,
             'codigo_modificacion_nc': codigo_modificacion_nc,
@@ -385,3 +387,10 @@ def _normalizar_rnc(valor: str | None) -> str:
     if not valor:
         return ''
     return ''.join(c for c in valor if c.isdigit())
+
+
+def _fecha_limite_pago_venta(venta: 'Venta'):
+    cuenta = getattr(venta, 'cuenta_por_cobrar', None)
+    if cuenta is None:
+        return None
+    return cuenta.fecha_limite

@@ -12,8 +12,12 @@ Especificaciones:
 IMPORTANTE: La LP 2824 usa EPL2, NO ZPL
 """
 
-import win32print
-import win32ui
+try:
+    import win32print
+    import win32ui
+except ImportError:
+    win32print = None
+    win32ui = None
 
 
 class ZebraLabelPrinter:
@@ -53,6 +57,12 @@ class ZebraLabelPrinter:
         Returns:
             dict con status de la impresora
         """
+        if win32print is None:
+            return {
+                'disponible': False,
+                'error': 'Impresion Zebra no disponible en este sistema operativo'
+            }
+
         try:
             impresoras = [printer[2] for printer in win32print.EnumPrinters(2)]
             

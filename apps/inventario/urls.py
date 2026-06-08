@@ -23,6 +23,9 @@ urlpatterns = [
     
     # Ver detalle de una compra específica
     path('compras/<int:compra_id>/', views.compra_detalle, name='compra_detalle'),
+
+    # Editar una compra (corrección de errores de captura)
+    path('compras/<int:compra_id>/editar/', views.compra_editar, name='compra_editar'),
     
     # API para buscar productos (usado en el formulario)
     path('api/productos/buscar/', views.productos_buscar, name='productos_buscar'),

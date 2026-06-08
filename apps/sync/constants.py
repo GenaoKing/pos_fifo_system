@@ -21,6 +21,9 @@ TIPOS_EVENTO = [
     ('CIERRE_CAJA', 'Cierre de caja'),
     ('AJUSTE_INVENTARIO', 'Ajuste de inventario'),
     ('COMPRA_REGISTRADA', 'Compra registrada'),
+    ('CXC_CREADA', 'Cuenta por cobrar creada'),
+    ('CXC_PAGO_REGISTRADO', 'Pago de cuenta por cobrar registrado'),
+    ('CXC_ANULADA', 'Cuenta por cobrar anulada'),
 ]
 
 # Solo los codigos (util para validacion con ChoiceField)

@@ -40,14 +40,17 @@ REM
 REM Si cambias el sufijo (otro cliente), actualizar tambien admin del Emisor.
 REM ============================================================================
 
-REM --- PEGA AQUI EL EMAIL de la cuenta MSeller TesteCF ---
-set MSELLER_EMAIL_ROYAL=tabacaleragenao@gmail.com
+REM --- Credenciales MSeller TesteCF ---
+REM Definir estos valores en el ambiente local antes de ejecutar el script.
+REM Ejemplo:
+REM   set MSELLER_EMAIL_ROYAL=usuario@example.com
+REM   set MSELLER_PASSWORD_ROYAL=...
+REM   set MSELLER_API_KEY_ROYAL=...
+if "%MSELLER_EMAIL_ROYAL%"=="" set "MSELLER_EMAIL_ROYAL=PEGAR-EMAIL-CUENTA-MSELLER-AQUI"
 
-REM --- PEGA AQUI EL PASSWORD de la cuenta MSeller TesteCF ---
-set MSELLER_PASSWORD_ROYAL=Tabacalera01
+if "%MSELLER_PASSWORD_ROYAL%"=="" set "MSELLER_PASSWORD_ROYAL=PEGAR-PASSWORD-MSELLER-AQUI"
 
-REM --- PEGA AQUI EL API KEY generado en panel MSeller TesteCF ---
-set MSELLER_API_KEY_ROYAL=8e56ec24-6f4b-4b6a-a06c-3cbfd61b11ab
+if "%MSELLER_API_KEY_ROYAL%"=="" set "MSELLER_API_KEY_ROYAL=PEGAR-API-KEY-AQUI"
 
 REM ============================================================================
 REM Validacion minima de que las credenciales fueron editadas
@@ -66,6 +69,14 @@ if "%MSELLER_EMAIL_ROYAL%"=="PEGAR-EMAIL-CUENTA-MSELLER-AQUI" (
     exit /b 1
 )
 
+if "%MSELLER_PASSWORD_ROYAL%"=="PEGAR-PASSWORD-MSELLER-AQUI" (
+    echo.
+    echo [ERROR] Falta el password de MSeller. Definirlo como variable de entorno local.
+    echo.
+    pause
+    exit /b 1
+)
+
 if "%MSELLER_API_KEY_ROYAL%"=="PEGAR-API-KEY-AQUI" (
     echo.
     echo [ERROR] Falta el API Key de MSeller. Generarlo en el panel y editarlo aqui.
@@ -76,7 +87,7 @@ if "%MSELLER_API_KEY_ROYAL%"=="PEGAR-API-KEY-AQUI" (
 
 echo [OK] Entorno e-CF configurado
 echo     Sucursal: %SUCURSAL_CODIGO%
-echo     Email:    %MSELLER_EMAIL_ROYAL%
+echo     Credenciales: variables de entorno locales
 echo     Entorno:  TesteCF (sandbox)
 echo.
 

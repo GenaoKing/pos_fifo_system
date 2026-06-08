@@ -14,6 +14,11 @@ class Venta(models.Model):
         ('COMPLETADA', 'Completada'),
         ('ANULADA', 'Anulada'),
     ]
+
+    CONDICIONES_PAGO = [
+        ('CONTADO', 'Contado'),
+        ('CREDITO', 'Credito'),
+    ]
     
     numero_venta = models.CharField(
         max_length=50,
@@ -72,6 +77,14 @@ class Venta(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))],
         verbose_name='Total'
+    )
+
+    condicion_pago = models.CharField(
+        max_length=20,
+        choices=CONDICIONES_PAGO,
+        default='CONTADO',
+        verbose_name='Condicion de Pago',
+        help_text='Contado para ventas pagadas al cierre; credito si genera CxC.'
     )
     
     estado = models.CharField(
@@ -278,6 +291,7 @@ class Pago(models.Model):
         ('EFECTIVO', 'Efectivo'),
         ('TRANSFERENCIA', 'Transferencia'),
         ('TARJETA', 'Tarjeta'),
+        ('CREDITO', 'Credito'),
     ]
     
     venta = models.ForeignKey(
@@ -290,7 +304,7 @@ class Pago(models.Model):
     metodo = models.CharField(
         max_length=20,
         choices=METODOS,
-        verbose_name='Método de Pago'
+        verbose_name='Metodo de Pago'
     )
     
     monto = models.DecimalField(

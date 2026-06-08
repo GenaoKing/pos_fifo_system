@@ -37,7 +37,7 @@ Crear base de datos en PostgreSQL:
 
 ```sql
 CREATE DATABASE pos_fifo_db;
-CREATE USER pos_user WITH PASSWORD 'Prueba123';
+CREATE USER pos_user WITH PASSWORD '<password-local-seguro>';
 GRANT ALL PRIVILEGES ON DATABASE pos_fifo_db TO pos_user;
 ```
 

@@ -22,7 +22,7 @@ class Command(BaseCommand):
                 from datetime import datetime
                 fecha = datetime.strptime(options['fecha'], '%Y-%m-%d').date()
             else:
-                fecha = timezone.now().date()
+                fecha = timezone.localdate()
             
             self.stdout.write(
                 self.style.WARNING(f'Generando cierre de caja para {fecha}...')

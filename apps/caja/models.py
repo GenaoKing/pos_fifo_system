@@ -210,6 +210,7 @@ class TurnoCaja(models.Model):
         + ingresos
         """
         from apps.ventas.models import Pago
+        from apps.cuentas_por_cobrar.models import PagoCxC
 
         # Ventas en efectivo durante este turno
         filtro_turno = {
@@ -226,6 +227,19 @@ class TurnoCaja(models.Model):
         efectivo_ventas = Pago.objects.filter(
             **filtro_turno
         ).aggregate(
+            total=models.Sum('monto')
+        )['total'] or Decimal('0.00')
+
+        filtro_cxc = {
+            'fecha_pago__gte': self.fecha_apertura,
+            'estado': 'APLICADO',
+            'metodo': 'EFECTIVO',
+            'registrado_por': self.usuario,
+        }
+        if self.fecha_cierre:
+            filtro_cxc['fecha_pago__lte'] = self.fecha_cierre
+
+        efectivo_cxc = PagoCxC.objects.filter(**filtro_cxc).aggregate(
             total=models.Sum('monto')
         )['total'] or Decimal('0.00')
 
@@ -251,6 +265,7 @@ class TurnoCaja(models.Model):
         esperado = (
             self.fondo_apertura
             + efectivo_ventas
+            + efectivo_cxc
             - (movimientos['retiros'] or Decimal('0.00'))
             - (movimientos['gastos'] or Decimal('0.00'))
             + (movimientos['ingresos'] or Decimal('0.00'))
@@ -259,6 +274,7 @@ class TurnoCaja(models.Model):
         return {
             'fondo_apertura': self.fondo_apertura,
             'efectivo_ventas': efectivo_ventas,
+            'efectivo_cxc': efectivo_cxc,
             'retiros': movimientos['retiros'] or Decimal('0.00'),
             'gastos': movimientos['gastos'] or Decimal('0.00'),
             'ingresos': movimientos['ingresos'] or Decimal('0.00'),

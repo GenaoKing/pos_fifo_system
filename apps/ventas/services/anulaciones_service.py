@@ -126,6 +126,15 @@ def anular_venta_service(
         venta.fecha_anulacion = timezone.now()
         venta.save()
 
+        if getattr(venta, 'condicion_pago', 'CONTADO') == 'CREDITO':
+            from apps.cuentas_por_cobrar.services import anular_cuenta_por_venta
+
+            anular_cuenta_por_venta(
+                venta=venta,
+                usuario=usuario,
+                ip_address=ip_address,
+            )
+
         # Auditoría dentro del atomic
         Auditoria.registrar_anulacion_venta(
             venta=venta,

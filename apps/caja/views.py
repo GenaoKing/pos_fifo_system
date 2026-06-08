@@ -282,6 +282,7 @@ def api_cerrar_turno(request):
                     'cierre': turno.fecha_cierre.strftime('%d/%m/%Y %H:%M'),
                     'fondo_apertura': str(calculo['fondo_apertura']),
                     'efectivo_ventas': str(calculo['efectivo_ventas']),
+                    'efectivo_cxc': str(calculo['efectivo_cxc']),
                     'retiros': str(calculo['retiros']),
                     'gastos': str(calculo['gastos']),
                     'ingresos': str(calculo['ingresos']),
@@ -402,6 +403,7 @@ def api_registrar_movimiento(request):
                 'desglose': {
                     'fondo_apertura': str(desglose['fondo_apertura']),
                     'efectivo_ventas': str(desglose['efectivo_ventas']),
+                    'efectivo_cxc': str(desglose['efectivo_cxc']),
                     'retiros': str(desglose['retiros']),
                     'gastos': str(desglose['gastos']),
                     'ingresos': str(desglose['ingresos']),
@@ -447,6 +449,7 @@ def api_estado_turno(request):
         'desglose': {
             'fondo_apertura': str(desglose['fondo_apertura']),
             'efectivo_ventas': str(desglose['efectivo_ventas']),
+            'efectivo_cxc': str(desglose['efectivo_cxc']),
             'retiros': str(desglose['retiros']),
             'gastos': str(desglose['gastos']),
             'ingresos': str(desglose['ingresos']),

@@ -33,6 +33,10 @@ REM --- Django ---
 set DJANGO_SETTINGS_MODULE=config.settings_production
 set DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION
 
+REM --- Usuario inicial ---
+set INITIAL_SYSADMIN_USERNAME=Santiago
+set INITIAL_SYSADMIN_PASSWORD=CAMBIAR-PASSWORD-INICIAL-SYSADMIN
+
 REM --- Impresoras (nombre EXACTO de "Dispositivos e impresoras") ---
 REM Configurar DESPUES de instalar drivers. Dejar vacio hasta entonces.
 set PRINTER_TERMICA=

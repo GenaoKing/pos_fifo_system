@@ -19,11 +19,13 @@ from apps.clientes.models import Cliente
 class CategoriaSerializer(serializers.ModelSerializer):
     """
     Serializer completo de Categoría.
-    
+
     Usado para:
     - Sync cloud → sucursal (datos maestros)
     - La sucursal hace update_or_create usando 'id' como lookup
+    - Listado/detalle en el portal (total_productos para display)
     """
+    total_productos = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Categoria
@@ -34,10 +36,56 @@ class CategoriaSerializer(serializers.ModelSerializer):
             'activa',
             'tipo_negocio',
             'atributos_configurados',
+            'total_productos',
             'fecha_creacion',
             'fecha_modificacion',
         ]
         read_only_fields = fields
+
+
+class CategoriaWriteSerializer(serializers.ModelSerializer):
+    """
+    Serializer para CREATE/UPDATE de Categoría desde el portal admin.
+
+    Campos editables:
+        nombre              — único, se normaliza con strip
+        descripcion
+        activa
+        tipo_negocio        — choice del modelo
+        atributos_configurados — JSONField dict; define los atributos
+                                 disponibles para productos de la categoría
+    """
+
+    class Meta:
+        model = Categoria
+        fields = [
+            'nombre',
+            'descripcion',
+            'activa',
+            'tipo_negocio',
+            'atributos_configurados',
+        ]
+        extra_kwargs = {
+            'descripcion': {'required': False, 'allow_blank': True},
+            'activa': {'required': False},
+            'tipo_negocio': {'required': False},
+            'atributos_configurados': {'required': False},
+        }
+
+    def validate_nombre(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('El nombre no puede estar vacío.')
+        return value
+
+    def validate_atributos_configurados(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                'Los atributos configurados deben ser un objeto JSON.'
+            )
+        return value
 
 
 class ProductoSerializer(serializers.ModelSerializer):
@@ -85,11 +133,89 @@ class ProductoSerializer(serializers.ModelSerializer):
             return obj.imagen.url
         return None
 
+class ProductoWriteSerializer(serializers.ModelSerializer):
+    """
+    Serializer para CREATE/UPDATE de Producto desde el portal admin.
+
+    Campos editables (versus inventario que NO se sincroniza):
+        sku           creates only — bloqueado en updates
+        nombre, descripcion, marca
+        precio_venta  caso de uso principal
+        codigo_barras
+        categoria
+        activo, estado
+        stock_minimo  define alertas
+        atributos     JSONField con presets futuros
+
+    Campos read-only (calculados o de inventario):
+        stock_actual, costo_promedio, lotes, fechas, imagen_url
+    """
+
+    class Meta:
+        model = Producto
+        fields = [
+            'sku',
+            'nombre',
+            'descripcion',
+            'precio_venta',
+            'codigo_barras',
+            'categoria',
+            'activo',
+            'estado',
+            'marca',
+            'stock_minimo',
+            'atributos',
+        ]
+        extra_kwargs = {
+            'descripcion': {'required': False, 'allow_blank': True},
+            'codigo_barras': {
+                'required': False, 'allow_blank': True, 'allow_null': True,
+            },
+            'marca': {'required': False, 'allow_blank': True},
+            'stock_minimo': {'required': False},
+            'atributos': {'required': False},
+        }
+
+    def update(self, instance, validated_data):
+        # SKU no se cambia después de creado — rompería la sincronización
+        # con sucursal porque ahí es la clave de update_or_create.
+        validated_data.pop('sku', None)
+        return super().update(instance, validated_data)
+
+    def validate_precio_venta(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError(
+                'El precio debe ser mayor a cero.'
+            )
+        return value
+
+    def validate_stock_minimo(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                'El stock mínimo no puede ser negativo.'
+            )
+        return value
+
+    def validate_atributos(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                'Los atributos deben ser un objeto JSON (clave-valor).'
+            )
+        # Validación liviana: claves deben ser strings y no vacías.
+        for k in value.keys():
+            if not isinstance(k, str) or not k.strip():
+                raise serializers.ValidationError(
+                    'Las claves de atributos deben ser texto no vacío.'
+                )
+        return value
+
 
 class ClienteSerializer(serializers.ModelSerializer):
     """
     Serializer completo de Cliente.
-    
+
     Notas:
     - es_contado: propiedad computada, útil para la sucursal
     - total_compras y monto_total_compras NO se incluyen — son locales
@@ -114,3 +240,67 @@ class ClienteSerializer(serializers.ModelSerializer):
             'fecha_modificacion',
         ]
         read_only_fields = fields
+
+
+class ClienteWriteSerializer(serializers.ModelSerializer):
+    """
+    Serializer para CREATE/UPDATE de Cliente desde el portal admin.
+
+    Campos editables:
+        tipo                — PERSONAL / CORPORATIVO / CONTADO
+        nombre
+        cedula_rnc          — único; se valida formato básico
+        telefono, direccion, notas
+        limite_credito      — >= 0
+        condiciones_pago
+        activo
+
+    Restricción: solo puede existir un cliente CONTADO (el genérico).
+    No se permite crear ni cambiar tipo a CONTADO desde el portal.
+    """
+
+    class Meta:
+        model = Cliente
+        fields = [
+            'tipo',
+            'nombre',
+            'cedula_rnc',
+            'telefono',
+            'direccion',
+            'limite_credito',
+            'condiciones_pago',
+            'notas',
+            'activo',
+        ]
+        extra_kwargs = {
+            'cedula_rnc': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'telefono': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'direccion': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'condiciones_pago': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'notas': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'limite_credito': {'required': False},
+            'activo': {'required': False},
+            'tipo': {'required': False},
+        }
+
+    def validate_nombre(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('El nombre no puede estar vacío.')
+        return value
+
+    def validate_tipo(self, value):
+        # El cliente CONTADO genérico se gestiona internamente, no desde el portal.
+        if value == 'CONTADO':
+            raise serializers.ValidationError(
+                'No se puede asignar el tipo CONTADO desde el portal. '
+                'Use PERSONAL o CORPORATIVO.'
+            )
+        return value
+
+    def validate_limite_credito(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError(
+                'El límite de crédito no puede ser negativo.'
+            )
+        return value
