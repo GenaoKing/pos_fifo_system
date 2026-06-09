@@ -132,7 +132,13 @@ para GitHub Actions. Debe confiar en tu repo y rama.
 Permisos minimos sugeridos para dev:
 
 - Sobre ACR `posfifodevacr`: `AcrPush`.
-- Sobre Resource Group `posfifo-dev-rg`: `Container Apps Contributor`.
+- Sobre Resource Group `posfifo-dev-rg`: `Contributor`.
+- Sobre Resource Group `posfifo-dev-rg`: `Reader`.
+
+Nota: `Container Apps Contributor` puede no cubrir todas las operaciones de
+`Microsoft.App/jobs/write` necesarias para actualizar Container App Jobs desde
+Azure CLI. Para dev usamos `Contributor` limitado al Resource Group, no a toda la
+suscripcion.
 
 Si el workflow necesita leer otros recursos, ajustar con permisos mas finos. No
 usar Owner salvo para pruebas muy cortas.
@@ -300,6 +306,8 @@ Terraform tambien asigna:
 
 - `AcrPush` sobre `posfifodevacr`.
 - `Container Apps Contributor` sobre `posfifo-dev-rg`.
+- `Contributor` sobre `posfifo-dev-rg`.
+- `Reader` sobre `posfifo-dev-rg`.
 
 Este camino evita crear App Registration manualmente.
 
@@ -472,6 +480,59 @@ Ese endpoint toca DB. Si falla:
 - revisar PostgreSQL/firewall,
 - revisar que migraciones hayan corrido si hubo cambios de schema.
 
+## Primera corrida dev validada
+
+Resultado observado:
+
+- OIDC login correcto con subject:
+
+```text
+repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop
+```
+
+- Contexto Azure correcto:
+
+```text
+Resource Group: posfifo-dev-rg
+Container App: posfifo-dev-api
+Container App Job: posfifo-dev-migrate
+```
+
+- Build Docker completado.
+- Push a ACR completado.
+- API actualizada con imagen taggeada por SHA.
+- Smoke test respondio:
+
+```json
+{"status":"ok","db":"ok","environment":"dev"}
+```
+
+- Job `posfifo-dev-migrate` actualizado con la misma imagen.
+
+Esto valida el circuito D3 dev:
+
+```text
+develop -> GitHub Actions -> Docker build -> ACR -> Container Apps -> health
+```
+
+## Warning Node.js 20 actions
+
+GitHub puede mostrar:
+
+```text
+Node.js 20 actions are deprecated.
+```
+
+En esta fase es warning, no fallo. La corrida puede terminar bien aunque aparezca
+la advertencia.
+
+Deuda:
+
+- Revisar cuando `actions/checkout`, `actions/setup-python` y `azure/login`
+  publiquen versiones que corran sobre Node.js 24.
+- Alternativamente probar `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` en una rama
+  antes de activarlo en `develop`.
+
 ## Error: migrate job does not exist
 
 Si GitHub Actions falla con:
@@ -493,6 +554,8 @@ entonces el runner de GitHub probablemente esta usando otro contexto:
 - `AZURE_SUBSCRIPTION_ID` incorrecto.
 - `AZURE_RESOURCE_GROUP` incorrecto.
 - OIDC entrando a otro tenant/subscription.
+- Falta rol `Reader` sobre `posfifo-dev-rg`.
+- Falta rol `Contributor` sobre `posfifo-dev-rg` para actualizar jobs.
 - El job fue borrado en Azure pero sigue en Terraform state local.
 
 Valores esperados para dev:

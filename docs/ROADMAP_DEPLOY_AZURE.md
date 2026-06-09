@@ -274,6 +274,16 @@ Notas de avance D3 CI:
 - Alternativa Azure for Students documentada/implementada: crear User Assigned
   Managed Identity + federated credential con Terraform cuando Entra bloquea
   App registrations.
+- RBAC dev para GitHub Actions: `AcrPush` en ACR y `Contributor`/`Reader` en
+  `posfifo-dev-rg`; deuda futura: role custom minimo para staging/prod.
+- CI/CD dev validado desde `develop`: GitHub Actions hizo build Docker, push a
+  ACR, update de Container App, smoke test `/api/v1/health/` y update del job
+  `posfifo-dev-migrate`.
+- Warning pendiente no bloqueante: GitHub Actions avisa de deprecacion Node.js
+  20 en actions externas.
+- D3 CI/CD queda en MVP funcional. Handoff: `docs/D3_CICD_MVP_HANDOFF.md`.
+- Siguiente bloqueo antes de staging: migrar Terraform local state a Azure
+  Storage con lock. Runbook: `docs/TERRAFORM_AZURE_REMOTE_STATE.md`.
 
 ## Fase D4 - CI frontend
 

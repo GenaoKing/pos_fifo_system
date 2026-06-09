@@ -40,3 +40,19 @@ resource "azurerm_role_assignment" "github_actions_container_apps_contributor" {
   role_definition_name = "Container Apps Contributor"
   principal_id         = azurerm_user_assigned_identity.github_actions[0].principal_id
 }
+
+resource "azurerm_role_assignment" "github_actions_contributor" {
+  count = var.enable_github_actions_identity ? 1 : 0
+
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Contributor"
+  principal_id         = azurerm_user_assigned_identity.github_actions[0].principal_id
+}
+
+resource "azurerm_role_assignment" "github_actions_resource_group_reader" {
+  count = var.enable_github_actions_identity ? 1 : 0
+
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.github_actions[0].principal_id
+}
