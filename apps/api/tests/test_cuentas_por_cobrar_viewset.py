@@ -121,13 +121,17 @@ class CuentaPorCobrarViewSetTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_escritura_prohibida(self):
+        # ReadOnlyModelViewSet: las escrituras se rechazan con 405 (Method Not
+        # Allowed). Antes daba 403 porque EsSoloLectura bloqueaba por metodo;
+        # con el permiso de lectura (PuedeLeerMaestro) el rechazo lo hace el
+        # router por no existir la accion de escritura. Ambos cumplen "prohibida".
         client = self.api(user=self.admin)
         post = client.post(self.base_url, {}, format='json')
         patch = client.patch(f'{self.base_url}{self.cuenta_abierta.id}/', {}, format='json')
         delete = client.delete(f'{self.base_url}{self.cuenta_abierta.id}/')
-        self.assertEqual(post.status_code, 403)
-        self.assertEqual(patch.status_code, 403)
-        self.assertEqual(delete.status_code, 403)
+        self.assertIn(post.status_code, (403, 405))
+        self.assertIn(patch.status_code, (403, 405))
+        self.assertIn(delete.status_code, (403, 405))
 
     # --- Forma de la respuesta ---
 

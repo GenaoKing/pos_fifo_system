@@ -27,7 +27,7 @@ from rest_framework.response import Response
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar
 
 from ..pagination import StandardPagination
-from ..permissions import EsSoloLectura, requiere_modulo
+from ..permissions import PuedeLeerMaestro, requiere_modulo
 from ..serializers.cuentas_por_cobrar import (
     CuentaPorCobrarDetalleSerializer,
     CuentaPorCobrarSerializer,
@@ -52,15 +52,16 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
 
     pagination_class = StandardPagination
     throttle_scope = 'maestros'
+    # Lectura: token de servicio de sucursal (sync) o permiso 'cuentas_por_cobrar.ver'.
+    permiso_base = 'cuentas_por_cobrar'
 
     def get_permissions(self):
-        # Modulo (suscripcion del tenant) + lectura. El gate de modulo compone
-        # con la clase de lectura (al integrar con permisos granulares, esta
-        # ultima pasa a ser PuedeLeerMaestro).
+        # Modulo (suscripcion del tenant) + lectura granular: token de sucursal
+        # (sync) o permiso 'cuentas_por_cobrar.ver' (PuedeLeerMaestro usa permiso_base).
         return [
             IsAuthenticated(),
             requiere_modulo('cuentas_por_cobrar')(),
-            EsSoloLectura(),
+            PuedeLeerMaestro(),
         ]
 
     def get_serializer_class(self):

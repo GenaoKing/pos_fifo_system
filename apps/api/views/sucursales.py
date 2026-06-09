@@ -16,9 +16,10 @@ from datetime import timedelta
 from django.db.models import Count, Max
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.api.permissions import EsAdminOSysadmin
+from apps.api.permissions import requiere_permiso
 from apps.api.views.reportes import _estado_sync  # ver "Decisiones" abajo
 from apps.sucursales.models import Sucursal
 from apps.sync.models import EventoSync
@@ -49,7 +50,7 @@ def _construir_alerta(s_info):
 
 
 @api_view(['GET'])
-@permission_classes([EsAdminOSysadmin])
+@permission_classes([IsAuthenticated, requiere_permiso('sucursales.ver')])
 def sucursales_status(request):
     """Estado de sync de todas las sucursales activas."""
     ahora = timezone.now()
