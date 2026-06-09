@@ -1,4 +1,5 @@
 {% load static %}
+{% load permisos %}
 <!DOCTYPE html>
 <html lang="es" class="h-full">
 <head>
@@ -97,7 +98,7 @@
                 Reimprimir
             </a>
 
-            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            {% if request.user|puede:'ventas.anular' %}
             <a href="{% url 'pos:anulaciones' %}"
                 class="sidebar-item {% if request.resolver_match.url_name == 'anulaciones' %}sidebar-item-active{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -155,7 +156,7 @@
                 </svg>
                 Nueva Compra
             </a>
-            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            {% if request.user|puede:'inventario.ajustar' %}
             <a href="{% url 'inventario:ajustes' %}"
                 class="sidebar-item {% if request.resolver_match.url_name == 'ajustes' %}sidebar-item-active{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,7 +212,7 @@
             <!-- ==============================
                 REPORTES
                 ============================== -->
-            {% if user.es_admin %}    
+            {% if request.user|puede:'reportes.ver' %}
             {% if config.modulo_reportes_ondemand %}
             <div class="px-6 py-2 mt-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Reportes
@@ -233,7 +234,7 @@
                 Sistema
             </div>
 
-            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+            {% if request.user|puede:'auditoria.ver' %}
             <a href="{% url 'auditoria:dashboard' %}"
                 class="sidebar-item {% if request.resolver_match.app_name == 'auditoria' %}sidebar-item-active{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

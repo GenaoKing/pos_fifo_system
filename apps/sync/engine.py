@@ -229,7 +229,7 @@ class SyncEngine:
         """
         self._require_config()
 
-        metricas = {'categorias': 0, 'productos': 0, 'clientes': 0, 'total': 0}
+        metricas = {'categorias': 0, 'productos': 0, 'clientes': 0, 'roles': 0, 'total': 0}
 
         try:
             metricas['categorias'] = self._pull_categorias()
@@ -246,8 +246,14 @@ class SyncEngine:
         except Exception as exc:
             logger.exception('pull_maestros: error en clientes: %s', exc)
 
+        try:
+            metricas['roles'] = self._pull_roles()
+        except Exception as exc:
+            logger.exception('pull_maestros: error en roles: %s', exc)
+
         metricas['total'] = (
-            metricas['categorias'] + metricas['productos'] + metricas['clientes']
+            metricas['categorias'] + metricas['productos']
+            + metricas['clientes'] + metricas['roles']
         )
         logger.info('pull_maestros: %s', metricas)
         return metricas
@@ -398,6 +404,39 @@ class SyncEngine:
             )
 
         return self._pull_generic('clientes', '/api/v1/maestros/clientes/', apply)
+
+    def _pull_roles(self):
+        """
+        Sincroniza las DEFINICIONES de rol (rol -> permisos) del negocio desde el
+        cloud. La asignacion usuario->rol queda local (la siembra el bootstrap).
+        Las signals del motor de permisos invalidan el cache automaticamente.
+        """
+        from apps.permisos.catalogo import sembrar_catalogo
+        from apps.permisos.models import Permiso, Rol
+        from apps.sucursales.models import get_sucursal_actual
+
+        sucursal = get_sucursal_actual()
+        negocio = getattr(sucursal, 'negocio', None) if sucursal else None
+        if negocio is None:
+            return 0
+
+        # Asegura el catalogo local para poder resolver los codigos de permiso.
+        sembrar_catalogo(Permiso)
+
+        def apply(item):
+            rol, _ = Rol.objects.update_or_create(
+                negocio=negocio,
+                slug=item['slug'],
+                defaults={
+                    'nombre': item.get('nombre') or item['slug'],
+                    'activo': item.get('activo', True),
+                },
+            )
+            rol.permisos.set(
+                Permiso.objects.filter(codigo__in=item.get('permisos', []))
+            )
+
+        return self._pull_generic('roles', '/api/v1/sync/roles/', apply)
 
     # ------------------------------------------------------------------
     # Ciclo completo (lo que usa el command)

@@ -179,6 +179,49 @@ def sync_status(request):
 
 
 # ============================================================================
+# GET /api/v1/sync/roles/  — definiciones de rol del negocio (cloud -> sucursal)
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def roles_para_sucursal(request):
+    """
+    Devuelve las definiciones de rol (rol -> permisos) del negocio de la sucursal
+    autenticada, para que la sucursal las sincronice localmente. Solo lectura,
+    scoped al negocio del token. Filtro incremental ?desde=<ISO>.
+
+    La asignacion usuario->rol NO se sincroniza (es local). Esto propaga solo
+    "que puede cada rol" configurado en el portal.
+    """
+    from django.utils.dateparse import parse_datetime
+    from apps.permisos.models import Rol
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    negocio_id = getattr(sucursal, 'negocio_id', None) if sucursal else None
+    if not negocio_id:
+        return Response([])
+
+    qs = Rol.objects.filter(negocio_id=negocio_id).prefetch_related('permisos').order_by('id')
+    desde = request.query_params.get('desde')
+    if desde:
+        ts = parse_datetime(desde)
+        if ts:
+            qs = qs.filter(fecha_modificacion__gt=ts)
+
+    data = [
+        {
+            'slug': r.slug,
+            'nombre': r.nombre,
+            'activo': r.activo,
+            'permisos': sorted(p.codigo for p in r.permisos.all()),
+            'fecha_modificacion': r.fecha_modificacion.isoformat(),
+        }
+        for r in qs
+    ]
+    return Response(data)
+
+
+# ============================================================================
 # HANDLERS por tipo de evento
 # ============================================================================
 

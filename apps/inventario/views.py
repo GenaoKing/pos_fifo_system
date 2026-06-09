@@ -361,7 +361,7 @@ def compra_editar(request, compra_id):
     POST → aplica los cambios dentro de una transacción, propagando al Lote y
            al MovimientoLote(COMPRA) de cada línea intacta editada.
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('compras.registrar'):
         messages.error(request, 'No tienes permisos para editar compras.')
         return redirect('inventario:compras_lista')
 
@@ -593,7 +593,7 @@ def vista_ajustes(request):
     Página para realizar ajustes de inventario.
     Solo accesible por ADMIN y SYSADMIN.
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('inventario.ajustar'):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
  
@@ -713,7 +713,7 @@ def api_ajustar_inventario(request):
     5. Actualiza lote.cantidad_actual
     6. Registra en Auditoría
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('inventario.ajustar'):
         return JsonResponse({
             'success': False,
             'error': 'No tienes permisos para realizar ajustes.'

@@ -37,6 +37,17 @@ CATALOGO = [
     ('inventario.ver', 'Ver inventario', 'inventario', 'Consultar stock y lotes.'),
     ('inventario.ajustar', 'Ajustar inventario', 'inventario', 'Ajustes manuales de inventario.'),
 
+    # --- Caja ---------------------------------------------------------------
+    ('caja.administrar', 'Administrar caja', 'caja',
+     'Ver historial/turnos de otros, registrar movimientos de caja (retiros/ingresos).'),
+
+    # --- Auditoria ----------------------------------------------------------
+    ('auditoria.ver', 'Ver auditoria', 'auditoria', 'Consultar el registro de auditoria.'),
+
+    # --- Configuracion ------------------------------------------------------
+    ('configuracion.administrar', 'Administrar configuracion', 'configuracion',
+     'Acceder y modificar la configuracion del negocio.'),
+
     # --- Ventas (POS) -------------------------------------------------------
     ('ventas.crear', 'Registrar ventas', 'ventas', 'Procesar ventas en el POS.'),
     ('ventas.anular', 'Anular ventas', 'ventas', 'Anular ventas dentro del plazo permitido.'),

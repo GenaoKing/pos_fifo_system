@@ -12,4 +12,5 @@ from . import sync
 urlpatterns = [
     path('eventos/', sync.recibir_eventos, name='api-sync-eventos'),
     path('status/', sync.sync_status, name='api-sync-status'),
+    path('roles/', sync.roles_para_sucursal, name='api-sync-roles'),
 ]

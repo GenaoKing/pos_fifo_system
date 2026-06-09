@@ -23,7 +23,10 @@ from apps.sync import events as sync_events
 
 
 def es_admin(user):
-    return user.is_authenticated and user.rol in ['ADMIN', 'SYSADMIN']
+    # Conserva el nombre, pero ahora gatea por el permiso 'caja.administrar'
+    # (ADMIN/SYSADMIN lo tienen por acceso total). Cubre tanto los gates duros
+    # como la logica de "ver todos los turnos vs solo el propio".
+    return user.is_authenticated and user.tiene_permiso('caja.administrar')
 
 
 # ============================================================================
@@ -59,7 +62,7 @@ def api_validar_admin(request):
         if not user.is_active:
             return JsonResponse({'valido': False, 'error': 'Usuario inactivo'})
 
-        if user.rol not in ['ADMIN','SYSADMIN']:
+        if not user.tiene_permiso('caja.administrar'):
             return JsonResponse({'valido': False, 'error': 'El usuario no tiene rol de administrador'})
 
         return JsonResponse({

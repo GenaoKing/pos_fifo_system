@@ -323,7 +323,10 @@ def api_metricas_hoy(request):
 
 
 def es_admin(user):
-    return user.is_authenticated and user.rol in ['ADMIN', 'SYSADMIN']
+    # Gatea los reportes de nivel admin por 'reportes.consolidado.ver'
+    # (ADMIN/SYSADMIN lo tienen por acceso total). El dashboard del cajero
+    # (scoping por es_cajera) NO pasa por aqui.
+    return user.is_authenticated and user.tiene_permiso('reportes.consolidado.ver')
 
 
 # ============================================================================

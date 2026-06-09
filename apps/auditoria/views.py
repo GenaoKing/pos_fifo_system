@@ -26,7 +26,7 @@ def dashboard_auditoria(request):
     Dashboard de auditoría con filtros y tabla paginada.
     Solo accesible por ADMIN y SYSADMIN.
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('auditoria.ver'):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
 
@@ -100,7 +100,7 @@ def api_auditoria_buscar(request):
         busqueda: str (texto libre en descripcion)
         solo_errores: bool
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('auditoria.ver'):
         return JsonResponse({'error': 'Sin permisos'}, status=403)
 
     # Parámetros

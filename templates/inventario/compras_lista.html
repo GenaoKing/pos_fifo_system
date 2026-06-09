@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load permisos %}
 
 {% block title %}Compras - Sistema POS{% endblock %}
 
@@ -82,7 +83,7 @@
                                             >
                                                 Ver detalle
                                             </a>
-                                            {% if request.user.rol == 'ADMIN' or request.user.rol == 'SYSADMIN' %}
+                                            {% if request.user|puede:'compras.registrar' %}
                                             <a
                                                 href="{% url 'inventario:compra_editar' compra.id %}"
                                                 class="text-gray-600 hover:text-gray-900"

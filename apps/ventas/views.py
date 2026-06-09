@@ -644,7 +644,7 @@ def vista_anulaciones(request):
     Página para gestionar anulaciones de venta.
     Solo accesible por ADMIN y SYSADMIN.
     """
-    if request.user.rol not in ('ADMIN', 'SYSADMIN'):
+    if not request.user.tiene_permiso('ventas.anular'):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
  
