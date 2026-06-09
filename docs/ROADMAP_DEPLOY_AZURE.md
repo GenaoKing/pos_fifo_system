@@ -2,6 +2,9 @@
 
 Documento guia para convertir el portal cloud en un despliegue repetible, primero en **dev/staging** y luego en produccion.
 
+> Estado maestro del proyecto: `docs/PROJECT_STATUS.md`.
+> Inventario Azure dev actual: `docs/runbooks/AZURE_DEV_RESOURCES.md`.
+
 ## Decision base
 
 **Elegimos Docker + Azure Container Apps para el backend Django.**
@@ -70,7 +73,7 @@ Notas de implementacion D0:
 - `config/settings_cloud.py` es el contrato de deploy para Azure Container Apps.
 - `requirements_cloud.txt` es el contrato de dependencias cloud hasta D1; Docker
   debe instalarlo o fusionarlo con `requirements.txt`.
-- Rotacion pendiente: ver `docs/D0_SECRET_ROTATION.md`.
+- Rotacion pendiente: ver `docs/runbooks/D0_SECRET_ROTATION.md`.
 
 DoD:
 
@@ -90,8 +93,8 @@ Objetivo: tener una unidad de despliegue reproducible.
   - comando de arranque con Gunicorn
 - [x] Crear `.dockerignore`.
 - [x] Definir entrypoint sin migraciones automaticas.
-- [ ] Validar build local:
-  - [ ] `docker build`
+- [~] Validar build local:
+  - [x] `docker build`
   - [ ] `docker run`
   - [ ] health endpoint
   - [ ] static files servidos por WhiteNoise
@@ -99,14 +102,15 @@ Objetivo: tener una unidad de despliegue reproducible.
 
 Notas de implementacion D1:
 
-- Tutorial Docker: `docs/DOCKER_BACKEND_AZURE.md`.
+- Tutorial Docker: `docs/runbooks/DOCKER_BACKEND_AZURE.md`.
 - Variables ejemplo: `deploy/env_cloud.example`; copiar a `deploy/env_cloud.local`.
 - `requirements_cloud.txt` es Linux/cloud-only y no instala dependencias Windows
   de impresoras.
 - El contenedor no corre migraciones en startup; migraciones van por comando
   explicito o Container Apps Job.
-- Validacion Docker local pendiente en esta maquina hasta abrir Docker Desktop
-  con engine Linux activo (`dockerDesktopLinuxEngine`).
+- Build Docker local validado; el contexto quedo limpio de `.terraform/` y state
+  local. Validacion `docker run` local contra DB queda como smoke manual cuando
+  se necesite reproducir un bug fuera de Azure.
 
 DoD:
 
@@ -118,7 +122,7 @@ DoD:
 
 Objetivo: crear infraestructura con codigo.
 
-> Modelo mental antes de escribir HCL: ver `docs/TERRAFORM_PRIMER.md` (tres mundos
+> Modelo mental antes de escribir HCL: ver `docs/runbooks/TERRAFORM_PRIMER.md` (tres mundos
 > config/state/real, providers, modulos, ciclo de comandos, gotchas).
 
 Estructura recomendada:
@@ -169,7 +173,7 @@ Notas de avance D2:
 - Foundation aplicada en Azure for Students con `static-web-app` deshabilitado
   por policy regional.
 - Agregado scaffold incremental para ACR + Container Apps Environment + API/job
-  opcionales. Tutorial: `docs/TERRAFORM_AZURE_D2_CONTAINER_APPS.md`.
+  opcionales. Tutorial: `docs/runbooks/TERRAFORM_AZURE_D2_CONTAINER_APPS.md`.
 - ACR, Container Apps Environment, Container App `api` y Container App Job
   `migrate` creados en dev usando imagen
   `posfifodevacr.azurecr.io/pos-fifo-backend:dev`.
@@ -180,14 +184,15 @@ Notas de avance D2:
 - Dev API ajustada a scale-to-zero para ahorrar credito:
   `api_min_replicas=0`, `api_max_replicas=1`. Tradeoff esperado: primer request
   tras inactividad puede tener cold start.
-- Deuda dev documentada en `docs/D2_DEV_HANDOFF_DEBT.md`: secrets actuales en
+- Inventario actual de recursos dev: `docs/runbooks/AZURE_DEV_RESOURCES.md`.
+- Deuda dev documentada en `docs/handoffs/D2_DEV_HANDOFF_DEBT.md`: secrets actuales en
   Container Apps/Terraform state, ASWA apagado, versionado manual y probes
   separados por `/api/v1/health/live/`.
 
 Notas de avance D3:
 
 - Agregado modulo `key-vault` y wiring dev opcional con `enable_key_vault`.
-- Tutorial D3 creado en `docs/TERRAFORM_AZURE_D3_KEY_VAULT.md`.
+- Tutorial D3 creado en `docs/runbooks/TERRAFORM_AZURE_D3_KEY_VAULT.md`.
 - Decision D3A: crear Key Vault primero y cargar secrets con Azure CLI para no
   guardar valores en Terraform state.
 - Agregado `use_key_vault_secrets` para que Container Apps use referencias a
@@ -198,7 +203,7 @@ Notas de avance D3:
 
 Notas de implementacion D2:
 
-- Primer tutorial: `docs/TERRAFORM_AZURE_D2_FOUNDATION.md`.
+- Primer tutorial: `docs/runbooks/TERRAFORM_AZURE_D2_FOUNDATION.md`.
 - Primer root module: `infra/azure/environments/dev`.
 - Modulos iniciales: `observability` y `static-web-app`.
 - Region dev por defecto ajustada a `canadacentral` por policy de suscripcion.
@@ -268,7 +273,7 @@ DoD:
 Notas de avance D3 CI:
 
 - Workflow creado en `.github/workflows/backend-ci.yml`.
-- Tutorial creado en `docs/GITHUB_ACTIONS_BACKEND_AZURE.md`.
+- Tutorial creado en `docs/runbooks/GITHUB_ACTIONS_BACKEND_AZURE.md`.
 - Deploy dev usa OIDC hacia Azure, build Docker, tag SHA, push a ACR,
   `az containerapp update` y smoke test `/api/v1/health/`.
 - Migraciones quedan controladas por `workflow_dispatch.run_migrations` o por
@@ -286,9 +291,10 @@ Notas de avance D3 CI:
   `posfifo-dev-migrate`.
 - Warning pendiente no bloqueante: GitHub Actions avisa de deprecacion Node.js
   20 en actions externas.
-- D3 CI/CD queda en MVP funcional. Handoff: `docs/D3_CICD_MVP_HANDOFF.md`.
+- D3 CI/CD queda en MVP funcional para dev. Handoff:
+  `docs/handoffs/D3_CICD_MVP_HANDOFF.md`.
 - Bloqueo previo a staging resuelto: Terraform dev usa remote state en Azure
-  Storage con lock. Runbook: `docs/TERRAFORM_AZURE_REMOTE_STATE.md`.
+  Storage con lock. Runbook: `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`.
 
 ## Fase D4 - CI frontend
 

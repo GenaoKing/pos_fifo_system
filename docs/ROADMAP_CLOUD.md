@@ -4,7 +4,30 @@
 **Fecha:** Abril 2026  
 **Estado actual:** Sistema POS local funcionando en producción (Royal Plast EIRL)
 
+> Estado actualizado 2026-06-09: este roadmap queda como mapa integral de
+> producto/plataforma. Para estado operativo actual usar `PROJECT_STATUS.md`.
+> Para deploy Azure usar `ROADMAP_DEPLOY_AZURE.md`; para el portal cloud usar
+> `ROADMAP_PORTAL.md`.
+
 ---
+
+## Que falta ahora
+
+1. **Staging cloud**: crear `infra/azure/environments/staging` con remote state
+   propio, secretos separados, pipeline controlado y smoke tests.
+2. **Frontend cloud deploy**: resolver Azure Static Web Apps o alternativa para
+   portal dev/staging; hoy backend dev esta desplegado, frontend ASWA sigue
+   pendiente/bloqueado.
+3. **Sync operacional**: probar una segunda sucursal real, correr `sincronizar`
+   como servicio y definir heartbeat/liveness separado de `ultima_sync`.
+4. **Maestros local -> cloud**: cambiar vistas locales administrativas para
+   escribir en API cloud y refrescar copia local; no crear maestros locales
+   desconectados en v1.
+5. **Inventario multi-sucursal real**: implementar snapshot/evento
+   `INVENTARIO_SNAPSHOT`; el inventario cloud actual conserva contrato
+   compatible, pero no reconstruye stock real por sucursal.
+6. **Hardening antes de prod**: tests criticos, roles custom/RBAC minimo,
+   backups/restore drill, alertas, HSTS/dominos y runbooks de rollback.
 
 ## Estado actual del proyecto
 
@@ -37,19 +60,21 @@
 - PDF Generator con ReportLab
 - Reporteria cloud multi-sucursal v1: servicio query-based para portal (`apps/api/services/reporting.py`), comparativo real por sucursal, ventas por cajero, top productos, cierre consolidado, separacion de credito facturado y cobros CxC.
 
-### Pendiente del sistema local (🔲)
+### Pendiente del sistema local / estado 2026-06-09 (🔲)
 
-- **Frontend anulaciones**: UI para que el cajero ejecute anulaciones desde el POS (backend listo)
-- **UI ajustes de inventario**: interfaz para ajustes manuales (merma, daño) — backend listo
-- **Dashboard auditoría frontend**: vistas stubbed en `auditoria/views.py`, templates pendientes
-- **Migración ConfiguracionNegocio Fase 3**: mover `settings.BUSINESS_INFO` y `settings.THERMAL_PRINTER` hardcodeados a `get_config()` — se hace incrementalmente
-- **Métodos de pago dinámicos en POS**: que el POS lea `get_metodos_pago()` en vez de tener los métodos hardcodeados en el template
+- [x] **Frontend anulaciones**: UI POS en `templates/pos/anulaciones.html` + `vista_anulaciones` + API `api_anular_venta`.
+- [x] **UI ajustes de inventario**: `templates/inventario/ajustes.html` + `vista_ajustes` + API de ajuste.
+- [x] **Dashboard auditoría frontend**: `templates/auditoria/dashboard.html` + `dashboard_auditoria` + API de búsqueda.
+- [~] **Métodos de pago dinámicos en POS**: el POS hidrata `metodos_pago` desde `ConfiguracionNegocio`; queda como seguimiento limpiar usos legacy/hardcoded si aparecen.
+- [ ] **Migración ConfiguracionNegocio Fase 3**: mover usos restantes de `settings.BUSINESS_INFO` y `settings.THERMAL_PRINTER` hardcodeados a `get_config()`.
 
 ---
 
 ## Decision record: Credito y cuentas por cobrar v1
 
-**Estado:** implementado localmente como base de producto. Pendiente validar UX completa en operacion real y llevar reporting/portal cloud a profundidad.
+**Estado 2026-06-09:** implementado localmente como base de producto y expuesto
+al portal cloud en modo read-only. Pendiente: smoke E2E contra backend dev,
+aging avanzado, alertas y permisos/operaciones de escritura futuras.
 
 ### Alcance implementado
 
@@ -187,7 +212,9 @@
 
 ## Decision record: Reporteria cloud multi-sucursal
 
-**Estado:** backend JSON implementado para portal cloud. Frontend de `/comparativo` y `/reportes` pendiente de consumir el contrato.
+**Estado 2026-06-09:** backend JSON implementado para portal cloud. Frontend de
+`/reportes` e `/inventario` reportado como listo en `ROADMAP_PORTAL.md`;
+`/comparativo` queda pendiente/deshabilitado por decision de producto.
 
 ### Decision principal
 
@@ -251,54 +278,72 @@ GET /api/v1/reportes/inventario-consolidado/?categoria=&bajo_stock=&activo=
 
 ## Roadmap por fases
 
+### Estado resumido al 2026-06-09
+
+| Fase | Estado | Qué existe hoy | Qué falta |
+| --- | --- | --- | --- |
+| Fase 0 - Sistema local | Mayormente cerrado | Anulaciones UI, ajustes UI, auditoría UI, CxC, reportes, e-CF y métodos de pago dinámicos en POS. | Remover usos legacy de `settings.BUSINESS_INFO` / `settings.THERMAL_PRINTER` y smoke operativo final. |
+| Fase 1 - DB cloud | Cerrada para la ruta objetivo | Azure PostgreSQL dev existe y es la base elegida para cloud; `settings_azure_pg.py` y resultados de latencia quedaron documentados. | Azure SQL queda como exploración histórica, no como objetivo actual. |
+| Fase 2 - Multi-sucursal | MVP implementado | App `sucursales`, `Sucursal`, `SUCURSAL_CODIGO`, middleware/context, `Venta.sucursal`, `ConfiguracionNegocio` por sucursal y FKs en caja/auditoría/inventario/CxC. | Hardening de migración de datos reales y validación con segunda sucursal física. |
+| Fase 3 - API REST | MVP implementado | DRF, JWT/token sucursal, maestros, sync, reportes cloud, CxC read-only, health y tests API. | Más tests críticos, paginación/permisos en todos los bordes y smoke contra Azure dev. |
+| Fase 4 - Sync engine | MVP implementado | `EventoSync`, `VersionMaestro`, `SyncEngine`, `sincronizar`, `push_eventos`, `pull_maestros`, handlers cloud de ventas/CxC/anulaciones. | Proxy de escrituras locales de maestros hacia cloud, heartbeat/liveness explícito, `INVENTARIO_SNAPSHOT` real y operación como servicio. |
+| Fase 5 - Portal cloud | MVP parcial | Backend API listo; portal React reportado en `ROADMAP_PORTAL.md` con dashboard, maestros, reportes, inventario y CxC read-only. | Deploy frontend ASWA bloqueado/no aplicado, smoke E2E cloud, `/comparativo` y endurecimiento final. |
+| Fase 6 - Producción multi-sucursal | Pendiente | Base técnica existe en dev. | Staging, piloto segunda sucursal, instalador multi-sucursal, jobs operativos, rollback y monitoreo. |
+| Fase 7+ - SaaS/futuro | Pendiente | Fundaciones de módulos/RBAC/tenant y deploy Docker/ACA. | Producción, multi-tenant real, dominios, billing/planes y producto móvil/IA. |
+
 ### FASE 0 — Completar sistema local (prioridad inmediata)
+> Estado 2026-06-09: mayormente cerrado. Queda limpieza legacy de settings y
+> smoke operativo final en ambiente real.
 > *Estabilizar lo que hay antes de agregar complejidad*
 
-**0.1 Frontend anulaciones**
-- UI en el POS para buscar venta y ejecutar anulación
-- Confirmación con motivo obligatorio
-- El backend ya maneja la lógica FIFO reversa
+**0.1 Frontend anulaciones — [x]**
+- [x] UI en el POS para buscar venta y ejecutar anulación.
+- [x] Confirmación con motivo obligatorio.
+- [x] Backend maneja lógica FIFO reversa.
 
-**0.2 Ajustes de inventario UI**
-- Formulario para seleccionar producto → lote específico → tipo ajuste (merma/daño)
-- Integración con MovimientoLote existente
+**0.2 Ajustes de inventario UI — [x]**
+- [x] Formulario para seleccionar producto → lote específico → tipo ajuste (merma/daño).
+- [x] Integración con `MovimientoLote` existente.
 
-**0.3 Métodos de pago dinámicos**
-- POS lee `get_config().get_metodos_pago_activos()` en vez de hardcodear
-- Template condicional: si `pago_tarjeta` está off, no muestra la opción
+**0.3 Métodos de pago dinámicos — [~]**
+- [x] POS hidrata métodos activos desde `ConfiguracionNegocio`.
+- [~] Seguimiento: limpiar cualquier uso legacy/hardcoded que aparezca fuera del POS principal.
 
-**0.4 Dashboard auditoría**
-- Template para `auditoria/dashboard.html`
-- Filtros por fecha, usuario, tipo de acción, nivel de importancia
+**0.4 Dashboard auditoría — [x]**
+- [x] Template `auditoria/dashboard.html`.
+- [x] Filtros por fecha, usuario, tipo de acción, nivel de importancia.
 
 ---
 
 ### FASE 1 — Branches de base de datos cloud (exploración)
+> Estado 2026-06-09: cerrada para la ruta objetivo. Azure PostgreSQL quedó como
+> base cloud de dev; Azure SQL se conserva como exploración histórica.
 > *Aprender infraestructura cloud sin afectar producción*
 
 **Branch `feature/azure-postgres`**
-- `config/settings_neon.py` — conexión a Neon PostgreSQL (free tier permanente, 0.5 GB)
-- `config/settings_azure.py` — conexión a Azure Database for PostgreSQL (free 12 meses)
-- `deploy/env_neon.bat` + `deploy/env_azure.bat` + scripts de inicio
-- Agregar `sslmode=require`, `CONN_MAX_AGE=600`, `CONN_HEALTH_CHECKS=True`
-- Migrar, cargar config inicial, probar latencia desde RD
-- Documentar resultados de latencia (ms por query, impacto en UX del POS)
+- [ ] `config/settings_neon.py` — conexión a Neon PostgreSQL (no es ruta objetivo actual).
+- [x] `config/settings_azure_pg.py` — conexión a Azure Database for PostgreSQL.
+- [x] Variables locales ignoradas para Azure PG.
+- [x] `sslmode=require` / pooling / health checks documentados en settings cloud/dev.
+- [x] Migración y uso real de Azure PostgreSQL dev.
+- [x] Resultados de latencia documentados en `docs/historico/latency_results_azure_pg_20260419_1941.json`.
 
 **Branch `feature/azure-sql`**
-- `config/settings_azure_sql.py` — conexión a Azure SQL Database (free permanente, 32 GB)
-- Instalar `mssql-django` como backend de BD
-- Correr migraciones, identificar y resolver incompatibilidades ORM
-- Documentar: qué funciona directo, qué necesita ajustes, qué es imposible
-- Evaluar: ¿vale la pena mantener compatibilidad dual PostgreSQL/SQL Server?
+- [x] `config/settings_azure_sql.py` — conexión a Azure SQL Database para exploración.
+- [~] `mssql-django`/compatibilidad dual queda como investigación, no como target.
+- [~] Migraciones/compatibilidades SQL Server no bloquean la ruta Azure PostgreSQL.
+- [x] Decisión práctica actual: no mantener dualidad como prioridad.
 
 **Entregables Fase 1:**
-- Ambos branches probados con datos de prueba
-- Documento de decisión: qué BD cloud usar a largo plazo
-- Métricas de latencia reales desde Santo Domingo
+- [~] Ambos caminos explorados; Azure PostgreSQL es la ruta activa.
+- [x] Documento de decisión operativo: deploy usa Azure PostgreSQL Flexible Server.
+- [x] Métricas de latencia reales desde Santo Domingo.
 
 ---
 
 ### FASE 2 — Modelo multi-sucursal (fundación)
+> Estado 2026-06-09: MVP implementado en modelos/middleware/configuración. Falta
+> validación operacional con segunda sucursal real.
 > *Preparar la base de datos para operar con múltiples puntos de venta*
 
 **2.1 App `sucursales`**
@@ -308,21 +353,22 @@ apps/sucursales/
     admin.py
     migrations/
 ```
-- Modelo `Sucursal` con código único (ej: `SD-001`, `STI-001`)
-- Management command `crear_sucursal` para inicialización
+- [x] Modelo `Sucursal` con código único (ej: `SD-001`, `STI-001`).
+- [x] Management command `crear_sucursal` para inicialización.
 
 **2.2 Agregar `sucursal` a modelos existentes**
-- `Venta.sucursal` — ForeignKey, nullable para migración gradual
-- `numero_venta` con prefijo de sucursal: `SD-001-V20260414-0001`
-- `ConfiguracionNegocio` deja de ser singleton (`pk=1`): una config por sucursal
-  - `get_config()` filtra por `sucursal_id` del settings actual
-  - El cache key cambia de `'config_negocio'` a `'config_negocio_{sucursal_id}'`
-- `CierreCaja`, `Auditoria` — agregar `sucursal` FK
+- [x] `Venta.sucursal` — ForeignKey nullable para migración gradual.
+- [x] `numero_venta` con prefijo de sucursal.
+- [x] `ConfiguracionNegocio` soporta config por sucursal.
+  - [x] `get_config()` filtra por sucursal actual.
+  - [x] Cache key por sucursal (`config_negocio_{codigo}`).
+- [x] `CierreCaja`, `Auditoria` — `sucursal` FK.
+- [x] Inventario/CxC tienen FKs de sucursal donde aplica.
 
 **2.3 Identificar la sucursal actual**
-- `settings.SUCURSAL_CODIGO = 'SD-001'` en cada settings de sucursal
-- `get_sucursal_actual()` helper que retorna la instancia basada en el setting
-- Middleware que inyecta `request.sucursal` para usar en vistas
+- [x] `settings.SUCURSAL_CODIGO = 'SD-001'` en settings base/dev.
+- [x] `get_sucursal_actual()` helper que retorna la instancia basada en el setting.
+- [x] Middleware que inyecta `request.sucursal`.
 
 **Decisión clave: datos que NO llevan sucursal_id**
 - Lote, MovimientoLote — son locales por naturaleza (el stock físico es de la sucursal)
@@ -344,12 +390,14 @@ apps/sucursales/
 ---
 
 ### FASE 3 — API REST (capa de comunicación)
+> Estado 2026-06-09: MVP implementado. Existen DRF, endpoints de maestros,
+> sync, reportes, CxC read-only, health, autenticación y pruebas API.
 > *Exponer endpoints para que las sucursales se comuniquen con la nube*
 
 **3.1 Instalar Django REST Framework**
-- `pip install djangorestframework`
-- Agregar a `INSTALLED_APPS`
-- Configurar autenticación: Token auth (simple) o API keys por sucursal
+- [x] `djangorestframework` instalado/configurado.
+- [x] Agregado a `INSTALLED_APPS`.
+- [x] Autenticación JWT para usuarios y token de sucursal para sync/maestros.
 
 **3.2 Serializers para datos maestros**
 ```
@@ -360,7 +408,7 @@ api/serializers.py
     ConfiguracionSerializer (parcial, solo campos relevantes)
 ```
 
-**3.2b Serializers de cartera / CxC**
+**3.2b Serializers de cartera / CxC — [x lectura]**
 ```
 apps/api/serializers/cuentas_por_cobrar.py
     CuentaPorCobrarSerializer          (lista)
@@ -369,9 +417,10 @@ apps/api/serializers/cuentas_por_cobrar.py
     PagoCxCSerializer
     CarteraResumenSerializer           (forma de resumen/)
 ```
-- Exponer saldo por cliente, aging y movimientos para portal cloud.
-- Mantener escritura de abonos bajo permisos ADMIN/SYSADMIN o permiso operativo especifico.
-- No mezclar abonos CxC con ventas nuevas.
+- [x] Exponer saldo por cliente y movimientos para portal cloud.
+- [~] Aging avanzado por buckets queda diferido.
+- [ ] Escritura de abonos desde portal no existe en v1; abonos nacen en POS y viajan por eventos.
+- [x] No mezclar abonos CxC con ventas nuevas.
 - **[Estado may 2026] Implementado (B15).** Serializers de lectura creados en `apps/api/serializers/cuentas_por_cobrar.py` y servidos por `CuentaPorCobrarViewSet`. En v1 el portal es **solo lectura**: no expone escritura de abonos (los abonos nacen en el POS y fluyen por eventos sucursal→cloud). El **aging consolidado** descrito arriba quedó diferido — el `resumen/` v1 da total/vencido global, no buckets. Decisiones futuras en `ROADMAP_PORTAL.md` → 5.H.
 
 **3.3 Endpoints de datos maestros (cloud → sucursal)**
@@ -380,8 +429,8 @@ GET  /api/v1/maestros/productos/?desde=<timestamp>
 GET  /api/v1/maestros/categorias/?desde=<timestamp>
 GET  /api/v1/maestros/clientes/?desde=<timestamp>
 ```
-- Filtro por `fecha_modificacion > desde` para sync incremental
-- Respuesta incluye `version` para control de consistencia
+- [x] Filtro `?desde=` para sync incremental.
+- [x] Respuesta paginada/serializada para productos, categorías y clientes.
 
 **3.4 Endpoints de eventos (sucursal → cloud)**
 ```
@@ -389,9 +438,9 @@ POST /api/v1/sync/eventos/         # Enviar batch de eventos
 GET  /api/v1/sync/status/          # Estado de sincronización de la sucursal
 ```
 
-- Eventos de cartera incluidos en el contrato: `CXC_CREADA`, `CXC_PAGO_REGISTRADO`, `CXC_ANULADA`.
-- La nube debe poder reconstruir cartera por cliente desde eventos confirmados.
-- Los eventos CxC deben ser idempotentes igual que ventas/cierres.
+- [x] Eventos de cartera incluidos en el contrato: `CXC_CREADA`, `CXC_PAGO_REGISTRADO`, `CXC_ANULADA`.
+- [x] La nube reconstruye cartera por cliente desde eventos confirmados.
+- [x] Eventos CxC idempotentes igual que ventas/cierres.
 
 **3.5 Endpoints de reportes (cloud → dashboard)**
 ```
@@ -403,7 +452,7 @@ GET  /api/v1/reportes/top-productos/?desde=&hasta=&sucursal=&limit=10
 GET  /api/v1/reportes/cierre-consolidado/?fecha=&sucursal=
 GET  /api/v1/reportes/inventario-consolidado/
 ```
-- Separar siempre ventas facturadas, ventas a credito y cobros CxC.
+- [x] Separar siempre ventas facturadas, ventas a credito y cobros CxC.
 - **[Estado may 2026] Implementado.** La capa cloud de reportes vive en `apps/api/services/reporting.py`; los endpoints HTTP quedan en `apps/api/views/reportes.py`. `comparativo/` ya no devuelve placeholder `LOCAL`, agrupa por `Venta.sucursal`, incluye `metadata.legacy_ventas_omitidas` y separa CxC de ventas.
 - `inventario-consolidado/` conserva contrato backward-compatible con `stock_por_sucursal: {"LOCAL": n}`. Multi-sucursal real de inventario queda pendiente de `INVENTARIO_SNAPSHOT`.
 - **[Estado may 2026] Decisión tomada.** La cartera se sirve como recurso propio bajo **`/api/v1/cuentas-por-cobrar/`** (la propuesta del frontend), NO bajo `/reportes/`. Razón: es un recurso navegable (lista + detalle + agregados), no un reporte calculado; encaja con el router DRF y el patrón de maestros. `/reportes/cuentas-por-cobrar/` queda libre por si más adelante se quiere un reporte analítico distinto (p.ej. aging consolidado multi-sucursal con corte por fecha). El frontend ya apunta a esta ruta vía `src/lib/cxc.ts → BASE_PATH`.
@@ -411,6 +460,9 @@ GET  /api/v1/reportes/inventario-consolidado/
 ---
 
 ### FASE 4 — Sistema de sincronización (sync engine)
+> Estado 2026-06-09: MVP implementado para push de eventos y pull de maestros.
+> Quedan abiertos proxy de escritura local de maestros, heartbeat/liveness e
+> inventario multi-sucursal real.
 > *El mecanismo que mueve datos entre sucursales y la nube*
 
 **4.1 App `sync`**
@@ -424,7 +476,7 @@ apps/sync/
             sincronizar.py    # Management command para correr sync
 ```
 
-**4.2 Modelo EventoSync**
+**4.2 Modelo EventoSync — [x]**
 ```python
 class EventoSync(models.Model):
     sucursal = ForeignKey(Sucursal)
@@ -441,7 +493,7 @@ class EventoSync(models.Model):
 
 **4.3 Generación de eventos (signals o explícito)**
 - Opción A: `post_save` signal en Venta → crea EventoSync automáticamente
-- Opción B (recomendada): llamada explícita en `procesar_venta()` después del commit
+- [x] Opción B (recomendada): llamada explícita después del commit
   - Más control, más predecible, más fácil de debuggear
   - El evento se crea DESPUÉS de que la transacción local sea exitosa
 
@@ -485,7 +537,7 @@ class SyncEngine:
             return False
 ```
 
-**4.5 Management command `sincronizar`**
+**4.5 Management command `sincronizar` — [x]**
 ```bash
 # Correr como scheduled task cada 60 segundos
 python manage.py sincronizar --settings=config.settings_sucursal
@@ -495,15 +547,18 @@ python manage.py sincronizar --settings=config.settings_sucursal
 - Logging a `sync.log`
 
 **4.6 Decorador `@requiere_conexion_cloud`**
-- Para vistas de edición de datos maestros (productos, categorías, clientes)
-- Verifica `SyncEngine.check_connection()` antes de permitir la operación
-- Si offline: muestra mensaje "Cambios administrativos no disponibles sin conexión"
-- La edición se envía directamente a la API cloud, no se guarda localmente primero
+- [x] Decorador existe en `apps/sync/decorators.py`.
+- [x] Verifica conexión cloud antes de permitir la operación.
+- [~] Bloquea con mensaje si no hay conexión.
+- [ ] Las vistas locales todavía deben cambiar a POST/PATCH/DELETE contra la API cloud y refrescar copia local.
 - **Pendiente de implementación:** el decorador por sí solo no debe considerarse suficiente. Las vistas locales de maestros deben cambiar de "guardar ORM local" a "POST/PATCH/DELETE contra API cloud + refrescar copia local". Hasta cerrar ese cambio, crear/editar cliente o categoría desde el POS local no se replica al portal cloud y debe tratarse como dato local/legacy.
 
 ---
 
 ### FASE 5 — Portal administrativo cloud (React dashboard)
+> Estado 2026-06-09: MVP parcial. Backend API y deploy backend dev existen. El
+> portal React está documentado en `ROADMAP_PORTAL.md`; Static Web Apps dev sigue
+> bloqueado/no aplicado por restricciones de Azure for Students.
 > *Interfaz web para el dueño del negocio*
 
 **5.1 Proyecto React separado**
@@ -524,51 +579,54 @@ pos-cloud-dashboard/
 ```
 
 **5.2 Funcionalidades del portal**
-- Login con credenciales Django (SYSADMIN/ADMIN)
-- Dashboard: ventas del día por sucursal (con indicador de última sincronización)
-- Comparativo entre sucursales: gráficas Recharts/Chart.js
-- Gestión de productos: crear, editar precio, activar/desactivar (se propaga a sucursales)
-- Gestión de categorías y clientes
-- Cuentas por cobrar: cartera por cliente, aging, vencidas, pagos recibidos y alertas de credito
-- Estado de sucursales: última sincronización, eventos pendientes, alertas
-- Reportes consolidados: consumir la capa cloud query-based (`apps/api/services/reporting.py`), no `ReporteManager` local
+- [x] Login con credenciales Django/JWT.
+- [x] Dashboard: ventas del día por sucursal con indicador de última sincronización.
+- [~] Comparativo entre sucursales: backend listo; frontend queda según `ROADMAP_PORTAL.md`.
+- [x] Gestión de productos: crear, editar precio, activar/desactivar.
+- [x] Gestión de categorías y clientes.
+- [~] Cuentas por cobrar: cartera read-only lista; aging/alertas avanzadas quedan diferidas.
+- [x] Estado de sucursales: última sincronización, eventos pendientes, alertas.
+- [x] Reportes consolidados consumen capa cloud query-based (`apps/api/services/reporting.py`), no `ReporteManager` local.
 
 **5.3 Deployment**
-- Decision base: **Docker + Azure Container Apps** para backend Django.
-- Azure App Service Linux sin Docker queda como plan B para demo rapida, no como arquitectura objetivo.
-- Azure Static Web Apps para el portal React.
-- Azure PostgreSQL Flexible Server como DB cloud.
-- Azure Container Registry para imagenes Docker del backend.
-- Azure Container Apps Job para migraciones y comandos operativos (`manage.py migrate`, bootstrap SYSADMIN, tareas futuras).
-- Terraform como fuente de verdad de infraestructura (`infra/azure/`), con `infra/floci-lab/` opcional para aprendizaje local sin costo.
-- Build backend: GitHub Actions → Docker image taggeada con SHA → ACR → Container Apps.
-- Build frontend: `npm run build` → Azure Static Web Apps.
-- Roadmap operativo detallado: `docs/ROADMAP_DEPLOY_AZURE.md`.
+- [x] Decision base: **Docker + Azure Container Apps** para backend Django.
+- [x] Azure App Service Linux sin Docker queda como plan B para demo rapida, no como arquitectura objetivo.
+- [ ] Azure Static Web Apps para el portal React sigue pendiente/bloqueado en dev.
+- [x] Azure PostgreSQL Flexible Server como DB cloud.
+- [x] Azure Container Registry para imagenes Docker del backend.
+- [x] Azure Container Apps Job para migraciones y comandos operativos.
+- [x] Terraform como fuente de verdad de infraestructura (`infra/azure/`), con remote state dev.
+- [x] Build backend: GitHub Actions → Docker image taggeada con SHA → ACR → Container Apps.
+- [ ] Build/deploy frontend a Azure Static Web Apps pendiente.
+- [x] Roadmap operativo detallado: `docs/ROADMAP_DEPLOY_AZURE.md`.
 
 **5.4 Autenticación**
-- JWT tokens (djangorestframework-simplejwt)
-- El React guarda el token en memory (no localStorage para seguridad)
-- Refresh token flow
+- [x] JWT tokens (`djangorestframework-simplejwt`).
+- [x] El React guarda token en memory según contrato del portal.
+- [x] Refresh token flow.
 
 ---
 
 ### FASE 6 — Producción multi-sucursal (integración completa)
+> Estado 2026-06-09: pendiente. La base técnica existe en dev, pero falta
+> staging, piloto operativo y empaquetado multi-sucursal.
 > *Todo funcionando junto para un cliente real*
 
 **6.1 Prueba piloto con Royal Plast**
-- Sucursal principal: la actual (ya funcionando)
-- "Sucursal" de prueba: segunda PC en la misma red o en la casa del dueño
-- Validar: sync funciona, reportes consolidan, maestros se propagan
+- [x] Sucursal principal: la actual (ya funcionando).
+- [ ] "Sucursal" de prueba: segunda PC en la misma red o en la casa del dueño.
+- [ ] Validar: sync funciona, reportes consolidan, maestros se propagan.
 
 **6.2 Paquete de instalación multi-sucursal**
-- Actualizar `instalar.bat` para preguntar: ¿sucursal nueva o nodo cloud?
-- `crear_config_inicial` con código de sucursal
-- `registrar_servicio.bat` ahora incluye el sync como segundo servicio
+- [ ] Actualizar `instalar.bat` para preguntar: ¿sucursal nueva o nodo cloud?
+- [~] `crear_config_inicial` acepta código de sucursal.
+- [ ] `registrar_servicio.bat` incluye sync como segundo servicio.
 
 **6.3 Monitoreo**
-- Endpoint `/api/v1/health/` que cada sucursal pinga
-- Dashboard cloud muestra: verde (sync reciente), amarillo (>5 min), rojo (>30 min)
-- Alerta por email si una sucursal lleva >1 hora sin sincronizar
+- [x] Endpoint `/api/v1/health/` existe para salud de API/DB.
+- [x] Dashboard cloud usa `ultima_sync`: verde (sync reciente), amarillo (>5 min), rojo (>30 min).
+- [ ] Heartbeat/liveness explícito de sucursal.
+- [ ] Alerta por email si una sucursal lleva >1 hora sin sincronizar.
 
 ---
 
@@ -600,6 +658,10 @@ pos-cloud-dashboard/
 ---
 
 ## Branches de Git propuestos
+
+> Estado 2026-06-09: referencia historica de secuenciacion. La consolidacion
+> actual ya vive en `features/cloud-dashboard`/`develop` segun el flujo vigente;
+> no crear estos branches antiguos si la funcionalidad ya esta integrada.
 
 | Branch | Propósito | Base | Dependencias |
 |--------|-----------|------|--------------|

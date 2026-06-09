@@ -1,10 +1,14 @@
 # TESTING e-CF automatizado - 2026-05-18
 
+> Estado documental: bitacora historica de cobertura automatizada e-CF. La
+> fuente viva de convenciones de testing es `TESTING.md`; el estado maestro es
+> `PROJECT_STATUS.md`.
+
 ## Objetivo
 
 Convertir los hallazgos manuales de TesteCF/MSeller en contratos
 automatizados. Esta tanda complementa la bitacora
-`docs/TESTING_ECF_2026-05-09.md`.
+`docs/historico/TESTING_ECF_2026-05-09.md`.
 
 ## Cobertura agregada
 

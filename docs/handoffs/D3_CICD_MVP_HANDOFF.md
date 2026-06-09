@@ -109,7 +109,7 @@ posfifo-tfstate-rg
   -> azure/dev.tfstate
 ```
 
-Runbook: `docs/TERRAFORM_AZURE_REMOTE_STATE.md`.
+Runbook: `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`.
 
 ## Proximo paso recomendado
 

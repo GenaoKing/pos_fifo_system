@@ -70,6 +70,131 @@ Que hace el build:
 
 El build no conecta a la DB y no corre migraciones.
 
+## Push manual a Azure Container Registry
+
+Azure Container Registry (`ACR`) es el almacenamiento privado de imagenes Docker.
+No es Azure Blob Storage: Blob guarda archivos; ACR guarda imagenes versionadas
+que Container Apps puede ejecutar.
+
+En dev usamos:
+
+```text
+Registry: posfifodevacr.azurecr.io
+Repository: pos-fifo-backend
+```
+
+### Paso 1 - Login en Azure
+
+```powershell
+az login
+az account show --output table
+```
+
+Si tienes mas de una suscripcion:
+
+```powershell
+az account set --subscription "<subscription-id>"
+```
+
+### Paso 2 - Login en ACR
+
+```powershell
+az acr login --name posfifodevacr
+```
+
+Esto autentica Docker contra:
+
+```text
+posfifodevacr.azurecr.io
+```
+
+### Paso 3 - Elegir tag
+
+Para pruebas manuales puedes usar un tag legible:
+
+```powershell
+$tag = "manual-dev-$(Get-Date -Format yyyyMMdd-HHmm)"
+```
+
+Para algo mas cercano a CI/CD, usar el commit actual:
+
+```powershell
+$tag = git rev-parse HEAD
+```
+
+Evitar `latest`; no deja claro que codigo esta corriendo.
+
+### Paso 4 - Build local
+
+Desde la raiz del repo:
+
+```powershell
+cd C:\Proyectos\pos_fifo_system
+docker build -t pos-fifo-backend:$tag .
+```
+
+Validacion opcional del tamano:
+
+```powershell
+docker images pos-fifo-backend
+docker history pos-fifo-backend:$tag
+```
+
+### Paso 5 - Tag para ACR
+
+Docker distingue el nombre local del nombre remoto. Hay que etiquetar la imagen
+con el servidor ACR:
+
+```powershell
+docker tag pos-fifo-backend:$tag posfifodevacr.azurecr.io/pos-fifo-backend:$tag
+```
+
+### Paso 6 - Push a ACR
+
+```powershell
+docker push posfifodevacr.azurecr.io/pos-fifo-backend:$tag
+```
+
+Verificar que el tag llego:
+
+```powershell
+az acr repository show-tags `
+  --name posfifodevacr `
+  --repository pos-fifo-backend `
+  --orderby time_desc `
+  --top 10 `
+  --output table
+```
+
+### Paso 7 - Deploy manual opcional
+
+Push no despliega automaticamente. Para actualizar la API manualmente:
+
+```powershell
+az containerapp update `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-api `
+  --image posfifodevacr.azurecr.io/pos-fifo-backend:$tag
+```
+
+Actualizar tambien el job de migraciones para que use la misma imagen:
+
+```powershell
+az containerapp job update `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-migrate `
+  --image posfifodevacr.azurecr.io/pos-fifo-backend:$tag
+```
+
+Validar health:
+
+```powershell
+curl -v --max-time 60 https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io/api/v1/health/
+```
+
+En el flujo normal, GitHub Actions hace estos pasos despues del merge a
+`develop`: build, tag SHA, push a ACR, update de Container App y smoke test.
+
 ## Run
 
 ```powershell

@@ -1,5 +1,9 @@
 # TESTING e-CF — Bitácora y Plan de Ejecución
 
+> Estado documental: bitacora historica de ejecucion e-CF. Conservar por
+> evidencia y troubleshooting, no usar como roadmap vivo. Ver
+> `PROJECT_STATUS.md` y `ROADMAP_ECF_FASE_INICIAL.md`.
+
 **Fecha:** 9-10 de mayo de 2026  
 **Objetivo:** validar el módulo `facturacion_electronica` por capas antes de seguir implementando a ciegas.  
 **Estado de esta bitácora:** fase de testing development ejecutada y documentada.
@@ -499,7 +503,7 @@ Checklist:
 
 ### 7.1 Hallazgos confirmados antes de ejecutar pruebas
 
-- `HANDOFF_ECF.md` quedó desactualizado en dos puntos respecto al repo actual:
+- `docs/handoffs/HANDOFF_ECF.md` quedó desactualizado en dos puntos respecto al repo actual:
   - todavía marca `config/urls.py` como pendiente, pero ya está incluido
   - todavía marca `LOGGING` e-CF como pendiente, pero ya existe en `config/settings.py`
 - El flujo UI de polling ya está cableado en código.

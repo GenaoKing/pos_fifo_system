@@ -1,10 +1,23 @@
 # Roadmap Portal Cloud (Fase 5)
 
-Documento vivo. Estado al **31 mayo 2026**.
-Branch backend: `features/cloud-dashboard` (CxC se está integrando desde `features/refactor-pos`).
+Documento vivo. Estado al **9 junio 2026**.
+Branch backend: `features/cloud-dashboard` / `develop` segun flujo vigente.
 Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ---
+
+## Que falta ahora
+
+1. **Deploy frontend dev/staging**: crear o desbloquear Azure Static Web Apps
+   u otra alternativa para publicar `pos-cloud-dashboard` y consumir la API dev.
+2. **Smoke cloud completo**: login, dashboard, maestros, reportes, inventario y
+   CxC contra `posfifo-dev-api` desplegado, no solo contra backend local/Azure DB.
+3. **Comparativo `/comparativo`**: backend y tipos frontend existen, pero la
+   pantalla sigue deshabilitada por decision de producto.
+4. **RBAC/modulos cutover**: el portal ya tiene `/roles` y `/suscripciones`,
+   pero falta cerrar asignacion usuario->rol y enforcement local consistente.
+5. **Hardening produccion**: logout con blacklist, rate limit login, HSTS,
+   Sentry/observability y runbook staging/prod.
 
 ## Estado actual
 
@@ -13,13 +26,15 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 | Backend | 5.A | Done (B1-B5) |
 | Frontend | 5.A | Done: F1-F4 (login/layout/dashboard real con polling 30s) |
 | Backend + Frontend | 5.C | Done: CRUD productos + smoke E2E manual OK |
-| Frontend | 5.D | Done en código (F7); falta B11 backend + smoke contra API real |
-| Frontend | 5.G | Parcial: hardening + tests críticos (Vitest/RTL, 43 tests) hechos; falta `/`-focus, README, observability |
-| Frontend | 5.H | Done (scaffolding read-only `/cuentas`); espera endpoint de lectura backend |
+| Backend + Frontend | 5.D | Done en codigo: CRUD categorias/clientes + pull maestros probado; falta smoke cloud final |
+| Frontend | 5.G | Parcial: hardening + tests criticos (Vitest/RTL, 43 tests), README y code-splitting hechos; falta `/`-focus y observability |
+| Backend + Frontend | 5.H | Done en codigo: CxC read-only `/cuentas` + endpoint backend; falta smoke contra API desplegada |
 | Backend | 5.B / 5.E | Done para reportes JSON cloud: comparativo real + ventas por cajero + top productos + cierre consolidado |
-| Frontend | 5.E | Done (frontend): `/inventario` (F10) + `/reportes` (F8) consumen B13/B14; falta smoke contra API real |
-| Frontend | 5.B | Diferido: tipos `ComparativoResponse` listos en `reports.ts`; `/comparativo` (F5) NO habilitado por indicación |
-| Frontend | 5.F | Prep frontend listo: `staticwebapp.config.json`, `.env.example`, README, CI (lint+test+build), config seam multi-tenant. Falta recurso Azure (D8/D9 deploy/D11) |
+| Frontend | 5.E | Done (frontend): `/inventario` (F10) + `/reportes` (F8) consumen B13/B14; falta smoke contra API desplegada |
+| Frontend | 5.B | Diferido: tipos `ComparativoResponse` listos en `reports.ts`; `/comparativo` (F5) NO habilitado por indicacion |
+| Backend | 5.F | Dev desplegado: Docker + ACR + Container Apps + Key Vault + remote state + CI/CD MVP |
+| Frontend | 5.F | Prep frontend listo: `staticwebapp.config.json`, `.env.example`, README, CI (lint+test+build), config seam multi-tenant. Falta recurso/deploy frontend Azure |
+| Backend + Frontend | 5.I | Parcial: RBAC/modulos backend + `/roles` + `/suscripciones`; falta asignacion usuario->rol y cutover local |
 
 ---
 
@@ -27,13 +42,14 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ```
 5.A  Dashboard MVP (KPIs + estado sucursales)          <- DONE
-5.B  Comparativo entre sucursales con gráficos          <- BACKEND DONE; frontend pendiente
+5.B  Comparativo entre sucursales con graficos          <- BACKEND DONE; frontend pendiente
 5.C  CRUD de productos                                  <- DONE
-5.D  CRUD de categorías y clientes                      <- DONE (frontend); B11 backend pendiente
+5.D  CRUD de categorias y clientes                      <- DONE en codigo; falta smoke cloud
 5.E  Reportes consolidados on-demand                    <- BACKEND JSON DONE; /inventario F10 + /reportes F8 hechos
-5.F  Deploy a producción (backend + frontend)          <- PREP FRONTEND DONE (config/CI/SWA); falta recurso Azure
-5.G  Hardening + polish (cross-cutting)                 <- PARCIAL (frontend)
-5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE (backend B15 + frontend); pendiente conectar BASE_PATH
+5.F  Deploy a produccion (backend + frontend)           <- BACKEND DEV DONE; frontend Azure pendiente
+5.G  Hardening + polish (cross-cutting)                 <- PARCIAL
+5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE en codigo; falta smoke cloud
+5.I  RBAC y modulos del portal                          <- PARCIAL; UI base lista
 ```
 
 ---
@@ -165,11 +181,11 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
     - `GET /api/v1/maestros/clientes/?search=&tipo=&activo=` para sucursal + admin.
     - `POST /api/v1/maestros/clientes/`, `PATCH /api/v1/maestros/clientes/<id>/`, `DELETE /api/v1/maestros/clientes/<id>/` para admin/sysadmin.
   - **Nota de contrato (hallazgo frontend):** El proyecto tiene DOS espacios de URL para clientes. `apps/clientes/urls.py` expone `/clientes/<id>/` como vista de detalle del POS local (templates Django). El endpoint de **creación del portal** es `POST /api/v1/maestros/clientes/` (sin ID). El frontend React debe apuntar siempre a `/api/v1/maestros/clientes/` para el alta.
-- [ ] **B11** — Propagación cloud → sucursal vía `pull_maestros`
-  - Categorías: verificar que `descripcion`, `activa`, `tipo_negocio`, `atributos_configurados` llegan a sucursal.
-  - Clientes: verificar que `tipo`, `nombre`, `cedula_rnc`, `telefono`, `email`, `direccion`, `limite_credito`, `condiciones_pago`, `notas`, `activo` llegan a sucursal.
-  - Igual que productos, no depender de eventos `CATEGORIA_ACTUALIZADA` / `CLIENTE_ACTUALIZADO`; la propagación debe quedar cubierta por lectura incremental de maestros.
-  - Hallazgo backend: timestamps ISO con UTC (`+00:00`) se corrompen si se concatenan manualmente en URLs porque `+` llega como espacio y el filtro `?desde=` puede no aplicar. Tests backend deben usar `urllib.parse.quote()` cuando construyan URLs manuales; frontend debe usar `axios` con `{ params }` o `encodeURIComponent()` si arma la URL a mano.
+- [x] **B11** — Propagación cloud → sucursal vía `pull_maestros`
+  - [x] Categorías: `descripcion`, `activa`, `tipo_negocio`, `atributos_configurados` llegan a sucursal.
+  - [x] Clientes: `tipo`, `nombre`, `cedula_rnc`, `telefono`, `direccion`, `limite_credito`, `condiciones_pago`, `notas`, `activo` llegan a sucursal.
+  - [x] Igual que productos, no depende de eventos `CATEGORIA_ACTUALIZADA` / `CLIENTE_ACTUALIZADO`; la propagación queda cubierta por lectura incremental de maestros.
+  - [x] Cobertura: `apps/sync/tests/test_engine.py::SyncEnginePullCategoriasTests` y `SyncEnginePullClientesTests`.
 - [ ] **B11b** — Escrituras locales de maestros deben ir al cloud
   - Decisión: el **cloud es la fuente de verdad** de productos, categorías y clientes.
   - Crear/editar/desactivar maestros desde una pantalla local de sucursal **no debe** crear un registro local esperando que viaje por sync. En v1 no hay eventos `CLIENTE_*` ni `CATEGORIA_*`.
@@ -190,11 +206,13 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
   - Regla de negocio UI: el cliente genérico `CONTADO` se muestra si viene del API, pero queda bloqueado para edición/desactivación/eliminación porque el backend lo gestiona internamente.
   - Regla frontend para query params: preferir `apiClient.get(url, { params })`; si se arma un query string manual, codificar fechas/cursors con `encodeURIComponent()`.
   - Verificación frontend: `npm run lint` y `npm run build` OK en `C:\Proyectos\pos-cloud-dashboard`.
-  - Pendiente: smoke manual create/edit/deactivate contra API real y validación de propagación a sucursal cuando B11 cierre.
+  - Pendiente: smoke manual create/edit/deactivate contra API dev desplegada y validación de propagación a sucursal real.
 
 ### DoD 5.D
 
-- Catálogo completo (productos + categorías + clientes) gestionado desde portal
+- [x] Catálogo completo (productos + categorías + clientes) gestionado desde portal en código.
+- [x] Pull de categorías/clientes probado en backend.
+- [ ] Smoke cloud final portal -> API dev -> pull sucursal real.
 
 ---
 
@@ -239,20 +257,22 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
   - `src/lib/reports.ts` con tipos explícitos `ComparativoResponse` (listo para F5), `VentasPorCajeroResponse`, `TopProductosResponse`, `CierreConsolidadoResponse`; todo vía `apiClient.get(url, { params })`.
   - Archivos: `src/pages/Reports.tsx`, `src/lib/reports.ts`, `src/hooks/useReports.ts`; ruta en `src/App.tsx`; nav habilitado en `src/components/layout/Sidebar.tsx`.
   - Verificación frontend: `npm run lint` y `npm run build` OK.
-  - Pendiente: smoke contra API real cuando el backend de reportes esté desplegado; `/comparativo` (F5) sigue deshabilitado por decision de producto, no por bloqueo backend.
+  - Pendiente: smoke contra API dev desplegada; `/comparativo` (F5) sigue deshabilitado por decision de producto, no por bloqueo backend.
 
 ### DoD 5.E
 
-- Owner genera consolidados desde el portal en lugar de pedir 4 PDFs por sucursal
+- [x] Owner puede generar consolidados desde el portal en codigo (/reportes).
+- [ ] Smoke cloud contra API dev con datos reales de sucursal.
 - [x] Owner consulta inventario consolidado (stock, bajo stock, reposición) desde el portal — vía `/inventario`
 
 ---
 
 ## Sub-fase 5.F — Deploy a producción
 
-> ⚠️ Hoy la "cloud" es solo la BD Azure PostgreSQL Flexible.
-> Aquí se decide e implementa el deploy real del backend Django + frontend.
-> Roadmap detallado: `docs/ROADMAP_DEPLOY_AZURE.md`.
+> Estado actualizado 2026-06-09: backend dev ya corre en Azure Container Apps
+> con Docker, ACR, Key Vault, remote state y CI/CD MVP. Este bloque queda como
+> resumen; la fuente operativa es `docs/ROADMAP_DEPLOY_AZURE.md` y el inventario
+> actual es `docs/runbooks/AZURE_DEV_RESOURCES.md`.
 
 ### Decision base
 
@@ -264,26 +284,27 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### Backend cloud
 
-- [ ] **D0** — Readiness previo a cloud:
-  - rotar secretos que hayan vivido en scripts/docs/settings,
+- [x] **D0** — Readiness previo a cloud:
+  - secretos saneados en repo; rotacion externa documentada como pendiente si
+    fueron expuestos,
   - reemplazar valores reales por env vars/placeholders,
   - health endpoint con DB/version/ambiente,
   - settings cloud con `DEBUG=False`.
-- [ ] **D2** — `Dockerfile` backend:
+- [x] **D2** — `Dockerfile` backend:
   - Python + dependencias,
   - `collectstatic`,
   - Gunicorn,
   - logs a stdout/stderr,
   - sin migraciones automaticas en startup.
-- [ ] **D3** — `config/settings_cloud.py` o endurecer `config/settings_production.py` para Azure:
+- [x] **D3** — `config/settings_cloud.py` o endurecer `config/settings_production.py` para Azure:
   - `settings_azure_pg.py` queda como dev local contra Azure DB, no como production settings.
-- [ ] **D4** — Variables de entorno/secrets:
+- [x] **D4** — Variables de entorno/secrets:
   - `SECRET_KEY` (Azure Key Vault o Container Apps secrets)
   - `ALLOWED_HOSTS=api.tudominio.com`
   - `DEBUG=False`
   - `CORS_ALLOWED_ORIGINS=https://portal.tudominio.com`
   - `JWT_ACCESS_MINUTES=30`, `JWT_REFRESH_DAYS=7`
-- [ ] **D5** — Terraform dev minimo:
+- [x] **D5** — Terraform dev minimo:
   - Resource Group,
   - Azure Container Registry,
   - Container Apps Environment,
@@ -295,15 +316,17 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 - [ ] **D5b** — Floci/Terraform lab opcional:
   - `infra/floci-lab/` para aprender Terraform sin costo.
   - No sustituye staging real; no valida Container Apps/ACR/PostgreSQL/domains/RBAC.
-- [ ] **D6** — GitHub Actions backend:
+- [x] **D6** — GitHub Actions backend:
   - PR: `manage.py check` + tests criticos.
   - Merge `develop`: build Docker image, tag con SHA, push a ACR, deploy a Container Apps dev.
   - Ejecutar migraciones con job/control explicito, no dentro del startup del contenedor.
   - Smoke: health, login, reportes, sucursales/status.
-- [ ] **D7** — Inicializacion operativa:
+- [~] **D7** — Inicializacion operativa:
   - migracion inicial del schema en Azure DB,
   - crear SYSADMIN via management command,
   - documentar rollback por revision/imagen.
+  - Dev ya tiene Container App Job `migrate`; staging/prod requieren runbook
+    operativo completo.
 
 ### Frontend (Azure Static Web Apps)
 
@@ -319,26 +342,26 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ### Pre-deploy checklist
 
-- [ ] `DEBUG=False`
-- [ ] `ALLOWED_HOSTS` correcto
-- [ ] `CORS_ALLOWED_ORIGINS` correcto
-- [ ] `SECRET_KEY` rotado, NO commiteado
-- [ ] DB credentials en env vars / Key Vault
-- [ ] `STATIC_ROOT` configurado y `collectstatic` ejecutado
-- [ ] Logging configurado (file + stdout para captura por Azure)
-- [ ] `CSRF_TRUSTED_ORIGINS` si vamos a usar cookies (con JWT puro no es necesario)
-- [ ] HTTPS forzado (`SECURE_SSL_REDIRECT=True`)
+- [x] `DEBUG=False`
+- [x] `ALLOWED_HOSTS` correcto para dev cloud
+- [x] `CORS_ALLOWED_ORIGINS` correcto para dev cloud
+- [x] `SECRET_KEY` fuera del repo y referenciado via Key Vault en dev
+- [x] DB credentials en env vars / Key Vault
+- [x] `STATIC_ROOT` configurado y `collectstatic` ejecutado
+- [x] Logging a stdout/stderr para captura por Azure
+- [x] `CSRF_TRUSTED_ORIGINS` configurable si aplica
+- [x] HTTPS externo por Azure Container Apps ingress
 - [ ] `SECURE_HSTS_SECONDS` configurado
 
 ### DoD 5.F
 
-- Ambiente `dev` real en Azure creado por Terraform.
-- Backend Django corre en Azure Container Apps desde imagen Docker taggeada por SHA.
-- Migraciones corren por Container Apps Job/pipeline, no por startup.
-- Portal dev carga desde Azure Static Web Apps y consume API dev.
-- Login, dashboard, reportes, CxC y maestros pasan smoke contra Azure.
-- Staging y produccion quedan definidos como ambientes separados antes de abrir a clientes reales.
-- Backend queda sin estado en disco local y listo para escalar horizontalmente.
+- [x] Ambiente `dev` real en Azure creado por Terraform.
+- [x] Backend Django corre en Azure Container Apps desde imagen Docker taggeada por SHA.
+- [x] Migraciones corren por Container Apps Job/pipeline, no por startup.
+- [ ] Portal dev carga desde Azure Static Web Apps y consume API dev.
+- [ ] Login, dashboard, reportes, CxC y maestros pasan smoke contra Azure como flujo completo.
+- [ ] Staging y produccion quedan definidos como ambientes separados antes de abrir a clientes reales.
+- [x] Backend queda sin estado en disco local y listo para escalar horizontalmente.
 
 ---
 
@@ -368,8 +391,8 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 
 - [ ] Sentry (o equivalente) para errores frontend
 - [ ] Logs estructurados (JSON) en backend
-- [ ] Health check con info útil (DB conn, sync status, version, uptime)
-- [ ] Métricas con Azure Application Insights (requests/sec, error rate, p95)
+- [~] Health check con info útil: API/DB/version/ambiente listo; falta sync status/uptime operacional
+- [~] Métricas con Azure Application Insights: recurso existe; falta dashboard/alertas p95/error rate
 
 ### Performance
 
@@ -447,6 +470,40 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 
 ---
 
+## Sub-fase 5.I — RBAC y módulos del portal
+
+> Estado 2026-06-09: avance posterior al roadmap original. La base backend y
+> las pantallas principales existen; queda cerrar cutover operativo y permisos
+> finos antes de tratarlo como producto administrable completo.
+
+### Backend
+
+- [x] App `apps/permisos` con `Permiso`, `Rol`, `AsignacionRol`, seed y engine.
+- [x] Endpoints `/api/v1/permisos/catalogo/`, `/api/v1/permisos/roles/` y `/api/v1/permisos/asignaciones/`.
+- [x] App `apps/suscripciones` con catálogo de módulos, planes, overrides y engine.
+- [x] Endpoints `/api/v1/suscripciones/modulos/`, `/planes/`, `/negocios/` y `/overrides/`.
+- [x] Payload auth expone `permisos` y `modulos` para gating frontend.
+- [~] Enforcement por permisos/módulos existe en piezas críticas; falta completar cortes legacy/locales documentados en `RBAC_LOCAL_CUTOVER_PENDIENTE.md`.
+
+### Frontend
+
+- [x] `AuthContext` expone `can()` y `hasModule()`.
+- [x] `ProtectedRoute` soporta `requiere` y `requiereModulo`.
+- [x] Sidebar oculta/filtra CxC, roles y suscripciones según módulo/permiso.
+- [x] Pantalla `/roles` para editar rol → permisos.
+- [x] Pantalla `/suscripciones` para ver/administrar módulos/planes.
+- [ ] UI de asignación usuario → rol/sucursal pendiente.
+- [ ] Smoke cloud RBAC completo pendiente: usuario sin permiso no ve ruta y backend devuelve 403.
+
+### DoD 5.I
+
+- Admin del negocio administra roles sin tocar Django admin.
+- Operador/SYSADMIN administra módulos/planes del negocio.
+- Frontend y backend niegan rutas/acciones de forma consistente.
+- POS local y API cloud comparten el mismo contrato de permisos efectivo.
+
+---
+
 ## Decisiones pendientes (NO bloquean hoy)
 
 1. **Tokens en memoria vs `sessionStorage` para el refresh.** Roadmap original dice "memory only". Implicación: cada reload obliga a re-login. ¿Aceptable o usamos `sessionStorage` (se borra al cerrar la tab) como compromiso?
@@ -485,11 +542,11 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 
 Si tuviéramos que cortar el trabajo en 3 hitos visibles para el owner de Royal Plast:
 
-1. **Hito 1 — "Veo cómo va mi negocio hoy"** (cerrar 5.A frontend): F2 + F3 + F4
-2. **Hito 2 — "Comparo mi semana vs la anterior"** (cerrar 5.B): F5
-3. **Hito 3 — "Subo precios sin venir a la sucursal"** (5.C): F6 implementado y smoke E2E manual validado
+1. **Hito 1 — "Veo mi negocio en la nube"**: backend dev + portal local consumiendo API dev, con login/dashboard/reportes/CxC.
+2. **Hito 2 — "Administro mis maestros"**: productos, categorías y clientes desde portal, con pull validado en sucursal real.
+3. **Hito 3 — "Controlo accesos y módulos"**: roles/permisos y suscripciones funcionando con usuario de prueba restringido.
 
-Con productos validado de punta a punta, el siguiente hito visible es completar catálogo maestro desde el portal: categorías + clientes (5.D). 5.B queda diferido mientras el producto siga siendo single-sucursal en clientes reales.
+El comparativo 5.B queda diferido hasta tener dos sucursales reales o una demo comercial donde aporte valor claro.
 
 ---
 

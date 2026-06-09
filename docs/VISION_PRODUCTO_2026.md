@@ -12,7 +12,7 @@
 > *por qué*, anclado a lo que el negocio del cliente realmente necesita en
 > República Dominicana.
 >
-> **Companion:** [OPORTUNIDADES_INNOVACION.md](OPORTUNIDADES_INNOVACION.md) abre
+> **Companion:** [OPORTUNIDADES_INNOVACION.md](exploracion/OPORTUNIDADES_INNOVACION.md) abre
 > el abanico con productos *nuevos* más allá del cumplimiento (copilot por
 > WhatsApp, reorden predictivo, capital de trabajo embebido sobre ingreso
 > verificado por e-CF, benchmarking entre negocios, etc.). Este documento es la

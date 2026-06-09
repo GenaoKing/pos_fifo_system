@@ -1,5 +1,9 @@
 # HANDOFF — Implementación e-CF en `pos_fifo_system`
 
+> Estado documental: handoff historico/profundo de la fase e-CF MSeller.
+> Para una lectura ejecutiva del estado actual del proyecto, ver
+> `PROJECT_STATUS.md`. Para plan e-CF vivo, ver `ROADMAP_ECF_FASE_INICIAL.md`.
+
 **Última actualización:** 10 de mayo 2026
 **Autor original:** Santiago + Claude Opus 4.7 (sesiones de chat web)
 **Destinatario:** próxima sesión Claude / Codex agentic / Santiago en futuro
@@ -557,7 +561,7 @@ urlpatterns = [
 
 ## 7. Smoke test ejecutado
 
-La validación end-to-end contra TesteCF ya se ejecutó en development. El detalle operativo y los resultados concretos quedaron documentados en `docs/TESTING_ECF_2026-05-09.md`.
+La validación end-to-end contra TesteCF ya se ejecutó en development. El detalle operativo y los resultados concretos quedaron documentados en `docs/historico/TESTING_ECF_2026-05-09.md`.
 
 ### 7.1 Resultado general
 

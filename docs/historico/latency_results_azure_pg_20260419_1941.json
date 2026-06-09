@@ -1,0 +1,127 @@
+{
+  "environment": "azure_pg",
+  "timestamp": "2026-04-19T19:41:15.871293",
+  "db_host": "pos-fifo-pg.postgres.database.azure.com",
+  "db_engine": "django.db.backends.postgresql",
+  "tests": {
+    "connection": {
+      "min_ms": 817.75,
+      "max_ms": 921.03,
+      "avg_ms": 858.59,
+      "samples": 5
+    },
+    "ping": {
+      "min_ms": 99.55,
+      "max_ms": 105.54,
+      "avg_ms": 102.3,
+      "median_ms": 102.14,
+      "p95_ms": 105.54,
+      "stdev_ms": 1.66,
+      "samples": 20,
+      "all_ms": [
+        101.72,
+        102.04,
+        100.4,
+        104.45,
+        101.67,
+        102.5,
+        100.09,
+        104.46,
+        103.24,
+        101.62,
+        101.05,
+        103.88,
+        99.84,
+        103.67,
+        102.24,
+        101.9,
+        102.32,
+        105.54,
+        99.55,
+        103.84
+      ],
+      "descripcion": "Ping basico (latencia pura de red)"
+    },
+    "count_tables": {
+      "min_ms": 96.06,
+      "max_ms": 107.01,
+      "avg_ms": 102.3,
+      "median_ms": 102.17,
+      "p95_ms": 107.01,
+      "stdev_ms": 2.72,
+      "samples": 20,
+      "all_ms": [
+        100.65,
+        104.02,
+        100.74,
+        106.94,
+        100.03,
+        101.41,
+        102.35,
+        102.33,
+        102.47,
+        103.23,
+        102.01,
+        102.04,
+        105.05,
+        100.54,
+        102.11,
+        107.01,
+        96.06,
+        102.22,
+        106.35,
+        98.35
+      ],
+      "descripcion": "Contar tablas (metadata query)"
+    },
+    "current_time": {
+      "min_ms": 98.8,
+      "max_ms": 105.01,
+      "avg_ms": 102.46,
+      "median_ms": 102.43,
+      "p95_ms": 105.01,
+      "stdev_ms": 1.5,
+      "samples": 20,
+      "all_ms": [
+        101.79,
+        102.78,
+        102.62,
+        104.84,
+        103.12,
+        98.8,
+        104.23,
+        100.78,
+        102.29,
+        102.21,
+        102.35,
+        102.51,
+        105.01,
+        101.01,
+        101.73,
+        101.69,
+        102.53,
+        103.55,
+        104.36,
+        101.06
+      ],
+      "descripcion": "Hora del servidor (funcion simple)"
+    },
+    "orm_select_limit5": {
+      "descripcion": "ORM SELECT con LIMIT 5 (simula busqueda producto)",
+      "avg_ms": 102.32,
+      "median_ms": 102.35,
+      "p95_ms": 104.81
+    },
+    "orm_count": {
+      "descripcion": "ORM COUNT (simula verificacion stock)",
+      "avg_ms": 102.36,
+      "median_ms": 102.36,
+      "p95_ms": 103.58
+    }
+  },
+  "pos_impact": {
+    "estimated_sale_ms": 716.24,
+    "ping_avg_ms": 102.3,
+    "orm_avg_ms": 102.32
+  }
+}

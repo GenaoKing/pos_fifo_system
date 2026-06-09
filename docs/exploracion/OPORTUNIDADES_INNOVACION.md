@@ -1,7 +1,7 @@
 # Oportunidades de Producto — Ideas nuevas (más allá del cumplimiento)
 
 **Fecha:** 2 junio 2026
-**Relación:** Companion de [VISION_PRODUCTO_2026.md](VISION_PRODUCTO_2026.md). Aquel
+**Relación:** Companion de [VISION_PRODUCTO_2026.md](../VISION_PRODUCTO_2026.md). Aquel
 documento argumenta *la línea de cumplimiento fiscal*. Este abre el abanico:
 **propone productos nuevos que no estaban sobre la mesa**, no evalúa ideas dadas.
 **Estado:** Exploración. Cada idea es una hipótesis para discutir, no un compromiso.
@@ -77,7 +77,7 @@ de abajo en algo que un dueño no técnico *sí* usa.
   (confirmación explícita, permisos por rol, auditoría — que ya existe). Lectura
   primero, acciones después.
 - **Reemplaza con ventaja** a la "app móvil del dueño" del horizonte del
-  [ROADMAP_CLOUD](ROADMAP_CLOUD.md): mismo objetivo, canal de mayor tracción.
+  [ROADMAP_CLOUD](../ROADMAP_CLOUD.md): mismo objetivo, canal de mayor tracción.
 
 ### 3.2 Inventario que se pide solo — predicción de demanda y reorden ⭐
 **Activos: A2 + historial de `MovimientoLote`/`Venta`.**
@@ -221,7 +221,7 @@ agrupar pedidos para negociar precio de volumen con el proveedor.
 La predicción de demanda (§3.2) no se queda en "deberías reordenar": **genera la
 orden de compra** ya agrupada por proveedor, con cantidades sugeridas, lista para
 enviar por WhatsApp/email al suplidor. Cuando llega la mercancía con su factura, la
-**captura por foto+IA** (ver [VISION_PRODUCTO_2026](VISION_PRODUCTO_2026.md) §4.1)
+**captura por foto+IA** (ver [VISION_PRODUCTO_2026](../VISION_PRODUCTO_2026.md) §4.1)
 la concilia contra la orden. Inventario que se gestiona casi solo: *predecir →
 ordenar → recibir → conciliar*.
 
@@ -362,7 +362,7 @@ Valor percibido por el dueño × esfuerzo × cuán único es el activo que explo
 ---
 
 *Este documento es deliberadamente más especulativo que
-[VISION_PRODUCTO_2026.md](VISION_PRODUCTO_2026.md). Su propósito es abrir opciones,
+[VISION_PRODUCTO_2026.md](../VISION_PRODUCTO_2026.md). Su propósito es abrir opciones,
 no cerrar un plan. La recomendación práctica: ejecutar la línea de cumplimiento (que
 tiene reloj legal y construye el activo A1), y en paralelo arrancar barato por el
 "sistema de inteligencia" (3.1/3.2/5.3) para subir el valor percibido mientras

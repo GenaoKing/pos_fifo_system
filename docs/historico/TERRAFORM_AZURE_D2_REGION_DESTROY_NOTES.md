@@ -1,6 +1,10 @@
 # Terraform D2 - Regiones y destroy en Azure dev
 
-Esta nota acompana `docs/TERRAFORM_AZURE_D2_FOUNDATION.md` durante las primeras
+> Estado documental: nota historica de incidente/aprendizaje D2. Para el estado
+> Azure dev actual usar `docs/runbooks/AZURE_DEV_RESOURCES.md`; para remote state usar
+> `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`.
+
+Esta nota acompana `docs/runbooks/TERRAFORM_AZURE_D2_FOUNDATION.md` durante las primeras
 pruebas de `terraform apply/destroy` en Azure.
 
 ## Error: region no permitida por policy
