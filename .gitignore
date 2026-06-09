@@ -68,3 +68,5 @@ docs/latency_results_*.json
 **/*.tfplan
 **/*.tfvars
 !**/*.tfvars.example
+
+**/.claude/*

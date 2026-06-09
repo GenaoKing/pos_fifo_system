@@ -158,6 +158,18 @@ En Azure, esto debe convertirse en Container Apps Job o paso explicito de CI/CD.
 
 ## Troubleshooting
 
+- **La imagen subio de ~350 MB a ~1 GB**: revisar que el contexto Docker no este
+  copiando caches pesados. En este repo, `.dockerignore` excluye `.terraform/`,
+  `terraform.tfstate*`, `*.tfvars`, caches Python/Node, logs y backups. Tambien
+  se evita `chown -R /app` despues del `COPY`, porque eso puede duplicar una capa
+  grande dentro de la imagen. Para diagnosticar:
+
+```powershell
+docker history pos-fifo-backend:dev
+```
+
+  Si ves capas grandes en `COPY . /app/` o permisos, revisar `.dockerignore` y
+  evitar copiar artefactos locales que no pertenecen al runtime cloud.
 - **`Access is denied` leyendo `C:\Users\...\docker\config.json`**: Docker puede
   mostrar ese warning si el archivo de config local tiene permisos raros. Solo
   bloquea D1 si `docker build` o `docker run` fallan.

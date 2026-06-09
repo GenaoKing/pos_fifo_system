@@ -141,22 +141,22 @@ infra/
 
 Recursos dev minimos:
 
-- [ ] Resource Group. (HCL scaffold en `infra/azure/environments/dev`)
-- [ ] Azure Container Registry.
-- [ ] Container Apps Environment.
-- [ ] Container App `api`.
-- [ ] Container App Job `migrate`.
-- [ ] Azure PostgreSQL Flexible Server o referencia al existente.
-- [ ] Log Analytics Workspace. (HCL scaffold en modulo `observability`)
-- [ ] Application Insights. (HCL scaffold en modulo `observability`)
-- [ ] Key Vault o secretos de Container Apps para el primer corte.
-- [ ] Static Web App para frontend dev. (HCL scaffold en modulo `static-web-app`)
+- [x] Resource Group.
+- [x] Azure Container Registry.
+- [x] Container Apps Environment.
+- [x] Container App `api`.
+- [x] Container App Job `migrate`.
+- [x] Azure PostgreSQL Flexible Server o referencia al existente.
+- [x] Log Analytics Workspace.
+- [x] Application Insights.
+- [x] Key Vault o secretos de Container Apps para el primer corte.
+- [ ] Static Web App para frontend dev. (bloqueado por policy/regiones de Azure for Students; modulo HCL existe y queda deshabilitado en dev)
 
 State:
 
-- [ ] Local state solo para aprendizaje inicial. (configurado para `dev`; falta `init/plan/apply`)
-- [ ] Remote state en Azure Storage antes de trabajo compartido o prod.
-- [ ] Separar state por ambiente: `dev`, `staging`, `prod`.
+- [x] Local state solo para aprendizaje inicial.
+- [x] Remote state en Azure Storage antes de trabajo compartido o prod.
+- [x] Separar state por ambiente: `dev`, `staging`, `prod`. (`dev` usa `azure/dev.tfstate`; `staging/prod` deben nacer con keys propias)
 
 DoD:
 
@@ -175,6 +175,11 @@ Notas de avance D2:
   `posfifodevacr.azurecr.io/pos-fifo-backend:dev`.
 - Health cloud validado: `/api/v1/health/` responde `200 OK` con `status=ok`
   y `db=ok` desde Azure Container Apps.
+- Remote state dev migrado a Azure Storage con lock:
+  `posfifo-tfstate-rg/posfifotfstatedev/tfstate/azure/dev.tfstate`.
+- Dev API ajustada a scale-to-zero para ahorrar credito:
+  `api_min_replicas=0`, `api_max_replicas=1`. Tradeoff esperado: primer request
+  tras inactividad puede tener cold start.
 - Deuda dev documentada en `docs/D2_DEV_HANDOFF_DEBT.md`: secrets actuales en
   Container Apps/Terraform state, ASWA apagado, versionado manual y probes
   separados por `/api/v1/health/live/`.
@@ -282,7 +287,7 @@ Notas de avance D3 CI:
 - Warning pendiente no bloqueante: GitHub Actions avisa de deprecacion Node.js
   20 en actions externas.
 - D3 CI/CD queda en MVP funcional. Handoff: `docs/D3_CICD_MVP_HANDOFF.md`.
-- Siguiente bloqueo antes de staging: migrar Terraform local state a Azure
+- Bloqueo previo a staging resuelto: Terraform dev usa remote state en Azure
   Storage con lock. Runbook: `docs/TERRAFORM_AZURE_REMOTE_STATE.md`.
 
 ## Fase D4 - CI frontend

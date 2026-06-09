@@ -8,11 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+
 COPY requirements_cloud.txt /app/
 RUN pip install --upgrade pip \
     && pip install -r requirements_cloud.txt
 
-COPY . /app/
+COPY --chown=appuser:appuser . /app/
 
 RUN DJANGO_SECRET_KEY="build-only-secret-key-with-more-than-fifty-characters-1234567890" \
     ALLOWED_HOSTS="localhost,127.0.0.1" \
@@ -27,9 +29,6 @@ RUN DJANGO_SECRET_KEY="build-only-secret-key-with-more-than-fifty-characters-123
     APP_VERSION="build" \
     GIT_COMMIT_SHA="build" \
     python manage.py collectstatic --noinput --settings=config.settings_cloud
-
-RUN useradd --create-home --shell /usr/sbin/nologin appuser \
-    && chown -R appuser:appuser /app
 
 USER appuser
 

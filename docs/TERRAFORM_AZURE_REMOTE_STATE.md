@@ -1,7 +1,37 @@
 # Terraform Azure remote state
 
-Objetivo: mover `infra/azure/environments/dev/terraform.tfstate` desde disco local
-a Azure Storage antes de crear `staging`.
+Estado dev: completado.
+
+Objetivo: mover `infra/azure/environments/dev/terraform.tfstate` desde disco
+local a Azure Storage antes de crear `staging`.
+
+## Estado actual dev
+
+Remote state ya esta activo para `dev`:
+
+```text
+Resource Group: posfifo-tfstate-rg
+Storage Account: posfifotfstatedev
+Container: tfstate
+Blob key dev: azure/dev.tfstate
+Backend config: infra/azure/environments/dev/backend.tf
+```
+
+Validaciones ya ejecutadas:
+
+```powershell
+terraform init -migrate-state -force-copy
+terraform validate
+terraform plan -compact-warnings
+```
+
+Resultado esperado actual:
+
+```text
+No changes.
+```
+
+Terraform ya adquiere y libera lock remoto durante `plan/apply`.
 
 ## Por que hacerlo ahora
 
@@ -196,6 +226,19 @@ terraform.tfstate.backup
 Cuando confirmemos que remote state esta estable, borrar backups locales o
 guardarlos en un lugar seguro.
 
+En este repo, estos archivos siguen ignorados por git:
+
+```text
+infra/azure/environments/dev/.terraform/
+infra/azure/environments/dev/terraform.tfstate
+infra/azure/environments/dev/terraform.tfstate.backup
+infra/azure/environments/dev/terraform.tfstate.pre-remote-backend.backup
+infra/azure/environments/dev/terraform.tfvars
+```
+
+Mantener el backup local solo mientras confirmamos estabilidad. Tratarlo como
+sensible: puede contener IDs, nombres de recursos y referencias historicas.
+
 ## Permisos para CI futuro
 
 Si GitHub Actions luego va a ejecutar Terraform, la Managed Identity necesitara:
@@ -205,6 +248,8 @@ Si GitHub Actions luego va a ejecutar Terraform, la Managed Identity necesitara:
 - `Storage Blob Data Contributor` sobre el Storage Account de state.
 
 Por ahora el workflow CI/CD no corre Terraform. Solo build/push/deploy de imagen.
+Cuando CI ejecute Terraform, agregar `Storage Blob Data Contributor` sobre
+`posfifotfstatedev`.
 
 ## Importante
 

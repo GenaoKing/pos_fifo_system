@@ -11,11 +11,11 @@ resource "azurerm_user_assigned_identity" "github_actions" {
 resource "azurerm_federated_identity_credential" "github_actions_develop" {
   count = var.enable_github_actions_identity ? 1 : 0
 
-  name      = "github-${var.github_deploy_branch}"
-  parent_id = azurerm_user_assigned_identity.github_actions[0].id
-  issuer    = "https://token.actions.githubusercontent.com"
-  subject   = local.github_actions_subject
-  audience  = ["api://AzureADTokenExchange"]
+  name                      = "github-${var.github_deploy_branch}"
+  user_assigned_identity_id = azurerm_user_assigned_identity.github_actions[0].id
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = local.github_actions_subject
+  audience                  = ["api://AzureADTokenExchange"]
 
   lifecycle {
     precondition {

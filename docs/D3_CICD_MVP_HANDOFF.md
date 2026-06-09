@@ -95,21 +95,24 @@ Decision dev:
 - `APP_VERSION`/`GIT_COMMIT_SHA` en health siguen gestionados por Terraform/env,
   no por el workflow.
 - Warning GitHub Actions Node.js 20 no bloqueante.
-- Terraform state sigue local y sensible.
+- Terraform state historico local sigue sensible si quedan backups en disco, pero
+  dev ya usa remote state en Azure Storage.
+
+## Remote state
+
+Dev ya fue migrado:
+
+```text
+posfifo-tfstate-rg
+  -> posfifotfstatedev
+  -> tfstate
+  -> azure/dev.tfstate
+```
+
+Runbook: `docs/TERRAFORM_AZURE_REMOTE_STATE.md`.
 
 ## Proximo paso recomendado
 
-Antes de scaffold de `staging`, migrar Terraform state a Azure Storage con
-locking.
-
-Razon:
-
-- Evita que otra maquina o CI use un state vacio y pise recursos existentes.
-- Permite colaborar sin compartir `terraform.tfstate`.
-- Da locking para evitar dos applies simultaneos.
-
-Runbook:
-
-```text
-docs/TERRAFORM_AZURE_REMOTE_STATE.md
-```
+Crear scaffold de `staging` usando backend remoto desde el primer commit, con
+una key separada (`azure/staging.tfstate`) y sin copiar `terraform.tfvars` de dev
+con secretos o endpoints reales.

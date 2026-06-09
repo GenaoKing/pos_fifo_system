@@ -6,6 +6,8 @@ Estado actual:
 - API publica responde `/api/v1/health/` con `200 OK`, `status=ok`, `db=ok`.
 - ACR privado con `admin_enabled=false`.
 - Container App usa Managed Identity + rol `AcrPull`.
+- Container App usa referencias a Key Vault para secretos cloud principales.
+- Terraform dev usa remote state en Azure Storage con lock.
 - Static Web Apps queda deshabilitado por policy/regiones de Azure for Students.
 
 ## Decision: dos health checks
@@ -43,33 +45,36 @@ ciclo de vida de secretos.
 
 Deuda D3:
 
-- `terraform.tfvars` local contiene secretos reales.
-- Terraform state contiene valores sensibles.
-- No hay Key Vault todavia.
+- Backups historicos locales de Terraform state deben tratarse como sensibles
+  mientras existan.
 - No hay rotacion automatizada.
-- No hay pipeline inyectando secretos/version/commit.
+- No hay pipeline inyectando `APP_VERSION`/`GIT_COMMIT_SHA`.
 
 Decision actual para dev:
 
 - Aceptable temporalmente porque `terraform.tfvars` esta ignorado por git.
-- Tratar el state local como archivo sensible.
-- No compartir `terraform.tfstate`.
+- No compartir backups locales de `terraform.tfstate`.
 - Rotar secretos antes de staging/prod si fueron expuestos durante pruebas.
 
 Decision production-ready:
 
-- Crear Key Vault.
-- Mover `DJANGO_SECRET_KEY` y password DB a Key Vault o references seguras.
+- Key Vault ya existe en dev; staging/prod deben nacer con Key Vault desde el
+  inicio.
+- Mantener `DJANGO_SECRET_KEY` y password DB como referencias seguras, no como
+  valores planos en Terraform.
 - Usar identities/RBAC en vez de copiar secretos manualmente.
-- Remote state en Azure Storage con acceso restringido.
+- Remote state en Azure Storage con acceso restringido por ambiente.
 
 ## Deuda operativa dev
 
 - `commit` aparece como `unknown` porque `GIT_COMMIT_SHA` aun no se inyecta desde
   pipeline.
 - `version` aparece como `dev` porque `APP_VERSION` esta manual.
-- `api_min_replicas = 1` es util para debugging, pero consume credito. En dev se
-  puede volver a `0` cuando los probes queden estables.
+- `api_min_replicas = 0` ahorra credito en dev. Tradeoff esperado: cold start
+  en el primer request despues de inactividad y mensajes ocasionales tipo
+  "Could not find a replica" si se consultan logs mientras la app esta escalada
+  a cero. Azure puede mostrar `minReplicas=null` en el JSON del recurso; en este
+  contexto equivale a `0`.
 - Static Web Apps sigue apagado con `enable_static_web_app = false`.
 - PostgreSQL existente vive en otro Resource Group (`rg-pos-fifo`), fuera de este
   state Terraform.
