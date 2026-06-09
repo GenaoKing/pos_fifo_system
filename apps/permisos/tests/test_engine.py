@@ -45,6 +45,14 @@ class EngineTests(TestCase):
         u = User.objects.create_superuser('root', 'root@example.com', 'x')
         self.assertTrue(u.tiene_permiso('ventas.anular'))
 
+    def test_acceso_total_no_depende_del_catalogo(self):
+        """Robustez: un admin no queda bloqueado aunque el catalogo este vacio
+        o el codigo no exista (corto-circuito en tiene_permiso)."""
+        Permiso.objects.all().delete()
+        admin = _user('admin_sin_catalogo', rol='ADMIN')
+        self.assertTrue(admin.tiene_permiso('clientes.crear'))
+        self.assertTrue(admin.tiene_permiso('codigo.inexistente'))
+
     def test_mismo_rol_distinto_negocio_distintos_permisos(self):
         """El nucleo del requerimiento: 'Cajero' configurado distinto por negocio."""
         rol_a = testing.crear_rol(

@@ -25,11 +25,16 @@ def _slug_unico(NegocioModel, nombre):
 def crear_roles_default(negocio, RolModel, PermisoModel):
     """
     Crea (idempotente) los roles de sistema del negocio:
-      - Administrador: todos los permisos del catalogo.
-      - Cajero: replica la conducta hardcoded historica de CAJERA.
+      - Administrador: todos los permisos del catalogo (plantilla inicial).
+      - Cajero: operacion basica del POS (ver PERMISOS_CAJERO_DEFAULT).
     Retorna (admin_rol, cajero_rol).
+
+    Los permisos se fijan SOLO al crear el rol: re-ejecutar el bootstrap NO
+    pisa las personalizaciones que un admin haya hecho desde el portal. Nota:
+    los usuarios ADMIN/SYSADMIN tienen acceso total por `es_acceso_total`
+    independientemente de los permisos del rol Administrador.
     """
-    admin_rol, _ = RolModel.objects.get_or_create(
+    admin_rol, admin_creado = RolModel.objects.get_or_create(
         negocio=negocio,
         slug='administrador',
         defaults={
@@ -38,20 +43,22 @@ def crear_roles_default(negocio, RolModel, PermisoModel):
             'descripcion': 'Acceso total a la configuracion del negocio.',
         },
     )
-    admin_rol.permisos.set(PermisoModel.objects.all())
+    if admin_creado:
+        admin_rol.permisos.set(PermisoModel.objects.all())
 
-    cajero_rol, _ = RolModel.objects.get_or_create(
+    cajero_rol, cajero_creado = RolModel.objects.get_or_create(
         negocio=negocio,
         slug='cajero',
         defaults={
             'nombre': 'Cajero',
             'es_sistema': True,
-            'descripcion': 'Operacion del POS. Replica la conducta historica del rol CAJERA.',
+            'descripcion': 'Operacion del POS (vender, descuento, reimprimir).',
         },
     )
-    cajero_rol.permisos.set(
-        PermisoModel.objects.filter(codigo__in=PERMISOS_CAJERO_DEFAULT)
-    )
+    if cajero_creado:
+        cajero_rol.permisos.set(
+            PermisoModel.objects.filter(codigo__in=PERMISOS_CAJERO_DEFAULT)
+        )
     return admin_rol, cajero_rol
 
 
