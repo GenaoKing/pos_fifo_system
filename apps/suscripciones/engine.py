@@ -117,9 +117,24 @@ def _hay_cxc_abiertas(negocio):
     return None
 
 
-# Hooks de "datos bloqueantes" por modulo. Ampliar en Fase 4.
+def _hay_ecf_en_proceso(negocio):
+    from apps.facturacion_electronica.interfaces import EstadosECF
+    from apps.facturacion_electronica.models import ECF
+    en_proceso = ECF.objects.filter(
+        venta__sucursal__negocio=negocio,
+        estado__in=EstadosECF.REINTENTABLES,  # PENDIENTE/ENVIADO/EN_PROCESO/ERROR
+    ).exists()
+    if en_proceso:
+        return 'Hay comprobantes e-CF en proceso (pendientes de cierre con DGII).'
+    return None
+
+
+# Hooks de "datos bloqueantes" por modulo: impiden apagar un modulo que aun tiene
+# datos en vuelo. Cada hook -> str (motivo) o None. Se llaman defensivamente
+# (cualquier excepcion = None = no bloquea).
 _HOOKS_DATOS = {
     'cuentas_por_cobrar': _hay_cxc_abiertas,
+    'ecf': _hay_ecf_en_proceso,
 }
 
 

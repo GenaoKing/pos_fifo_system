@@ -90,6 +90,12 @@ class CuentasPorCobrarPermisoTests(TestCase):
 
     def setUp(self):
         self.negocio = testing.crear_negocio('Royal Plast')
+        # El endpoint compone modulo (suscripcion) x permiso: el negocio debe
+        # tener el modulo cuentas_por_cobrar ademas de que el usuario tenga el permiso.
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True
+        )
         self.con_permiso = _cajera('cobrador')
         rol = testing.crear_rol(self.negocio, 'Cobrador', ['cuentas_por_cobrar.ver'])
         testing.asignar(self.con_permiso, rol)
