@@ -90,11 +90,13 @@ def _user_payload(user):
     """Forma canónica del usuario para el frontend. Centralizada para
     que login y /me/ devuelvan exactamente la misma shape.
 
-    Incluye `permisos` (codigos efectivos del catalogo) para que el frontend
-    refleje lo que el backend concede, y `negocio` (tenant) para el contexto.
-    El enforcement real vive server-side; `permisos` aquí es para UX.
+    Incluye `permisos` (codigos efectivos del catalogo) y `modulos` (keys de
+    modulos activos en el plan del negocio) para que el frontend refleje lo que
+    el backend concede, y `negocio` (tenant) para el contexto. El enforcement
+    real vive server-side; esto es para UX.
     """
     from apps.permisos.engine import permisos_de_usuario
+    from apps.suscripciones.engine import modulos_negocio
 
     negocio = getattr(user, 'negocio', None)
     negocio_payload = None
@@ -120,4 +122,5 @@ def _user_payload(user):
         'negocio': negocio_payload,
         'tenant_id': negocio.slug if negocio is not None else None,
         'permisos': sorted(permisos_de_usuario(user)),
+        'modulos': sorted(modulos_negocio(negocio)),
     }

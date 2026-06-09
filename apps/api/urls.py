@@ -20,6 +20,12 @@ from rest_framework.routers import DefaultRouter
 
 from .views.maestros import ProductoViewSet, CategoriaViewSet, ClienteViewSet
 from .views.cuentas_por_cobrar import CuentaPorCobrarViewSet
+from .views.suscripciones import (
+    ModuloViewSet,
+    NegocioModuloViewSet,
+    PlanViewSet,
+    SuscripcionNegocioViewSet,
+)
 from .views.health import health_check, health_live
 
 # ============================================
@@ -32,6 +38,16 @@ router_v1.register(r'maestros/categorias', CategoriaViewSet, basename='categoria
 router_v1.register(r'maestros/clientes', ClienteViewSet, basename='cliente')
 router_v1.register(
     r'cuentas-por-cobrar', CuentaPorCobrarViewSet, basename='cuenta-por-cobrar'
+)
+
+# Administracion de suscripciones/modulos (operador SaaS).
+router_v1.register(r'suscripciones/modulos', ModuloViewSet, basename='modulo')
+router_v1.register(r'suscripciones/planes', PlanViewSet, basename='plan')
+router_v1.register(
+    r'suscripciones/negocios', SuscripcionNegocioViewSet, basename='suscripcion-negocio'
+)
+router_v1.register(
+    r'suscripciones/overrides', NegocioModuloViewSet, basename='negocio-modulo'
 )
 
 # ============================================

@@ -58,6 +58,10 @@ CATALOGO = [
     # --- Administracion de permisos (meta) ----------------------------------
     ('permisos.administrar', 'Administrar roles y permisos', 'permisos',
      'Crear/editar roles y asignar permisos a usuarios del negocio.'),
+
+    # --- Administracion de suscripcion/modulos (operador SaaS) ---------------
+    ('suscripciones.administrar', 'Administrar suscripcion y modulos', 'suscripciones',
+     'Asignar planes y modulos (entitlements) a los negocios.'),
 ]
 
 
