@@ -17,6 +17,7 @@ Razon:
 - Azure Static Web Apps sigue siendo el destino natural del portal React.
 - Azure PostgreSQL Flexible Server sigue siendo la base de datos cloud.
 
+
 Arquitectura objetivo v1:
 
 ```text
