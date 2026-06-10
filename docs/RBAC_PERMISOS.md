@@ -144,14 +144,23 @@ def mi_vista(request): ...
 # o en un ViewSet de maestros: permiso_base = 'mi_modulo' + MaestroPermisoMixin
 ```
 
-### 6.2 POS local Django (`apps/permisos/`)
+### 6.2 POS local Django (`apps/permisos/`) — ✅ cutover HECHO
 - **Template tag** `templatetags/permisos.py`: `{% load permisos %}` →
   `{% if request.user|puede:'compras.registrar' %}`.
 - **Decorador** `decorators.py`: `@requiere_permiso_local('codigo')` (redirige si falta).
+- **Gates migrados a `tiene_permiso`/`|puede:`** (server-side, cierra el acceso por URL):
+  - `caja/views.py` (`es_admin` → `caja.administrar`), `reportes/views.py`
+    (`es_admin` → `reportes.consolidado.ver`), `inventario/views.py`
+    (compra → `compras.registrar`, ajustes → `inventario.ajustar`),
+    `ventas/views.py` (anulaciones → `ventas.anular`), `auditoria/views.py` (`auditoria.ver`).
+  - Plantillas `base.html`, `caja/index.html`, `inventario/*` → `|puede:`.
+- **Verificado en la app corriendo** (cajera bloqueada 302 en URLs admin, admin 200). Ver
+  [RBAC_LOCAL_CUTOVER_PENDIENTE.md](RBAC_LOCAL_CUTOVER_PENDIENTE.md) (rama `features/rbac-cutover-local`).
 
-> El **cutover** de los gates hardcoded del POS local a estas herramientas está **pendiente**
-> y requiere verificación manual (es producción). Ver
-> [RBAC_LOCAL_CUTOVER_PENDIENTE.md](RBAC_LOCAL_CUTOVER_PENDIENTE.md).
+> **Se conservó a propósito (NO es la vulnerabilidad):** el *scoping de datos* por rol
+> (`es_cajera` → la cajera ve solo sus ventas/cobros), `requiere_sysadmin` y el link a
+> `/admin` (SYSADMIN = operador global), y los decoradores genéricos
+> `requiere_admin_o_sysadmin`. Un decorador genérico no se mapea a un único permiso.
 
 ---
 
@@ -198,19 +207,16 @@ son los endpoints admin RBAC (§7), que **sí** scopean por negocio por correcci
 
 ## 9. Mapa de entrega (ramas)
 
-Repo backend `GenaoKing/pos_fifo_system` (stacked sobre `features/cloud-dashboard`):
+**Consolidado:** todo el RBAC (keystone + adopción API + endpoints admin + infra local +
+auditoría/docs) se mergeó (fast-forward) a **`features/cloud-dashboard`** (backend) y a
+**`main`** (React `pos-cloud-dashboard`). El **cutover del POS local + sync de roles** vive en
+`features/rbac-cutover-local` (off cloud-dashboard, pendiente de merge tras verificación — ya
+verificado en la app corriendo).
 
-| Rama | Contenido |
-|---|---|
-| `features/rbac-permisos` | **Keystone**: apps `negocios`/`permisos`, motor, FKs, DRF, maestros, payload, seed/migración. |
-| `features/rbac-pr1-api-adopcion` | reportes/CxC/sucursales → permisos granulares. |
-| `features/rbac-pr2-admin-endpoints` | endpoints admin RBAC + `negocio_actual`. |
-| `features/rbac-pr4-local-infra` | template tag `puede` + decorator `requiere_permiso_local`. |
-| `features/rbac-audit-docs` | fixes de auditoría + esta documentación. |
-
-Repo React `GenaoKing/pos-cloud-dashboard`: `feat/rbac-permisos-ui` (base `main`).
-
-Orden de merge: keystone → PR1/PR2/PR4/audit → PR3.
+Ramas originales (intactas, por si se revisan por separado): `features/rbac-permisos` (keystone),
+`features/rbac-pr1-api-adopcion`, `features/rbac-pr2-admin-endpoints`, `features/rbac-pr4-local-infra`,
+`features/rbac-audit-docs`; React `feat/rbac-permisos-ui`. (El sistema de **módulos/suscripciones**
+es trabajo separado — ver `docs/ARQUITECTURA_MODULOS.md`.)
 
 ---
 
@@ -228,38 +234,68 @@ Orden de merge: keystone → PR1/PR2/PR4/audit → PR3.
   tenant (1→N sucursales). Deuda menor futura: mover los campos de identidad
   (`nombre_negocio`, `rnc`, `logo`…) de `ConfiguracionNegocio` a `Negocio`.
 - **Caché por versión global:** simple y portable; correcto con un worker (config actual).
+- **Cutover local (decisiones del cutover):**
+  - 3 permisos nuevos: `caja.administrar`, `auditoria.ver`, `configuracion.administrar`.
+  - **`sync_permisos` re-otorga todo el catálogo al rol de sistema `administrador`** → ese rol
+    no queda desfasado al crecer el catálogo (resuelve la limitación "snapshot").
+  - **El sync cloud→local propaga solo DEFINICIONES de rol** (`Rol`→permisos), **no** las
+    asignaciones usuario→rol. Razón: identidad de usuarios cross-DB (cloud vs local) sin resolver;
+    la asignación queda local (la siembra `bootstrap_negocio` por el `rol` legacy). Endpoint
+    `GET /api/v1/sync/roles/` (token de sucursal, scoped al negocio) + `SyncEngine._pull_roles()`.
+  - **`anular` quedó admin-only correctamente:** el rol Cajero default **no** trae `ventas.anular`
+    (la auditoría lo quitó del set), alineado con `anulaciones_service._puede_anular`.
 
 ---
 
-## 11. Limitaciones conocidas / cómo seguir
+## 11. Estado / cómo seguir
 
-1. **Cutover del POS local** (gates hardcoded → motor) — pendiente, con verificación manual.
-   Resolver primero la decisión "¿el cajero puede anular?". Ver cutover doc.
-2. **Sync de roles cloud→sucursal** — pendiente. Extender el pull incremental
-   (`SyncIncrementalMixin`) para traer `Permiso`/`Rol`/`AsignacionRol` por negocio.
-3. **UI de asignación usuario→rol** en el portal — el backend (`AsignacionRolViewSet`) ya
-   existe; falta la pantalla (la de `/roles` hoy edita rol→permiso).
-4. **Aislamiento de datos por tenant** en maestros — no implementado (lo resolverá
-   django-tenants, o un scoping por `negocio` + `negocio_actual`).
-5. **Rol Administrador = snapshot:** se fija al crear; si el catálogo crece, no se auto-actualiza.
-   Los admins reales no se ven afectados (acceso total por `es_acceso_total`); solo importaría
-   si se asigna ese rol a un no-admin. Opcional: que `sync_permisos` re-otorgue todos al rol
-   Administrador de sistema.
-6. **Unicidad de `AsignacionRol` con `sucursal` NULL:** Postgres trata NULLs como distintos, así
-   que el `unique_together` no bloquea duplicados globales a nivel BD. Mitigado a nivel app
-   (`get_or_create` en el seed; `UniqueTogetherValidator` de DRF). Endurecible con
+**Hecho:** motor + DRF (maestros/reportes/CxC/sucursales) + endpoints admin + payload + React
+(`can()`, `/roles`) + **cutover del POS local** + **sync cloud→local de definiciones de rol**.
+
+**Pendiente / futuro:**
+1. **UI de asignación usuario→rol** en el portal — el backend (`AsignacionRolViewSet`) ya existe;
+   falta la pantalla (la de `/roles` hoy edita rol→permiso, no quién tiene qué rol).
+2. **Sync de asignaciones usuario→rol** cloud→local — requiere resolver identidad de usuarios
+   cross-DB (matchear por username y sincronizar usuarios). Hoy solo se propagan definiciones.
+3. **Aislamiento de datos por tenant** en maestros — el RBAC controla *acciones*, no *qué datos*
+   ve cada tenant; hoy los maestros no están scoped por negocio. Lo resolverá `django-tenants`
+   (o un scoping por `negocio` + `negocio_actual`). Ver §8.
+4. **`es_acceso_total` incluye `ADMIN` (transitorio)** — quitarlo cuando todos los admins estén
+   en roles explícitos, para poder restringir también al admin por negocio.
+5. **Unicidad de `AsignacionRol` con `sucursal` NULL:** Postgres trata NULLs como distintos →
+   el `unique_together` no bloquea duplicados globales a nivel BD. Mitigado a nivel app
+   (`get_or_create` + `UniqueTogetherValidator`). Endurecible con
    `UniqueConstraint(nulls_distinct=False)` (PG ≥15).
+6. **Deuda menor:** mover identidad de negocio (`nombre_negocio`/`rnc`/`logo`) de
+   `ConfiguracionNegocio` (por sucursal) a `Negocio` (tenant).
+
+### Mantenimiento — cómo agregar un gate nuevo
+1. Agregar el código al catálogo (`apps/permisos/catalogo.py`) y `manage.py sync_permisos`.
+2. API: `@permission_classes([IsAuthenticated, requiere_permiso('x.y')])` o `MaestroPermisoMixin`.
+3. POS local: vista → `if not request.user.tiene_permiso('x.y'): redirect/403`; plantilla →
+   `{% if request.user|puede:'x.y' %}` (con `{% load permisos %}`).
+4. Asignar el permiso al rol correspondiente (portal `/roles`, o seed si es default).
+> **Git:** nunca `git add -A` en este repo — el working tree suele tener WIP de Terraform
+> (`infra/azure/**`) que no debe entrar en commits de app. Stagear archivos explícitos.
 
 ---
 
 ## 12. Verificación
 
 ```bash
-# Motor, seed, aceptación y RBAC admin
-python manage.py test apps.permisos apps.negocios apps.api.tests --settings=config.settings_development
+# Suite completa (especificar módulos; el discovery por app-label falla con el runner)
+python manage.py test <módulos> --settings=config.settings_development   # 180/180 OK
 ```
-Criterio de aceptación (el caso del usuario): mismo rol "Cajero" con permisos distintos por
-negocio → en `/api/v1/maestros/clientes/`, el cajero con `clientes.crear` recibe **201** y el
-otro **403** (ver `apps/api/tests/test_clientes_permisos_negocio.py`).
+- **Aceptación (el caso del usuario):** mismo rol "Cajero" con permisos distintos por negocio →
+  en `/api/v1/maestros/clientes/`, el cajero con `clientes.crear` recibe **201** y el otro **403**
+  (`apps/api/tests/test_clientes_permisos_negocio.py`).
+- **Cutover local:** `apps/permisos/tests/test_cutover_local.py` (cajera bloqueada en cada gate).
+  Verificado además en la **app corriendo**: cajera `cajero_test` → 302 en `/pos/anulaciones/`,
+  `/auditoria/`, `/caja/historial/`, `/inventario/ajustes/`; admin `Santiago` → 200. Receta
+  reutilizable en el skill local `.claude/skills/run-pos-local/`.
+- **Sync de roles:** `apps/api/tests/test_sync_roles.py` (endpoint scoped por negocio) +
+  `apps/sync/tests/test_pull_roles.py` (pull actualiza `Rol.permisos` e invalida cache).
+- **Portal React:** `npm run test` + `npm run build` en `pos-cloud-dashboard`.
 
-Portal React: `npm run test` + `npm run build` en `pos-cloud-dashboard`.
+Despliegue local: `migrate` → `sync_permisos` → `bootstrap_negocio` (→ `bootstrap_suscripciones`
+para módulos). El sync de roles corre con `manage.py sincronizar`.

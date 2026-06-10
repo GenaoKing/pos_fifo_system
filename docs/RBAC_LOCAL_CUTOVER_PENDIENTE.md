@@ -1,9 +1,13 @@
 # RBAC — cutover del POS local (IMPLEMENTADO — pendiente verificación manual)
 
-> **Estado: implementado** en la rama `features/rbac-cutover-local` (180 tests OK).
+> **Estado: implementado + verificado** en la rama `features/rbac-cutover-local` (180 tests OK).
 > Los gates hardcoded del POS local pasaron al motor de permisos (server-side) y se
-> agregó el sync cloud→sucursal de definiciones de rol. **Falta solo la verificación
-> manual** con un usuario cajera real en el POS en producción antes de mergear.
+> agregó el sync cloud→sucursal de definiciones de rol.
+>
+> **Verificación manual ✅ APROBADA** (app corriendo, `manage.py runserver`): cajera
+> `cajero_test` → **302 (bloqueada)** en `/pos/anulaciones/`, `/auditoria/`, `/caja/historial/`,
+> `/inventario/ajustes/`; admin `Santiago` → **200**. Receta reutilizable en el skill local
+> `.claude/skills/run-pos-local/`. (El nombre del archivo dice "PENDIENTE" por legacy; ya no lo está.)
 >
 > **Qué se hizo:**
 > - Permisos nuevos: `caja.administrar`, `auditoria.ver`, `configuracion.administrar`.
