@@ -14,6 +14,16 @@ import json
 from .models import Cliente
 
 
+def _parse_plazo_credito_dias(value):
+    try:
+        plazo = int(value or 30)
+    except (TypeError, ValueError):
+        raise ValueError('El plazo de credito debe ser un numero entero.')
+    if plazo < 1 or plazo > 365:
+        raise ValueError('El plazo de credito debe estar entre 1 y 365 dias.')
+    return plazo
+
+
 def _resumen_credito(cliente):
     from apps.cuentas_por_cobrar.services import resumen_credito_cliente
 
@@ -41,6 +51,7 @@ def lista_clientes(request):
             'telefono': cliente.telefono or '',
             'direccion': cliente.direccion or '',
             'limite_credito': str(cliente.limite_credito),
+            'plazo_credito_dias': cliente.plazo_credito_dias,
             'condiciones_pago': cliente.condiciones_pago or '',
             'notas': cliente.notas or '',
             'activo': cliente.activo,
@@ -81,6 +92,7 @@ def crear_cliente(request):
             telefono=data.get('telefono', '').strip() or None,
             direccion=data.get('direccion', '').strip() or None,
             limite_credito=data.get('limite_credito', 0),
+            plazo_credito_dias=_parse_plazo_credito_dias(data.get('plazo_credito_dias', 30)),
             condiciones_pago=data.get('condiciones_pago', '').strip() or None,
             notas=data.get('notas', '').strip() or None,
             activo=True
@@ -130,16 +142,27 @@ def editar_cliente(request, cliente_id):
             })
 
         cliente.tipo = data.get('tipo', cliente.tipo)
+        plazo_anterior = cliente.plazo_credito_dias
         cliente.nombre = data['nombre'].strip()
         cliente.cedula_rnc = cedula_rnc
         cliente.telefono = data.get('telefono', '').strip() or None
         cliente.direccion = data.get('direccion', '').strip() or None
         cliente.limite_credito = data.get('limite_credito', 0)
+        cliente.plazo_credito_dias = _parse_plazo_credito_dias(data.get('plazo_credito_dias', cliente.plazo_credito_dias))
         cliente.condiciones_pago = data.get('condiciones_pago', '').strip() or None
         cliente.notas = data.get('notas', '').strip() or None
         cliente.activo = data.get('activo', True)
 
         cliente.save()
+        if int(plazo_anterior) != int(cliente.plazo_credito_dias):
+            from apps.cuentas_por_cobrar.services import reprogramar_cxc_por_plazo_cliente
+
+            reprogramar_cxc_por_plazo_cliente(
+                cliente,
+                usuario=request.user,
+                origen='local_cliente_update',
+                plazo_anterior=int(plazo_anterior),
+            )
 
         return JsonResponse({
             'success': True,
@@ -214,6 +237,7 @@ def buscar_clientes(request):
                 'telefono': c.telefono or '',
                 'direccion': c.direccion or '',
                 'limite_credito': str(c.limite_credito),
+                'plazo_credito_dias': c.plazo_credito_dias,
                 'saldo_pendiente': str(_resumen_credito(c)['saldo_pendiente']),
                 'credito_disponible': str(_resumen_credito(c)['credito_disponible']),
             }

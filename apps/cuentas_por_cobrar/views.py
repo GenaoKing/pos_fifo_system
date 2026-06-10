@@ -214,6 +214,7 @@ def api_resumen_cliente(request, cliente_id):
         'success': True,
         'cliente_id': cliente.id,
         'limite_credito': str(resumen['limite_credito']),
+        'plazo_credito_dias': resumen['plazo_credito_dias'],
         'saldo_pendiente': str(resumen['saldo_pendiente']),
         'credito_disponible': str(resumen['credito_disponible']),
         'monto_vencido': str(resumen['monto_vencido']),

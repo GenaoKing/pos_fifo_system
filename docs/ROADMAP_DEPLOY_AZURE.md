@@ -187,8 +187,8 @@ Notas de avance D2:
   tras inactividad puede tener cold start.
 - Inventario actual de recursos dev: `docs/runbooks/AZURE_DEV_RESOURCES.md`.
 - Deuda dev documentada en `docs/handoffs/D2_DEV_HANDOFF_DEBT.md`: secrets actuales en
-  Container Apps/Terraform state, ASWA apagado, versionado manual y probes
-  separados por `/api/v1/health/live/`.
+  Container Apps/Terraform state, ASWA apagado, versionado manual y contrato
+  de health/probes para Container Apps.
 
 Notas de avance D3:
 

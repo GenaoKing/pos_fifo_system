@@ -1091,9 +1091,20 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Modalidad</label>
+                        <select x-model="credito.modalidad" @change="onModalidadCreditoChange()" class="form-select w-full">
+                            <option value="VENCIMIENTO_UNICO">Vencimiento unico</option>
+                            <option value="CUOTAS">Cuotas</option>
+                        </select>
+                    </div>
+                    <div x-show="!esCreditoCuotas()">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Plazo del cliente</label>
+                        <div class="form-input w-full bg-gray-50 text-gray-700 flex items-center" x-text="clientePlazoCreditoDias() + ' dias'"></div>
+                    </div>
+                    <div x-show="esCreditoCuotas()">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Metodo de plazo</label>
                         <select x-model="credito.metodo_plazo_id" @change="onMetodoPlazoChange()" class="form-select w-full">
-                            <template x-for="m in metodosCreditoConfig" :key="m.id">
+                            <template x-for="m in metodosCreditoCuotas()" :key="m.id">
                                 <option :value="m.id" x-text="m.nombre"></option>
                             </template>
                         </select>
@@ -1114,22 +1125,20 @@
                             <option value="tarjeta">Tarjeta</option>
                         </select>
                     </div>
-                    <div>
+                    <div x-show="esCreditoCuotas()">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Cuotas</label>
                         <input
                             type="number"
                             x-model.number="credito.cantidad_cuotas"
                             min="1"
                             class="form-input w-full"
-                            :disabled="metodoCreditoSeleccionado()?.tipo === 'VENCIMIENTO_UNICO'"
                         >
                     </div>
-                    <div>
+                    <div x-show="esCreditoCuotas()">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Frecuencia</label>
                         <select
                             x-model="credito.frecuencia"
                             class="form-select w-full"
-                            :disabled="metodoCreditoSeleccionado()?.tipo === 'VENCIMIENTO_UNICO'"
                         >
                             <option value="SEMANAL">Semanal</option>
                             <option value="QUINCENAL">Quincenal</option>
@@ -1137,7 +1146,7 @@
                             <option value="DIAS" x-text="'Cada ' + (metodoCreditoSeleccionado()?.dias_vencimiento || 'N') + ' dias'"></option>
                         </select>
                     </div>
-                    <div>
+                    <div x-show="esCreditoCuotas()">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Primer vencimiento</label>
                         <input type="date" x-model="credito.fecha_primer_vencimiento" class="form-input w-full">
                     </div>
@@ -1165,7 +1174,7 @@
 
                 <!-- Preview del calendario de cuotas (informativo: el backend es la fuente de verdad) -->
                 <div>
-                    <p class="text-sm font-medium text-gray-700 mb-2">Calendario de cuotas</p>
+                    <p class="text-sm font-medium text-gray-700 mb-2" x-text="esCreditoCuotas() ? 'Calendario de cuotas' : 'Vencimiento estimado'"></p>
                     <div class="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
                         <table class="w-full text-sm">
                             <thead class="bg-gray-50 sticky top-0">

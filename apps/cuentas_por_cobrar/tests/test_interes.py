@@ -262,3 +262,6 @@ class InteresFinanciamientoTests(TestCase):
         self.assertEqual(payload['interes_porcentaje'], '10.00')
         self.assertEqual(payload['monto_interes'], '9.00')
         self.assertEqual(payload['saldo'], '99.00')
+        self.assertEqual(payload['modalidad'], MetodoPlazoCredito.TIPO_CUOTAS)
+        self.assertEqual(payload['metodo_plazo_tipo'], MetodoPlazoCredito.TIPO_CUOTAS)
+        self.assertEqual(payload['metodo_plazo_frecuencia'], MetodoPlazoCredito.FRECUENCIA_MENSUAL)

@@ -232,6 +232,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             'telefono',
             'direccion',
             'limite_credito',
+            'plazo_credito_dias',
             'condiciones_pago',
             'notas',
             'activo',
@@ -268,6 +269,7 @@ class ClienteWriteSerializer(serializers.ModelSerializer):
             'telefono',
             'direccion',
             'limite_credito',
+            'plazo_credito_dias',
             'condiciones_pago',
             'notas',
             'activo',
@@ -279,6 +281,7 @@ class ClienteWriteSerializer(serializers.ModelSerializer):
             'condiciones_pago': {'required': False, 'allow_blank': True, 'allow_null': True},
             'notas': {'required': False, 'allow_blank': True, 'allow_null': True},
             'limite_credito': {'required': False},
+            'plazo_credito_dias': {'required': False},
             'activo': {'required': False},
             'tipo': {'required': False},
         }
@@ -304,3 +307,34 @@ class ClienteWriteSerializer(serializers.ModelSerializer):
                 'El límite de crédito no puede ser negativo.'
             )
         return value
+
+    def validate_plazo_credito_dias(self, value):
+        if value is not None and (value < 1 or value > 365):
+            raise serializers.ValidationError(
+                'El plazo de credito debe estar entre 1 y 365 dias.'
+            )
+        return value
+
+    def update(self, instance, validated_data):
+        plazo_anterior = instance.plazo_credito_dias
+        cliente = super().update(instance, validated_data)
+
+        if (
+            'plazo_credito_dias' in validated_data
+            and int(plazo_anterior) != int(cliente.plazo_credito_dias)
+        ):
+            request = self.context.get('request')
+            usuario = getattr(request, 'user', None)
+            if usuario is not None and not getattr(usuario, 'is_authenticated', False):
+                usuario = None
+
+            from apps.cuentas_por_cobrar.services import reprogramar_cxc_por_plazo_cliente
+
+            reprogramar_cxc_por_plazo_cliente(
+                cliente,
+                usuario=usuario,
+                origen='portal_cliente_update',
+                plazo_anterior=int(plazo_anterior),
+            )
+
+        return cliente

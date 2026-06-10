@@ -129,6 +129,7 @@ class ClienteViewSetPermissionTests(TestCase):
                 'nombre': 'Juan Pérez',
                 'cedula_rnc': '40212345678',
                 'telefono': '809-555-9999',
+                'plazo_credito_dias': 45,
             },
             format='json',
         )
@@ -136,6 +137,7 @@ class ClienteViewSetPermissionTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['nombre'], 'Juan Pérez')
         self.assertEqual(response.data['tipo'], 'PERSONAL')
+        self.assertEqual(response.data['plazo_credito_dias'], 45)
         self.assertFalse(response.data['es_contado'])
         self.assertTrue(Cliente.objects.filter(cedula_rnc='40212345678').exists())
 
@@ -203,6 +205,25 @@ class ClienteViewSetPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('limite_credito', response.data)
+
+    def test_plazo_credito_fuera_de_rango_da_error(self):
+        response = self.api(user=self.admin).patch(
+            f'{self.clientes_url}{self.cliente.id}/',
+            {'plazo_credito_dias': 0},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('plazo_credito_dias', response.data)
+
+        response = self.api(user=self.admin).patch(
+            f'{self.clientes_url}{self.cliente.id}/',
+            {'plazo_credito_dias': 366},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('plazo_credito_dias', response.data)
 
     def test_cedula_rnc_duplicada_da_error(self):
         response = self.api(user=self.admin).post(

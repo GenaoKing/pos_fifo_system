@@ -10,10 +10,19 @@ Estado actual:
 - Terraform dev usa remote state en Azure Storage con lock.
 - Static Web Apps queda deshabilitado por policy/regiones de Azure for Students.
 
-## Decision: dos health checks
+## Decision: probes de plataforma y dos health checks
 
 Para produccion no conviene que los probes de plataforma dependan de PostgreSQL.
 Si la DB tiene un corte breve, Azure podria matar contenedores sanos.
+
+Decision actual de plataforma:
+
+```text
+startup_probe/liveness_probe -> TCP :8000
+```
+
+Azure Container Apps valida que Gunicorn escuche en el puerto del contenedor.
+No usa HTTP interno como criterio de vida del contenedor.
 
 Se definen dos contratos:
 
@@ -31,8 +40,8 @@ esta vivo.
 Health completo. Consulta DB y expone `status`, `db`, `version`, `commit` y
 `environment`.
 
-Container Apps debe usar `/api/v1/health/live/` para `startup_probe` y
-`liveness_probe`. Monitoreo externo puede usar `/api/v1/health/`.
+Monitoreo externo y smoke tests pueden usar `/api/v1/health/`. Diagnostico
+manual puede usar `/api/v1/health/live/`.
 
 ## Secrets vistos en Azure Portal
 

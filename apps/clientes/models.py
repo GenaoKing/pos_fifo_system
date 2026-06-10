@@ -1,5 +1,5 @@
 from django.db import models
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.conf import settings
 from decimal import Decimal
 from django.utils import timezone
@@ -60,6 +60,13 @@ class Cliente(models.Model):
         validators=[MinValueValidator(Decimal('0.00'))],
         verbose_name='Limite de Credito',
         help_text='0 = sin credito'
+    )
+
+    plazo_credito_dias = models.PositiveIntegerField(
+        default=30,
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+        verbose_name='Plazo de Credito (dias)',
+        help_text='Dias de vencimiento para ventas a credito con vencimiento unico'
     )
 
     condiciones_pago = models.CharField(

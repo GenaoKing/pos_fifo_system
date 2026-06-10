@@ -199,17 +199,13 @@ resource "azurerm_container_app" "api" {
       }
 
       startup_probe {
-        transport = "HTTP"
+        transport = "TCP"
         port      = 8000
-        path      = "/api/v1/health/live/"
-        host      = "localhost"
       }
 
       liveness_probe {
-        transport               = "HTTP"
+        transport               = "TCP"
         port                    = 8000
-        path                    = "/api/v1/health/live/"
-        host                    = "localhost"
         interval_seconds        = 30
         timeout                 = 5
         failure_count_threshold = 3

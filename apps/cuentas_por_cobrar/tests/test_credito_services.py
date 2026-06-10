@@ -1,12 +1,16 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.clientes.models import Cliente
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, MetodoPlazoCredito
-from apps.cuentas_por_cobrar.services import registrar_pago_cxc_service
+from apps.cuentas_por_cobrar.services import (
+    registrar_pago_cxc_service,
+    reprogramar_cxc_por_plazo_cliente,
+)
 from apps.inventario.models import Compra, DetalleCompra
 from apps.productos.models import Categoria, Producto
 from apps.ventas.models import Pago, Venta
@@ -62,6 +66,7 @@ class CreditoServicesTests(TestCase):
             nombre='Cliente Credito',
             cedula_rnc='131999001',
             limite_credito=Decimal('1000.00'),
+            plazo_credito_dias=30,
             activo=True,
         )
         self.metodo_unico = MetodoPlazoCredito.objects.create(
@@ -85,6 +90,7 @@ class CreditoServicesTests(TestCase):
 
     def _payload_credito(self, *, total='200.00', cantidad=2, credito=None):
         credito_base = {
+            'modalidad': 'VENCIMIENTO_UNICO',
             'metodo_plazo_id': self.metodo_unico.id,
             'fecha_primer_vencimiento': '2026-06-30',
             'monto_inicial': '50.00',
@@ -108,10 +114,14 @@ class CreditoServicesTests(TestCase):
         }
 
     def test_venta_credito_vencimiento_unico_crea_cuenta_cuota_y_pago_credito(self):
-        venta = procesar_venta_service(
-            usuario=self.cajera,
-            datos=self._payload_credito(),
-        )
+        self.cliente.plazo_credito_dias = 90
+        self.cliente.save(update_fields=['plazo_credito_dias'])
+
+        with patch('apps.cuentas_por_cobrar.services.timezone.localdate', return_value=date(2026, 6, 1)):
+            venta = procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(),
+            )
 
         cuenta = venta.cuenta_por_cobrar
         cuota = cuenta.cuotas.get()
@@ -119,10 +129,11 @@ class CreditoServicesTests(TestCase):
         self.assertEqual(venta.condicion_pago, 'CREDITO')
         self.assertEqual(cuenta.total, Decimal('200.00'))
         self.assertEqual(cuenta.saldo, Decimal('150.00'))
-        self.assertEqual(cuenta.fecha_limite, date(2026, 6, 30))
+        self.assertEqual(cuenta.fecha_emision, date(2026, 6, 1))
+        self.assertEqual(cuenta.fecha_limite, date(2026, 8, 30))
         self.assertEqual(cuota.monto, Decimal('150.00'))
         self.assertEqual(cuota.saldo, Decimal('150.00'))
-        self.assertEqual(cuota.fecha_vencimiento, date(2026, 6, 30))
+        self.assertEqual(cuota.fecha_vencimiento, date(2026, 8, 30))
         self.assertEqual(
             list(venta.pagos.order_by('metodo').values_list('metodo', 'monto')),
             [('CREDITO', Decimal('150.00')), ('EFECTIVO', Decimal('50.00'))],
@@ -137,6 +148,7 @@ class CreditoServicesTests(TestCase):
                 total='100.00',
                 cantidad=1,
                 credito={
+                    'modalidad': 'CUOTAS',
                     'metodo_plazo_id': self.metodo_cuotas.id,
                     'monto_inicial': '10.00',
                     'cantidad_cuotas': 3,
@@ -199,6 +211,7 @@ class CreditoServicesTests(TestCase):
                 total='100.00',
                 cantidad=1,
                 credito={
+                    'modalidad': 'CUOTAS',
                     'metodo_plazo_id': self.metodo_cuotas.id,
                     'monto_inicial': '10.00',
                     'cantidad_cuotas': 3,
@@ -227,3 +240,64 @@ class CreditoServicesTests(TestCase):
         self.assertEqual(cuotas[1].estado, CuotaCxC.ESTADO_PARCIAL)
         self.assertEqual(cuotas[1].saldo, Decimal('20.00'))
         self.assertEqual(cuotas[2].estado, CuotaCxC.ESTADO_PENDIENTE)
+
+    def test_reprogramar_plazo_cliente_solo_toca_vencimiento_unico_abiertas(self):
+        with patch('apps.cuentas_por_cobrar.services.timezone.localdate', return_value=date(2026, 6, 1)):
+            venta_unica = procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(),
+            )
+            venta_cuotas = procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(
+                    total='100.00',
+                    cantidad=1,
+                    credito={
+                        'modalidad': 'CUOTAS',
+                        'metodo_plazo_id': self.metodo_cuotas.id,
+                        'monto_inicial': '10.00',
+                        'cantidad_cuotas': 3,
+                        'fecha_primer_vencimiento': '2026-06-15',
+                    },
+                ),
+            )
+
+        cuenta_unica = venta_unica.cuenta_por_cobrar
+        cuenta_cuotas = venta_cuotas.cuenta_por_cobrar
+        fechas_cuotas_antes = list(
+            cuenta_cuotas.cuotas.order_by('numero').values_list('fecha_vencimiento', flat=True)
+        )
+
+        self.cliente.plazo_credito_dias = 90
+        self.cliente.save(update_fields=['plazo_credito_dias'])
+        with patch('apps.cuentas_por_cobrar.models.timezone.localdate', return_value=date(2026, 6, 10)):
+            resultado = reprogramar_cxc_por_plazo_cliente(
+                self.cliente,
+                usuario=self.admin,
+                origen='test',
+                plazo_anterior=30,
+            )
+
+        cuenta_unica.refresh_from_db()
+        cuenta_cuotas.refresh_from_db()
+        self.assertEqual(resultado['cuentas_afectadas'], 1)
+        self.assertEqual(cuenta_unica.fecha_limite, date(2026, 8, 30))
+        self.assertEqual(cuenta_unica.cuotas.get().fecha_vencimiento, date(2026, 8, 30))
+        self.assertEqual(
+            list(cuenta_cuotas.cuotas.order_by('numero').values_list('fecha_vencimiento', flat=True)),
+            fechas_cuotas_antes,
+        )
+
+        self.cliente.plazo_credito_dias = 1
+        self.cliente.save(update_fields=['plazo_credito_dias'])
+        with patch('apps.cuentas_por_cobrar.models.timezone.localdate', return_value=date(2026, 6, 10)):
+            reprogramar_cxc_por_plazo_cliente(
+                self.cliente,
+                usuario=self.admin,
+                origen='test',
+                plazo_anterior=90,
+            )
+
+        cuenta_unica.refresh_from_db()
+        self.assertEqual(cuenta_unica.fecha_limite, date(2026, 6, 2))
+        self.assertEqual(cuenta_unica.estado, CuentaPorCobrar.ESTADO_VENCIDA)

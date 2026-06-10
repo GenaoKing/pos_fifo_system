@@ -68,6 +68,7 @@ function posData() {
         cambio: 0,
         modalCreditoAbierto: false,
         credito: {
+            modalidad: 'VENCIMIENTO_UNICO',
             metodo_plazo_id: '',
             monto_inicial: 0,
             metodo_inicial: 'efectivo',
@@ -102,10 +103,8 @@ function posData() {
             this.permitirInvNegativo = posConfig.permitir_inventario_negativo;
             this.moduloEcfActivo = posConfig.modulo_ecf;
             if (this.metodosCreditoConfig.length > 0) {
-                this.credito.metodo_plazo_id = this.metodosCreditoConfig[0].id;
-                this.credito.cantidad_cuotas = this.metodosCreditoConfig[0].cantidad_cuotas || 1;
-                this.credito.interes_porcentaje = parseFloat(this.metodosCreditoConfig[0].interes_porcentaje) || 0;
-                this.credito.frecuencia = this.metodosCreditoConfig[0].frecuencia || 'MENSUAL';
+                const metodo = this.metodoCreditoUnico() || this.metodosCreditoConfig[0];
+                this.aplicarMetodoCredito(metodo);
             }
 
             this.cargarAccesosRapidos();
@@ -490,8 +489,9 @@ function posData() {
         },
 
         resetCredito() {
-            const metodo = this.metodosCreditoConfig[0] || null;
+            const metodo = this.metodoCreditoUnico() || this.metodosCreditoConfig[0] || null;
             this.credito = {
+                modalidad: metodo && metodo.tipo === 'CUOTAS' ? 'CUOTAS' : 'VENCIMIENTO_UNICO',
                 metodo_plazo_id: metodo ? metodo.id : '',
                 monto_inicial: 0,
                 metodo_inicial: 'efectivo',
@@ -520,7 +520,51 @@ function posData() {
         },
 
         metodoCreditoSeleccionado() {
-            return this.metodosCreditoConfig.find(m => String(m.id) === String(this.credito.metodo_plazo_id)) || null;
+            const actual = this.metodosCreditoConfig.find(m => String(m.id) === String(this.credito.metodo_plazo_id)) || null;
+            if (this.credito.modalidad === 'VENCIMIENTO_UNICO') {
+                return actual && actual.tipo === 'VENCIMIENTO_UNICO' ? actual : this.metodoCreditoUnico();
+            }
+            if (this.credito.modalidad === 'CUOTAS') {
+                return actual && actual.tipo === 'CUOTAS' ? actual : this.metodosCreditoCuotas()[0] || null;
+            }
+            return actual;
+        },
+
+        metodoCreditoUnico() {
+            return this.metodosCreditoConfig.find(m => m.tipo === 'VENCIMIENTO_UNICO') || null;
+        },
+
+        metodosCreditoCuotas() {
+            return this.metodosCreditoConfig.filter(m => m.tipo === 'CUOTAS');
+        },
+
+        esCreditoCuotas() {
+            return this.credito.modalidad === 'CUOTAS';
+        },
+
+        clientePlazoCreditoDias() {
+            const valor = this.creditoResumen?.plazo_credito_dias || this.clienteSeleccionado?.plazo_credito_dias || 30;
+            return Math.max(parseInt(valor, 10) || 30, 1);
+        },
+
+        aplicarMetodoCredito(metodo) {
+            if (!metodo) return;
+            this.credito.metodo_plazo_id = metodo.id;
+            this.credito.modalidad = metodo.tipo === 'CUOTAS' ? 'CUOTAS' : 'VENCIMIENTO_UNICO';
+            this.credito.cantidad_cuotas = metodo.cantidad_cuotas || 1;
+            this.credito.interes_porcentaje = parseFloat(metodo.interes_porcentaje) || 0;
+            this.credito.frecuencia = metodo.frecuencia || 'MENSUAL';
+        },
+
+        onModalidadCreditoChange() {
+            const metodo = this.esCreditoCuotas()
+                ? (this.metodosCreditoCuotas()[0] || this.metodosCreditoConfig[0])
+                : (this.metodoCreditoUnico() || this.metodosCreditoConfig[0]);
+            this.aplicarMetodoCredito(metodo);
+            if (!this.esCreditoCuotas()) {
+                this.credito.fecha_primer_vencimiento = '';
+                this.credito.cantidad_cuotas = 1;
+            }
         },
 
         saldoCreditoNuevo() {
@@ -549,7 +593,7 @@ function posData() {
 
         cantidadCuotasEfectiva() {
             const metodo = this.metodoCreditoSeleccionado();
-            if (!metodo || metodo.tipo === 'VENCIMIENTO_UNICO') return 1;
+            if (!metodo || !this.esCreditoCuotas()) return 1;
             return Math.max(parseInt(this.credito.cantidad_cuotas, 10) || 1, 1);
         },
 
@@ -565,6 +609,7 @@ function posData() {
         },
 
         diasEntreCuotas() {
+            if (!this.esCreditoCuotas()) return 0;
             if (this.credito.frecuencia === 'SEMANAL') return 7;
             if (this.credito.frecuencia === 'QUINCENAL') return 15;
             if (this.credito.frecuencia === 'MENSUAL') return 30;
@@ -588,7 +633,10 @@ function posData() {
             montos[n - 1] = this.round2(base + (financiado - this.round2(base * n)));
 
             let primera;
-            if (this.credito.fecha_primer_vencimiento) {
+            if (!this.esCreditoCuotas()) {
+                primera = new Date();
+                primera.setDate(primera.getDate() + this.clientePlazoCreditoDias());
+            } else if (this.credito.fecha_primer_vencimiento) {
                 const [y, m, d] = this.credito.fecha_primer_vencimiento.split('-').map(Number);
                 primera = new Date(y, m - 1, d);
             } else {
@@ -624,9 +672,7 @@ function posData() {
         onMetodoPlazoChange() {
             const metodo = this.metodoCreditoSeleccionado();
             if (!metodo) return;
-            this.credito.cantidad_cuotas = metodo.cantidad_cuotas || 1;
-            this.credito.interes_porcentaje = parseFloat(metodo.interes_porcentaje) || 0;
-            this.credito.frecuencia = metodo.frecuencia || 'MENSUAL';
+            this.aplicarMetodoCredito(metodo);
         },
 
         creditoDisponible() {
@@ -813,7 +859,7 @@ function posData() {
                 const metodo = this.metodoCreditoSeleccionado();
                 if (!this.clienteSeleccionado || !metodo) return false;
                 if (this.credito.monto_inicial < 0 || this.credito.monto_inicial >= total) return false;
-                if (metodo.tipo === 'CUOTAS' && this.credito.cantidad_cuotas < 1) return false;
+                if (this.esCreditoCuotas() && this.credito.cantidad_cuotas < 1) return false;
                 if (this.creditoExcedeLimite() && !this.credito.admin_override_id) return false;
                 return true;
             }
@@ -889,14 +935,16 @@ function posData() {
             };
 
             if (this.metodoPago === 'credito') {
+                const metodoCredito = this.metodoCreditoSeleccionado();
                 datosVenta.credito = {
-                    metodo_plazo_id: this.credito.metodo_plazo_id,
+                    modalidad: this.credito.modalidad,
+                    metodo_plazo_id: metodoCredito ? metodoCredito.id : this.credito.metodo_plazo_id,
                     monto_inicial: this.credito.monto_inicial || 0,
                     metodo_inicial: this.credito.metodo_inicial,
-                    cantidad_cuotas: this.credito.cantidad_cuotas,
+                    cantidad_cuotas: this.cantidadCuotasEfectiva(),
                     interes_porcentaje: String(this.interesPorcentaje()),
                     frecuencia: this.credito.frecuencia,
-                    fecha_primer_vencimiento: this.credito.fecha_primer_vencimiento || null,
+                    fecha_primer_vencimiento: this.esCreditoCuotas() ? (this.credito.fecha_primer_vencimiento || null) : null,
                     admin_override_id: this.credito.admin_override_id,
                     motivo_override: this.credito.motivo_override || '',
                     monto_efectivo: this.credito.metodo_inicial === 'efectivo' ? (this.credito.monto_inicial || 0) : 0,

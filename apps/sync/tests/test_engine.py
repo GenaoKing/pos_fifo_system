@@ -214,6 +214,7 @@ class SyncEnginePullClientesTests(TestCase):
                 'telefono': '809-555-9999',
                 'direccion': 'Av. Principal #10, Santo Domingo',
                 'limite_credito': '50000.00',
+                'plazo_credito_dias': 60,
                 'condiciones_pago': '30 días',
                 'notas': 'Cliente preferencial',
                 'activo': True,
@@ -230,8 +231,47 @@ class SyncEnginePullClientesTests(TestCase):
         self.assertEqual(c.telefono, '809-555-9999')
         self.assertEqual(c.direccion, 'Av. Principal #10, Santo Domingo')
         self.assertEqual(c.limite_credito, Decimal('50000.00'))
+        self.assertEqual(c.plazo_credito_dias, 60)
         self.assertEqual(c.condiciones_pago, '30 días')
         self.assertEqual(c.notas, 'Cliente preferencial')
+
+    def test_pull_clientes_reprograma_cxc_si_cambia_plazo_credito(self):
+        cliente = Cliente.objects.create(
+            tipo='CORPORATIVO',
+            nombre='Plazo Sync SRL',
+            cedula_rnc='130654321',
+            plazo_credito_dias=30,
+            activo=True,
+        )
+
+        payload = paginated([
+            {
+                'id': 15,
+                'tipo': 'CORPORATIVO',
+                'nombre': 'Plazo Sync SRL',
+                'cedula_rnc': '130654321',
+                'telefono': None,
+                'direccion': None,
+                'limite_credito': '0.00',
+                'plazo_credito_dias': 90,
+                'condiciones_pago': None,
+                'notas': None,
+                'activo': True,
+                'es_contado': False,
+                'fecha_modificacion': '2026-05-29T10:00:00-04:00',
+            },
+        ])
+
+        with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
+            with patch('apps.cuentas_por_cobrar.services.reprogramar_cxc_por_plazo_cliente') as reprogramar:
+                count = make_engine()._pull_clientes()
+
+        cliente.refresh_from_db()
+        self.assertEqual(count, 1)
+        self.assertEqual(cliente.plazo_credito_dias, 90)
+        reprogramar.assert_called_once()
+        self.assertEqual(reprogramar.call_args.kwargs['origen'], 'pull_clientes')
+        self.assertEqual(reprogramar.call_args.kwargs['plazo_anterior'], 30)
 
     def test_pull_clientes_crea_cliente_nuevo_por_cedula(self):
         payload = paginated([

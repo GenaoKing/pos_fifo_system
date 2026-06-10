@@ -424,31 +424,43 @@ Si los logs muestran espera o error conectando a PostgreSQL, revisar:
 
 Para evitar esperas largas, el contenedor define `PGCONNECT_TIMEOUT=5`.
 
-### Si los logs muestran DisallowedHost con IP interna
+### Si falla la revision por health probe
 
-Ejemplo:
+Sintomas tipicos:
 
 ```text
 Invalid HTTP_HOST header: '100.100.0.153:8000'
 User-Agent: kube-probe
+Startup probe failed: Get "http://localhost:8000/api/v1/health/live/": dial tcp [::1]:8000: connect: connection refused
+Startup probe failed: Get "http://127.0.0.1:8000/api/v1/health/live/": dial tcp 127.0.0.1:8000: connect: connection refused
 ```
 
-Eso significa que el probe interno de Azure Container Apps esta llamando el
-health check con un host interno que Django no acepta. El modulo configura los
-probes con un host permitido:
+Los probes de Azure Container Apps corren desde la plataforma y pueden fallar
+por detalles de red/host aunque Gunicorn haya arrancado. Para el contrato cloud
+actual, el modulo usa probes TCP sobre el puerto de Gunicorn:
 
 ```hcl
-host = "localhost"
+startup_probe {
+  transport = "TCP"
+  port      = 8000
+}
+
+liveness_probe {
+  transport = "TCP"
+  port      = 8000
+}
 ```
 
-Los probes de plataforma apuntan al health liviano:
+Esto valida que el proceso escuche en el puerto esperado sin acoplar el ciclo
+de vida del contenedor a PostgreSQL ni a redirecciones HTTP internas.
+
+El health liviano sigue existiendo para diagnostico manual:
 
 ```text
 /api/v1/health/live/
 ```
 
-Ese endpoint no consulta PostgreSQL. Sirve para decirle a Azure que el proceso
-HTTP/Django esta vivo.
+Ese endpoint no consulta PostgreSQL. Sirve para confirmar que Django responde.
 
 La validacion manual queda:
 

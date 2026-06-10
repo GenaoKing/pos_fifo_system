@@ -20,6 +20,19 @@ from .models import CuentaPorCobrar, CuotaCxC, MetodoPlazoCredito, PagoCxC
 
 
 DOS_DECIMALES = Decimal('0.01')
+MODALIDAD_VENCIMIENTO_UNICO = MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+MODALIDAD_CUOTAS = MetodoPlazoCredito.TIPO_CUOTAS
+CUENTA_ESTADOS_REPROGRAMABLES = (
+    CuentaPorCobrar.ESTADO_ABIERTA,
+    CuentaPorCobrar.ESTADO_PARCIAL,
+    CuentaPorCobrar.ESTADO_VENCIDA,
+)
+CUOTA_ESTADOS_REPROGRAMABLES = (
+    CuotaCxC.ESTADO_PENDIENTE,
+    CuotaCxC.ESTADO_PARCIAL,
+    CuotaCxC.ESTADO_VENCIDA,
+)
+PLAZO_CREDITO_DEFAULT_DIAS = 30
 
 
 def _q(value: Decimal | str | float | int) -> Decimal:
@@ -60,6 +73,7 @@ def resumen_credito_cliente(cliente) -> dict:
     ).order_by('fecha_vencimiento').first()
     return {
         'limite_credito': limite,
+        'plazo_credito_dias': _plazo_credito_cliente(cliente),
         'saldo_pendiente': saldo,
         'credito_disponible': limite - saldo,
         'monto_vencido': vencido,
@@ -72,7 +86,17 @@ def _validar_cliente_credito(cliente):
         raise ClienteCreditoInvalidoError('La venta a credito requiere un cliente real activo.')
 
 
-def _obtener_metodo(metodo_plazo_id) -> MetodoPlazoCredito:
+def _obtener_metodo(metodo_plazo_id, modalidad: str | None = None) -> MetodoPlazoCredito:
+    if not metodo_plazo_id and modalidad == MODALIDAD_VENCIMIENTO_UNICO:
+        metodo = (
+            MetodoPlazoCredito.objects
+            .filter(tipo=MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO, activo=True)
+            .order_by('id')
+            .first()
+        )
+        if metodo:
+            return metodo
+
     try:
         return MetodoPlazoCredito.objects.get(id=metodo_plazo_id, activo=True)
     except MetodoPlazoCredito.DoesNotExist:
@@ -99,6 +123,27 @@ def _frecuencia_efectiva(credito_data: dict[str, Any], metodo: MetodoPlazoCredit
     if valor not in dict(MetodoPlazoCredito.FRECUENCIA_CHOICES):
         raise MetodoPlazoCreditoInvalidoError('Frecuencia de cuotas invalida.')
     return valor
+
+
+def _modalidad_credito(credito_data: dict[str, Any], metodo: MetodoPlazoCredito | None = None) -> str:
+    valor = (credito_data.get('modalidad') or '').strip().upper()
+    if not valor:
+        return metodo.tipo if metodo else MODALIDAD_VENCIMIENTO_UNICO
+    if valor not in (MODALIDAD_VENCIMIENTO_UNICO, MODALIDAD_CUOTAS):
+        raise MetodoPlazoCreditoInvalidoError('Modalidad de credito invalida.')
+    if metodo and valor == MODALIDAD_VENCIMIENTO_UNICO and metodo.tipo != MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO:
+        raise MetodoPlazoCreditoInvalidoError('La modalidad de vencimiento unico requiere un metodo de vencimiento unico.')
+    if metodo and valor == MODALIDAD_CUOTAS and metodo.tipo != MetodoPlazoCredito.TIPO_CUOTAS:
+        raise MetodoPlazoCreditoInvalidoError('La modalidad de cuotas requiere un metodo de cuotas.')
+    return valor
+
+
+def _plazo_credito_cliente(cliente) -> int:
+    try:
+        plazo = int(getattr(cliente, 'plazo_credito_dias', PLAZO_CREDITO_DEFAULT_DIAS) or PLAZO_CREDITO_DEFAULT_DIAS)
+    except (TypeError, ValueError):
+        plazo = PLAZO_CREDITO_DEFAULT_DIAS
+    return min(max(plazo, 1), 365)
 
 
 def _dias_entre_cuotas(metodo: MetodoPlazoCredito, frecuencia: str) -> int:
@@ -157,7 +202,9 @@ def crear_cuenta_para_venta(
     cliente = venta.cliente
     _validar_cliente_credito(cliente)
 
-    metodo = _obtener_metodo(credito_data.get('metodo_plazo_id'))
+    modalidad_solicitada = _modalidad_credito(credito_data)
+    metodo = _obtener_metodo(credito_data.get('metodo_plazo_id'), modalidad_solicitada)
+    modalidad = _modalidad_credito(credito_data, metodo)
     monto_inicial = _q(credito_data.get('monto_inicial', 0))
     total = _q(venta.total)
     saldo_credito = _q(total - monto_inicial)
@@ -188,15 +235,21 @@ def crear_cuenta_para_venta(
             'Requiere autorizacion ADMIN/SYSADMIN.'
         )
 
-    cantidad_cuotas = metodo.normalizar_cantidad_cuotas(credito_data.get('cantidad_cuotas'))
-    fecha_primer_vencimiento = _parse_date(credito_data.get('fecha_primer_vencimiento'))
-    frecuencia = _frecuencia_efectiva(credito_data, metodo)
-    fechas = _fechas_cuotas(
-        metodo=metodo,
-        cantidad_cuotas=cantidad_cuotas,
-        fecha_primer_vencimiento=fecha_primer_vencimiento,
-        frecuencia=frecuencia,
-    )
+    fecha_emision = timezone.localdate()
+    if modalidad == MODALIDAD_VENCIMIENTO_UNICO:
+        cantidad_cuotas = 1
+        frecuencia = metodo.frecuencia
+        fechas = [fecha_emision + timedelta(days=_plazo_credito_cliente(cliente))]
+    else:
+        cantidad_cuotas = metodo.normalizar_cantidad_cuotas(credito_data.get('cantidad_cuotas'))
+        fecha_primer_vencimiento = _parse_date(credito_data.get('fecha_primer_vencimiento'))
+        frecuencia = _frecuencia_efectiva(credito_data, metodo)
+        fechas = _fechas_cuotas(
+            metodo=metodo,
+            cantidad_cuotas=cantidad_cuotas,
+            fecha_primer_vencimiento=fecha_primer_vencimiento,
+            frecuencia=frecuencia,
+        )
     montos = _montos_cuotas(saldo_financiado, cantidad_cuotas)
 
     cuenta = CuentaPorCobrar.objects.create(
@@ -209,6 +262,7 @@ def crear_cuenta_para_venta(
         interes_porcentaje=interes_porcentaje,
         monto_interes=monto_interes,
         saldo=saldo_financiado,
+        fecha_emision=fecha_emision,
         fecha_limite=fechas[-1],
         creado_por=usuario,
         override_autorizado_por=admin_override,
@@ -256,6 +310,8 @@ def crear_cuenta_para_venta(
             'monto_interes': str(cuenta.monto_interes),
             'saldo': str(cuenta.saldo),
             'cuotas': cantidad_cuotas,
+            'modalidad': modalidad,
+            'plazo_credito_dias': _plazo_credito_cliente(cliente),
         },
         ip_address=ip_address,
         nivel_importancia=Auditoria.NivelImportancia.ALTA,
@@ -263,6 +319,101 @@ def crear_cuenta_para_venta(
 
     transaction.on_commit(lambda c=cuenta: sync_events.evento_cxc_creada(c))
     return cuenta
+
+
+def reprogramar_cxc_por_plazo_cliente(
+    cliente,
+    usuario=None,
+    origen: str = 'cliente_update',
+    plazo_anterior: int | None = None,
+    ip_address: str | None = None,
+) -> dict:
+    """Recalcula vencimientos de CxC abiertas con vencimiento unico.
+
+    Las cuentas en cuotas conservan su calendario pactado. La reprogramacion
+    cambia solo fechas y estados derivados; no modifica saldos, montos,
+    intereses ni pagos aplicados.
+    """
+    nuevo_plazo = _plazo_credito_cliente(cliente)
+    cambios = []
+
+    with transaction.atomic():
+        cuentas = (
+            CuentaPorCobrar.objects
+            .select_for_update()
+            .select_related('metodo_plazo', 'venta')
+            .filter(
+                cliente=cliente,
+                estado__in=CUENTA_ESTADOS_REPROGRAMABLES,
+                metodo_plazo__tipo=MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO,
+            )
+            .order_by('id')
+        )
+
+        for cuenta in cuentas:
+            fecha_anterior = cuenta.fecha_limite
+            nueva_fecha = cuenta.fecha_emision + timedelta(days=nuevo_plazo)
+            if fecha_anterior == nueva_fecha:
+                continue
+
+            estado_anterior = cuenta.estado
+            cuenta.fecha_limite = nueva_fecha
+            cuenta.recalcular_estado(guardar=False)
+            cuenta.save(update_fields=['fecha_limite', 'estado', 'saldo', 'fecha_modificacion'])
+
+            cuotas_actualizadas = 0
+            for cuota in (
+                cuenta.cuotas
+                .select_for_update()
+                .filter(estado__in=CUOTA_ESTADOS_REPROGRAMABLES)
+                .order_by('numero')
+            ):
+                cuota.fecha_vencimiento = nueva_fecha
+                cuota.recalcular_estado(guardar=False)
+                cuota.save(update_fields=['fecha_vencimiento', 'estado', 'saldo', 'fecha_pago'])
+                cuotas_actualizadas += 1
+
+            cambios.append({
+                'cuenta_id': cuenta.id,
+                'venta': cuenta.venta.numero_venta if cuenta.venta_id else None,
+                'fecha_anterior': fecha_anterior.isoformat() if fecha_anterior else None,
+                'fecha_nueva': nueva_fecha.isoformat(),
+                'estado_anterior': estado_anterior,
+                'estado_nuevo': cuenta.estado,
+                'cuotas_actualizadas': cuotas_actualizadas,
+            })
+
+        if cambios:
+            Auditoria.registrar(
+                accion=Auditoria.TipoAccion.EDITAR,
+                descripcion=(
+                    f'Reprogramacion CxC por plazo de cliente {cliente.nombre}: '
+                    f'{len(cambios)} cuenta(s)'
+                ),
+                usuario=usuario,
+                content_object=cliente,
+                datos_anteriores={
+                    'plazo_credito_dias': plazo_anterior,
+                },
+                datos_nuevos={
+                    'plazo_credito_dias': nuevo_plazo,
+                    'cuentas_afectadas': len(cambios),
+                },
+                metadata={
+                    'origen': origen,
+                    'cambios': cambios[:25],
+                    'cambios_truncados': max(len(cambios) - 25, 0),
+                },
+                ip_address=ip_address,
+                nivel_importancia=Auditoria.NivelImportancia.ALTA,
+            )
+
+    return {
+        'cliente_id': cliente.id,
+        'plazo_credito_dias': nuevo_plazo,
+        'cuentas_afectadas': len(cambios),
+        'cambios': cambios,
+    }
 
 
 def registrar_pago_cxc_service(

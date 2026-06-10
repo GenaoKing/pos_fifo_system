@@ -645,9 +645,33 @@ def _handler_cxc_creada(sucursal, payload):
     if cliente is None:
         raise ValueError(f'Cliente de CxC {numero_venta} no existe en cloud')
 
+    metodo_tipo = payload.get('metodo_plazo_tipo') or payload.get('modalidad') or MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+    if metodo_tipo not in dict(MetodoPlazoCredito.TIPO_CHOICES):
+        metodo_tipo = MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+    frecuencia = payload.get('metodo_plazo_frecuencia') or MetodoPlazoCredito.FRECUENCIA_MENSUAL
+    if frecuencia not in dict(MetodoPlazoCredito.FRECUENCIA_CHOICES):
+        frecuencia = MetodoPlazoCredito.FRECUENCIA_MENSUAL
+    try:
+        dias_vencimiento = int(payload.get('metodo_plazo_dias_vencimiento') or 30)
+    except (TypeError, ValueError):
+        dias_vencimiento = 30
+    try:
+        cantidad_cuotas = int(
+            payload.get('metodo_plazo_cantidad_cuotas')
+            or max(len(payload.get('cuotas', [])), 1)
+        )
+    except (TypeError, ValueError):
+        cantidad_cuotas = max(len(payload.get('cuotas', [])), 1)
+
     metodo, _ = MetodoPlazoCredito.objects.get_or_create(
         nombre=payload.get('metodo_plazo') or 'Credito importado',
-        defaults={'activo': True},
+        defaults={
+            'tipo': metodo_tipo,
+            'dias_vencimiento': max(dias_vencimiento, 1),
+            'cantidad_cuotas': max(cantidad_cuotas, 1),
+            'frecuencia': frecuencia,
+            'activo': True,
+        },
     )
 
     cuenta = CuentaPorCobrar.objects.create(

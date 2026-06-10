@@ -392,6 +392,7 @@ class SyncEngine:
 
     def _pull_clientes(self):
         from apps.clientes.models import Cliente
+        from apps.cuentas_por_cobrar.services import reprogramar_cxc_por_plazo_cliente
 
         def apply(item):
             # Identificador natural: cedula_rnc cuando existe, sino nombre+tipo
@@ -401,7 +402,16 @@ class SyncEngine:
             else:
                 lookup = {'nombre': item['nombre'], 'tipo': item.get('tipo', 'PERSONAL')}
 
-            Cliente.objects.update_or_create(
+            existente = Cliente.objects.filter(**lookup).first()
+            plazo_anterior = existente.plazo_credito_dias if existente else None
+            try:
+                plazo_credito_dias = int(item.get('plazo_credito_dias') or 30)
+            except (TypeError, ValueError):
+                plazo_credito_dias = 30
+            if plazo_credito_dias < 1 or plazo_credito_dias > 365:
+                plazo_credito_dias = 30
+
+            cliente, created = Cliente.objects.update_or_create(
                 **lookup,
                 defaults={
                     'nombre': item.get('nombre', ''),
@@ -409,11 +419,22 @@ class SyncEngine:
                     'telefono': item.get('telefono'),
                     'direccion': item.get('direccion'),
                     'limite_credito': item.get('limite_credito', '0.00') or '0.00',
+                    'plazo_credito_dias': plazo_credito_dias,
                     'condiciones_pago': item.get('condiciones_pago'),
                     'notas': item.get('notas'),
                     'activo': item.get('activo', True),
                 },
             )
+            if (
+                not created
+                and plazo_anterior is not None
+                and int(plazo_anterior) != int(cliente.plazo_credito_dias)
+            ):
+                reprogramar_cxc_por_plazo_cliente(
+                    cliente,
+                    origen='pull_clientes',
+                    plazo_anterior=int(plazo_anterior),
+                )
 
         return self._pull_generic('clientes', '/api/v1/maestros/clientes/', apply)
 
