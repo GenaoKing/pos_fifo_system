@@ -312,3 +312,47 @@ terraform apply
 Luego crear/cargar secrets en Key Vault, publicar una imagen con tag
 `staging`, activar `enable_api_container_app=true` y, cuando corresponda,
 `enable_migrate_job=true`.
+
+### Key Vault y rotacion en staging
+
+El archivo `infra/azure/environments/staging/terraform.tfvars` esta preparado
+para no guardar secretos:
+
+```hcl
+django_secret_key = null
+db_password       = null
+use_key_vault_secrets = true
+```
+
+Con `key_vault_name = null`, el nombre esperado del Key Vault de staging es:
+
+```text
+posfifostagingkv
+```
+
+Ese Key Vault **no existe antes del primer `terraform apply` de staging**. El
+primer apply, con `enable_api_container_app=false` y `enable_migrate_job=false`,
+crea foundation, ACR, observabilidad y Key Vault. Luego cargas secrets:
+
+```powershell
+az keyvault secret set `
+  --vault-name posfifostagingkv `
+  --name django-secret-key `
+  --value "<secret-key-staging>"
+```
+
+```powershell
+az keyvault secret set `
+  --vault-name posfifostagingkv `
+  --name db-password `
+  --value "<password-db-staging>"
+```
+
+Recomendacion:
+
+- `django-secret-key`: **siempre distinto** entre dev, staging y prod.
+- `db-password`: puede ser el mismo si staging usa el mismo usuario PostgreSQL
+  (`posadmin`), pero eso reduce aislamiento. Mejor practica: crear un usuario
+  staging con password propio cuando el esfuerzo sea razonable.
+- No copiar secretos de dev a staging por comodidad salvo que sea una prueba
+  temporal y quede documentado para rotacion.

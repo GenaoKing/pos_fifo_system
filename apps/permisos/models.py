@@ -116,6 +116,7 @@ class AsignacionRol(models.Model):
     )
     activo = models.BooleanField('Activo', default=True)
     fecha_creacion = models.DateTimeField('Fecha de creacion', auto_now_add=True)
+    fecha_modificacion = models.DateTimeField('Fecha de modificacion', auto_now=True)
 
     class Meta:
         verbose_name = 'Asignacion de rol'

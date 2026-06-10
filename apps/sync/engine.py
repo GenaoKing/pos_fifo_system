@@ -229,7 +229,14 @@ class SyncEngine:
         """
         self._require_config()
 
-        metricas = {'categorias': 0, 'productos': 0, 'clientes': 0, 'roles': 0, 'total': 0}
+        metricas = {
+            'categorias': 0,
+            'productos': 0,
+            'clientes': 0,
+            'roles': 0,
+            'asignaciones': 0,
+            'total': 0,
+        }
 
         try:
             metricas['categorias'] = self._pull_categorias()
@@ -251,9 +258,14 @@ class SyncEngine:
         except Exception as exc:
             logger.exception('pull_maestros: error en roles: %s', exc)
 
+        try:
+            metricas['asignaciones'] = self._pull_asignaciones()
+        except Exception as exc:
+            logger.exception('pull_maestros: error en asignaciones: %s', exc)
+
         metricas['total'] = (
             metricas['categorias'] + metricas['productos']
-            + metricas['clientes'] + metricas['roles']
+            + metricas['clientes'] + metricas['roles'] + metricas['asignaciones']
         )
         logger.info('pull_maestros: %s', metricas)
         return metricas
@@ -408,7 +420,7 @@ class SyncEngine:
     def _pull_roles(self):
         """
         Sincroniza las DEFINICIONES de rol (rol -> permisos) del negocio desde el
-        cloud. La asignacion usuario->rol queda local (la siembra el bootstrap).
+        cloud.
         Las signals del motor de permisos invalidan el cache automaticamente.
         """
         from apps.permisos.catalogo import sembrar_catalogo
@@ -437,6 +449,80 @@ class SyncEngine:
             )
 
         return self._pull_generic('roles', '/api/v1/sync/roles/', apply)
+
+    def _pull_asignaciones(self):
+        """
+        Sincroniza asignaciones usuario->rol desde el cloud para la sucursal
+        actual. La identidad cross-DB v1 es natural: username, rol.slug y
+        sucursal.codigo. No crea usuarios: si el usuario no existe localmente,
+        se omite para evitar provisionar credenciales desde sync.
+        """
+        from django.contrib.auth import get_user_model
+
+        from apps.permisos.models import AsignacionRol, Rol
+        from apps.sucursales.models import get_sucursal_actual
+
+        sucursal_actual = get_sucursal_actual()
+        negocio = getattr(sucursal_actual, 'negocio', None) if sucursal_actual else None
+        if negocio is None:
+            return 0
+
+        User = get_user_model()
+
+        def apply(item):
+            username = item.get('usuario_username')
+            rol_slug = item.get('rol_slug')
+            if not username or not rol_slug:
+                return
+
+            usuario = User.objects.filter(username=username).first()
+            if usuario is None:
+                logger.warning(
+                    'pull asignaciones: usuario %s no existe localmente; omitido',
+                    username,
+                )
+                return
+            if getattr(usuario, 'negocio_id', None) not in (None, negocio.id):
+                logger.warning(
+                    'pull asignaciones: usuario %s pertenece a otro negocio; omitido',
+                    username,
+                )
+                return
+            if getattr(usuario, 'negocio_id', None) is None:
+                usuario.negocio = negocio
+                usuario.save(update_fields=['negocio'])
+
+            rol = Rol.objects.filter(negocio=negocio, slug=rol_slug).first()
+            if rol is None:
+                logger.warning(
+                    'pull asignaciones: rol %s no existe localmente; omitido',
+                    rol_slug,
+                )
+                return
+
+            sucursal = None
+            sucursal_codigo = item.get('sucursal_codigo')
+            if sucursal_codigo:
+                if not sucursal_actual or sucursal_codigo != sucursal_actual.codigo:
+                    logger.warning(
+                        'pull asignaciones: sucursal %s no es esta instalacion; omitida',
+                        sucursal_codigo,
+                    )
+                    return
+                sucursal = sucursal_actual
+
+            AsignacionRol.objects.update_or_create(
+                usuario=usuario,
+                rol=rol,
+                sucursal=sucursal,
+                defaults={'activo': item.get('activo', True)},
+            )
+
+        return self._pull_generic(
+            'asignaciones',
+            '/api/v1/sync/asignaciones/',
+            apply,
+        )
 
     # ------------------------------------------------------------------
     # Ciclo completo (lo que usa el command)

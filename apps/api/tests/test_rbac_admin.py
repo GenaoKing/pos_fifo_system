@@ -12,12 +12,15 @@ from rest_framework.test import APIClient
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import Permiso
+from apps.sucursales.models import Sucursal
 
 User = get_user_model()
 
 CATALOGO_URL = '/api/v1/permisos/catalogo/'
 ROLES_URL = '/api/v1/permisos/roles/'
 ASIGN_URL = '/api/v1/permisos/asignaciones/'
+USUARIOS_URL = '/api/v1/permisos/usuarios/'
+SUCURSALES_URL = '/api/v1/permisos/sucursales/'
 
 
 class RbacAdminTests(TestCase):
@@ -128,6 +131,34 @@ class RbacAdminTests(TestCase):
         )
         self.assertEqual(r.status_code, 201, r.data)
 
+    def test_borrar_asignacion_es_soft_delete(self):
+        usuario = User.objects.create_user(
+            username='soft', email='s@e.com', password='x',
+            rol='CAJERA', negocio=self.neg_a,
+        )
+        asign = testing.asignar(usuario, self.rol_a, set_negocio=False)
+        r = self._api(self.admin_a).delete(f'{ASIGN_URL}{asign.id}/')
+        self.assertEqual(r.status_code, 204)
+        asign.refresh_from_db()
+        self.assertFalse(asign.activo)  # la fila sigue existiendo, inactiva
+
+    def test_reasignar_reactiva_en_vez_de_duplicar(self):
+        usuario = User.objects.create_user(
+            username='reasig', email='r@e.com', password='x',
+            rol='CAJERA', negocio=self.neg_a,
+        )
+        asign = testing.asignar(usuario, self.rol_a, set_negocio=False)
+        self._api(self.admin_a).delete(f'{ASIGN_URL}{asign.id}/')
+
+        # Re-alta de la misma terna: reactiva la fila existente (200), no 400.
+        r = self._api(self.admin_a).post(
+            ASIGN_URL, {'usuario': usuario.id, 'rol': self.rol_a.id}, format='json'
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data['id'], asign.id)
+        self.assertTrue(r.data['activo'])
+        self.assertEqual(usuario.asignaciones_rol.filter(rol=self.rol_a).count(), 1)
+
     def test_asignar_rol_cross_negocio_rechazado(self):
         usuario = User.objects.create_user(
             username='nuevo2', email='n2@e.com', password='x',
@@ -151,6 +182,39 @@ class RbacAdminTests(TestCase):
         self.assertEqual(r.status_code, 200)
         usuarios = {row['usuario'] for row in r.data}
         self.assertNotIn(usuario.id, usuarios)
+
+    # --- Usuarios asignables (selector de la UI de asignación) ---
+
+    def test_usuarios_gated_por_administrar(self):
+        self.assertEqual(self._api(self.cajera).get(USUARIOS_URL).status_code, 403)
+
+    def test_usuarios_scoped_por_negocio(self):
+        r = self._api(self.admin_a).get(USUARIOS_URL)
+        self.assertEqual(r.status_code, 200)
+        usernames = {u['username'] for u in r.data}
+        # admin_a y cajera son del negocio A; admin_b es del negocio B.
+        self.assertIn('admin_a', usernames)
+        self.assertIn('cajera', usernames)
+        self.assertNotIn('admin_b', usernames)
+
+    def test_usuarios_incluye_nombre_y_rol_legacy(self):
+        self.admin_a.first_name = 'Ana'
+        self.admin_a.last_name = 'Ruiz'
+        self.admin_a.save()
+        r = self._api(self.admin_a).get(USUARIOS_URL)
+        fila = next(u for u in r.data if u['username'] == 'admin_a')
+        self.assertEqual(fila['nombre_completo'], 'Ana Ruiz')
+        self.assertEqual(fila['rol'], 'ADMIN')
+
+    # --- Sucursales asignables (scope opcional de la asignación) ---
+
+    def test_sucursales_scoped_por_negocio(self):
+        Sucursal.objects.create(negocio=self.neg_a, codigo='RP-001', nombre='RP Sede')
+        Sucursal.objects.create(negocio=self.neg_b, codigo='SK-001', nombre='SK Sede')
+        r = self._api(self.admin_a).get(SUCURSALES_URL)
+        self.assertEqual(r.status_code, 200)
+        codigos = {s['codigo'] for s in r.data}
+        self.assertEqual(codigos, {'RP-001'})
 
     # --- SYSADMIN global con ?negocio= ---
 

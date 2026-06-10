@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
-from apps.permisos.models import Permiso
+from apps.permisos.models import AsignacionRol, Permiso
 from apps.sucursales.models import Sucursal
 from apps.sync.engine import SyncEngine
 
@@ -73,3 +73,54 @@ class PullRolesTests(TestCase):
         engine = SyncEngine(cloud_url='https://cloud.example', token='t')
         self.assertEqual(engine._pull_roles(), 0)
         mock_get.assert_not_called()
+
+
+@override_settings(SUCURSAL_CODIGO='SD-001')
+class PullAsignacionesTests(TestCase):
+    def setUp(self):
+        sembrar_catalogo(Permiso)
+        self.negocio = testing.crear_negocio('Royal Plast')
+        self.sucursal = Sucursal.objects.create(
+            codigo='SD-001', nombre='SD', activa=True, negocio=self.negocio
+        )
+        self.rol = testing.crear_rol(self.negocio, 'Compras', ['compras.registrar'])
+        self.cajero = User.objects.create_user(
+            'caja_asig', 'ca@e.com', 'x', rol='CAJERA', negocio=self.negocio
+        )
+
+    @patch('apps.sync.engine.requests.get')
+    def test_pull_crea_asignacion_y_activa_permiso(self, mock_get):
+        self.assertFalse(self.cajero.tiene_permiso('compras.registrar'))
+
+        payload = [{
+            'usuario_username': 'caja_asig',
+            'rol_slug': 'compras',
+            'sucursal_codigo': None,
+            'activo': True,
+            'fecha_modificacion': timezone.now().isoformat(),
+        }]
+        mock_get.return_value = _Resp(payload)
+
+        engine = SyncEngine(cloud_url='https://cloud.example', token='t')
+        n = engine._pull_asignaciones()
+
+        self.assertEqual(n, 1)
+        self.assertTrue(
+            AsignacionRol.objects.filter(usuario=self.cajero, rol=self.rol).exists()
+        )
+        self.assertTrue(self.cajero.tiene_permiso('compras.registrar'))
+
+    @patch('apps.sync.engine.requests.get')
+    def test_pull_omite_usuario_inexistente(self, mock_get):
+        payload = [{
+            'usuario_username': 'no_existe',
+            'rol_slug': 'compras',
+            'sucursal_codigo': None,
+            'activo': True,
+            'fecha_modificacion': timezone.now().isoformat(),
+        }]
+        mock_get.return_value = _Resp(payload)
+
+        engine = SyncEngine(cloud_url='https://cloud.example', token='t')
+        self.assertEqual(engine._pull_asignaciones(), 1)
+        self.assertEqual(AsignacionRol.objects.count(), 0)

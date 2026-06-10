@@ -330,13 +330,23 @@ Objetivo: separar "probado en dev" de "candidato a prod".
 
 - [x] Scaffold `infra/azure/environments/staging` con backend remoto
   `azure/staging.tfstate`.
+- [x] `infra/azure/environments/staging/terraform.tfvars` local creado sin
+  secretos inline, con Key Vault, API/job apagados y DB `pos_fifo_staging`.
 - [ ] Crear ambiente `staging` con Terraform.
 - [ ] Crear DB `pos_fifo_staging` en la misma instancia Azure PostgreSQL dev/free
   o definir el nombre final en `terraform.tfvars`.
-- [ ] Cargar secrets staging (`django-secret-key`, `db-password`) en Key Vault
-  antes de encender API/job con `use_key_vault_secrets=true`.
+- [ ] Primer `terraform plan/apply` de staging con API/job apagados para crear
+  foundation, ACR, observabilidad y Key Vault.
+- [ ] Cargar secrets staging (`django-secret-key`, `db-password`) en el Key
+  Vault de staging antes de encender API/job con `use_key_vault_secrets=true`.
+  - Nombre esperado si `key_vault_name=null`: `posfifostagingkv`.
+  - `django-secret-key` debe ser distinto por ambiente.
+  - `db-password` puede ser el mismo solo si staging usa el mismo usuario
+    PostgreSQL; preferible usuario/password separado cuando sea practico.
 - [ ] Mantener `api_min_replicas=0`, `api_max_replicas=1` mientras staging sea
   apagable/on-demand.
+- [ ] Publicar imagen Docker `staging` en ACR staging o decidir reutilizar ACR
+  dev para el primer smoke.
 - [ ] Deploy desde rama `main` o tags release.
 - [ ] Ejecutar migraciones de staging via Container Apps Job.
 - [ ] Smoke E2E:

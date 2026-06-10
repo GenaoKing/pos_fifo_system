@@ -222,6 +222,56 @@ def roles_para_sucursal(request):
 
 
 # ============================================================================
+# GET /api/v1/sync/asignaciones/  — usuario -> rol (cloud -> sucursal)
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def asignaciones_para_sucursal(request):
+    """
+    Devuelve las asignaciones usuario->rol relevantes para la sucursal
+    autenticada: globales del negocio (sucursal NULL) + las acotadas a esa
+    sucursal. Usa identidades naturales cross-DB:
+      - usuario_username
+      - rol_slug
+      - sucursal_codigo
+    """
+    from django.db.models import Q
+    from django.utils.dateparse import parse_datetime
+    from apps.permisos.models import AsignacionRol
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    negocio_id = getattr(sucursal, 'negocio_id', None) if sucursal else None
+    if not negocio_id:
+        return Response([])
+
+    qs = (
+        AsignacionRol.objects
+        .filter(rol__negocio_id=negocio_id)
+        .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
+        .select_related('usuario', 'rol', 'sucursal')
+        .order_by('id')
+    )
+    desde = request.query_params.get('desde')
+    if desde:
+        ts = parse_datetime(desde)
+        if ts:
+            qs = qs.filter(fecha_modificacion__gt=ts)
+
+    data = [
+        {
+            'usuario_username': a.usuario.username,
+            'rol_slug': a.rol.slug,
+            'sucursal_codigo': a.sucursal.codigo if a.sucursal_id else None,
+            'activo': a.activo,
+            'fecha_modificacion': a.fecha_modificacion.isoformat(),
+        }
+        for a in qs
+    ]
+    return Response(data)
+
+
+# ============================================================================
 # HANDLERS por tipo de evento
 # ============================================================================
 

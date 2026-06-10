@@ -20,7 +20,13 @@ from rest_framework.routers import DefaultRouter
 
 from .views.maestros import ProductoViewSet, CategoriaViewSet, ClienteViewSet
 from .views.cuentas_por_cobrar import CuentaPorCobrarViewSet
-from .views.permisos import PermisoViewSet, RolViewSet, AsignacionRolViewSet
+from .views.permisos import (
+    AsignacionRolViewSet,
+    PermisoViewSet,
+    RolViewSet,
+    SucursalAsignableViewSet,
+    UsuarioAsignableViewSet,
+)
 from .views.suscripciones import (
     ModuloViewSet,
     NegocioModuloViewSet,
@@ -46,6 +52,12 @@ router_v1.register(r'permisos/catalogo', PermisoViewSet, basename='permiso')
 router_v1.register(r'permisos/roles', RolViewSet, basename='rol')
 router_v1.register(
     r'permisos/asignaciones', AsignacionRolViewSet, basename='asignacion-rol'
+)
+router_v1.register(
+    r'permisos/usuarios', UsuarioAsignableViewSet, basename='usuario-asignable'
+)
+router_v1.register(
+    r'permisos/sucursales', SucursalAsignableViewSet, basename='sucursal-asignable'
 )
 
 # Administracion de suscripciones/modulos (operador SaaS).
