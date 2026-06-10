@@ -328,7 +328,15 @@ DoD:
 
 Objetivo: separar "probado en dev" de "candidato a prod".
 
+- [x] Scaffold `infra/azure/environments/staging` con backend remoto
+  `azure/staging.tfstate`.
 - [ ] Crear ambiente `staging` con Terraform.
+- [ ] Crear DB `pos_fifo_staging` en la misma instancia Azure PostgreSQL dev/free
+  o definir el nombre final en `terraform.tfvars`.
+- [ ] Cargar secrets staging (`django-secret-key`, `db-password`) en Key Vault
+  antes de encender API/job con `use_key_vault_secrets=true`.
+- [ ] Mantener `api_min_replicas=0`, `api_max_replicas=1` mientras staging sea
+  apagable/on-demand.
 - [ ] Deploy desde rama `main` o tags release.
 - [ ] Ejecutar migraciones de staging via Container Apps Job.
 - [ ] Smoke E2E:

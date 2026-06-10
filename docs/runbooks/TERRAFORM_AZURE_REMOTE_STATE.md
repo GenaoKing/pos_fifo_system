@@ -268,3 +268,47 @@ infra/azure/environments/staging
 ```
 
 Asi staging nace con la disciplina correcta.
+
+## Staging con el mismo PostgreSQL
+
+Para la escala actual no necesitamos otro PostgreSQL Flexible Server para
+staging. El patron recomendado es:
+
+- mismo server cubierto por la suscripcion/free tier,
+- **otra base de datos** para staging, por ejemplo `pos_fifo_staging`,
+- secrets distintos para Django y DB password,
+- Container App staging con `api_min_replicas=0`.
+
+Esto mantiene costos bajos y permite probar migraciones/smoke tests sin tocar
+la base de dev ni una futura base de produccion.
+
+Flujo inicial:
+
+```powershell
+cd C:\Proyectos\pos_fifo_system\infra\azure\environments\staging
+copy terraform.tfvars.example terraform.tfvars
+```
+
+Editar `terraform.tfvars`:
+
+```hcl
+environment = "staging"
+db_name     = "pos_fifo_staging"
+
+enable_api_container_app = false
+enable_migrate_job       = false
+api_min_replicas         = 0
+api_max_replicas         = 1
+```
+
+Primer apply crea foundation/ACR/observabilidad/Key Vault sin prender la API:
+
+```powershell
+terraform init
+terraform plan
+terraform apply
+```
+
+Luego crear/cargar secrets en Key Vault, publicar una imagen con tag
+`staging`, activar `enable_api_container_app=true` y, cuando corresponda,
+`enable_migrate_job=true`.
