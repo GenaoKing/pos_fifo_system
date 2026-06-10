@@ -656,6 +656,13 @@ def _handler_cxc_creada(sucursal, payload):
         metodo_plazo=metodo,
         total=Decimal(payload.get('total', '0')),
         monto_inicial=Decimal(payload.get('monto_inicial', '0')),
+        # POS sin actualizar no manda interes: capital = total - inicial, interes 0
+        saldo_original=Decimal(
+            payload.get('saldo_original')
+            or str(Decimal(payload.get('total', '0')) - Decimal(payload.get('monto_inicial', '0')))
+        ),
+        interes_porcentaje=Decimal(payload.get('interes_porcentaje') or '0'),
+        monto_interes=Decimal(payload.get('monto_interes') or '0'),
         saldo=Decimal(payload.get('saldo', '0')),
         estado=payload.get('estado', 'ABIERTA'),
         fecha_emision=date.fromisoformat(payload['fecha_emision']),
@@ -709,6 +716,63 @@ def _handler_cxc_pago(sucursal, payload):
     cuenta.recalcular_estado(guardar=True)
 
 
+def _handler_cxc_pago_anulado(sucursal, payload):
+    """
+    Replica la reversa de un abono CxC.
+
+    Localiza el pago con el mismo matching que _handler_cxc_pago
+    (cuenta + fecha_pago + monto) y aplica el snapshot post-reversa del
+    payload (saldo/estado de cuenta y cuotas) sin recalcular nada local.
+    """
+    from apps.cuentas_por_cobrar.models import CuentaPorCobrar, PagoCxC
+    from apps.ventas.models import Venta
+
+    numero_venta = payload.get('numero_venta')
+    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    if not venta:
+        raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
+
+    cuenta = CuentaPorCobrar.objects.filter(venta=venta).first()
+    if not cuenta:
+        raise ValueError(f'CxC de venta {numero_venta} no existe en cloud todavia')
+
+    fecha_pago = parse_datetime(payload['fecha_pago']) if payload.get('fecha_pago') else None
+    monto = Decimal(payload.get('monto', '0'))
+    pagos = PagoCxC.objects.filter(cuenta=cuenta, fecha_pago=fecha_pago, monto=monto)
+    if not pagos.exists():
+        raise ValueError(f'Pago CxC de venta {numero_venta} no existe en cloud todavia')
+
+    # Idempotencia: si solo queda la version ANULADA, el evento ya se aplico
+    pago = pagos.filter(estado='APLICADO').first()
+    if pago is None:
+        logger.info('Pago CxC de venta %s ya esta anulado en cloud, skip', numero_venta)
+        return
+
+    pago.estado = 'ANULADO'
+    pago.anulado_por = _resolver_usuario(payload.get('anulado_por_username'))
+    pago.fecha_anulacion = (
+        parse_datetime(payload['fecha_anulacion'])
+        if payload.get('fecha_anulacion') else timezone.now()
+    )
+    pago.motivo_anulacion = payload.get('motivo_anulacion', '') or ''
+    pago.save(update_fields=['estado', 'anulado_por', 'fecha_anulacion', 'motivo_anulacion'])
+
+    cuotas_payload = {c.get('numero'): c for c in payload.get('cuotas', [])}
+    for cuota in cuenta.cuotas.all():
+        snapshot = cuotas_payload.get(cuota.numero)
+        if not snapshot:
+            continue
+        cuota.saldo = Decimal(snapshot.get('saldo', '0'))
+        cuota.estado = snapshot.get('estado', cuota.estado)
+        if cuota.saldo > Decimal('0.00'):
+            cuota.fecha_pago = None
+        cuota.save(update_fields=['saldo', 'estado', 'fecha_pago'])
+
+    cuenta.saldo = Decimal(payload.get('saldo_cuenta', cuenta.saldo))
+    cuenta.estado = payload.get('estado_cuenta', cuenta.estado)
+    cuenta.save(update_fields=['saldo', 'estado', 'fecha_modificacion'])
+
+
 def _handler_cxc_anulada(sucursal, payload):
     """Marca una CxC como anulada."""
     from apps.cuentas_por_cobrar.models import CuentaPorCobrar
@@ -737,6 +801,7 @@ HANDLERS = {
     'COMPRA_REGISTRADA': _handler_compra,
     'CXC_CREADA': _handler_cxc_creada,
     'CXC_PAGO_REGISTRADO': _handler_cxc_pago,
+    'CXC_PAGO_ANULADO': _handler_cxc_pago_anulado,
     'CXC_ANULADA': _handler_cxc_anulada,
 }
 

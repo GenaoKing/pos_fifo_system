@@ -13,6 +13,7 @@ HTML server-rendered: ante falta de permiso se redirige (no se devuelve 403).
 """
 from functools import wraps
 
+from django.http import JsonResponse
 from django.shortcuts import redirect
 
 
@@ -34,6 +35,25 @@ def requiere_permiso_local(codigo, *, redirect_to='reportes:dashboard'):
                 return redirect('usuarios:login')
             if not user.tiene_permiso(codigo):
                 return redirect(redirect_to)
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def requiere_permiso_json(codigo):
+    """
+    Variante para endpoints JSON consumidos via fetch(): ante falta de
+    permiso devuelve 403 JSON en vez de redirigir (el redirect de
+    `requiere_permiso_local` rompe los clientes fetch).
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            user = getattr(request, 'user', None)
+            if user is None or not user.is_authenticated:
+                return JsonResponse({'success': False, 'error': 'No autenticado.'}, status=401)
+            if not user.tiene_permiso(codigo):
+                return JsonResponse({'success': False, 'error': 'Permiso denegado.'}, status=403)
             return view_func(request, *args, **kwargs)
         return wrapper
     return decorator

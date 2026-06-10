@@ -57,6 +57,10 @@ CATALOGO = [
     # --- Cuentas por cobrar -------------------------------------------------
     ('cuentas_por_cobrar.ver', 'Ver cuentas por cobrar', 'cuentas_por_cobrar',
      'Consultar cartera y cuentas por cobrar.'),
+    ('cuentas_por_cobrar.cobrar', 'Registrar abonos CxC', 'cuentas_por_cobrar',
+     'Registrar abonos a cuentas por cobrar.'),
+    ('cuentas_por_cobrar.anular_pago', 'Anular abonos CxC', 'cuentas_por_cobrar',
+     'Anular/revertir abonos registrados (reversa LIFO).'),
 
     # --- Reportes -----------------------------------------------------------
     ('reportes.ver', 'Ver reportes', 'reportes', 'Acceder a reportes y dashboard.'),
@@ -84,10 +88,15 @@ CATALOGO = [
 #   - anular: NO. La regla real (apps/ventas/services/anulaciones_service.py:
 #     _puede_anular) gatea las anulaciones a ADMIN/SYSADMIN. Por eso 'ventas.anular'
 #     NO esta aqui. Ver docs/RBAC_PERMISOS.md (seccion "Rol Cajero por defecto").
+#   - CxC ver/cobrar: la cajera consulta cartera y registra abonos hoy (antes
+#     del gate granular solo habia @login_required). 'anular_pago' NO: la
+#     reversa de abonos es operacion sensible (default solo Administrador).
 PERMISOS_CAJERO_DEFAULT = [
     'ventas.crear',
     'ventas.aplicar_descuento',
     'ventas.reimprimir',
+    'cuentas_por_cobrar.ver',
+    'cuentas_por_cobrar.cobrar',
 ]
 
 

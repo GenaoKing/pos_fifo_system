@@ -134,6 +134,9 @@ def serializar_cxc(cuenta):
         'metodo_plazo': cuenta.metodo_plazo.nombre,
         'total': _d(cuenta.total),
         'monto_inicial': _d(cuenta.monto_inicial),
+        'saldo_original': _d(cuenta.saldo_original),
+        'interes_porcentaje': _d(cuenta.interes_porcentaje),
+        'monto_interes': _d(cuenta.monto_interes),
         'saldo': _d(cuenta.saldo),
         'estado': cuenta.estado,
         'fecha_emision': cuenta.fecha_emision.isoformat(),
@@ -171,6 +174,39 @@ def serializar_pago_cxc(pago):
         'estado': pago.estado,
         'aplicaciones': pago.aplicaciones or [],
         'saldo_cuenta': _d(cuenta.saldo),
+    }
+
+
+def serializar_anulacion_pago_cxc(pago):
+    """
+    Payload de reversa de un abono CxC.
+
+    Incluye `fecha_pago` y `monto` originales para que el cloud localice el
+    pago con el mismo matching que CXC_PAGO_REGISTRADO, mas un snapshot
+    post-reversa de la cuenta y sus cuotas para reponer estados sin recalcular.
+    """
+    cuenta = pago.cuenta
+    return {
+        'pago_id_local': pago.id,
+        'cuenta_id_local': cuenta.id,
+        'numero_venta': cuenta.venta.numero_venta,
+        'sucursal_codigo': cuenta.sucursal.codigo if cuenta.sucursal_id else None,
+        'metodo': pago.metodo,
+        'monto': _d(pago.monto),
+        'fecha_pago': _dt(pago.fecha_pago),
+        'motivo_anulacion': pago.motivo_anulacion or '',
+        'anulado_por_username': pago.anulado_por.username if pago.anulado_por_id else None,
+        'fecha_anulacion': _dt(pago.fecha_anulacion),
+        'saldo_cuenta': _d(cuenta.saldo),
+        'estado_cuenta': cuenta.estado,
+        'cuotas': [
+            {
+                'numero': c.numero,
+                'saldo': _d(c.saldo),
+                'estado': c.estado,
+            }
+            for c in cuenta.cuotas.all()
+        ],
     }
 
 

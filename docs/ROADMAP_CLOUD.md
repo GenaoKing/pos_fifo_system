@@ -176,36 +176,35 @@ aging avanzado, alertas y permisos/operaciones de escritura futuras.
 
 ### Pendiente y futuro del modulo Credito/CxC
 
-- Validar en operacion real el flujo POS completo: seleccion de cliente, autorizacion, cierre, impresion y posterior abono.
-- Agregar permisos granulares para CxC: ver cartera, registrar abonos, anular abonos, autorizar exceso de limite.
-- Implementar anulacion/reversa de `PagoCxC`; v1 registra abonos aplicados, pero no trae flujo completo de reversa.
-- Mejorar aging:
-  - buckets 0-30, 31-60, 61-90, 90+.
-  - saldo vencido por cuota, no solo por fecha limite de cuenta.
-  - proyeccion de vencimientos proximos.
-- Definir politica de mora/interes:
+**[Estado jun 2026] Iteracion "Credito v2" implementada.** Cubre interes de financiamiento, modal de credito en POS, reversa de abonos, permisos granulares, recibos termicos, export PDF/Excel y analitica de cartera en el portal. Detalle:
+
+- [x] **Permisos granulares CxC**: `cuentas_por_cobrar.ver` (ya existia), `cuentas_por_cobrar.cobrar` (registrar abonos) y `cuentas_por_cobrar.anular_pago` (reversa). Data migration `permisos/0004` los siembra y los agrega a los roles de sistema (Cajero: ver+cobrar; Administrador: los tres). Enforcement en vistas POS con `requiere_permiso_local` (HTML) y el nuevo `requiere_permiso_json` (endpoints fetch, 403 JSON). El override de exceso de limite sigue gateado a ADMIN/SYSADMIN.
+- [x] **Interes de financiamiento**: `MetodoPlazoCredito.interes_porcentaje` como default configurable, editable por venta en el POS. Snapshot en `CuentaPorCobrar` (`saldo_original` = capital, `interes_porcentaje`, `monto_interes`); interes flat sobre el capital financiado, distribuido en cuotas (la ultima absorbe redondeo). `venta.total` y `Pago(CREDITO)` siguen en capital: el cargo financiero vive solo en CxC. Limite de credito se valida contra el financiado. Backfill de cuentas legacy en migracion `cuentas_por_cobrar/0004`.
+- [x] **Modal de credito en POS**: la configuracion de credito salio del panel de pago (quedo un resumen compacto) a un modal dedicado con simulador: capital, interes RD$, total a pagar y preview del calendario de cuotas (semanal/quincenal/mensual). El preview JS es informativo; el backend es la fuente de verdad.
+- [x] **Anulacion/reversa de `PagoCxC`**: `anular_pago_cxc_service` con politica LIFO (solo el ultimo abono APLICADO; reversas anteriores se anulan en cadena). Restituye saldos/estados de cuotas y cuenta desde `aplicaciones`, auditoria CRITICA con flag `turno_cerrado`. Turno abierto se ajusta solo (`calcular_esperado` filtra APLICADO); con turno cerrado se permite sin recalcular cierres historicos. Evento sync nuevo `CXC_PAGO_ANULADO` con handler cloud idempotente (snapshot post-reversa).
+- [x] **Recibos termicos de abonos CxC** + reimpresion (`print_manager.print_recibo_cxc`, best-effort tras registrar el abono, auditoria `IMPRESION_RECIBO_CXC`).
+- [x] **Export PDF/Excel del estado de cuenta** (POS local): `GET /cuentas-por-cobrar/cliente/<id>/pdf|excel/` con reportlab/openpyxl, gateado por `cuentas_por_cobrar.ver`.
+- [x] **Aging por buckets**: `GET /api/v1/cuentas-por-cobrar/aging/` con buckets al_dia/0-30/31-60/61-90/90+ calculados POR CUOTA vencida (no por fecha limite de cuenta), filtro `?sucursal=`.
+- [x] **Portal cloud — analitica de cartera**: la pagina `/cuentas` ahora tiene tabs Cartera / Aging / Por cliente / Cobros + panel de proximos vencimientos. Endpoints nuevos: `cartera_clientes/` (paginado), `cobros/` (?desde&hasta&agrupar=sucursal|cajero, excluye anulados), `proximos_vencimientos/` (?dias). Export CSV en portal (PDF queda en el POS local). El detalle muestra capital vs interes vs total financiado y los abonos ANULADOS con motivo.
+
+Pendiente / futuro:
+
+- Validar en operacion real el flujo POS completo: seleccion de cliente, autorizacion, cierre, impresion y posterior abono (ahora incluye modal de credito con interes y recibo de abono).
+- Definir politica de mora por atraso (el interes implementado es de financiamiento al crear la cuenta):
   - mora automatica diaria o mensual.
   - cargos por atraso.
   - condonaciones autorizadas.
 - Definir refinanciaciones:
   - reestructurar cuotas.
   - consolidar varias cuentas.
-  - mantener trazabilidad del saldo original.
+  - mantener trazabilidad del saldo original (la base ya existe: `saldo_original` + `monto_interes` en la cuenta).
 - Definir castigos/incobrables:
   - estado `CASTIGADA` o flujo separado.
   - auditoria y permisos de gerencia.
-- Agregar recibos/impresion de abonos CxC.
-- Agregar export PDF/Excel de estado de cuenta.
-- Exponer CxC en el portal cloud:
-  - cartera por cliente.
-  - aging consolidado.
-  - cobros por sucursal/cajero.
-  - alertas de vencimiento.
-  - **[Estado may 2026] Backend + frontend listos.** Frontend `/cuentas` (read-only) implementado en `pos-cloud-dashboard`: lista filtrable, resumen de cartera (total/vencido/abiertas/vencidas) y detalle con cuotas + abonos. Endpoint de lectura backend (B15) **implementado** (`/api/v1/cuentas-por-cobrar/`); falta solo el smoke E2E contra el backend desplegado. **Pendientes diferidos (decisiones futuras):** aging por buckets (0-30/31-60/61-90/90+), alertas de vencimiento, cobros por sucursal/cajero y scoping de lectura por sucursal — todos listados en `ROADMAP_PORTAL.md` → 5.H "Decisiones futuras".
-- Endurecer endpoints API para cloud/portal con DRF, permisos y paginacion; los endpoints actuales son internos/locales.
+- Scoping de lectura por sucursal en el portal (hoy un admin ve toda la cartera del negocio).
 - Definir si `MetodoPlazoCredito` sera global, por empresa, por sucursal o por cliente en modo SaaS.
 - Agregar pruebas E2E de UI para POS credito y registro de abonos.
-- Agregar validacion de contratos sync CxC contra cloud staging.
+- Agregar validacion de contratos sync CxC contra cloud staging (incluye el nuevo `CXC_PAGO_ANULADO`).
 - Agregar contabilidad formal solo si el producto evoluciona hacia doble partida.
 
 ---

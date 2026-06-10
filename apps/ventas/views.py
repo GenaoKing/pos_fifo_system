@@ -100,6 +100,7 @@ def punto_venta(request):
             'cantidad_cuotas': m.cantidad_cuotas,
             'frecuencia': m.frecuencia,
             'inicial_minima_porcentaje': str(m.inicial_minima_porcentaje),
+            'interes_porcentaje': str(m.interes_porcentaje),
         }
         for m in MetodoPlazoCredito.objects.filter(activo=True).order_by('nombre')
     ]

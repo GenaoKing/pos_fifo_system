@@ -23,6 +23,7 @@ TIPOS_EVENTO = [
     ('COMPRA_REGISTRADA', 'Compra registrada'),
     ('CXC_CREADA', 'Cuenta por cobrar creada'),
     ('CXC_PAGO_REGISTRADO', 'Pago de cuenta por cobrar registrado'),
+    ('CXC_PAGO_ANULADO', 'Pago de cuenta por cobrar anulado'),
     ('CXC_ANULADA', 'Cuenta por cobrar anulada'),
 ]
 

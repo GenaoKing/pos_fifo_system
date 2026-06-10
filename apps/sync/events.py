@@ -225,6 +225,23 @@ def evento_cxc_pago_registrado(pago):
     )
 
 
+def evento_cxc_pago_anulado(pago):
+    """Encola un evento CXC_PAGO_ANULADO."""
+    try:
+        payload = serializers.serializar_anulacion_pago_cxc(pago)
+    except Exception as exc:
+        logger.exception('No se pudo serializar anulacion de pago CxC %s: %s', pago.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='CXC_PAGO_ANULADO',
+        payload=payload,
+        referencia=f'{pago.cuenta.venta.numero_venta}-P{pago.pk}-ANUL',
+        objeto_id_local=pago.pk,
+        sucursal=pago.cuenta.sucursal,
+    )
+
+
 def evento_cxc_anulada(cuenta):
     """Encola un evento CXC_ANULADA."""
     try:

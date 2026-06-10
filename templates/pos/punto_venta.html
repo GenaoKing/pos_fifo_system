@@ -5,6 +5,8 @@
 
 {% block extra_head %}
 <style>
+    [x-cloak] { display: none !important; }
+
     /* Estilos específicos para el POS */
     .pos-container {
         height: calc(100vh - 4rem);
@@ -968,6 +970,7 @@
                             </div>
                         </template>
 
+                        <!-- Credito: resumen compacto, la configuracion vive en el modal -->
                         <template x-if="metodoPago === 'credito'">
                             <div class="space-y-3">
                                 <template x-if="!clienteSeleccionado">
@@ -976,69 +979,49 @@
                                     </div>
                                 </template>
 
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Metodo de plazo</label>
-                                    <select x-model="credito.metodo_plazo_id" class="form-select w-full">
-                                        <template x-for="m in metodosCreditoConfig" :key="m.id">
-                                            <option :value="m.id" x-text="m.nombre"></option>
-                                        </template>
-                                    </select>
-                                </div>
-
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Inicial</label>
-                                        <input type="number" x-model.number="credito.monto_inicial" min="0" step="0.01" class="form-input w-full">
+                                <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Plazo:</span>
+                                        <span class="font-medium" x-text="metodoCreditoSeleccionado()?.nombre || '—'"></span>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Metodo inicial</label>
-                                        <select x-model="credito.metodo_inicial" class="form-select w-full">
-                                            <option value="efectivo">Efectivo</option>
-                                            <option value="transferencia">Transferencia</option>
-                                            <option value="tarjeta">Tarjeta</option>
-                                        </select>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Inicial:</span>
+                                        <span class="font-medium" x-text="'$' + (parseFloat(credito.monto_inicial) || 0).toFixed(2) + ' (' + credito.metodo_inicial + ')'"></span>
                                     </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cuotas</label>
-                                        <input type="number" x-model.number="credito.cantidad_cuotas" min="1" class="form-input w-full">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Cuotas:</span>
+                                        <span class="font-medium" x-text="cantidadCuotasEfectiva() + ' × $' + (creditoPreview()[0]?.monto || 0).toFixed(2) + (cantidadCuotasEfectiva() > 1 ? ' (' + etiquetaFrecuencia() + ')' : '')"></span>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Primer venc.</label>
-                                        <input type="date" x-model="credito.fecha_primer_vencimiento" class="form-input w-full">
+                                    <div class="flex justify-between" x-show="interesPorcentaje() > 0">
+                                        <span class="text-gray-600">Interes:</span>
+                                        <span class="font-medium" x-text="interesPorcentaje().toFixed(2) + '% ($' + montoInteresNuevo().toFixed(2) + ')'"></span>
                                     </div>
-                                </div>
-
-                                <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
-                                    <div class="flex justify-between text-sm">
-                                        <span class="text-gray-600">Saldo a credito:</span>
-                                        <span class="font-semibold" x-text="'$' + saldoCreditoNuevo().toFixed(2)"></span>
+                                    <div class="flex justify-between border-t border-gray-200 pt-1.5">
+                                        <span class="text-gray-600">Total a credito:</span>
+                                        <span class="font-semibold" x-text="'$' + montoFinanciadoNuevo().toFixed(2)"></span>
                                     </div>
-                                    <div class="flex justify-between text-sm" x-show="creditoResumen">
+                                    <div class="flex justify-between" x-show="creditoResumen">
                                         <span class="text-gray-600">Disponible:</span>
                                         <span class="font-semibold" :class="creditoExcedeLimite() ? 'text-danger-600' : 'text-success-600'" x-text="'$' + creditoDisponible().toFixed(2)"></span>
                                     </div>
                                 </div>
 
-                                <template x-if="creditoExcedeLimite()">
-                                    <div class="p-3 bg-danger-50 border border-danger-200 rounded-lg space-y-2">
-                                        <p class="text-sm font-medium text-danger-800">Requiere autorizacion ADMIN</p>
-                                        <template x-if="!credito.admin_override_id">
-                                            <div class="space-y-2">
-                                                <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin">
-                                                <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena">
-                                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo">
-                                                <button type="button" class="btn-outline btn-sm w-full" @click="validarAdminCredito()" :disabled="credito.auth_validando">Autorizar</button>
-                                                <p class="text-xs text-danger-700" x-show="credito.auth_error" x-text="credito.auth_error"></p>
-                                            </div>
-                                        </template>
-                                        <template x-if="credito.admin_override_id">
-                                            <p class="text-sm text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></p>
-                                        </template>
+                                <template x-if="creditoExcedeLimite() && !credito.admin_override_id">
+                                    <div class="p-2 bg-danger-50 border border-danger-200 rounded-lg text-xs text-danger-800">
+                                        Excede el limite de credito — autoriza desde "Configurar credito".
                                     </div>
                                 </template>
+                                <template x-if="credito.admin_override_id">
+                                    <div class="p-2 bg-success-50 border border-success-200 rounded-lg text-xs text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></div>
+                                </template>
+
+                                <button type="button" class="btn-outline w-full" @click="abrirModalCredito()">
+                                    <svg class="w-4 h-4 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    </svg>
+                                    Configurar credito
+                                </button>
                             </div>
                         </template>
                     </div>
@@ -1076,6 +1059,158 @@
                     </template>
                     <span x-text="procesandoVenta ? 'Procesando...' : 'Confirmar'"></span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de configuracion de credito -->
+    <div
+        x-show="modalCreditoAbierto"
+        x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @keydown.escape.window="cerrarModalCredito()"
+    >
+        <div class="absolute inset-0 bg-black bg-opacity-50" @click="cerrarModalCredito()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-gray-900">Configurar credito</h3>
+                <button type="button" class="text-gray-400 hover:text-gray-600" @click="cerrarModalCredito()">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <template x-if="clienteSeleccionado">
+                    <div class="text-sm text-gray-600">
+                        Cliente: <span class="font-medium text-gray-900" x-text="clienteSeleccionado.nombre"></span>
+                        <span x-show="creditoResumen" class="ml-2" x-text="'· Disponible: $' + creditoDisponible().toFixed(2)"></span>
+                    </div>
+                </template>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Metodo de plazo</label>
+                        <select x-model="credito.metodo_plazo_id" @change="onMetodoPlazoChange()" class="form-select w-full">
+                            <template x-for="m in metodosCreditoConfig" :key="m.id">
+                                <option :value="m.id" x-text="m.nombre"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Interes (%)</label>
+                        <input type="number" x-model.number="credito.interes_porcentaje" min="0" max="100" step="0.01" class="form-input w-full">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Inicial</label>
+                        <input type="number" x-model.number="credito.monto_inicial" min="0" step="0.01" class="form-input w-full">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Metodo inicial</label>
+                        <select x-model="credito.metodo_inicial" class="form-select w-full">
+                            <option value="efectivo">Efectivo</option>
+                            <option value="transferencia">Transferencia</option>
+                            <option value="tarjeta">Tarjeta</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Cuotas</label>
+                        <input
+                            type="number"
+                            x-model.number="credito.cantidad_cuotas"
+                            min="1"
+                            class="form-input w-full"
+                            :disabled="metodoCreditoSeleccionado()?.tipo === 'VENCIMIENTO_UNICO'"
+                        >
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Frecuencia</label>
+                        <select
+                            x-model="credito.frecuencia"
+                            class="form-select w-full"
+                            :disabled="metodoCreditoSeleccionado()?.tipo === 'VENCIMIENTO_UNICO'"
+                        >
+                            <option value="SEMANAL">Semanal</option>
+                            <option value="QUINCENAL">Quincenal</option>
+                            <option value="MENSUAL">Mensual</option>
+                            <option value="DIAS" x-text="'Cada ' + (metodoCreditoSeleccionado()?.dias_vencimiento || 'N') + ' dias'"></option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Primer vencimiento</label>
+                        <input type="date" x-model="credito.fecha_primer_vencimiento" class="form-input w-full">
+                    </div>
+                </div>
+
+                <!-- Simulador -->
+                <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Capital financiado:</span>
+                        <span class="font-medium" x-text="'$' + saldoCreditoNuevo().toFixed(2)"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600" x-text="'Interes (' + interesPorcentaje().toFixed(2) + '%):'"></span>
+                        <span class="font-medium" x-text="'$' + montoInteresNuevo().toFixed(2)"></span>
+                    </div>
+                    <div class="flex justify-between border-t border-gray-200 pt-1.5">
+                        <span class="text-gray-700 font-medium">Total a pagar:</span>
+                        <span class="font-bold" x-text="'$' + montoFinanciadoNuevo().toFixed(2)"></span>
+                    </div>
+                    <div class="flex justify-between" x-show="creditoResumen">
+                        <span class="text-gray-600">Disponible:</span>
+                        <span class="font-semibold" :class="creditoExcedeLimite() ? 'text-danger-600' : 'text-success-600'" x-text="'$' + creditoDisponible().toFixed(2)"></span>
+                    </div>
+                </div>
+
+                <!-- Preview del calendario de cuotas (informativo: el backend es la fuente de verdad) -->
+                <div>
+                    <p class="text-sm font-medium text-gray-700 mb-2">Calendario de cuotas</p>
+                    <div class="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500">#</th>
+                                    <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500">Vence</th>
+                                    <th class="px-3 py-1.5 text-right text-xs font-medium text-gray-500">Monto</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="cuota in creditoPreview()" :key="cuota.numero">
+                                    <tr class="border-t border-gray-100">
+                                        <td class="px-3 py-1.5" x-text="cuota.numero"></td>
+                                        <td class="px-3 py-1.5" x-text="cuota.fecha"></td>
+                                        <td class="px-3 py-1.5 text-right font-medium" x-text="'$' + cuota.monto.toFixed(2)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Autorizacion ADMIN si excede limite -->
+                <template x-if="creditoExcedeLimite()">
+                    <div class="p-3 bg-danger-50 border border-danger-200 rounded-lg space-y-2">
+                        <p class="text-sm font-medium text-danger-800">Requiere autorizacion ADMIN</p>
+                        <template x-if="!credito.admin_override_id">
+                            <div class="space-y-2">
+                                <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin">
+                                <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena">
+                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo">
+                                <button type="button" class="btn-outline btn-sm w-full" @click="validarAdminCredito()" :disabled="credito.auth_validando">Autorizar</button>
+                                <p class="text-xs text-danger-700" x-show="credito.auth_error" x-text="credito.auth_error"></p>
+                            </div>
+                        </template>
+                        <template x-if="credito.admin_override_id">
+                            <p class="text-sm text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></p>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <div class="sticky bottom-0 bg-white border-t border-gray-200 px-5 py-3 flex justify-end space-x-2">
+                <button type="button" class="btn-outline" @click="cerrarModalCredito()">Cerrar</button>
+                <button type="button" class="btn-primary" @click="cerrarModalCredito()" :disabled="creditoExcedeLimite() && !credito.admin_override_id">Aplicar</button>
             </div>
         </div>
     </div>

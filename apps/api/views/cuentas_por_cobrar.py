@@ -15,16 +15,23 @@ Contrato (frontend centraliza la ruta en src/lib/cxc.ts -> BASE_PATH):
         ?page= &page_size=
     GET /api/v1/cuentas-por-cobrar/<id>/        detalle + cuotas[] + pagos[]
     GET /api/v1/cuentas-por-cobrar/resumen/     agregados de toda la cartera
+    GET /api/v1/cuentas-por-cobrar/aging/       buckets por cuota vencida (?sucursal=<codigo>)
+    GET /api/v1/cuentas-por-cobrar/cartera_clientes/   saldo agrupado por cliente (paginado)
+    GET /api/v1/cuentas-por-cobrar/cobros/      abonos por sucursal o cajero (?desde= &hasta= &agrupar=)
+    GET /api/v1/cuentas-por-cobrar/proximos_vencimientos/  cuotas que vencen en ?dias= (default 7)
 """
+
+from datetime import timedelta
 
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.cuentas_por_cobrar.models import CuentaPorCobrar
+from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, PagoCxC
 
 from ..pagination import StandardPagination
 from ..permissions import PuedeLeerMaestro, requiere_modulo
@@ -131,4 +138,181 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
             'cuentas_abiertas': datos['cuentas_abiertas'] or 0,
             'cuentas_vencidas': datos['cuentas_vencidas'] or 0,
             'clientes_con_saldo': datos['clientes_con_saldo'] or 0,
+        })
+
+    @action(detail=False, methods=['get'])
+    def aging(self, request):
+        """
+        Aging de cartera por buckets, calculado POR CUOTA vencida (no por
+        fecha limite de la cuenta): una cuenta con una sola cuota atrasada
+        reporta solo esa cuota como vencida.
+
+        Buckets de dias vencidos: al_dia (sin vencer), 0-30, 31-60, 61-90, 90+.
+        Filtro opcional ?sucursal=<codigo>.
+        """
+        hoy = timezone.localdate()
+        d30, d60, d90 = (hoy - timedelta(days=n) for n in (30, 60, 90))
+
+        cuotas = CuotaCxC.objects.filter(
+            saldo__gt=0,
+            cuenta__estado__in=ESTADOS_ABIERTOS,
+        ).exclude(estado=CuotaCxC.ESTADO_ANULADA)
+
+        sucursal = request.query_params.get('sucursal')
+        if sucursal:
+            cuotas = cuotas.filter(cuenta__sucursal__codigo=sucursal)
+
+        datos = cuotas.aggregate(
+            al_dia=Sum('saldo', filter=Q(fecha_vencimiento__gte=hoy)),
+            b_0_30=Sum('saldo', filter=Q(fecha_vencimiento__lt=hoy, fecha_vencimiento__gte=d30)),
+            b_31_60=Sum('saldo', filter=Q(fecha_vencimiento__lt=d30, fecha_vencimiento__gte=d60)),
+            b_61_90=Sum('saldo', filter=Q(fecha_vencimiento__lt=d60, fecha_vencimiento__gte=d90)),
+            b_90_mas=Sum('saldo', filter=Q(fecha_vencimiento__lt=d90)),
+            total=Sum('saldo'),
+        )
+
+        return Response({
+            'fecha_corte': hoy.isoformat(),
+            'al_dia': datos['al_dia'] or 0,
+            'b_0_30': datos['b_0_30'] or 0,
+            'b_31_60': datos['b_31_60'] or 0,
+            'b_61_90': datos['b_61_90'] or 0,
+            'b_90_mas': datos['b_90_mas'] or 0,
+            'total': datos['total'] or 0,
+        })
+
+    @action(detail=False, methods=['get'])
+    def cartera_clientes(self, request):
+        """
+        Cartera agrupada por cliente (cuentas con saldo vivo), ordenada por
+        saldo descendente. Paginada con el mismo StandardPagination del listado.
+        """
+        hoy = timezone.localdate()
+        filas = (
+            CuentaPorCobrar.objects
+            .filter(estado__in=ESTADOS_ABIERTOS)
+            .values('cliente_id', 'cliente__nombre', 'cliente__cedula_rnc')
+            .annotate(
+                saldo_total=Sum('saldo'),
+                cuentas=Count('id'),
+                saldo_vencido=Sum('saldo', filter=Q(fecha_limite__lt=hoy)),
+            )
+            .order_by('-saldo_total')
+        )
+
+        resultados = [
+            {
+                'cliente_id': fila['cliente_id'],
+                'cliente_nombre': fila['cliente__nombre'],
+                'cliente_cedula_rnc': fila['cliente__cedula_rnc'] or '',
+                'saldo_total': fila['saldo_total'] or 0,
+                'cuentas': fila['cuentas'],
+                'saldo_vencido': fila['saldo_vencido'] or 0,
+            }
+            for fila in filas
+        ]
+
+        page = self.paginate_queryset(resultados)
+        if page is not None:
+            return self.get_paginated_response(page)
+        return Response(resultados)
+
+    @action(detail=False, methods=['get'])
+    def cobros(self, request):
+        """
+        Abonos CxC APLICADOS agrupados por sucursal (default) o cajero.
+
+        ?desde=YYYY-MM-DD &hasta=YYYY-MM-DD (default: mes actual)
+        ?agrupar=sucursal|cajero
+        """
+        hoy = timezone.localdate()
+        desde = parse_date(request.query_params.get('desde') or '') or hoy.replace(day=1)
+        hasta = parse_date(request.query_params.get('hasta') or '') or hoy
+        agrupar = request.query_params.get('agrupar', 'sucursal')
+
+        pagos = PagoCxC.objects.filter(
+            estado=PagoCxC.ESTADO_APLICADO,
+            fecha_pago__date__gte=desde,
+            fecha_pago__date__lte=hasta,
+        )
+
+        if agrupar == 'cajero':
+            filas = (
+                pagos.values('registrado_por_id', 'registrado_por__username')
+                .annotate(total=Sum('monto'), cantidad=Count('id'))
+                .order_by('-total')
+            )
+            resultados = [
+                {
+                    'clave': fila['registrado_por__username'] or '-',
+                    'total': fila['total'] or 0,
+                    'cantidad': fila['cantidad'],
+                }
+                for fila in filas
+            ]
+        else:
+            filas = (
+                pagos.values('cuenta__sucursal__codigo', 'cuenta__sucursal__nombre')
+                .annotate(total=Sum('monto'), cantidad=Count('id'))
+                .order_by('-total')
+            )
+            resultados = [
+                {
+                    'clave': fila['cuenta__sucursal__codigo'] or 'Sin sucursal',
+                    'nombre': fila['cuenta__sucursal__nombre'] or '',
+                    'total': fila['total'] or 0,
+                    'cantidad': fila['cantidad'],
+                }
+                for fila in filas
+            ]
+
+        return Response({
+            'desde': desde.isoformat(),
+            'hasta': hasta.isoformat(),
+            'agrupar': agrupar if agrupar in ('sucursal', 'cajero') else 'sucursal',
+            'resultados': resultados,
+        })
+
+    @action(detail=False, methods=['get'])
+    def proximos_vencimientos(self, request):
+        """
+        Cuotas con saldo que vencen entre hoy y hoy + ?dias= (default 7,
+        max 90). Alertas de cobro para el portal; limitado a 100 filas.
+        """
+        try:
+            dias = min(max(int(request.query_params.get('dias', 7)), 1), 90)
+        except (TypeError, ValueError):
+            dias = 7
+
+        hoy = timezone.localdate()
+        limite = hoy + timedelta(days=dias)
+
+        cuotas = (
+            CuotaCxC.objects
+            .filter(
+                saldo__gt=0,
+                cuenta__estado__in=ESTADOS_ABIERTOS,
+                fecha_vencimiento__gte=hoy,
+                fecha_vencimiento__lte=limite,
+            )
+            .exclude(estado=CuotaCxC.ESTADO_ANULADA)
+            .select_related('cuenta__cliente', 'cuenta__venta', 'cuenta__sucursal')
+            .order_by('fecha_vencimiento', 'cuenta_id', 'numero')[:100]
+        )
+
+        return Response({
+            'dias': dias,
+            'resultados': [
+                {
+                    'cuenta_id': cuota.cuenta_id,
+                    'numero_venta': cuota.cuenta.venta.numero_venta,
+                    'cliente_nombre': cuota.cuenta.cliente.nombre,
+                    'sucursal_codigo': cuota.cuenta.sucursal.codigo if cuota.cuenta.sucursal_id else None,
+                    'cuota_numero': cuota.numero,
+                    'fecha_vencimiento': cuota.fecha_vencimiento.isoformat(),
+                    'saldo': cuota.saldo,
+                    'dias_restantes': (cuota.fecha_vencimiento - hoy).days,
+                }
+                for cuota in cuotas
+            ],
         })

@@ -67,7 +67,10 @@
                                 <span class="badge-primary" x-text="cuenta.estado"></span>
                             </td>
                             <td class="px-6 py-4 text-right">
+                                {% if puede_cobrar %}
                                 <button class="btn-outline btn-sm" @click="abrirPago(cuenta)">Abonar</button>
+                                {% endif %}
+                                <button class="btn-ghost btn-sm" @click="abrirAbonos(cuenta)" x-show="cuenta.pagos && cuenta.pagos.length > 0">Abonos</button>
                                 <a class="btn-ghost btn-sm" :href="'/cuentas-por-cobrar/cliente/' + cuenta.cliente_id + '/'">Estado</a>
                             </td>
                         </tr>
@@ -76,6 +79,52 @@
             </table>
         </div>
     </div>
+
+    <template x-if="modalAbonos">
+        <div class="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="fixed inset-0 bg-black/50" @click="cerrarAbonos()"></div>
+            <div class="relative bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Abonos registrados</h3>
+                <p class="text-sm text-gray-500 mb-4" x-text="cuentaSeleccionada.numero_venta + ' - ' + cuentaSeleccionada.cliente"></p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 bg-gray-50">
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Fecha</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Metodo</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Monto</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Estado</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <template x-for="pago in cuentaSeleccionada.pagos" :key="pago.id">
+                            <tr :class="pago.estado === 'ANULADO' ? 'opacity-60' : ''">
+                                <td class="px-3 py-2" x-text="pago.fecha_pago"></td>
+                                <td class="px-3 py-2">
+                                    <span x-text="pago.metodo"></span>
+                                    <p class="text-xs text-gray-500" x-text="pago.referencia"></p>
+                                </td>
+                                <td class="px-3 py-2 text-right font-medium" :class="pago.estado === 'ANULADO' ? 'line-through' : ''" x-text="'$' + money(pago.monto)"></td>
+                                <td class="px-3 py-2">
+                                    <span :class="pago.estado === 'ANULADO' ? 'badge-danger' : 'badge-success'" x-text="pago.estado"></span>
+                                    <p class="text-xs text-gray-500" x-show="pago.motivo_anulacion" x-text="pago.motivo_anulacion"></p>
+                                </td>
+                                <td class="px-3 py-2 text-right whitespace-nowrap">
+                                    <button class="btn-ghost btn-sm" x-show="pago.estado === 'APLICADO'" @click="reimprimirRecibo(pago)">Recibo</button>
+                                    {% if puede_anular_pago %}
+                                    <button class="btn-ghost btn-sm text-danger-600" x-show="pago.es_ultimo_aplicado" @click="anularPago(pago)">Anular</button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div class="flex justify-end mt-6">
+                    <button class="btn-outline" @click="cerrarAbonos()">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <template x-if="modalPago">
         <div class="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -115,6 +164,7 @@ function cxcLista() {
     return {
         cuentas: JSON.parse('{{ cuentas_json|escapejs }}'),
         modalPago: false,
+        modalAbonos: false,
         guardando: false,
         cuentaSeleccionada: null,
         form: { monto: 0, metodo: 'EFECTIVO', referencia: '' },
@@ -126,6 +176,11 @@ function cxcLista() {
             this.modalPago = true;
         },
         cerrarPago() { this.modalPago = false; },
+        abrirAbonos(cuenta) {
+            this.cuentaSeleccionada = cuenta;
+            this.modalAbonos = true;
+        },
+        cerrarAbonos() { this.modalAbonos = false; },
         async guardarPago() {
             this.guardando = true;
             try {
@@ -143,8 +198,48 @@ function cxcLista() {
                 this.cuentaSeleccionada.estado = data.cuenta.estado;
                 this.cerrarPago();
                 showToast('success', 'Abono registrado');
+                if (data.impresion && !data.impresion.success && data.impresion.error !== 'DISABLED') {
+                    showToast('warning', 'Abono registrado pero el recibo no se imprimio');
+                }
             } finally {
                 this.guardando = false;
+            }
+        },
+        async anularPago(pago) {
+            const motivo = prompt('Motivo de la anulacion del abono:');
+            if (motivo === null) return;
+            if (!motivo.trim()) {
+                showToast('error', 'La anulacion requiere un motivo');
+                return;
+            }
+            try {
+                const res = await fetch(`/cuentas-por-cobrar/api/pago/${pago.id}/anular/`, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({ motivo: motivo.trim() }),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    showToast('error', data.error || 'No se pudo anular el abono');
+                    return;
+                }
+                showToast('success', 'Abono anulado');
+                // Recargar para refrescar saldos, estados y flags es_ultimo_aplicado
+                window.location.reload();
+            } catch (e) {
+                showToast('error', 'Error de conexion al anular el abono');
+            }
+        },
+        async reimprimirRecibo(pago) {
+            try {
+                const res = await fetch(`/cuentas-por-cobrar/api/pago/${pago.id}/imprimir/`, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                });
+                const data = await res.json();
+                showToast(data.success ? 'success' : 'error', data.mensaje || (data.success ? 'Recibo impreso' : 'No se pudo imprimir'));
+            } catch (e) {
+                showToast('error', 'Error de conexion al imprimir');
             }
         },
     }

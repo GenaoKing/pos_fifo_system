@@ -39,6 +39,13 @@ class MetodoPlazoCredito(models.Model):
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))],
     )
+    interes_porcentaje = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))],
+        help_text='Interes de financiamiento por defecto; editable por venta en el POS.',
+    )
     activo = models.BooleanField(default=True)
     sucursal = models.ForeignKey(
         'sucursales.Sucursal',
@@ -109,6 +116,16 @@ class CuentaPorCobrar(models.Model):
     )
     total = models.DecimalField(max_digits=12, decimal_places=2)
     monto_inicial = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    # Capital financiado (total - inicial), sin interes. El interes es un cargo
+    # financiero que vive solo en la CxC: venta.total y Pago(CREDITO) siguen en capital.
+    saldo_original = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    interes_porcentaje = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))],
+    )
+    monto_interes = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     saldo = models.DecimalField(max_digits=12, decimal_places=2)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=ESTADO_ABIERTA, db_index=True)
     fecha_emision = models.DateField(default=timezone.localdate)
@@ -154,6 +171,11 @@ class CuentaPorCobrar(models.Model):
         return self.estado in (self.ESTADO_ABIERTA, self.ESTADO_PARCIAL, self.ESTADO_VENCIDA)
 
     @property
+    def monto_financiado(self):
+        """Deuda real del cliente al emitir la cuenta: capital + interes."""
+        return self.saldo_original + self.monto_interes
+
+    @property
     def esta_vencida(self):
         """Cuenta con saldo pendiente cuya fecha limite ya paso.
 
@@ -169,7 +191,7 @@ class CuentaPorCobrar(models.Model):
             return self.estado
         if self.saldo <= Decimal('0.00'):
             self.estado = self.ESTADO_PAGADA
-        elif self.saldo < self.total - self.monto_inicial:
+        elif self.saldo < self.monto_financiado:
             self.estado = self.ESTADO_PARCIAL
         elif self.fecha_limite < timezone.localdate():
             self.estado = self.ESTADO_VENCIDA
@@ -272,6 +294,15 @@ class PagoCxC(models.Model):
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=ESTADO_APLICADO)
     aplicaciones = models.JSONField(default=list, blank=True)
     notas = models.TextField(blank=True)
+    anulado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='pagos_cxc_anulados',
+        blank=True,
+        null=True,
+    )
+    fecha_anulacion = models.DateTimeField(blank=True, null=True)
+    motivo_anulacion = models.CharField(max_length=250, blank=True)
 
     class Meta:
         verbose_name = 'Pago CxC'

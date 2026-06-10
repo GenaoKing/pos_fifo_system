@@ -513,6 +513,66 @@ class ThermalPrinter2Connect:
         self.printer.set(normal_textsize=True)
         self.printer.image(qr_image, center=True)
 
+    def print_recibo_cxc(self, recibo_data):
+        """
+        Imprime un recibo de abono a cuenta por cobrar.
+
+        Args:
+            recibo_data (dict): numero_venta, fecha, cajero, cliente, metodo,
+                referencia, monto, cuotas (lista de {numero, monto}),
+                saldo_restante, reimpresion (bool).
+        """
+        if not self.connect():
+            raise ThermalPrinterException("No se pudo conectar con la impresora")
+
+        try:
+            self._print_header()
+
+            self.printer.set(align='center', bold=True)
+            self.printer.text("RECIBO DE ABONO CxC\n")
+            if recibo_data.get('reimpresion'):
+                self.printer.text("(REIMPRESION)\n")
+            self.printer.set(align='left', bold=False)
+            self.printer.text("-" * self.config['PAPER_WIDTH'] + "\n")
+
+            numero_limpio = recibo_data['numero_venta'].replace('VENTA-', '')
+            self.printer.text(f"Venta: {numero_limpio}\n")
+            self.printer.text(f"Fecha: {recibo_data['fecha']}\n")
+            self.printer.text(f"Cajero: {recibo_data['cajero']}\n")
+            self.printer.text(f"Cliente: {recibo_data['cliente']}\n")
+            self.printer.text(f"Metodo: {recibo_data['metodo']}\n")
+            if recibo_data.get('referencia'):
+                self.printer.text(f"Referencia: {recibo_data['referencia']}\n")
+
+            self.printer.text("-" * self.config['PAPER_WIDTH'] + "\n")
+            for cuota in recibo_data.get('cuotas', []):
+                self._print_total_line(f"Cuota {cuota['numero']}:", cuota['monto'])
+
+            self.printer.text("=" * self.config['PAPER_WIDTH'] + "\n")
+            self.printer.set(bold=True)
+            self._print_total_line("ABONO:", recibo_data['monto'])
+            self.printer.set(bold=False)
+            self._print_total_line("SALDO PENDIENTE:", recibo_data['saldo_restante'])
+            self.printer.text("=" * self.config['PAPER_WIDTH'] + "\n")
+
+            self._print_footer()
+
+            if self.config['AUTO_CUT']:
+                self.printer.cut()
+            else:
+                self.printer.text("\n\n\n")
+
+            logger.info(f"✓ Recibo CxC de {recibo_data['numero_venta']} impreso exitosamente")
+            return True
+
+        except Exception as e:
+            error_msg = f"Error imprimiendo recibo CxC: {str(e)}"
+            logger.error(error_msg)
+            raise ThermalPrinterException(error_msg)
+
+        finally:
+            self.disconnect()
+
     def _print_total_line(self, label, amount):
         """Helper para imprimir líneas de totales alineadas a la derecha"""
         amount_str = f"${abs(amount):.2f}"

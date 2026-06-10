@@ -163,6 +163,110 @@ class PrintManager:
                 'error': str(e)
             }
     
+    def print_recibo_cxc(self, pago, usuario, reimpresion=False):
+        """
+        Imprime el recibo de un abono CxC (best-effort: el abono ya esta
+        registrado; un fallo de impresora no debe revertirlo).
+        """
+        if not self.enabled:
+            return {
+                'success': False,
+                'mensaje': 'Sistema de impresión deshabilitado',
+                'error': 'DISABLED'
+            }
+
+        if reimpresion:
+            pago.refresh_from_db()
+
+        try:
+            recibo_data = self._prepare_recibo_cxc_data(pago, reimpresion=reimpresion)
+        except Exception as e:
+            error_msg = f"Error preparando datos de recibo CxC: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'mensaje': error_msg,
+                'error': 'DATA_PREPARATION_ERROR'
+            }
+
+        try:
+            printer = self.printer_class()
+            printer.print_recibo_cxc(recibo_data)
+
+            self._registrar_auditoria_recibo_cxc(
+                pago=pago,
+                usuario=usuario,
+                reimpresion=reimpresion,
+                exitosa=True,
+            )
+
+            mensaje = "Recibo reimpreso exitosamente" if reimpresion else "Recibo impreso exitosamente"
+            logger.info(f"✓ {mensaje}: abono {pago.pk} de {pago.cuenta.venta.numero_venta}")
+            return {'success': True, 'mensaje': mensaje}
+
+        except Exception as e:
+            error_msg = f"Error imprimiendo recibo CxC: {str(e)}"
+            logger.error(error_msg)
+            self._registrar_auditoria_recibo_cxc(
+                pago=pago,
+                usuario=usuario,
+                reimpresion=reimpresion,
+                exitosa=False,
+                error=str(e),
+            )
+            return {
+                'success': False,
+                'mensaje': 'No se pudo imprimir el recibo',
+                'error': str(e)
+            }
+
+    def _prepare_recibo_cxc_data(self, pago, reimpresion=False):
+        """Prepara el diccionario de datos para el recibo de abono CxC"""
+        cuenta = pago.cuenta
+        santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
+        fecha_local = pago.fecha_pago.astimezone(santo_domingo_tz)
+
+        return {
+            'numero_venta': cuenta.venta.numero_venta,
+            'fecha': fecha_local.strftime('%d/%m/%Y %I:%M %p'),
+            'cajero': pago.registrado_por.get_full_name() or pago.registrado_por.username,
+            'cliente': cuenta.cliente.nombre,
+            'metodo': pago.get_metodo_display(),
+            'referencia': pago.referencia or '',
+            'monto': float(pago.monto),
+            'cuotas': [
+                {
+                    'numero': aplicacion.get('numero'),
+                    'monto': float(aplicacion.get('monto', 0)),
+                }
+                for aplicacion in (pago.aplicaciones or [])
+            ],
+            'saldo_restante': float(cuenta.saldo),
+            'reimpresion': reimpresion,
+        }
+
+    @transaction.atomic
+    def _registrar_auditoria_recibo_cxc(self, pago, usuario, reimpresion, exitosa, error=None):
+        """Registra la impresión del recibo CxC en auditoría"""
+        try:
+            accion = 'ERROR_IMPRESION' if not exitosa else 'IMPRESION_RECIBO_CXC'
+            detalles = {
+                'pago_cxc_id': pago.pk,
+                'numero_venta': pago.cuenta.venta.numero_venta,
+                'reimpresion': reimpresion,
+                'monto': float(pago.monto),
+            }
+            if error:
+                detalles['error'] = error
+
+            Auditoria.objects.create(
+                usuario=usuario,
+                accion=accion,
+                detalles=detalles
+            )
+        except Exception as e:
+            logger.error(f"Error registrando auditoría: {str(e)}")
+
     def test_printer(self):
         """Ejecuta una prueba de impresión"""
         if not self.enabled:

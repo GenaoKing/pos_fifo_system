@@ -66,11 +66,14 @@ function posData() {
         montoEfectivo: 0,
         montoTransferencia: 0,
         cambio: 0,
+        modalCreditoAbierto: false,
         credito: {
             metodo_plazo_id: '',
             monto_inicial: 0,
             metodo_inicial: 'efectivo',
             cantidad_cuotas: 1,
+            interes_porcentaje: 0,
+            frecuencia: 'MENSUAL',
             fecha_primer_vencimiento: '',
             admin_override_id: null,
             admin_override_nombre: '',
@@ -101,6 +104,8 @@ function posData() {
             if (this.metodosCreditoConfig.length > 0) {
                 this.credito.metodo_plazo_id = this.metodosCreditoConfig[0].id;
                 this.credito.cantidad_cuotas = this.metodosCreditoConfig[0].cantidad_cuotas || 1;
+                this.credito.interes_porcentaje = parseFloat(this.metodosCreditoConfig[0].interes_porcentaje) || 0;
+                this.credito.frecuencia = this.metodosCreditoConfig[0].frecuencia || 'MENSUAL';
             }
 
             this.cargarAccesosRapidos();
@@ -491,6 +496,8 @@ function posData() {
                 monto_inicial: 0,
                 metodo_inicial: 'efectivo',
                 cantidad_cuotas: metodo ? (metodo.cantidad_cuotas || 1) : 1,
+                interes_porcentaje: metodo ? (parseFloat(metodo.interes_porcentaje) || 0) : 0,
+                frecuencia: metodo ? (metodo.frecuencia || 'MENSUAL') : 'MENSUAL',
                 fecha_primer_vencimiento: '',
                 admin_override_id: null,
                 admin_override_nombre: '',
@@ -500,6 +507,7 @@ function posData() {
                 auth_error: '',
                 auth_validando: false,
             };
+            this.modalCreditoAbierto = false;
         },
 
         resetCreditoAutorizacion() {
@@ -519,12 +527,114 @@ function posData() {
             return Math.max(this.calcularTotal() - (parseFloat(this.credito.monto_inicial) || 0), 0);
         },
 
+        // Redondeo a 2 decimales HALF_UP (paridad con _q() del backend para montos positivos)
+        round2(valor) {
+            return Math.round((valor + Number.EPSILON) * 100) / 100;
+        },
+
+        interesPorcentaje() {
+            const pct = parseFloat(this.credito.interes_porcentaje);
+            if (isNaN(pct) || pct < 0) return 0;
+            return Math.min(pct, 100);
+        },
+
+        montoInteresNuevo() {
+            return this.round2(this.saldoCreditoNuevo() * this.interesPorcentaje() / 100);
+        },
+
+        // Capital + interes: lo que el cliente realmente debera (igual que el backend)
+        montoFinanciadoNuevo() {
+            return this.round2(this.saldoCreditoNuevo() + this.montoInteresNuevo());
+        },
+
+        cantidadCuotasEfectiva() {
+            const metodo = this.metodoCreditoSeleccionado();
+            if (!metodo || metodo.tipo === 'VENCIMIENTO_UNICO') return 1;
+            return Math.max(parseInt(this.credito.cantidad_cuotas, 10) || 1, 1);
+        },
+
+        etiquetaFrecuencia() {
+            const metodo = this.metodoCreditoSeleccionado();
+            const etiquetas = {
+                SEMANAL: 'semanal',
+                QUINCENAL: 'quincenal',
+                MENSUAL: 'mensual',
+                DIAS: metodo ? `cada ${metodo.dias_vencimiento} dias` : 'cada N dias',
+            };
+            return etiquetas[this.credito.frecuencia] || this.credito.frecuencia;
+        },
+
+        diasEntreCuotas() {
+            if (this.credito.frecuencia === 'SEMANAL') return 7;
+            if (this.credito.frecuencia === 'QUINCENAL') return 15;
+            if (this.credito.frecuencia === 'MENSUAL') return 30;
+            const metodo = this.metodoCreditoSeleccionado();
+            return Math.max(parseInt(metodo ? metodo.dias_vencimiento : 30, 10) || 1, 1);
+        },
+
+        /**
+         * Preview del calendario de cuotas. Replica la regla del backend
+         * (cuota base redondeada, la ultima absorbe la diferencia), pero es
+         * solo informativo: la fuente de verdad es crear_cuenta_para_venta.
+         */
+        creditoPreview() {
+            const metodo = this.metodoCreditoSeleccionado();
+            if (!metodo) return [];
+
+            const financiado = this.montoFinanciadoNuevo();
+            const n = this.cantidadCuotasEfectiva();
+            const base = this.round2(financiado / n);
+            const montos = Array(n).fill(base);
+            montos[n - 1] = this.round2(base + (financiado - this.round2(base * n)));
+
+            let primera;
+            if (this.credito.fecha_primer_vencimiento) {
+                const [y, m, d] = this.credito.fecha_primer_vencimiento.split('-').map(Number);
+                primera = new Date(y, m - 1, d);
+            } else {
+                primera = new Date();
+                primera.setDate(primera.getDate() + (parseInt(metodo.dias_vencimiento, 10) || 30));
+            }
+            const intervalo = this.diasEntreCuotas();
+
+            return montos.map((monto, i) => {
+                const fecha = new Date(primera);
+                fecha.setDate(fecha.getDate() + intervalo * i);
+                return {
+                    numero: i + 1,
+                    fecha: fecha.toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                    monto: monto,
+                };
+            });
+        },
+
+        abrirModalCredito() {
+            if (!this.clienteSeleccionado) {
+                showToast('warning', 'Selecciona un cliente para vender a credito');
+                return;
+            }
+            this.consultarCreditoCliente();
+            this.modalCreditoAbierto = true;
+        },
+
+        cerrarModalCredito() {
+            this.modalCreditoAbierto = false;
+        },
+
+        onMetodoPlazoChange() {
+            const metodo = this.metodoCreditoSeleccionado();
+            if (!metodo) return;
+            this.credito.cantidad_cuotas = metodo.cantidad_cuotas || 1;
+            this.credito.interes_porcentaje = parseFloat(metodo.interes_porcentaje) || 0;
+            this.credito.frecuencia = metodo.frecuencia || 'MENSUAL';
+        },
+
         creditoDisponible() {
             return this.creditoResumen ? parseFloat(this.creditoResumen.credito_disponible || 0) : 0;
         },
 
         creditoExcedeLimite() {
-            return this.metodoPago === 'credito' && this.creditoResumen && this.saldoCreditoNuevo() > this.creditoDisponible();
+            return this.metodoPago === 'credito' && this.creditoResumen && this.montoFinanciadoNuevo() > this.creditoDisponible();
         },
 
         async validarAdminCredito() {
@@ -624,6 +734,7 @@ function posData() {
          */
         cancelarPago() {
             this.panelPagoActivo = false;
+            this.modalCreditoAbierto = false;
             this.$nextTick(() => {
                 this.focusScanner();
             });
@@ -640,6 +751,9 @@ function posData() {
             this.cambio = 0;
             if (metodo === 'credito') {
                 this.consultarCreditoCliente();
+                if (this.clienteSeleccionado) {
+                    this.modalCreditoAbierto = true;
+                }
             }
             
             // Focus en el input correspondiente
@@ -780,6 +894,8 @@ function posData() {
                     monto_inicial: this.credito.monto_inicial || 0,
                     metodo_inicial: this.credito.metodo_inicial,
                     cantidad_cuotas: this.credito.cantidad_cuotas,
+                    interes_porcentaje: String(this.interesPorcentaje()),
+                    frecuencia: this.credito.frecuencia,
                     fecha_primer_vencimiento: this.credito.fecha_primer_vencimiento || null,
                     admin_override_id: this.credito.admin_override_id,
                     motivo_override: this.credito.motivo_override || '',

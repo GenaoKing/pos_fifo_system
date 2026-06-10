@@ -44,6 +44,11 @@ class PagoCxCSerializer(serializers.ModelSerializer):
         read_only=True,
         default=None,
     )
+    anulado_por = serializers.CharField(
+        source='anulado_por.username',
+        read_only=True,
+        default=None,
+    )
 
     class Meta:
         model = PagoCxC
@@ -55,6 +60,9 @@ class PagoCxCSerializer(serializers.ModelSerializer):
             'fecha_pago',
             'estado',
             'registrado_por',
+            'anulado_por',
+            'fecha_anulacion',
+            'motivo_anulacion',
         ]
         read_only_fields = fields
 
@@ -94,6 +102,9 @@ class CuentaPorCobrarSerializer(serializers.ModelSerializer):
             'metodo_plazo_nombre',
             'total',
             'monto_inicial',
+            'saldo_original',
+            'interes_porcentaje',
+            'monto_interes',
             'saldo',
             'estado',
             'fecha_emision',

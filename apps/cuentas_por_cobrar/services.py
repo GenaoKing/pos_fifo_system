@@ -91,17 +91,52 @@ def _obtener_admin_override(admin_override_id):
     return admin
 
 
+def _frecuencia_efectiva(credito_data: dict[str, Any], metodo: MetodoPlazoCredito) -> str:
+    """Frecuencia de cuotas: la del payload si viene (editable por venta), si no la del metodo."""
+    valor = (credito_data.get('frecuencia') or '').strip().upper()
+    if not valor:
+        return metodo.frecuencia
+    if valor not in dict(MetodoPlazoCredito.FRECUENCIA_CHOICES):
+        raise MetodoPlazoCreditoInvalidoError('Frecuencia de cuotas invalida.')
+    return valor
+
+
+def _dias_entre_cuotas(metodo: MetodoPlazoCredito, frecuencia: str) -> int:
+    if frecuencia == MetodoPlazoCredito.FRECUENCIA_SEMANAL:
+        return 7
+    if frecuencia == MetodoPlazoCredito.FRECUENCIA_QUINCENAL:
+        return 15
+    if frecuencia == MetodoPlazoCredito.FRECUENCIA_MENSUAL:
+        return 30
+    return max(int(metodo.dias_vencimiento), 1)
+
+
 def _fechas_cuotas(
     *,
     metodo: MetodoPlazoCredito,
     cantidad_cuotas: int,
     fecha_primer_vencimiento: date | None,
+    frecuencia: str | None = None,
 ) -> list[date]:
     primera = fecha_primer_vencimiento or (timezone.localdate() + timedelta(days=metodo.dias_vencimiento))
     if cantidad_cuotas == 1:
         return [primera]
-    intervalo = metodo.dias_entre_cuotas()
+    intervalo = _dias_entre_cuotas(metodo, frecuencia or metodo.frecuencia)
     return [primera + timedelta(days=intervalo * i) for i in range(cantidad_cuotas)]
+
+
+def _interes_porcentaje(credito_data: dict[str, Any], metodo: MetodoPlazoCredito) -> Decimal:
+    """Porcentaje de interes a aplicar: el del payload si viene, si no el del metodo."""
+    valor = credito_data.get('interes_porcentaje')
+    if valor in (None, ''):
+        valor = metodo.interes_porcentaje
+    try:
+        porcentaje = _q(valor)
+    except Exception:
+        raise MetodoPlazoCreditoInvalidoError('Porcentaje de interes invalido.')
+    if porcentaje < Decimal('0.00') or porcentaje > Decimal('100.00'):
+        raise MetodoPlazoCreditoInvalidoError('El interes debe estar entre 0 y 100 por ciento.')
+    return porcentaje
 
 
 def _montos_cuotas(saldo: Decimal, cantidad_cuotas: int) -> list[Decimal]:
@@ -136,25 +171,33 @@ def crear_cuenta_para_venta(
             f'El inicial minimo para {metodo.nombre} es ${inicial_minimo}.'
         )
 
+    interes_porcentaje = _interes_porcentaje(credito_data, metodo)
+    # Interes flat sobre el capital financiado; venta.total y Pago(CREDITO)
+    # siguen en capital, el cargo financiero vive solo en la CxC.
+    monto_interes = _q(saldo_credito * (interes_porcentaje / Decimal('100')))
+    saldo_financiado = _q(saldo_credito + monto_interes)
+
     saldo_actual = saldo_pendiente_cliente(cliente)
     limite = Decimal(str(cliente.limite_credito or 0))
     admin_override = _obtener_admin_override(credito_data.get('admin_override_id'))
 
-    if saldo_actual + saldo_credito > limite and admin_override is None:
+    if saldo_actual + saldo_financiado > limite and admin_override is None:
         disponible = limite - saldo_actual
         raise LimiteCreditoExcedidoError(
-            f'Limite de credito excedido. Disponible: ${disponible}, saldo nuevo: ${saldo_credito}. '
+            f'Limite de credito excedido. Disponible: ${disponible}, saldo nuevo: ${saldo_financiado}. '
             'Requiere autorizacion ADMIN/SYSADMIN.'
         )
 
     cantidad_cuotas = metodo.normalizar_cantidad_cuotas(credito_data.get('cantidad_cuotas'))
     fecha_primer_vencimiento = _parse_date(credito_data.get('fecha_primer_vencimiento'))
+    frecuencia = _frecuencia_efectiva(credito_data, metodo)
     fechas = _fechas_cuotas(
         metodo=metodo,
         cantidad_cuotas=cantidad_cuotas,
         fecha_primer_vencimiento=fecha_primer_vencimiento,
+        frecuencia=frecuencia,
     )
-    montos = _montos_cuotas(saldo_credito, cantidad_cuotas)
+    montos = _montos_cuotas(saldo_financiado, cantidad_cuotas)
 
     cuenta = CuentaPorCobrar.objects.create(
         cliente=cliente,
@@ -162,7 +205,10 @@ def crear_cuenta_para_venta(
         metodo_plazo=metodo,
         total=total,
         monto_inicial=monto_inicial,
-        saldo=saldo_credito,
+        saldo_original=saldo_credito,
+        interes_porcentaje=interes_porcentaje,
+        monto_interes=monto_interes,
+        saldo=saldo_financiado,
         fecha_limite=fechas[-1],
         creado_por=usuario,
         override_autorizado_por=admin_override,
@@ -188,7 +234,7 @@ def crear_cuenta_para_venta(
             metadata={
                 'cliente_id': cliente.id,
                 'saldo_anterior': str(saldo_actual),
-                'saldo_nuevo': str(saldo_credito),
+                'saldo_nuevo': str(saldo_financiado),
                 'limite_credito': str(limite),
                 'autorizado_por': admin_override.username,
             },
@@ -205,6 +251,9 @@ def crear_cuenta_para_venta(
             'venta': venta.numero_venta,
             'cliente': cliente.nombre,
             'total': str(cuenta.total),
+            'capital': str(cuenta.saldo_original),
+            'interes_porcentaje': str(cuenta.interes_porcentaje),
+            'monto_interes': str(cuenta.monto_interes),
             'saldo': str(cuenta.saldo),
             'cuotas': cantidad_cuotas,
         },
@@ -297,6 +346,127 @@ def registrar_pago_cxc_service(
         )
 
         transaction.on_commit(lambda p=pago: sync_events.evento_cxc_pago_registrado(p))
+
+    return pago
+
+
+def anular_pago_cxc_service(
+    *,
+    pago_id: int,
+    usuario,
+    motivo: str,
+    ip_address: str | None = None,
+) -> PagoCxC:
+    """
+    Reversa un abono CxC: restituye los saldos de las cuotas usando el JSON
+    `aplicaciones` del pago y marca el pago como ANULADO.
+
+    Politica: solo se puede anular el ULTIMO pago APLICADO de la cuenta (las
+    aplicaciones a cuotas dependen del orden de los abonos; revertir LIFO es
+    siempre consistente). Para revertir un pago anterior se anula en cadena.
+
+    Caja: TurnoCaja.calcular_esperado() filtra por estado='APLICADO', asi que
+    un turno abierto se ajusta solo. Si el turno donde se cobro ya cerro, la
+    anulacion se permite igual (no se recalculan cierres historicos) y queda
+    auditada con `turno_cerrado: true`.
+    """
+    motivo = (motivo or '').strip()
+    if not motivo:
+        raise MetodoPlazoCreditoInvalidoError('La anulacion de un abono requiere un motivo.')
+
+    with transaction.atomic():
+        try:
+            pago = (
+                PagoCxC.objects
+                .select_for_update()
+                .select_related('cuenta', 'cuenta__cliente', 'cuenta__venta')
+                .get(id=pago_id)
+            )
+        except PagoCxC.DoesNotExist:
+            raise MetodoPlazoCreditoInvalidoError('Abono CxC no encontrado.')
+
+        if pago.estado != PagoCxC.ESTADO_APLICADO:
+            raise MetodoPlazoCreditoInvalidoError('El abono ya esta anulado.')
+
+        cuenta = (
+            CuentaPorCobrar.objects
+            .select_for_update()
+            .get(id=pago.cuenta_id)
+        )
+        if cuenta.estado == CuentaPorCobrar.ESTADO_ANULADA:
+            raise MetodoPlazoCreditoInvalidoError('La cuenta esta anulada; no se pueden revertir abonos.')
+
+        hay_pago_posterior = (
+            PagoCxC.objects
+            .filter(cuenta=cuenta, estado=PagoCxC.ESTADO_APLICADO, id__gt=pago.id)
+            .exists()
+        )
+        if hay_pago_posterior:
+            raise MetodoPlazoCreditoInvalidoError(
+                'Solo se puede anular el ultimo abono aplicado. Anula primero los abonos posteriores.'
+            )
+
+        cuotas_por_id = {
+            c.id: c
+            for c in cuenta.cuotas.select_for_update()
+        }
+        for aplicacion in pago.aplicaciones or []:
+            cuota = cuotas_por_id.get(aplicacion.get('cuota_id'))
+            if cuota is None:
+                raise MetodoPlazoCreditoInvalidoError(
+                    f'Cuota {aplicacion.get("numero")} del abono no existe; no se puede revertir.'
+                )
+            cuota.saldo = _q(cuota.saldo + Decimal(str(aplicacion.get('monto', '0'))))
+            if cuota.saldo > cuota.monto:
+                raise MetodoPlazoCreditoInvalidoError(
+                    f'La reversa dejaria la cuota {cuota.numero} con saldo mayor a su monto.'
+                )
+            if cuota.saldo > Decimal('0.00'):
+                # recalcular_estado no limpia fecha_pago al dejar de estar PAGADA
+                cuota.fecha_pago = None
+            cuota.recalcular_estado(guardar=True)
+
+        cuenta.saldo = _q(cuenta.saldo + pago.monto)
+        if cuenta.saldo > cuenta.monto_financiado:
+            raise MetodoPlazoCreditoInvalidoError(
+                'La reversa dejaria la cuenta con saldo mayor al financiado.'
+            )
+        cuenta.recalcular_estado(guardar=True)
+
+        pago.estado = PagoCxC.ESTADO_ANULADO
+        pago.anulado_por = usuario
+        pago.fecha_anulacion = timezone.now()
+        pago.motivo_anulacion = motivo
+        pago.save(update_fields=['estado', 'anulado_por', 'fecha_anulacion', 'motivo_anulacion'])
+
+        from apps.caja.models import TurnoCaja
+
+        turno_cerrado = TurnoCaja.objects.filter(
+            usuario=pago.registrado_por,
+            estado='CERRADO',
+            fecha_apertura__lte=pago.fecha_pago,
+            fecha_cierre__gte=pago.fecha_pago,
+        ).exists()
+
+        Auditoria.registrar(
+            accion=Auditoria.TipoAccion.EDITAR,
+            descripcion=f'Abono CxC anulado para {cuenta.venta.numero_venta} - ${pago.monto}',
+            usuario=usuario,
+            content_object=pago,
+            metadata={
+                'cuenta_id': cuenta.id,
+                'cliente': cuenta.cliente.nombre,
+                'monto': str(pago.monto),
+                'metodo': pago.metodo,
+                'motivo': motivo,
+                'saldo_restituido': str(cuenta.saldo),
+                'turno_cerrado': turno_cerrado,
+            },
+            ip_address=ip_address,
+            nivel_importancia=Auditoria.NivelImportancia.CRITICA,
+        )
+
+        transaction.on_commit(lambda p=pago: sync_events.evento_cxc_pago_anulado(p))
 
     return pago
 
