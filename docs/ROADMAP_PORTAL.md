@@ -376,7 +376,7 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 - [x] Error boundaries en React con fallback útil — `src/components/ErrorBoundary.tsx`, envuelve el `<Outlet/>` en `AppLayout` con `key={pathname}` (resetea al navegar). Punto de enganche para Sentry en `componentDidCatch`.
 - [x] Toast global para errores de red (TanStack Query `onError`) — `src/lib/toast.ts` (bus pub/sub) + `src/components/Toaster.tsx`, cableado en `QueryCache.onError` (`main.tsx`). Solo notifica fallos de **refetch en segundo plano** (`query.state.data !== undefined`) y excluye 401; el primer load y las mutaciones siguen mostrando error inline (no se duplican mensajes).
 - [x] Confirmación pre-acción destructiva — `window.confirm` en toggle/eliminar de productos/categorías/clientes
-- [~] Atajos de teclado básicos — **Esc cierra modales** hecho (`src/hooks/useEscapeKey.ts` en los 4 modales). Pendiente: `/` enfoca búsqueda.
+- [x] Atajos de teclado básicos — **Esc cierra modales** (`src/hooks/useEscapeKey.ts` en los 4 modales) y **`/` enfoca búsqueda** (`src/hooks/useSlashFocus.ts` en productos, categorías, clientes, cuentas e inventario; ignora la tecla si ya se escribe en un campo editable).
 - [x] **Responsive — tablet/móvil** — tabla desktop + filas compactas móvil en todas las páginas
 
 ### Auth + Seguridad

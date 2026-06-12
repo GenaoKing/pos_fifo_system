@@ -332,10 +332,18 @@ Objetivo: separar "probado en dev" de "candidato a prod".
   `azure/staging.tfstate`.
 - [x] `infra/azure/environments/staging/terraform.tfvars` local creado sin
   secretos inline, con Key Vault, API/job apagados y DB `pos_fifo_staging`.
-- [ ] Crear ambiente `staging` con Terraform.
+- [x] Crear foundation `staging` con Terraform:
+  - Resource Group `posfifo-staging-rg`
+  - ACR `posfifostagingacr`
+  - Log Analytics `posfifo-staging-law`
+  - Application Insights `posfifo-staging-appi`
+  - Key Vault `posfifostagingkv`
+- [x] Resolver limite Azure for Students: staging reutiliza el Container Apps
+  Environment dev `posfifo-dev-aca-env` porque la suscripcion no permite mas de
+  un Container Apps Environment en `canadacentral`.
 - [ ] Crear DB `pos_fifo_staging` en la misma instancia Azure PostgreSQL dev/free
   o definir el nombre final en `terraform.tfvars`.
-- [ ] Primer `terraform plan/apply` de staging con API/job apagados para crear
+- [x] Primer `terraform plan/apply` de staging con API/job apagados para crear
   foundation, ACR, observabilidad y Key Vault.
 - [ ] Cargar secrets staging (`django-secret-key`, `db-password`) en el Key
   Vault de staging antes de encender API/job con `use_key_vault_secrets=true`.

@@ -19,21 +19,27 @@ except ImportError:
     win32print = None
     win32ui = None
 
+from django.conf import settings
+
 
 class ZebraLabelPrinter:
     """
     Clase para manejar impresión de etiquetas en impresora Zebra LP 2824
     Usa comandos EPL2 (Eltron Programming Language 2)
     """
-    
-    def __init__(self, printer_name="ZDesigner LP 2824"):
+
+    def __init__(self, printer_name=None):
         """
         Inicializa el driver de la impresora Zebra
-        
+
         Args:
-            printer_name: Nombre exacto de la impresora en Windows
+            printer_name: Nombre exacto de la impresora en Windows.
+                Si no se pasa, usa settings.ZEBRA_PRINTER_NAME
+                (configurable por instalación vía env ZEBRA_PRINTER_NAME).
         """
-        self.printer_name = printer_name
+        self.printer_name = printer_name or getattr(
+            settings, 'ZEBRA_PRINTER_NAME', 'ZDesigner LP 2824'
+        )
         self.dpi = 203  # DPI de la LP 2824
         
         # Dimensiones en mm

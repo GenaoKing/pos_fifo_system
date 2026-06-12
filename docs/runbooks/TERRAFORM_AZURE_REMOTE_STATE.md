@@ -278,6 +278,9 @@ staging. El patron recomendado es:
 - **otra base de datos** para staging, por ejemplo `pos_fifo_staging`,
 - secrets distintos para Django y DB password,
 - Container App staging con `api_min_replicas=0`.
+- En Azure for Students, si aparece la cuota `MaxNumberOfRegionalEnvironmentsInSubExceeded`,
+  reutilizar el Container Apps Environment dev existente y crear solo la
+  Container App/job de staging cuando toque encenderlos.
 
 Esto mantiene costos bajos y permite probar migraciones/smoke tests sin tocar
 la base de dev ni una futura base de produccion.
@@ -299,6 +302,9 @@ enable_api_container_app = false
 enable_migrate_job       = false
 api_min_replicas         = 0
 api_max_replicas         = 1
+
+existing_container_apps_environment_id   = "/subscriptions/e88372f6-b224-4d73-bf17-c61f32559c45/resourceGroups/posfifo-dev-rg/providers/Microsoft.App/managedEnvironments/posfifo-dev-aca-env"
+existing_container_apps_environment_name = "posfifo-dev-aca-env"
 ```
 
 Primer apply crea foundation/ACR/observabilidad/Key Vault sin prender la API:
@@ -312,6 +318,15 @@ terraform apply
 Luego crear/cargar secrets en Key Vault, publicar una imagen con tag
 `staging`, activar `enable_api_container_app=true` y, cuando corresponda,
 `enable_migrate_job=true`.
+
+Nota de cuota Azure for Students:
+
+- `staging` mantiene state, RG, ACR, Key Vault, DB y nombres logicos separados.
+- El runtime fisico de Container Apps puede ser compartido con dev por limite de
+  suscripcion.
+- La consecuencia practica es que logs/plataforma de las Container Apps pueden
+  quedar asociados al Environment dev; para produccion se debe crear un
+  Environment propio en una suscripcion/cuota adecuada.
 
 ### Key Vault y rotacion en staging
 

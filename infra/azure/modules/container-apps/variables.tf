@@ -3,6 +3,20 @@ variable "environment_name" {
   type        = string
 }
 
+variable "existing_environment_id" {
+  description = "ID de un Container Apps Environment existente. Si se define, el modulo no crea uno nuevo."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "existing_environment_name" {
+  description = "Nombre descriptivo del Container Apps Environment reutilizado. Solo se usa para outputs cuando existing_environment_id esta definido."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
 variable "location" {
   description = "Region Azure para Container Apps."
   type        = string

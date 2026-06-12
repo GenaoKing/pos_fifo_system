@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Dashboard{% endblock %}
 
@@ -215,7 +216,7 @@
         </div>
 
         {# Ventas por Cajero #}
-        <div class="card">
+        <div class="card" data-dashboard-pagination data-page-size="5">
             <div class="card-header">
                 <h3 class="font-semibold text-gray-900">Cajeros Hoy</h3>
             </div>
@@ -223,7 +224,7 @@
                 {% if ventas_por_cajero %}
                 <div class="space-y-3">
                     {% for cajero in ventas_por_cajero %}
-                    <div class="flex items-center justify-between">
+                    <div class="flex items-center justify-between" data-pagination-item>
                         <div class="flex items-center">
                             <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
                                 <span class="text-xs font-bold text-gray-600">
@@ -241,6 +242,7 @@
                     </div>
                     {% endfor %}
                 </div>
+                {% include "reportes/includes/dashboard_pagination_controls.html" %}
                 {% else %}
                 <p class="text-sm text-gray-400 text-center py-6">Sin ventas hoy</p>
                 {% endif %}
@@ -254,7 +256,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
 
         {# Alertas de Stock Bajo #}
-        <div class="card">
+        <div class="card" data-dashboard-pagination data-page-size="6">
             <div class="card-header flex items-center justify-between">
                 <h3 class="font-semibold text-gray-900">Alertas de Stock</h3>
                 {% if cantidad_bajo_stock > 0 %}
@@ -275,7 +277,7 @@
                         </thead>
                         <tbody class="table-body">
                             {% for item in productos_bajo_stock %}
-                            <tr class="table-row-hover">
+                            <tr class="table-row-hover" data-pagination-item>
                                 <td class="table-cell">
                                     <p class="font-medium">{{ item.producto.nombre }}</p>
                                     <p class="text-xs text-gray-500">{{ item.producto.sku }}</p>
@@ -298,6 +300,7 @@
                         </tbody>
                     </table>
                 </div>
+                {% include "reportes/includes/dashboard_pagination_controls.html" %}
                 {% else %}
                 <div class="text-center py-8">
                     <svg class="w-10 h-10 text-green-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -310,7 +313,7 @@
         </div>
 
         {# Ultimas Ventas #}
-        <div class="card">
+        <div class="card" data-dashboard-pagination data-page-size="6">
             <div class="card-header flex items-center justify-between">
                 <h3 class="font-semibold text-gray-900">Ultimas Ventas</h3>
                 <a href="{% url 'impresion:lista_reimprimir' %}" class="text-xs text-primary-600 hover:text-primary-800 font-medium">
@@ -331,7 +334,7 @@
                         </thead>
                         <tbody class="table-body">
                             {% for venta in ultimas_ventas %}
-                            <tr class="table-row-hover">
+                            <tr class="table-row-hover" data-pagination-item>
                                 <td class="table-cell">
                                     <span class="font-mono text-xs">{{ venta.numero_venta }}</span>
                                 </td>
@@ -347,6 +350,7 @@
                         </tbody>
                     </table>
                 </div>
+                {% include "reportes/includes/dashboard_pagination_controls.html" %}
                 {% else %}
                 <p class="text-sm text-gray-400 text-center py-6">Sin ventas recientes</p>
                 {% endif %}
@@ -434,6 +438,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/dashboard_pagination.js' %}"></script>
 <script>
 function dashboardAdmin() {
     return {
@@ -471,6 +476,9 @@ function dashboardAdmin() {
 
         init() {
             this.actualizarHora();
+            if (window.setupDashboardPagination) {
+                window.setupDashboardPagination(document);
+            }
             // Actualizar metricas cada 30 segundos
             this.intervalo = setInterval(() => {
                 this.fetchMetricas();

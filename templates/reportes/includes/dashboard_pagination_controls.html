@@ -1,0 +1,22 @@
+<div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hidden" data-pagination-controls>
+    <p class="text-xs text-gray-500" data-pagination-summary></p>
+    <div class="inline-flex items-center gap-2">
+        <button type="button"
+                class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                data-pagination-prev
+                aria-label="Pagina anterior">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+        </button>
+        <span class="w-12 text-center text-xs font-semibold text-gray-700" data-pagination-page></span>
+        <button type="button"
+                class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                data-pagination-next
+                aria-label="Pagina siguiente">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+        </button>
+    </div>
+</div>

@@ -1,9 +1,14 @@
 locals {
   django_secret_key_vault_uri = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.django_secret_key_secret_name}"
   db_password_vault_uri       = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.db_password_secret_name}"
+
+  container_app_environment_id   = var.existing_environment_id == null ? azurerm_container_app_environment.main[0].id : var.existing_environment_id
+  container_app_environment_name = var.existing_environment_id == null ? azurerm_container_app_environment.main[0].name : coalesce(var.existing_environment_name, var.environment_name)
 }
 
 resource "azurerm_container_app_environment" "main" {
+  count = var.existing_environment_id == null ? 1 : 0
+
   name                       = var.environment_name
   location                   = var.location
   resource_group_name        = var.resource_group_name
@@ -68,7 +73,7 @@ resource "azurerm_container_app" "api" {
   count = var.enable_api ? 1 : 0
 
   name                         = var.api_name
-  container_app_environment_id = azurerm_container_app_environment.main.id
+  container_app_environment_id = local.container_app_environment_id
   resource_group_name          = var.resource_group_name
   revision_mode                = "Single"
 
@@ -233,7 +238,7 @@ resource "azurerm_container_app_job" "migrate" {
   name                         = var.migrate_job_name
   location                     = var.location
   resource_group_name          = var.resource_group_name
-  container_app_environment_id = azurerm_container_app_environment.main.id
+  container_app_environment_id = local.container_app_environment_id
 
   replica_timeout_in_seconds = 1800
   replica_retry_limit        = 1

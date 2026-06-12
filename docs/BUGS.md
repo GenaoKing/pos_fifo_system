@@ -10,6 +10,13 @@
 - Correccion: cambiar calculos de "hoy" a `timezone.localdate()` y el reloj del servidor a `timezone.localtime()`.
 - Evidencia local: a `2026-05-17 03:13 UTC`, la fecha local correcta era `2026-05-16`; habia 3 ventas completadas por `$49,200.00`, con `$15,800.00` en efectivo y `$33,400.00` en transferencia.
 
+### Portal cloud: header del dashboard mostraba el dia anterior
+
+- Fecha de hallazgo: 2026-06-12.
+- Sintoma: el encabezado de `/dashboard` en el portal (`pos-cloud-dashboard`) mostraba la fecha del dia anterior ("jueves, 11 de junio" siendo viernes 12).
+- Causa raiz: contraparte frontend del bug de timezone de arriba. `/api/v1/reportes/ventas-hoy/` devuelve `fecha` como date-only (`YYYY-MM-DD`) y `formatDateLong` en `src/lib/format.ts` la parseaba con `new Date(...)`, que interpreta date-only como medianoche UTC; en Santo Domingo (UTC-4) retrocede un dia. `formatDate` ya manejaba el caso pero `formatDateLong` no.
+- Correccion: helper compartido `parseLocalDate` en `src/lib/format.ts` que construye fechas date-only en hora local; usado por `formatDate` y `formatDateLong`. Tests en `src/lib/format.test.ts`.
+
 ### Referencias antiguas a `Venta.cajero` tras refactor a `Venta.usuario`
 
 - Sintoma: algunos reportes/API seguian usando `cajero`/`cajero_id`, aunque el modelo `Venta` ya no tiene ese campo.

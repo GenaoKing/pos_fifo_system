@@ -43,9 +43,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
         </svg>
         <p class="text-sm text-info-800">
-            Solo se pueden editar las líneas cuyo <strong>lote sigue intacto</strong> (sin ventas ni ajustes).
-            Las líneas con mercancía ya consumida aparecen bloqueadas; para corregir su stock usá
-            <strong>Ajustes de Inventario</strong>.
+            Producto y cantidad solo se pueden editar mientras el <strong>lote sigue intacto</strong> (sin ventas ni ajustes).
+            En líneas con mercancía ya consumida podés corregir el <strong>costo unitario</strong>;
+            para corregir su stock usá <strong>Ajustes de Inventario</strong>.
         </p>
     </div>
 
@@ -150,10 +150,10 @@
 
                                     <!-- Costo Unitario -->
                                     <td class="table-cell">
-                                        <template x-if="item.editable">
+                                        <template x-if="item.editable || item.costo_editable">
                                             <input type="number" x-model.number="item.costo_unitario" min="0.01" step="0.01" class="form-input w-32" placeholder="0.00" required>
                                         </template>
-                                        <template x-if="!item.editable">
+                                        <template x-if="!item.editable && !item.costo_editable">
                                             <span>$<span x-text="Number(item.costo_unitario).toFixed(2)"></span></span>
                                         </template>
                                     </td>
@@ -175,7 +175,7 @@
                                             </button>
                                         </template>
                                         <template x-if="!item.editable">
-                                            <span class="badge-gray">Bloqueada</span>
+                                            <span class="badge-gray" x-text="item.costo_editable ? 'Solo costo' : 'Bloqueada'"></span>
                                         </template>
                                     </td>
                                 </tr>
@@ -238,6 +238,7 @@
                     costo_unitario: l.costo_unitario,
                     numero_lote: l.numero_lote,
                     editable: l.editable,
+                    costo_editable: l.costo_editable,
                     vendido: l.vendido,
                     motivo_bloqueo: l.motivo_bloqueo,
                     eliminar: false,
@@ -253,6 +254,7 @@
                     costo_unitario: 0,
                     numero_lote: null,
                     editable: true,
+                    costo_editable: true,
                     vendido: 0,
                     motivo_bloqueo: '',
                     eliminar: false,
@@ -291,15 +293,18 @@
                 let i = 0;
                 for (const item of this.lineas) {
                     i++;
-                    if (item.eliminar || !item.editable) continue;
-                    if (!item.producto_id) {
-                        showToast('warning', `Línea ${i}: seleccioná un producto`);
-                        return false;
+                    if (item.eliminar) continue;
+                    if (item.editable) {
+                        if (!item.producto_id) {
+                            showToast('warning', `Línea ${i}: seleccioná un producto`);
+                            return false;
+                        }
+                        if (!item.cantidad || item.cantidad <= 0) {
+                            showToast('warning', `Línea ${i}: la cantidad debe ser mayor a 0`);
+                            return false;
+                        }
                     }
-                    if (!item.cantidad || item.cantidad <= 0) {
-                        showToast('warning', `Línea ${i}: la cantidad debe ser mayor a 0`);
-                        return false;
-                    }
+                    if (!item.editable && !item.costo_editable) continue;
                     if (!item.costo_unitario || item.costo_unitario <= 0) {
                         showToast('warning', `Línea ${i}: el costo unitario debe ser mayor a 0`);
                         return false;

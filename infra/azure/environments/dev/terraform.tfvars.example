@@ -28,6 +28,9 @@ container_apps_location = null
 acr_name                = null
 acr_sku                 = "Basic"
 
+existing_container_apps_environment_id   = null
+existing_container_apps_environment_name = null
+
 enable_api_container_app = false
 enable_migrate_job       = false
 

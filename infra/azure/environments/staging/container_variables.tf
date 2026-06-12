@@ -28,6 +28,20 @@ variable "container_apps_environment_name" {
   default     = null
 }
 
+variable "existing_container_apps_environment_id" {
+  description = "ID de un Container Apps Environment existente. Usar en Azure for Students si la region solo permite un environment."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "existing_container_apps_environment_name" {
+  description = "Nombre descriptivo del Container Apps Environment existente reutilizado para outputs."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
 variable "enable_api_container_app" {
   description = "Crea la API en Container Apps. Activar despues de publicar la imagen en ACR."
   type        = bool

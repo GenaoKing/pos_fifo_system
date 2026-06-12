@@ -10,12 +10,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-tu-clave-secreta-aqui-cambiarla-en-produccion'
+# En instalaciones reales definir DJANGO_SECRET_KEY en el entorno.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-tu-clave-secreta-aqui-cambiarla-en-produccion',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'true').lower() == 'true'
 
-ALLOWED_HOSTS = ['*']
+# Lista separada por comas, ej: DJANGO_ALLOWED_HOSTS=pos.local,192.168.1.10
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
+    if h.strip()
+]
 
 
 # Application definition
@@ -99,14 +108,16 @@ TEST_RUNNER = 'config.test_runner.CacheIsolatedTestRunner'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+# Credenciales configurables por instalación vía variables de entorno.
+# Los defaults mantienen el comportamiento del entorno de desarrollo local.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'pos_fifo_db',
-        'USER': 'pos_user',
-        'PASSWORD': 'Prueba123',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('DB_NAME', 'pos_fifo_db'),
+        'USER': os.environ.get('DB_USER', 'pos_user'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'Prueba123'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
@@ -278,73 +289,47 @@ ROLES_SISTEMA = {
     'CAJERA': 'Cajera',
 }
 
-# Configuración de impresión
-IMPRESORA_TERMICA = {
-    'nombre': 'Térmica 80mm',
-    'ancho_papel': 80,  # mm
-    'caracteres_por_linea': 42,
-}
-
-# Configuración de tickets
-TICKET_CONFIG = {
-    'reimpresion_max_dias': 30,
-    'mostrar_logo': True,
-    'pie_pagina': 'Gracias por su compra',
-}
-
-# Configuración de anulaciones
-ANULACION_CONFIG = {
-    'dias_permitidos': 15,
-    'requiere_autorizacion': False,  # Cambiar a True si Admin debe autorizar
-}
-
-# Configuración de inventario
-INVENTARIO_CONFIG = {
-    'permitir_negativo': True,
-    'alertar_stock_minimo': True,
-}
-
-
-"""
-Configuración de Impresión para Sistema POS FIFO
-Agregar esta sección al archivo config/settings.py
-"""
+# NOTA: la configuración de negocio (días de anulación, pie de ticket, logo,
+# inventario negativo, etc.) NO vive aquí: vive en ConfiguracionNegocio (BD),
+# configurable por sucursal desde el admin/panel de configuración.
 
 # ============================================================================
-# CONFIGURACIÓN DE IMPRESORA TÉRMICA 2CONNECT
+# CONFIGURACIÓN DE IMPRESORAS (hardware, configurable por instalación vía env)
 # ============================================================================
 
 THERMAL_PRINTER = {
     # Habilitación del sistema de impresión
-    'ENABLED': True,
-    
+    'ENABLED': os.environ.get('THERMAL_PRINTER_ENABLED', 'true').lower() == 'true',
+
     # Configuración de conexión USB
     'INTERFACE': 'usb',
-    'PRINTER_NAME': '2connect pos',  # Nombre en "Dispositivos e impresoras" de Windows
-    
+    # Nombre en "Dispositivos e impresoras" de Windows
+    'PRINTER_NAME': os.environ.get('THERMAL_PRINTER_NAME', '2connect pos'),
+
     # Vendor ID y Product ID (detectados automáticamente por python-escpos)
     # Si hay problemas, ejecutar: python -m escpos.cli ls
-    'USB_VENDOR_ID': None,  # Auto-detect
-    'USB_PRODUCT_ID': None,  # Auto-detect
-    
+    'USB_VENDOR_ID': os.environ.get('THERMAL_USB_VENDOR_ID') or None,
+    'USB_PRODUCT_ID': os.environ.get('THERMAL_USB_PRODUCT_ID') or None,
+
     # Configuraciones de impresión
-    'AUTO_CUT': True,        # La 2Connect tiene cortador automático
-    'CHARSET': 'CP850',      # Encoding para caracteres latinos/españoles
-    'CODE_PAGE': 'CP850',    # Página de códigos
-    
+    'AUTO_CUT': True,        # Cortador automático
+    'CHARSET': os.environ.get('THERMAL_CHARSET', 'CP850'),    # Caracteres latinos/españoles
+    'CODE_PAGE': os.environ.get('THERMAL_CHARSET', 'CP850'),  # Página de códigos
+
     # Cajón de dinero
-    'CASH_DRAWER': True,     # Habilitar apertura automática
-    'CASH_DRAWER_PIN': 0,    # Pin del cajón (0 = pin 2, 1 = pin 5)
-    
+    'CASH_DRAWER': os.environ.get('THERMAL_CASH_DRAWER', 'true').lower() == 'true',
+    'CASH_DRAWER_PIN': int(os.environ.get('THERMAL_CASH_DRAWER_PIN', '0')),  # 0 = pin 2, 1 = pin 5
+
     # Dimensiones del papel
-    'PAPER_WIDTH': 48,       # Ancho en caracteres (80mm = 48 chars)
-    'HIGH_QUALITY': True,     # Configuración de alta calidad (si la impresora lo soporta)
-    # Logo de la empresa
-    'LOGO_ENABLED': True,
-    'LOGO_PATH': 'static/img/logo-royal.jpeg',  # Ruta al logo
-    'LOGO_WIDTH': 200,       # Ancho en píxeles (mediano-pequeño)
+    'PAPER_WIDTH': int(os.environ.get('THERMAL_PAPER_WIDTH', '48')),  # 80mm = 48 chars
+    'HIGH_QUALITY': True,
+    # Ancho del logo del ticket en píxeles (la imagen viene de ConfiguracionNegocio.logo)
+    'LOGO_WIDTH': int(os.environ.get('THERMAL_LOGO_WIDTH', '200')),
     'LOGO_HEIGHT': None,     # Auto-proporcional
 }
+
+# Impresora de etiquetas Zebra (nombre en "Dispositivos e impresoras" de Windows)
+ZEBRA_PRINTER_NAME = os.environ.get('ZEBRA_PRINTER_NAME', 'ZDesigner LP 2824')
 
 
 REST_FRAMEWORK = {
@@ -372,7 +357,8 @@ REST_FRAMEWORK = {
     ],
 }
 
-SUCURSAL_CODIGO = 'SD-001'  # Código de sucursal actual, usado para cargar la configuración específica.
+# Código de sucursal de esta instalación, usado para cargar la configuración específica.
+SUCURSAL_CODIGO = os.environ.get('SUCURSAL_CODIGO', 'SD-001')
 # ============================================================================
 # INFORMACIÓN DEL NEGOCIO (PARA TICKETS)
 # ============================================================================

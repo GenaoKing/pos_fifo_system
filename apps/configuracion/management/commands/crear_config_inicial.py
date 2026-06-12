@@ -38,6 +38,13 @@ class Command(BaseCommand):
             default=None,
             help='Preset de configuracion para tipo de negocio'
         )
+        parser.add_argument(
+            '--prefijo-codigo',
+            type=str,
+            default=None,
+            help='Prefijo de los codigos de barra internos (ej: MN genera MN-000001). '
+                 'Tiene prioridad sobre el preset.'
+        )
 
     def handle(self, *args, **options):
         sucursal = None
@@ -120,6 +127,11 @@ class Command(BaseCommand):
             config.pago_efectivo = True
             config.pago_transferencia = True
             self.stdout.write('  Preset: Retail General')
+
+        prefijo = options['prefijo_codigo']
+        if prefijo:
+            config.formato_codigo_barras = f'{prefijo.strip().upper()}-XXXXXX'
+            self.stdout.write(f'  Prefijo de codigos internos: {config.formato_codigo_barras}')
 
         config.save()
 

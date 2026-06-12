@@ -292,11 +292,13 @@ def compra_detalle(request, compra_id):
 # ============================================
 #
 # ⚠️ Integridad FIFO: una línea de compra (DetalleCompra) genera UN Lote.
-# Solo se permite editar producto/cantidad/costo de una línea mientras su
-# lote esté INTACTO (nunca vendido ni ajustado). Si el lote ya tuvo
-# movimiento, la línea queda bloqueada y la corrección debe hacerse vía
-# Ajustes de Inventario. La cabecera (proveedor/factura/notas) siempre es
-# editable porque no toca el FIFO.
+# Solo se permite editar producto/cantidad de una línea mientras su lote esté
+# INTACTO (nunca vendido ni ajustado). Si el lote ya tuvo movimiento, esas
+# correcciones deben hacerse vía Ajustes de Inventario, pero el COSTO unitario
+# sigue siendo editable: no toca cantidades y las ventas pasadas conservan su
+# snapshot de costo_fifo (solo revalúa el stock restante y las ventas futuras).
+# La cabecera (proveedor/factura/notas) siempre es editable porque no toca el
+# FIFO.
 
 def _estado_linea_compra(lote):
     """
@@ -307,7 +309,7 @@ def _estado_linea_compra(lote):
     tiene ajustes de inventario.
     """
     if lote is None:
-        return {'editable': False, 'vendido': 0,
+        return {'editable': False, 'costo_editable': False, 'vendido': 0,
                 'motivo': 'La línea no tiene lote asociado.'}
 
     vendido = lote.cantidad_inicial - lote.cantidad_actual
@@ -317,13 +319,15 @@ def _estado_linea_compra(lote):
     if vendido > 0 or tiene_otros_mov or tiene_ajustes:
         if vendido > 0:
             motivo = (f'El lote ya tiene movimiento ({vendido} unidad(es) '
-                      f'consumidas). Corregí el stock vía Ajustes de Inventario.')
+                      f'consumidas). Solo podés corregir el costo; el stock '
+                      f'vía Ajustes de Inventario.')
         else:
-            motivo = ('El lote ya registra ajustes/movimientos. Corregí el '
-                      'stock vía Ajustes de Inventario.')
-        return {'editable': False, 'vendido': vendido, 'motivo': motivo}
+            motivo = ('El lote ya registra ajustes/movimientos. Solo podés '
+                      'corregir el costo; el stock vía Ajustes de Inventario.')
+        return {'editable': False, 'costo_editable': True,
+                'vendido': vendido, 'motivo': motivo}
 
-    return {'editable': True, 'vendido': 0, 'motivo': ''}
+    return {'editable': True, 'costo_editable': True, 'vendido': 0, 'motivo': ''}
 
 
 def _snapshot_compra(compra):
@@ -383,6 +387,7 @@ def compra_editar(request, compra_id):
                 'costo_unitario': float(d.costo_unitario),
                 'numero_lote': lote.numero_lote if lote else None,
                 'editable': estado['editable'],
+                'costo_editable': estado['costo_editable'],
                 'vendido': estado['vendido'],
                 'motivo_bloqueo': estado['motivo'],
             })
@@ -447,19 +452,32 @@ def compra_editar(request, compra_id):
                     lote = getattr(detalle, 'lote', None)
                     estado = _estado_linea_compra(lote)
 
-                    cambio = (
+                    cambio_estructural = (
                         eliminar
                         or producto_id != detalle.producto_id
                         or cantidad != detalle.cantidad
-                        or costo_unitario != detalle.costo_unitario
                     )
+                    cambio_costo = costo_unitario != detalle.costo_unitario
+                    cambio = cambio_estructural or cambio_costo
 
-                    # Guarda de integridad: no permitir tocar líneas con lote consumido
-                    if not estado['editable'] and cambio:
-                        raise ValueError(
-                            f'La línea "{detalle.producto.nombre}" no se puede modificar: '
-                            f'{estado["motivo"]}'
-                        )
+                    # Guarda de integridad: en líneas con lote consumido solo
+                    # se permite corregir el costo (no toca cantidades FIFO)
+                    if not estado['editable']:
+                        if cambio_estructural or (cambio_costo and not estado['costo_editable']):
+                            raise ValueError(
+                                f'La línea "{detalle.producto.nombre}" no se puede modificar: '
+                                f'{estado["motivo"]}'
+                            )
+                        if cambio_costo:
+                            if costo_unitario <= 0:
+                                raise ValueError('El costo unitario debe ser mayor a 0.')
+                            detalle.costo_unitario = costo_unitario
+                            detalle._lote_creado = True  # evita que save() genere un lote nuevo
+                            detalle.save()
+                            lote.costo_unitario = costo_unitario
+                            lote.save()
+                        lineas_finales += 1
+                        continue
 
                     if eliminar:
                         if lote is not None:

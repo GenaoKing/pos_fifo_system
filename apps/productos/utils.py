@@ -9,20 +9,21 @@ from apps.configuracion.utils import get_config
 
 def generar_codigo_barra_interno():
     """
-    Genera un código de barras interno único formato RP-XXXXXX
-    
-    RP = Royal Plastic
-    XXXXXX = Número secuencial de 6 dígitos
-    
+    Genera un código de barras interno único.
+
+    El prefijo viene de ConfiguracionNegocio.formato_codigo_barras
+    (ej: 'RP-XXXXXX' → prefijo 'RP'), configurable por instalación.
+
     Returns:
         str: Código generado (ej: "RP-000001")
     """
-    
+    prefijo = get_config().formato_codigo_barras.split('-')[0]
+
     # Obtener el último producto con código interno
     ultimo_producto = Producto.objects.filter(
-        codigo_barras__startswith='RP-'
+        codigo_barras__startswith=f'{prefijo}-'
     ).order_by('-id').first()
-    
+
     if not ultimo_producto:
         # Primer código interno
         numero = 1
@@ -30,22 +31,20 @@ def generar_codigo_barra_interno():
         # Extraer número del último código y sumar 1
         try:
             ultimo_codigo = ultimo_producto.codigo_barras
-            ultimo_numero = int(ultimo_codigo.replace('RP-', ''))
+            ultimo_numero = int(ultimo_codigo.replace(f'{prefijo}-', ''))
             numero = ultimo_numero + 1
-        except:
+        except (ValueError, TypeError):
             # Si hay error, buscar el máximo manualmente
             numero = 1
-    
+
     # Formatear con 6 dígitos
-    
-    prefijo = get_config().formato_codigo_barras.split('-')[0]  # 'RP'
     codigo = f"{prefijo}-{numero:06d}"
-    
+
     # Verificar que no exista (por seguridad)
     while Producto.objects.filter(codigo_barras=codigo).exists():
         numero += 1
-        codigo = f"RP-{numero:06d}"
-    
+        codigo = f"{prefijo}-{numero:06d}"
+
     return codigo
 
 

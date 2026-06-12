@@ -12,6 +12,8 @@ module "container_apps" {
   source = "../../modules/container-apps"
 
   environment_name           = local.container_apps_environment_name
+  existing_environment_id    = var.existing_container_apps_environment_id
+  existing_environment_name  = var.existing_container_apps_environment_name
   location                   = local.container_apps_location
   resource_group_name        = azurerm_resource_group.main.name
   log_analytics_workspace_id = module.observability.container_apps_log_analytics_workspace_id

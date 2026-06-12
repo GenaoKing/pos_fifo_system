@@ -1,11 +1,11 @@
 output "environment_id" {
   description = "ID del Container Apps Environment."
-  value       = azurerm_container_app_environment.main.id
+  value       = local.container_app_environment_id
 }
 
 output "environment_name" {
   description = "Nombre del Container Apps Environment."
-  value       = azurerm_container_app_environment.main.name
+  value       = local.container_app_environment_name
 }
 
 output "api_id" {

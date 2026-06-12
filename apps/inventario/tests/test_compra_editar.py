@@ -143,6 +143,65 @@ class CompraEditarTests(TestCase):
         self.assertEqual(self.detalle.costo_unitario, Decimal('5.00'))
         self.assertEqual(self.lote.cantidad_actual, 6)
 
+    def test_linea_consumida_permite_corregir_solo_el_costo(self):
+        """El costo es editable aunque el lote tenga movimiento: no toca
+        cantidades FIFO y las ventas pasadas conservan su costo_fifo."""
+        self.client.force_login(self.admin)
+        self.lote.cantidad_actual = 6
+        self.lote.save()
+        MovimientoLote.objects.create(
+            lote=self.lote, tipo='VENTA', cantidad=-4,
+            cantidad_anterior=10, cantidad_nueva=6,
+            referencia_tipo='Venta', referencia_id=999, usuario=self.admin,
+        )
+
+        resp = self._post({
+            'proveedor': 'Proveedor Original',
+            'numero_factura': 'FAC-001',
+            'notas': 'corrección de costo',
+            'lineas': [self._linea(costo_unitario=7.25)],  # solo cambia el costo
+        })
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertTrue(resp.json()['success'])
+
+        self.detalle.refresh_from_db()
+        self.lote.refresh_from_db()
+        self.compra.refresh_from_db()
+
+        # Costo propagado a detalle + lote, subtotal y total recalculados
+        self.assertEqual(self.detalle.costo_unitario, Decimal('7.25'))
+        self.assertEqual(self.detalle.subtotal, Decimal('72.50'))
+        self.assertEqual(self.lote.costo_unitario, Decimal('7.25'))
+        self.assertEqual(self.compra.total, Decimal('72.50'))
+        # Las cantidades FIFO no se tocan
+        self.assertEqual(self.detalle.cantidad, 10)
+        self.assertEqual(self.lote.cantidad_inicial, 10)
+        self.assertEqual(self.lote.cantidad_actual, 6)
+        mov = self.lote.movimientos.get(tipo='COMPRA')
+        self.assertEqual(mov.cantidad, 10)
+        self.assertEqual(mov.cantidad_nueva, 10)
+        # No se creó un lote duplicado
+        self.assertEqual(Lote.objects.filter(detalle_compra=self.detalle).count(), 1)
+
+    def test_linea_consumida_costo_invalido_rechazado(self):
+        self.client.force_login(self.admin)
+        self.lote.cantidad_actual = 6
+        self.lote.save()
+        MovimientoLote.objects.create(
+            lote=self.lote, tipo='VENTA', cantidad=-4,
+            cantidad_anterior=10, cantidad_nueva=6,
+            referencia_tipo='Venta', referencia_id=999, usuario=self.admin,
+        )
+        resp = self._post({
+            'proveedor': 'Proveedor Original',
+            'numero_factura': 'FAC-001',
+            'notas': '',
+            'lineas': [self._linea(costo_unitario=-1)],
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.detalle.refresh_from_db()
+        self.assertEqual(self.detalle.costo_unitario, Decimal('5.00'))
+
     def test_cabecera_editable_aunque_linea_este_consumida(self):
         """La cabecera se puede corregir si las líneas consumidas no cambian."""
         self.client.force_login(self.admin)

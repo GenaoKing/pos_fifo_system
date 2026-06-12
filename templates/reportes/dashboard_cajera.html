@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Mi Caja{% endblock %}
 
@@ -101,7 +102,7 @@
     {# ================================================================ #}
     {# MIS ULTIMAS VENTAS                                               #}
     {# ================================================================ #}
-    <div class="card">
+    <div class="card" data-dashboard-pagination data-page-size="6">
         <div class="card-header flex items-center justify-between">
             <h3 class="font-semibold text-gray-900">Mis Ultimas Ventas</h3>
             <a href="{% url 'impresion:lista_reimprimir' %}" class="text-xs text-primary-600 hover:text-primary-800 font-medium">
@@ -121,7 +122,7 @@
                     </thead>
                     <tbody class="table-body">
                         {% for venta in ultimas_ventas %}
-                        <tr class="table-row-hover">
+                        <tr class="table-row-hover" data-pagination-item>
                             <td class="table-cell">
                                 <span class="font-mono text-xs">{{ venta.numero_venta }}</span>
                             </td>
@@ -134,6 +135,7 @@
                     </tbody>
                 </table>
             </div>
+            {% include "reportes/includes/dashboard_pagination_controls.html" %}
             {% else %}
             <div class="text-center py-10">
                 <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,6 +156,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/dashboard_pagination.js' %}"></script>
 <script>
 function dashboardCajera() {
     return {
@@ -187,6 +190,9 @@ function dashboardCajera() {
 
         init() {
             this.actualizarHora();
+            if (window.setupDashboardPagination) {
+                window.setupDashboardPagination(document);
+            }
             this.intervalo = setInterval(() => {
                 this.fetchMetricas();
                 this.actualizarHora();
