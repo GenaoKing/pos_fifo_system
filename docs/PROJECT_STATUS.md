@@ -21,7 +21,7 @@ bitacoras y exploraciones viven en subcarpetas.
 | --- | --- | --- | --- |
 | Vision/producto | En progreso | `VISION_PRODUCTO_2026.md` | Elegir la proxima apuesta de producto luego de cerrar deploy dev/staging. |
 | POS local | MVP funcional en produccion local | `ROADMAP_CLOUD.md` | Limpiar usos legacy de settings y hacer smoke operativo final. |
-| Portal cloud | MVP funcional parcial | `ROADMAP_PORTAL.md` | Smoke E2E contra backend dev desplegado y decidir Static Web Apps bajo limitaciones Azure Students. |
+| Portal cloud | MVP funcional parcial | `ROADMAP_PORTAL.md` | ASWA dev existe; redeployar workflow con `VITE_API_URL` y hacer smoke de login publicado. |
 | Deploy Azure backend | MVP dev funcional | `ROADMAP_DEPLOY_AZURE.md` | Crear `staging` con remote state propio y roles menos amplios. |
 | Terraform/Azure | Dev funcional con state remoto | `ROADMAP_DEPLOY_AZURE.md` + `docs/runbooks/TERRAFORM_*` | Scaffold de `staging`; no crear prod hasta validar staging. |
 | RBAC/permisos | En progreso avanzado | `RBAC_PERMISOS.md` | Completar cutover POS local y enforcement/gating pendiente. |
@@ -51,9 +51,11 @@ Discrepancias resueltas o visibles:
 
 - `ROADMAP_PORTAL.md` tenia el bloque deploy 5.F mas atrasado que la realidad.
   Debe delegar detalles operativos a `ROADMAP_DEPLOY_AZURE.md`.
-- Azure Static Web Apps esta bloqueado/no aplicado en dev por restricciones de
-  Azure for Students/regiones. El frontend tiene preparacion, pero no recurso
-  ASWA operativo dentro de este stack.
+- Azure Static Web Apps dev ya existe:
+  `https://agreeable-moss-051bc0010.7.azurestaticapps.net`. El frontend tiene
+  preparacion y runbook operativo
+  (`docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`). Pendiente:
+  redeployar con `VITE_API_URL` en el workflow ASWA y smoke de login publicado.
 - Floci sigue siendo laboratorio opcional, no staging.
 
 ## RBAC y modulos

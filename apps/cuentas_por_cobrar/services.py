@@ -87,10 +87,18 @@ def _validar_cliente_credito(cliente):
 
 
 def _obtener_metodo(metodo_plazo_id, modalidad: str | None = None) -> MetodoPlazoCredito:
-    if not metodo_plazo_id and modalidad == MODALIDAD_VENCIMIENTO_UNICO:
+    # El POS ya no envia metodo_plazo_id (la UI no lo expone): el metodo solo
+    # aporta defaults (interes, inicial minima, dias) y se resuelve por la
+    # modalidad — primer metodo activo del tipo correspondiente.
+    if not metodo_plazo_id:
+        tipo = (
+            MetodoPlazoCredito.TIPO_CUOTAS
+            if modalidad == MODALIDAD_CUOTAS
+            else MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+        )
         metodo = (
             MetodoPlazoCredito.objects
-            .filter(tipo=MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO, activo=True)
+            .filter(tipo=tipo, activo=True)
             .order_by('id')
             .first()
         )

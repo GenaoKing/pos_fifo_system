@@ -192,6 +192,31 @@ variable "db_password_secret_name" {
   default     = "db-password"
 }
 
+variable "enable_blob_media" {
+  description = "Activa media publica en Azure Blob Storage para settings_cloud."
+  type        = bool
+  default     = false
+}
+
+variable "media_storage_account_id" {
+  description = "ID del Storage Account de media para asignar permisos Blob."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "media_storage_account_name" {
+  description = "Nombre del Storage Account de media."
+  type        = string
+  default     = ""
+}
+
+variable "media_storage_container_name" {
+  description = "Nombre del blob container de media."
+  type        = string
+  default     = "media-public"
+}
+
 variable "api_cpu" {
   description = "CPU de la API en plan Consumption."
   type        = number

@@ -69,6 +69,22 @@ resource "azurerm_role_assignment" "migrate_key_vault_secrets_user" {
   principal_id         = azurerm_user_assigned_identity.migrate[0].principal_id
 }
 
+resource "azurerm_role_assignment" "api_media_blob_contributor" {
+  count = var.enable_api && var.enable_blob_media ? 1 : 0
+
+  scope                = var.media_storage_account_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.api[0].principal_id
+}
+
+resource "azurerm_role_assignment" "migrate_media_blob_contributor" {
+  count = var.enable_migrate_job && var.enable_blob_media ? 1 : 0
+
+  scope                = var.media_storage_account_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.migrate[0].principal_id
+}
+
 resource "azurerm_container_app" "api" {
   count = var.enable_api ? 1 : 0
 
@@ -203,6 +219,26 @@ resource "azurerm_container_app" "api" {
         value = "true"
       }
 
+      env {
+        name  = "AZURE_BLOB_MEDIA_ENABLED"
+        value = tostring(var.enable_blob_media)
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.media_storage_account_name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_MEDIA_CONTAINER"
+        value = var.media_storage_container_name
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.api[0].client_id
+      }
+
       startup_probe {
         transport = "TCP"
         port      = 8000
@@ -229,6 +265,7 @@ resource "azurerm_container_app" "api" {
   depends_on = [
     azurerm_role_assignment.api_acr_pull,
     azurerm_role_assignment.api_key_vault_secrets_user,
+    azurerm_role_assignment.api_media_blob_contributor,
   ]
 }
 
@@ -346,6 +383,26 @@ resource "azurerm_container_app_job" "migrate" {
         name  = "PGCONNECT_TIMEOUT"
         value = var.db_connect_timeout
       }
+
+      env {
+        name  = "AZURE_BLOB_MEDIA_ENABLED"
+        value = tostring(var.enable_blob_media)
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.media_storage_account_name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_MEDIA_CONTAINER"
+        value = var.media_storage_container_name
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.migrate[0].client_id
+      }
     }
   }
 
@@ -360,5 +417,6 @@ resource "azurerm_container_app_job" "migrate" {
   depends_on = [
     azurerm_role_assignment.migrate_acr_pull,
     azurerm_role_assignment.migrate_key_vault_secrets_user,
+    azurerm_role_assignment.migrate_media_blob_contributor,
   ]
 }

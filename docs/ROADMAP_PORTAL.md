@@ -1,6 +1,6 @@
 # Roadmap Portal Cloud (Fase 5)
 
-Documento vivo. Estado al **9 junio 2026**.
+Documento vivo. Estado al **12 junio 2026**.
 Branch backend: `features/cloud-dashboard` / `develop` segun flujo vigente.
 Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
@@ -9,14 +9,15 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 ## Que falta ahora
 
 1. **Deploy frontend dev/staging**: crear o desbloquear Azure Static Web Apps
-   u otra alternativa para publicar `pos-cloud-dashboard` y consumir la API dev.
-2. **Smoke cloud completo**: login, dashboard, maestros, reportes, inventario y
-   CxC contra `posfifo-dev-api` desplegado, no solo contra backend local/Azure DB.
-3. **Comparativo `/comparativo`**: backend y tipos frontend existen, pero la
-   pantalla sigue deshabilitada por decision de producto.
-4. **RBAC/modulos cutover**: el portal ya tiene `/roles` y `/suscripciones`,
+   u otra alternativa para publicar `pos-cloud-dashboard`. Hoy el portal local
+   ya consume APIs remotas dev/staging correctamente. Runbook:
+   `docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`.
+2. **Smoke cloud publicado**: login, dashboard, maestros, reportes, inventario
+   y CxC ya fueron validados con Vite local contra API staging; falta repetirlo
+   cuando el frontend viva en Azure y hacer smoke con sync de sucursal real.
+3. **RBAC/modulos cutover**: el portal ya tiene `/roles` y `/suscripciones`,
    pero falta cerrar asignacion usuario->rol y enforcement local consistente.
-5. **Hardening produccion**: logout con blacklist, rate limit login, HSTS,
+4. **Hardening produccion**: logout con blacklist, rate limit login, HSTS,
    Sentry/observability y runbook staging/prod.
 
 ## Estado actual
@@ -26,12 +27,12 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 | Backend | 5.A | Done (B1-B5) |
 | Frontend | 5.A | Done: F1-F4 (login/layout/dashboard real con polling 30s) |
 | Backend + Frontend | 5.C | Done: CRUD productos + smoke E2E manual OK |
-| Backend + Frontend | 5.D | Done en codigo: CRUD categorias/clientes + pull maestros probado; falta smoke cloud final |
+| Backend + Frontend | 5.D | Done en codigo: CRUD categorias/clientes + pull maestros probado; smoke frontend local -> API staging OK; falta sync real |
 | Frontend | 5.G | Parcial: hardening + tests criticos (Vitest/RTL, 43 tests), README y code-splitting hechos; falta `/`-focus y observability |
-| Backend + Frontend | 5.H | Done en codigo: CxC read-only `/cuentas` + endpoint backend; falta smoke contra API desplegada |
+| Backend + Frontend | 5.H | Done en codigo: CxC read-only `/cuentas` + endpoint backend; smoke frontend local -> API staging OK |
 | Backend | 5.B / 5.E | Done para reportes JSON cloud: comparativo real + ventas por cajero + top productos + cierre consolidado |
-| Frontend | 5.E | Done (frontend): `/inventario` (F10) + `/reportes` (F8) consumen B13/B14; falta smoke contra API desplegada |
-| Frontend | 5.B | Diferido: tipos `ComparativoResponse` listos en `reports.ts`; `/comparativo` (F5) NO habilitado por indicacion |
+| Frontend | 5.E | Done (frontend): `/inventario` (F10) + `/reportes` (F8) consumen B13/B14; smoke frontend local -> API staging OK |
+| Frontend | 5.B | Done en codigo: `/comparativo` (F5) con recharts, gate `reportes.consolidado.ver`; smoke frontend local -> API staging OK |
 | Backend | 5.F | Dev desplegado: Docker + ACR + Container Apps + Key Vault + remote state + CI/CD MVP |
 | Frontend | 5.F | Prep frontend listo: `staticwebapp.config.json`, `.env.example`, README, CI (lint+test+build), config seam multi-tenant. Falta recurso/deploy frontend Azure |
 | Backend + Frontend | 5.I | Parcial: RBAC/modulos backend + `/roles` + `/suscripciones`; falta asignacion usuario->rol y cutover local |
@@ -42,13 +43,13 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ```
 5.A  Dashboard MVP (KPIs + estado sucursales)          <- DONE
-5.B  Comparativo entre sucursales con graficos          <- BACKEND DONE; frontend pendiente
+5.B  Comparativo entre sucursales con graficos          <- DONE + smoke local contra staging OK
 5.C  CRUD de productos                                  <- DONE
-5.D  CRUD de categorias y clientes                      <- DONE en codigo; falta smoke cloud
+5.D  CRUD de categorias y clientes                      <- DONE + smoke local contra staging OK; falta sync real
 5.E  Reportes consolidados on-demand                    <- BACKEND JSON DONE; /inventario F10 + /reportes F8 hechos
 5.F  Deploy a produccion (backend + frontend)           <- BACKEND DEV DONE; frontend Azure pendiente
 5.G  Hardening + polish (cross-cutting)                 <- PARCIAL
-5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE en codigo; falta smoke cloud
+5.H  Cartera / cuentas por cobrar (portal read-only)    <- DONE + smoke local contra staging OK
 5.I  RBAC y modulos del portal                          <- PARCIAL; UI base lista
 ```
 
@@ -98,15 +99,20 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
   - Ventas `sucursal=NULL` no entran al consolidado multi-sucursal y se reportan en `metadata.legacy_ventas_omitidas`.
   - Decision: `apps/reportes` queda como modulo local/POS; el portal cloud usa servicios query-based sobre la BD cloud, no `ReporteManager`.
   - Cobertura: `apps/api/tests/test_reportes_cloud.py`.
+  - **Contrato completado para F5**: la serie viene zero-filled (un punto por CADA periodo del rango, en cero si no hubo movimiento — `_period_keys`) y el `totales` global trae las 5 metricas. Limite `MAX_COMPARATIVO_PUNTOS = 400`: si el rango genera mas puntos responde 400 sugiriendo agrupacion mayor. Nota semana: el primer punto es el lunes ISO de `desde`, que puede caer antes del rango.
 
 ### Frontend
 
-- [ ] **F5** — Página `/comparativo`:
-  - Date range picker con presets (hoy / ayer / 7d / 30d / mes actual)
-  - Selector de métrica
-  - Gráfico de líneas con Recharts (una línea por sucursal)
-  - Gráfico de barras: total por sucursal en el período
-  - Tabla agregada con totales y diferencias %
+- [x] **F5** — Página `/comparativo`:
+  - Date range con presets (hoy / ayer / 7d / 30d / mes actual; default mes actual) + agrupación día/semana/mes
+  - Selector de métrica (una a la vez: ventas facturadas default, cantidad, ticket promedio, crédito, cobros CxC)
+  - Gráfico de líneas con **recharts** (una línea por sucursal, paleta fija) + gráfico de barras: total por sucursal
+  - Tabla agregada con totales por sucursal, fila Total general y **% de participación sobre el total** de la métrica seleccionada; export CSV
+  - Gate por permiso `reportes.consolidado.ver` en Sidebar y ruta (`ProtectedRoute requiere=`), igual que el backend
+  - Archivos: `src/pages/Comparativo.tsx`, `src/lib/comparativo.ts` (transforms puros: pivot, % participación, labels de período, presets), hook `useComparativo` en `src/hooks/useReports.ts`
+  - recharts cae en el chunk lazy de la página (~110KB gzip); el bundle inicial no cambia
+  - OJO timezone: las claves `YYYY-MM` de agrupación mes se parsean a mano en `formatPeriodoLabel` (no pasar por `new Date(string)` — UTC retrocede un mes en RD)
+  - Tests: `src/lib/comparativo.test.ts`, `src/pages/Comparativo.test.tsx` (recharts mockeado), `fetchComparativo` en `src/lib/reports.test.ts`
 
 ### DoD 5.B
 
@@ -257,7 +263,7 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
   - `src/lib/reports.ts` con tipos explícitos `ComparativoResponse` (listo para F5), `VentasPorCajeroResponse`, `TopProductosResponse`, `CierreConsolidadoResponse`; todo vía `apiClient.get(url, { params })`.
   - Archivos: `src/pages/Reports.tsx`, `src/lib/reports.ts`, `src/hooks/useReports.ts`; ruta en `src/App.tsx`; nav habilitado en `src/components/layout/Sidebar.tsx`.
   - Verificación frontend: `npm run lint` y `npm run build` OK.
-  - Pendiente: smoke contra API dev desplegada; `/comparativo` (F5) sigue deshabilitado por decision de producto, no por bloqueo backend.
+  - Pendiente: smoke contra API dev desplegada. `/comparativo` (F5) ya habilitado — ver sub-fase 5.B.
 
 ### DoD 5.E
 
@@ -269,10 +275,12 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 
 ## Sub-fase 5.F — Deploy a producción
 
-> Estado actualizado 2026-06-09: backend dev ya corre en Azure Container Apps
-> con Docker, ACR, Key Vault, remote state y CI/CD MVP. Este bloque queda como
-> resumen; la fuente operativa es `docs/ROADMAP_DEPLOY_AZURE.md` y el inventario
-> actual es `docs/runbooks/AZURE_DEV_RESOURCES.md`.
+> Estado actualizado 2026-06-12: backend dev/staging ya corre en Azure Container
+> Apps con Docker, ACR, Key Vault, remote state y CI/CD MVP. El portal local
+> (`localhost:5173`) autentica y consume la API staging correctamente; dev y
+> staging tienen CORS local validado para Vite. Este bloque queda como resumen;
+> la fuente operativa es `docs/ROADMAP_DEPLOY_AZURE.md` y el inventario actual
+> es `docs/runbooks/AZURE_DEV_RESOURCES.md`.
 
 ### Decision base
 
@@ -340,6 +348,25 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 - [ ] **D11** — Custom domain `portal.tudominio.com` (requiere Azure; pendiente)
 - [x] **D12** — `staticwebapp.config.json`: rewrites SPA a `/index.html` + headers de seguridad (CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`). CSP usa `connect-src 'self' https:` (multi-tenant friendly); endurecer al host de API exacto en prod.
 
+Nota validada 2026-06-12:
+
+- `.env.local` con `VITE_API_URL` apuntando a staging permite login y consumo
+  del portal local contra backend cloud.
+- Dev usa el mismo mecanismo cambiando `VITE_API_URL` a la URL dev y
+  reiniciando Vite.
+- Backend dev y staging permiten CORS para `http://localhost:5173` y
+  `http://127.0.0.1:5173`.
+
+Nota deploy 2026-06-13:
+
+- Runbook ASWA preparado:
+  `docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`.
+- ASWA dev creado: `https://agreeable-moss-051bc0010.7.azurestaticapps.net`.
+- CORS dev aplicado para ese origen y preflight validado.
+- Pendiente: subir workflow ASWA corregido con `VITE_API_URL` para que el
+  bundle publicado apunte al backend dev; luego repetir smoke de login desde el
+  frontend publicado.
+
 ### Pre-deploy checklist
 
 - [x] `DEBUG=False`
@@ -359,7 +386,10 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
 - [x] Backend Django corre en Azure Container Apps desde imagen Docker taggeada por SHA.
 - [x] Migraciones corren por Container Apps Job/pipeline, no por startup.
 - [ ] Portal dev carga desde Azure Static Web Apps y consume API dev.
-- [ ] Login, dashboard, reportes, CxC y maestros pasan smoke contra Azure como flujo completo.
+- [~] Login, dashboard, reportes, CxC y maestros pasan smoke contra Azure como flujo completo.
+  - [x] Frontend local Vite -> API staging validado.
+  - [ ] Frontend publicado en Azure -> API dev/staging pendiente.
+  - [ ] Sync desde sucursal real pendiente.
 - [ ] Staging y produccion quedan definidos como ambientes separados antes de abrir a clientes reales.
 - [x] Backend queda sin estado en disco local y listo para escalar horizontalmente.
 
@@ -512,7 +542,7 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 4. **Cuándo introducir `django-tenants`.** No bloquea Fase 5 — los hooks `TENANCY` ya están dispuestos. Detonante natural: segundo cliente pagando.
 5. **Mobile-responsive: prioridad.** Si los dueños usan móvil mucho → desde F4. Si solo PC en oficina → diferir a 5.G.
 6. **i18n.** Probablemente no en esta fase (todos los clientes son DO, español).
-7. **Comparativos multi-sucursal.** Backend listo y sin placeholder local. La decision pendiente es de producto/frontend: habilitar `/comparativo` cuando tenga sentido comercial para clientes con 2+ sucursales o para demos de la vision multi-sucursal.
+7. **Comparativos multi-sucursal.** RESUELTO 2026-06-12: `/comparativo` habilitado en el portal (sub-fase 5.B / F5) con gate por permiso `reportes.consolidado.ver`. Queda el smoke contra API desplegada como el resto de pantallas.
 8. **Escritura local de maestros.** Decisión tomada: cloud como fuente de verdad. Pendiente implementar proxy/local admin flow para que vistas locales de clientes/categorías/productos escriban en la API cloud y refresquen la copia local. No implementar sync bidireccional por eventos para maestros en v1.
 
 ---
@@ -546,7 +576,7 @@ Si tuviéramos que cortar el trabajo en 3 hitos visibles para el owner de Royal 
 2. **Hito 2 — "Administro mis maestros"**: productos, categorías y clientes desde portal, con pull validado en sucursal real.
 3. **Hito 3 — "Controlo accesos y módulos"**: roles/permisos y suscripciones funcionando con usuario de prueba restringido.
 
-El comparativo 5.B queda diferido hasta tener dos sucursales reales o una demo comercial donde aporte valor claro.
+El comparativo 5.B (antes diferido) se habilitó el 2026-06-12; sirve para demos de la visión multi-sucursal aunque el cliente actual opere una sola sucursal.
 
 ---
 

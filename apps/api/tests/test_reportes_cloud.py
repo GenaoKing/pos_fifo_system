@@ -183,6 +183,19 @@ class ReportesCloudTests(TestCase):
         self.assertEqual(sd['serie'][0]['periodo'], str(self.today))
         self.assertEqual(sti['totales']['ventas_facturadas'], '0.00')
 
+        # Totales globales completos (contrato que consume el portal).
+        self.assertEqual(response.data['totales']['cantidad_ventas'], 2)
+        self.assertEqual(response.data['totales']['ventas_facturadas'], '1500.00')
+        self.assertEqual(response.data['totales']['credito_facturado'], '500.00')
+        self.assertEqual(response.data['totales']['cobros_cxc'], '120.00')
+        self.assertEqual(response.data['totales']['ticket_promedio'], '750.00')
+
+        # Zero-fill: la sucursal sin movimiento trae la serie completa en cero.
+        self.assertEqual(len(sti['serie']), 1)
+        self.assertEqual(sti['serie'][0]['periodo'], str(self.today))
+        self.assertEqual(sti['serie'][0]['cantidad_ventas'], 0)
+        self.assertEqual(sti['serie'][0]['ventas_facturadas'], '0.00')
+
     def test_comparativo_filtra_sucursal_y_valida_parametros(self):
         response = self._api(self.admin).get(
             '/api/v1/reportes/comparativo/',
@@ -201,6 +214,83 @@ class ReportesCloudTests(TestCase):
         self.assertEqual(len(response.data['sucursales']), 1)
         self.assertEqual(invalid_sucursal.status_code, 404)
         self.assertEqual(invalid_date.status_code, 400)
+
+    def test_comparativo_zero_fill_dia_completa_periodos_sin_movimiento(self):
+        desde = self.today - timedelta(days=2)
+        response = self._api(self.admin).get(
+            '/api/v1/reportes/comparativo/',
+            {'desde': str(desde), 'hasta': str(self.today), 'agrupacion': 'dia'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sd = next(s for s in response.data['sucursales'] if s['sucursal_codigo'] == 'SD-001')
+        sti = next(s for s in response.data['sucursales'] if s['sucursal_codigo'] == 'STI-001')
+
+        expected_periodos = [str(desde + timedelta(days=i)) for i in range(3)]
+        self.assertEqual([p['periodo'] for p in sd['serie']], expected_periodos)
+        self.assertEqual([p['periodo'] for p in sti['serie']], expected_periodos)
+
+        # Los dos primeros dias de SD-001 sin movimiento, el de hoy con datos.
+        self.assertEqual(sd['serie'][0]['cantidad_ventas'], 0)
+        self.assertEqual(sd['serie'][0]['ventas_facturadas'], '0.00')
+        self.assertEqual(sd['serie'][1]['cantidad_ventas'], 0)
+        self.assertEqual(sd['serie'][2]['cantidad_ventas'], 2)
+        self.assertEqual(sd['serie'][2]['ventas_facturadas'], '1500.00')
+        self.assertEqual(sd['serie'][2]['cobros_cxc'], '120.00')
+
+        # STI-001 todo en cero.
+        for punto in sti['serie']:
+            self.assertEqual(punto['cantidad_ventas'], 0)
+            self.assertEqual(punto['ventas_facturadas'], '0.00')
+
+    def test_comparativo_zero_fill_semana_genera_lunes_consecutivos(self):
+        # Rango fijo en el pasado (sin ventas): 2025-01-02 es jueves, asi que
+        # la primera clave es el lunes ISO anterior al rango (2024-12-30) —
+        # misma semantica que _period_key.
+        response = self._api(self.admin).get(
+            '/api/v1/reportes/comparativo/',
+            {'desde': '2025-01-02', 'hasta': '2025-01-21', 'agrupacion': 'semana'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sd = next(s for s in response.data['sucursales'] if s['sucursal_codigo'] == 'SD-001')
+        self.assertEqual(
+            [p['periodo'] for p in sd['serie']],
+            ['2024-12-30', '2025-01-06', '2025-01-13', '2025-01-20'],
+        )
+        for punto in sd['serie']:
+            self.assertEqual(punto['ventas_facturadas'], '0.00')
+
+    def test_comparativo_zero_fill_mes_genera_meses_consecutivos(self):
+        response = self._api(self.admin).get(
+            '/api/v1/reportes/comparativo/',
+            {'desde': '2025-01-15', 'hasta': '2025-03-10', 'agrupacion': 'mes'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sd = next(s for s in response.data['sucursales'] if s['sucursal_codigo'] == 'SD-001')
+        self.assertEqual(
+            [p['periodo'] for p in sd['serie']],
+            ['2025-01', '2025-02', '2025-03'],
+        )
+
+    def test_comparativo_rechaza_rango_que_excede_max_puntos(self):
+        # 2 anios por dia: ~731 puntos > 400 -> 400 con mensaje accionable.
+        rechazado = self._api(self.admin).get(
+            '/api/v1/reportes/comparativo/',
+            {'desde': '2024-01-01', 'hasta': '2026-01-01', 'agrupacion': 'dia'},
+        )
+        # El mismo rango agrupado por mes cabe de sobra -> 200.
+        aceptado = self._api(self.admin).get(
+            '/api/v1/reportes/comparativo/',
+            {'desde': '2024-01-01', 'hasta': '2026-01-01', 'agrupacion': 'mes'},
+        )
+
+        self.assertEqual(rechazado.status_code, 400)
+        self.assertIn('agrupacion', rechazado.data['error'])
+        self.assertEqual(aceptado.status_code, 200)
+        sd = next(s for s in aceptado.data['sucursales'] if s['sucursal_codigo'] == 'SD-001')
+        self.assertEqual(len(sd['serie']), 25)
 
     def test_ventas_por_cajero_separa_pagos_ventas_y_cxc(self):
         response = self._api(self.admin).get(

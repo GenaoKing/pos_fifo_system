@@ -669,10 +669,12 @@ function posData() {
             this.modalCreditoAbierto = false;
         },
 
-        onMetodoPlazoChange() {
-            const metodo = this.metodoCreditoSeleccionado();
-            if (!metodo) return;
-            this.aplicarMetodoCredito(metodo);
+        // Enter en el modal = boton Aplicar: respeta el mismo disabled
+        // (limite excedido sin override admin) y no hace nada si esta cerrado.
+        aplicarModalCredito() {
+            if (!this.modalCreditoAbierto) return;
+            if (this.creditoExcedeLimite() && !this.credito.admin_override_id) return;
+            this.cerrarModalCredito();
         },
 
         creditoDisponible() {
@@ -885,7 +887,7 @@ function posData() {
                 }
             } else if (this.metodoPago === 'credito') {
                 if (!this.clienteSeleccionado) return 'Selecciona un cliente para venta a credito';
-                if (!this.metodoCreditoSeleccionado()) return 'Selecciona un metodo de plazo';
+                if (!this.metodoCreditoSeleccionado()) return 'No hay metodos de credito configurados';
                 if (this.creditoExcedeLimite() && !this.credito.admin_override_id) {
                     return 'Credito excede limite y requiere autorizacion ADMIN';
                 }

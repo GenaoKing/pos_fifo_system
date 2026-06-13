@@ -49,5 +49,10 @@ module "container_apps" {
   django_secret_key_secret_name = var.django_secret_key_secret_name
   db_password_secret_name       = var.db_password_secret_name
 
+  enable_blob_media            = var.enable_media_storage
+  media_storage_account_id     = var.enable_media_storage ? module.media_storage[0].id : null
+  media_storage_account_name   = var.enable_media_storage ? module.media_storage[0].name : ""
+  media_storage_container_name = var.media_storage_container_name
+
   tags = local.container_tags
 }

@@ -21,6 +21,13 @@ extra_tags = {
 }
 enable_static_web_app = false
 
+# Media publica cloud (imagenes de productos/logos). Bajo costo:
+# StorageV2 + Standard LRS + Hot, sin CDN. Activar en dev para MVP.
+enable_media_storage                         = true
+media_storage_account_name                   = null
+media_storage_container_name                 = "media-public"
+grant_current_user_media_blob_contributor    = true
+
 # Backend container platform.
 # Primer apply: crear ACR + Container Apps Environment, pero todavia no API/job.
 project_name            = "posfifo"

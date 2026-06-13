@@ -308,8 +308,8 @@ Objetivo: desplegar portal React contra API dev.
 - [ ] Workflow merge a `develop`:
   - deploy a Azure Static Web Apps dev
   - `VITE_API_URL` apunta al backend dev
-- [ ] Configurar `staticwebapp.config.json` para SPA routing.
-- [ ] Validar CORS contra API dev.
+- [x] Configurar `staticwebapp.config.json` para SPA routing.
+- [x] Validar CORS contra API dev.
 
 **[Estado may 2026] Prep frontend ya hecho en `pos-cloud-dashboard`:**
 
@@ -318,11 +318,59 @@ Objetivo: desplegar portal React contra API dev.
 - `.env.example` + `README.md` con setup/scripts/env/deploy.
 - Resolución de backend centralizada en `src/lib/config.ts` (ver D8).
 - **CORS:** el origen del portal debe coincidir EXACTO con `CORS_ALLOWED_ORIGINS` del backend (sin slash final, esquema https en cloud).
+- **Validado 2026-06-12:** `http://localhost:5173` y
+  `http://127.0.0.1:5173` quedaron permitidos en dev/staging para levantar
+  Vite local apuntando al backend remoto. Preflight CORS y health OK en ambos
+  ambientes.
+- **Runbook 2026-06-13:** `docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`
+  documenta creacion ASWA en Pay-As-You-Go, variables `VITE_API_URL` en GitHub
+  Actions, CORS post-deploy y smoke test. Pendiente: URL real de ASWA.
+- **ASWA dev 2026-06-13:** recurso `posfifo-dev-portal-swa` creado en
+  `posfifo-dev-frontend-rg`, URL
+  `https://agreeable-moss-051bc0010.7.azurestaticapps.net`. SPA routing OK y
+  CORS dev aplicado. Pendiente: redeployar workflow ASWA con `VITE_API_URL`
+  apuntando al backend dev.
 
 DoD:
 
 - Portal dev abre por URL de Static Web Apps.
 - Login y dashboard funcionan contra API dev.
+
+## Fase D4b - Media publica cloud economica
+
+Objetivo: que imagenes de productos/logos funcionen en Container Apps sin
+depender del disco efimero del contenedor.
+
+- [x] Definir alcance MVP economico:
+  - imagenes publicas de productos/logos
+  - `Standard_LRS`
+  - access tier `Hot`
+  - sin CDN
+  - sin private endpoints
+  - sin reportes/documentos privados
+- [x] Crear modulo Terraform `media-storage`.
+- [x] Wire dev/staging con `enable_media_storage`, apagado por defecto salvo
+  activacion explicita en `terraform.tfvars`.
+- [x] Pasar env vars a Container Apps:
+  - `AZURE_BLOB_MEDIA_ENABLED`
+  - `AZURE_STORAGE_ACCOUNT_NAME`
+  - `AZURE_STORAGE_MEDIA_CONTAINER`
+  - `AZURE_CLIENT_ID`
+- [x] Dar `Storage Blob Data Contributor` a Managed Identity de API/job cuando
+  Blob media esta activo.
+- [x] Configurar `settings_cloud.py` para usar `django-storages` + Managed
+  Identity solo cuando `AZURE_BLOB_MEDIA_ENABLED=true`.
+- [x] Mantener POS/local con filesystem (`MEDIA_ROOT`).
+- [x] Crear runbook `docs/runbooks/AZURE_BLOB_MEDIA.md`.
+- [ ] Aplicar Terraform en dev y publicar imagen Docker nueva.
+- [ ] Subir imagenes existentes de `media/productos/` y `media/config/`.
+- [ ] Smoke test portal: productos muestran imagen real desde Blob.
+
+Deuda fuera del MVP:
+
+- Reportes, cierres, PDFs, XML/e-CF y documentos sensibles deben ir a media
+  privada con descarga via backend o URL SAS temporal.
+- CDN y lifecycle policies solo cuando el volumen/trafico lo justifique.
 
 ## Fase D5 - Staging y promocion
 
@@ -341,30 +389,43 @@ Objetivo: separar "probado en dev" de "candidato a prod".
 - [x] Resolver limite Azure for Students: staging reutiliza el Container Apps
   Environment dev `posfifo-dev-aca-env` porque la suscripcion no permite mas de
   un Container Apps Environment en `canadacentral`.
-- [ ] Crear DB `pos_fifo_staging` en la misma instancia Azure PostgreSQL dev/free
+- [x] Crear DB `pos_fifo_staging` en la misma instancia Azure PostgreSQL dev/free
   o definir el nombre final en `terraform.tfvars`.
 - [x] Primer `terraform plan/apply` de staging con API/job apagados para crear
   foundation, ACR, observabilidad y Key Vault.
-- [ ] Cargar secrets staging (`django-secret-key`, `db-password`) en el Key
+- [x] Cargar secrets staging (`django-secret-key`, `db-password`) en el Key
   Vault de staging antes de encender API/job con `use_key_vault_secrets=true`.
   - Nombre esperado si `key_vault_name=null`: `posfifostagingkv`.
   - `django-secret-key` debe ser distinto por ambiente.
   - `db-password` puede ser el mismo solo si staging usa el mismo usuario
     PostgreSQL; preferible usuario/password separado cuando sea practico.
-- [ ] Mantener `api_min_replicas=0`, `api_max_replicas=1` mientras staging sea
+- [x] Mantener `api_min_replicas=0`, `api_max_replicas=1` mientras staging sea
   apagable/on-demand.
-- [ ] Publicar imagen Docker `staging` en ACR staging o decidir reutilizar ACR
+- [x] Publicar imagen Docker `staging` en ACR staging o decidir reutilizar ACR
   dev para el primer smoke.
-- [ ] Deploy desde rama `main` o tags release.
-- [ ] Ejecutar migraciones de staging via Container Apps Job.
-- [ ] Smoke E2E:
-  - auth
-  - dashboard
-  - maestros
-  - CxC
-  - reportes
-  - sync desde una sucursal de prueba
+- [~] Deploy desde rama `main` o tags release. Hoy staging esta desplegado
+  manualmente; automatizacion/promocion formal queda pendiente.
+- [x] Ejecutar migraciones de staging via Container Apps Job.
+- [~] Smoke E2E:
+  - [x] auth con usuario real staging
+  - [x] frontend local Vite -> API staging
+  - [x] dashboard
+  - [x] maestros
+  - [x] CxC
+  - [x] reportes basico con token
+  - [ ] sync desde una sucursal de prueba
 - [ ] Habilitar revisiones en Container Apps para rollback/blue-green.
+
+Notas de validacion D5:
+
+- Smoke backend staging OK: `/api/v1/health/` responde `status=ok`, `db=ok`
+  y `environment=staging`.
+- Login con usuario real staging OK; el frontend local (`pos-cloud-dashboard`
+  en `localhost:5173`) autentica y consume la API staging correctamente.
+- Staging y dev aceptan CORS local para Vite; para probar uno u otro ambiente
+  basta cambiar `VITE_API_URL` en `.env.local` del frontend y reiniciar Vite.
+- Frontera pendiente: smoke con sync desde una sucursal real y publicacion del
+  frontend en Azure; lo validado hoy es frontend local contra backend cloud.
 
 DoD:
 

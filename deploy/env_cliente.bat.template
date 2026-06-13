@@ -31,6 +31,7 @@ set EXTRA_HOSTS=
 
 REM --- Django ---
 set DJANGO_SETTINGS_MODULE=config.settings_production
+set DJANGO_DEBUG=false
 set DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION
 
 REM --- Usuario inicial ---
@@ -47,6 +48,30 @@ REM Opciones: plasticos, accesorios_auto, retail_general
 REM Se usa SOLO en la primera instalacion (crear_config_inicial)
 set NEGOCIO_PRESET=plasticos
 set NEGOCIO_NOMBRE=Mi Negocio
+
+REM ============================================================================
+REM --- Sincronizacion con la nube (cloud) ---
+REM ============================================================================
+REM Dejar SYNC_ENABLED=false hasta tener el token de la sucursal.
+REM Para ACTIVAR el sync:
+REM   1. En el cloud (produccion) registrar la Sucursal y generar el token con:
+REM        python manage.py vincular_sucursal_token --sucursal <SUCURSAL_CODIGO>
+REM   2. Pegar el token en CLOUD_API_TOKEN y poner la URL del cloud de produccion.
+REM   3. Poner SYNC_ENABLED=true.
+REM   4. Registrar el daemon de sync: deploy\registrar_sync_servicio.bat (admin)
+REM
+REM IMPORTANTE: SUCURSAL_CODIGO debe coincidir EXACTAMENTE con el codigo de la
+REM Sucursal creada en el cloud y con la Sucursal local (crear_sucursal).
+set SYNC_ENABLED=false
+set SUCURSAL_CODIGO=SD-001
+set CLOUD_API_URL=https://CAMBIAR-URL-CLOUD-PRODUCCION
+set CLOUD_API_TOKEN=PEGAR-TOKEN-DE-vincular_sucursal_token
+
+REM Parametros del engine (defaults razonables; no suele hacer falta tocarlos)
+set SYNC_INTERVAL=60
+set SYNC_BATCH_SIZE=50
+set SYNC_MAX_RETRIES=10
+set SYNC_HTTP_TIMEOUT=10
 
 REM --- Rutas (no editar) ---
 set POS_DIR=%~dp0..

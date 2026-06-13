@@ -166,6 +166,33 @@ class CreditoServicesTests(TestCase):
             [date(2026, 6, 15), date(2026, 7, 15), date(2026, 8, 14)],
         )
 
+    def test_venta_credito_en_cuotas_sin_metodo_plazo_usa_fallback_por_tipo(self):
+        # El POS ya no envia metodo_plazo_id: el backend resuelve el primer
+        # metodo activo de tipo CUOTAS y la venta se configura con los datos
+        # del payload (cuotas, frecuencia, fecha).
+        venta = procesar_venta_service(
+            usuario=self.cajera,
+            datos=self._payload_credito(
+                total='100.00',
+                cantidad=1,
+                credito={
+                    'modalidad': 'CUOTAS',
+                    'metodo_plazo_id': None,
+                    'monto_inicial': '10.00',
+                    'cantidad_cuotas': 3,
+                    'fecha_primer_vencimiento': '2026-06-15',
+                },
+            ),
+        )
+
+        cuenta = venta.cuenta_por_cobrar
+        # El fallback toma el primer metodo CUOTAS activo (puede ser el
+        # seedeado por migracion); lo relevante es el tipo y que la cuenta
+        # siga el payload (cuotas, inicial).
+        self.assertEqual(cuenta.metodo_plazo.tipo, MetodoPlazoCredito.TIPO_CUOTAS)
+        self.assertEqual(cuenta.cuotas.count(), 3)
+        self.assertEqual(cuenta.saldo, Decimal('90.00'))
+
     def test_limite_credito_bloquea_sin_override_y_hace_rollback(self):
         self.cliente.limite_credito = Decimal('100.00')
         self.cliente.save(update_fields=['limite_credito'])

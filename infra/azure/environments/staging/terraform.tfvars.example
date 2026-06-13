@@ -21,6 +21,13 @@ extra_tags = {
 }
 enable_static_web_app = false
 
+# Media publica cloud (imagenes de productos/logos). Mantener apagado hasta
+# necesitar pruebas staging con imagenes para evitar costo duplicado.
+enable_media_storage                         = false
+media_storage_account_name                   = null
+media_storage_container_name                 = "media-public"
+grant_current_user_media_blob_contributor    = true
+
 # Backend container platform.
 # Azure for Students puede limitar a 1 Container Apps Environment por region.
 # En ese caso staging reutiliza el environment dev existente y mantiene su

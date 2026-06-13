@@ -84,6 +84,43 @@ STORAGES = {
     },
 }
 
+if _bool_env('AZURE_BLOB_MEDIA_ENABLED', False):
+    storage_account_name = _env_required('AZURE_STORAGE_ACCOUNT_NAME')
+    storage_container_name = os.environ.get('AZURE_STORAGE_MEDIA_CONTAINER', 'media-public').strip() or 'media-public'
+
+    try:
+        from azure.identity import DefaultAzureCredential
+    except ImportError as exc:
+        raise ImproperlyConfigured(
+            'azure-identity must be installed when AZURE_BLOB_MEDIA_ENABLED=true.'
+        ) from exc
+
+    if 'storages' not in INSTALLED_APPS:
+        INSTALLED_APPS = INSTALLED_APPS + ['storages']
+
+    azure_client_id = os.environ.get('AZURE_CLIENT_ID', '').strip()
+    token_credential = (
+        DefaultAzureCredential(managed_identity_client_id=azure_client_id)
+        if azure_client_id
+        else DefaultAzureCredential()
+    )
+
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.azure_storage.AzureStorage',
+        'OPTIONS': {
+            'account_name': storage_account_name,
+            'azure_container': storage_container_name,
+            'token_credential': token_credential,
+            'overwrite_files': False,
+        },
+    }
+
+    AZURE_MEDIA_CUSTOM_DOMAIN = os.environ.get('AZURE_MEDIA_CUSTOM_DOMAIN', '').strip()
+    if AZURE_MEDIA_CUSTOM_DOMAIN:
+        MEDIA_URL = f'https://{AZURE_MEDIA_CUSTOM_DOMAIN.rstrip("/")}/'
+    else:
+        MEDIA_URL = f'https://{storage_account_name}.blob.core.windows.net/{storage_container_name}/'
+
 
 # Database.
 DATABASES = {

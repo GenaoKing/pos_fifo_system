@@ -17,6 +17,7 @@ from apps.ventas.models import DetalleVenta, Pago, Venta
 
 SYNC_VERDE_MAX_MINUTOS = 5
 SYNC_AMARILLO_MAX_MINUTOS = 30
+MAX_COMPARATIVO_PUNTOS = 400
 MONEY_ZERO = Decimal('0.00')
 MONEY_FIELD = DecimalField(max_digits=14, decimal_places=2)
 METODO_TO_TOTAL_KEY = {
@@ -177,6 +178,33 @@ def _period_key(value, agrupacion):
     )
 
 
+def _period_keys(periodo: Periodo, agrupacion):
+    """Lista completa y ordenada de claves del rango, alineada con `_period_key`
+    para que cada venta/pago del periodo caiga en una clave existente. Permite
+    el zero-fill de la serie (un punto por periodo aunque no haya movimiento).
+
+    Nota semana: la primera clave es el lunes ISO de `desde`, que puede ser
+    anterior al rango (mismo comportamiento que `_period_key`).
+    """
+    keys = []
+    if agrupacion == 'dia':
+        current = periodo.desde
+        while current <= periodo.hasta:
+            keys.append(current.isoformat())
+            current += timedelta(days=1)
+    elif agrupacion == 'semana':
+        current = periodo.desde - timedelta(days=periodo.desde.weekday())
+        while current <= periodo.hasta:
+            keys.append(current.isoformat())
+            current += timedelta(days=7)
+    else:  # mes — agrupacion ya validada por el caller
+        current = periodo.desde.replace(day=1)
+        while current <= periodo.hasta:
+            keys.append(current.strftime('%Y-%m'))
+            current = (current + timedelta(days=32)).replace(day=1)
+    return keys
+
+
 def _ventas_queryset(periodo: Periodo, codigos):
     return Venta.objects.filter(
         fecha_venta__date__gte=periodo.desde,
@@ -319,6 +347,19 @@ def build_comparativo(params):
             status_code=400,
         )
 
+    period_keys = _period_keys(periodo, agrupacion)
+    if len(period_keys) > MAX_COMPARATIVO_PUNTOS:
+        raise ReportingError(
+            {
+                'error': (
+                    f'El rango genera {len(period_keys)} puntos '
+                    f'(maximo {MAX_COMPARATIVO_PUNTOS}). Use una agrupacion '
+                    'mayor (semana o mes) o un rango mas corto.'
+                )
+            },
+            status_code=400,
+        )
+
     sucursales = _active_sucursales(params.get('sucursal'))
     codigos = [s.codigo for s in sucursales]
     totals = _aggregate_sales_by_sucursal(periodo, codigos)
@@ -352,8 +393,13 @@ def build_comparativo(params):
             'estado_sync': _estado_sync(sucursal.ultima_sync),
             'totales': _metrics_payload(metrics),
             'serie': [
-                {'periodo': key, **_metrics_payload(value)}
-                for key, value in sorted(series[sucursal.codigo].items())
+                {
+                    'periodo': key,
+                    **_metrics_payload(
+                        series[sucursal.codigo].get(key) or _empty_metrics()
+                    ),
+                }
+                for key in period_keys
             ],
         })
 

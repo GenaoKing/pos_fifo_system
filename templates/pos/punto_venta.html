@@ -147,10 +147,10 @@
     .total-display {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        padding: 1.5rem;
+        padding: 0.875rem 1.5rem;
         border-radius: 0.75rem;
         text-align: center;
-        margin-bottom: 1rem;
+        margin-bottom: 0.75rem;
     }
     
     /* Scrollbar personalizado */
@@ -746,12 +746,12 @@
                 <div>
                     <!-- Display de total -->
                     <div class="total-display">
-                        <p class="text-sm opacity-90 mb-1">Total a Pagar</p>
-                        <p class="text-4xl font-bold" x-text="'$' + calcularTotal().toFixed(2)"></p>
+                        <p class="text-xs opacity-90 mb-0.5">Total a Pagar</p>
+                        <p class="text-3xl font-bold" x-text="'$' + calcularTotal().toFixed(2)"></p>
                     </div>
-                    
+
                     {% if config.modulo_ecf %}
-                    <div class="mb-4">
+                    <div class="mb-3">
                         <label class="block text-sm font-medium text-gray-700 mb-2" for="tipo_ecf">
                             Tipo de Comprobante Fiscal
                         </label>
@@ -783,63 +783,62 @@
                     </div>
                     {% endif %}
 
-                    <!-- Metodos de pago (dinámicos desde ConfiguracionNegocio) -->
-                    <div class="mb-4">
+                    <!-- Metodos de pago (dinámicos desde ConfiguracionNegocio).
+                         Mixto y Credito son celdas mas del mismo grid: evita las
+                         filas full-width apiladas y reduce la altura del panel. -->
+                    <div class="mb-3">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Método de Pago</label>
-                        <div :class="metodosPagoConfig.length <= 2 ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'">
+                        <div :class="(metodosPagoConfig.length + (permiteMixto ? 1 : 0) + (metodosCreditoConfig.length > 0 ? 1 : 0)) <= 2 ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-2'">
                             <template x-for="metodo in metodosPagoConfig" :key="metodo.id">
-                                <div 
+                                <div
                                     @click="seleccionarMetodoPago(metodo.id)"
                                     class="metodo-pago-btn"
                                     :class="{ 'activo': metodoPago === metodo.id }"
                                 >
                                     <!-- Icono Efectivo -->
                                     <template x-if="metodo.icon === 'cash'">
-                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg class="w-6 h-6 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
                                         </svg>
                                     </template>
-                                    <!-- Icono Transferencia -->
+                                    <!-- Icono Transferencia (flechas verticales: distinto de tarjeta) -->
                                     <template x-if="metodo.icon === 'transfer'">
-                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                        <svg class="w-6 h-6 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
                                         </svg>
                                     </template>
-                                    <!-- Icono Tarjeta -->
+                                    <!-- Icono Tarjeta (tarjeta con franja) -->
                                     <template x-if="metodo.icon === 'card'">
-                                        <svg class="w-8 h-8 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                        <svg class="w-6 h-6 mx-auto mb-1" :class="metodoPago === metodo.id ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"></path>
                                         </svg>
                                     </template>
                                     <p class="text-xs font-medium" x-text="metodo.label"></p>
                                 </div>
                             </template>
-                        </div>
-                        
-                        <!-- Pago mixto (solo si hay más de 1 método activo) -->
-                        <div x-show="permiteMixto"
-                            @click="seleccionarMetodoPago('mixto')"
-                            class="metodo-pago-btn mt-2"
-                            :class="{ 'activo': metodoPago === 'mixto' }"
-                        >
-                            <div class="flex items-center justify-center">
-                                <svg class="w-6 h-6 mr-2" :class="metodoPago === 'mixto' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                            <!-- Pago mixto (solo si hay más de 1 método activo) -->
+                            <div x-show="permiteMixto"
+                                @click="seleccionarMetodoPago('mixto')"
+                                class="metodo-pago-btn"
+                                :class="{ 'activo': metodoPago === 'mixto' }"
+                            >
+                                <svg class="w-6 h-6 mx-auto mb-1" :class="metodoPago === 'mixto' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
                                 </svg>
-                                <p class="text-sm font-medium">Pago Mixto</p>
+                                <p class="text-xs font-medium">Mixto</p>
                             </div>
-                        </div>
 
-                        <div x-show="metodosCreditoConfig.length > 0"
-                            @click="seleccionarMetodoPago('credito')"
-                            class="metodo-pago-btn mt-2"
-                            :class="{ 'activo': metodoPago === 'credito' }"
-                        >
-                            <div class="flex items-center justify-center">
-                                <svg class="w-6 h-6 mr-2" :class="metodoPago === 'credito' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <!-- Credito -->
+                            <div x-show="metodosCreditoConfig.length > 0"
+                                @click="seleccionarMetodoPago('credito')"
+                                class="metodo-pago-btn"
+                                :class="{ 'activo': metodoPago === 'credito' }"
+                            >
+                                <svg class="w-6 h-6 mx-auto mb-1" :class="metodoPago === 'credito' ? 'text-primary-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 012-2z"></path>
                                 </svg>
-                                <p class="text-sm font-medium">Credito</p>
+                                <p class="text-xs font-medium">Crédito</p>
                             </div>
                         </div>
                     </div>
@@ -981,8 +980,8 @@
 
                                 <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5 text-sm">
                                     <div class="flex justify-between">
-                                        <span class="text-gray-600">Plazo:</span>
-                                        <span class="font-medium" x-text="metodoCreditoSeleccionado()?.nombre || '—'"></span>
+                                        <span class="text-gray-600">Modalidad:</span>
+                                        <span class="font-medium" x-text="esCreditoCuotas() ? 'Cuotas' : 'Vencimiento unico · ' + clientePlazoCreditoDias() + ' dias'"></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600">Inicial:</span>
@@ -1069,10 +1068,11 @@
         x-cloak
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @keydown.escape.window="cerrarModalCredito()"
+        @keydown.enter.window="aplicarModalCredito()"
     >
         <div class="absolute inset-0 bg-black bg-opacity-50" @click="cerrarModalCredito()"></div>
         <div class="relative bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div class="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
+            <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
                 <h3 class="text-lg font-semibold text-gray-900">Configurar credito</h3>
                 <button type="button" class="text-gray-400 hover:text-gray-600" @click="cerrarModalCredito()">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1081,7 +1081,7 @@
                 </button>
             </div>
 
-            <div class="p-5 space-y-4">
+            <div class="px-6 py-5 space-y-4">
                 <template x-if="clienteSeleccionado">
                     <div class="text-sm text-gray-600">
                         Cliente: <span class="font-medium text-gray-900" x-text="clienteSeleccionado.nombre"></span>
@@ -1100,14 +1100,6 @@
                     <div x-show="!esCreditoCuotas()">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Plazo del cliente</label>
                         <div class="form-input w-full bg-gray-50 text-gray-700 flex items-center" x-text="clientePlazoCreditoDias() + ' dias'"></div>
-                    </div>
-                    <div x-show="esCreditoCuotas()">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Metodo de plazo</label>
-                        <select x-model="credito.metodo_plazo_id" @change="onMetodoPlazoChange()" class="form-select w-full">
-                            <template x-for="m in metodosCreditoCuotas()" :key="m.id">
-                                <option :value="m.id" x-text="m.nombre"></option>
-                            </template>
-                        </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Interes (%)</label>
@@ -1217,9 +1209,9 @@
                 </template>
             </div>
 
-            <div class="sticky bottom-0 bg-white border-t border-gray-200 px-5 py-3 flex justify-end space-x-2">
+            <div class="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end space-x-2">
                 <button type="button" class="btn-outline" @click="cerrarModalCredito()">Cerrar</button>
-                <button type="button" class="btn-primary" @click="cerrarModalCredito()" :disabled="creditoExcedeLimite() && !credito.admin_override_id">Aplicar</button>
+                <button type="button" class="btn-primary" @click="aplicarModalCredito()" :disabled="creditoExcedeLimite() && !credito.admin_override_id">Aplicar</button>
             </div>
         </div>
     </div>
