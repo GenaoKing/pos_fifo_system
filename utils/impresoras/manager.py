@@ -249,20 +249,37 @@ class PrintManager:
     def _registrar_auditoria_recibo_cxc(self, pago, usuario, reimpresion, exitosa, error=None):
         """Registra la impresión del recibo CxC en auditoría"""
         try:
-            accion = 'ERROR_IMPRESION' if not exitosa else 'IMPRESION_RECIBO_CXC'
-            detalles = {
+            from apps.sucursales.models import get_sucursal_actual
+            numero_venta = pago.cuenta.venta.numero_venta
+            if exitosa:
+                accion = Auditoria.TipoAccion.RECIBO_CXC_IMPRESO
+                descripcion = (
+                    f"Recibo CxC {'reimpreso' if reimpresion else 'impreso'}: "
+                    f"abono de venta {numero_venta}"
+                )
+            else:
+                accion = Auditoria.TipoAccion.ERROR_SISTEMA
+                descripcion = f"Error imprimiendo recibo CxC de venta {numero_venta}"
+
+            metadata = {
+                'origen': 'impresion',
+                'tipo': 'recibo_cxc',
                 'pago_cxc_id': pago.pk,
-                'numero_venta': pago.cuenta.venta.numero_venta,
+                'numero_venta': numero_venta,
                 'reimpresion': reimpresion,
                 'monto': float(pago.monto),
             }
             if error:
-                detalles['error'] = error
+                metadata['error'] = error
 
-            Auditoria.objects.create(
-                usuario=usuario,
+            Auditoria.registrar(
                 accion=accion,
-                detalles=detalles
+                descripcion=descripcion,
+                usuario=usuario,
+                metadata=metadata,
+                exito=exitosa,
+                mensaje_error=error or '',
+                sucursal=get_sucursal_actual(),
             )
         except Exception as e:
             logger.error(f"Error registrando auditoría: {str(e)}")
@@ -369,61 +386,64 @@ class PrintManager:
     def _registrar_auditoria_impresion(self, venta, usuario, reimpresion, exitosa, error=None):
         """Registra el evento de impresión en auditoría"""
         try:
-            accion = 'ERROR_IMPRESION' if not exitosa else 'IMPRESION_TICKET'
-            
-            detalles = {
+            from apps.sucursales.models import get_sucursal_actual
+            if exitosa:
+                accion = (Auditoria.TipoAccion.TICKET_REIMPRESO if reimpresion
+                          else Auditoria.TipoAccion.TICKET_IMPRESO)
+                descripcion = (
+                    f"Ticket {'reimpreso' if reimpresion else 'impreso'}: "
+                    f"venta {venta.numero_venta}"
+                )
+            else:
+                accion = Auditoria.TipoAccion.ERROR_SISTEMA
+                descripcion = f"Error imprimiendo ticket de venta {venta.numero_venta}"
+
+            metadata = {
+                'origen': 'impresion',
+                'tipo': 'ticket',
                 'numero_venta': venta.numero_venta,
                 'reimpresion': reimpresion,
                 'total': float(venta.total),
                 'fecha_venta': venta.fecha_venta.isoformat(),
             }
-            
             if error:
-                detalles['error'] = error
-            
-            Auditoria.objects.create(
-                usuario=usuario,
+                metadata['error'] = error
+
+            Auditoria.registrar(
                 accion=accion,
-                detalles=detalles
+                descripcion=descripcion,
+                usuario=usuario,
+                content_object=venta,
+                metadata=metadata,
+                exito=exitosa,
+                mensaje_error=error or '',
+                sucursal=get_sucursal_actual(),
             )
-            
-            logger.debug(f"Auditoría registrada: {accion} - {venta.numero_venta}")
-            
+            logger.debug("Auditoria de impresion registrada: %s - %s", accion, venta.numero_venta)
+
         except Exception as e:
             logger.error(f"Error registrando auditoría: {str(e)}")
-    
+
     def get_ultimas_impresiones(self, usuario=None, limit=50):
         """Obtiene las últimas impresiones del sistema"""
-        filtros = {
-            'accion__in': ['IMPRESION_TICKET', 'ERROR_IMPRESION']
-        }
-        
+        qs = Auditoria.objects.filter(metadata__origen='impresion')
         if usuario:
-            filtros['usuario'] = usuario
-        
-        return Auditoria.objects.filter(**filtros).order_by('-fecha')[:limit]
-    
+            qs = qs.filter(usuario=usuario)
+        return qs.select_related('usuario').order_by('-fecha_hora')[:limit]
+
     def get_estadisticas_impresion(self, fecha_desde=None, fecha_hasta=None):
         """Obtiene estadísticas de impresión"""
-        filtros = {
-            'accion__in': ['IMPRESION_TICKET', 'ERROR_IMPRESION']
-        }
-        
+        qs = Auditoria.objects.filter(metadata__origen='impresion')
         if fecha_desde:
-            filtros['fecha__gte'] = fecha_desde
+            qs = qs.filter(fecha_hora__gte=fecha_desde)
         if fecha_hasta:
-            filtros['fecha__lte'] = fecha_hasta
-        
-        registros = Auditoria.objects.filter(**filtros)
-        
-        total = registros.count()
-        exitosas = registros.filter(accion='IMPRESION_TICKET').count()
-        errores = registros.filter(accion='ERROR_IMPRESION').count()
-        reimpresiones = registros.filter(
-            accion='IMPRESION_TICKET',
-            detalles__reimpresion=True
-        ).count()
-        
+            qs = qs.filter(fecha_hora__lte=fecha_hasta)
+
+        total = qs.count()
+        exitosas = qs.filter(exito=True).count()
+        errores = qs.filter(exito=False).count()
+        reimpresiones = qs.filter(exito=True, metadata__reimpresion=True).count()
+
         return {
             'total': total,
             'exitosas': exitosas,

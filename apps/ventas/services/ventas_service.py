@@ -236,11 +236,7 @@ def procesar_venta_service(
         # Impresión fuera de la transacción: si la térmica falla, no
         # se hace rollback de la venta. Mismo patrón que sync.
         transaction.on_commit(
-            lambda v=venta, u=usuario: print_manager.print_ticket_venta(
-                venta=v,
-                usuario=u,
-                reimpresion=False,
-            )
+            lambda v=venta, u=usuario: _hook_imprimir_ticket(v, u)
         )
 
         # Encolado de e-CF (Semana 3): solo si el módulo está activo.
@@ -528,6 +524,32 @@ def _registrar_pagos(
                 monto=saldo_credito,
                 referencia=f'CxC - {numero}',
             )
+
+
+def _hook_imprimir_ticket(venta: Venta, usuario) -> None:
+    """
+    Hook post-commit: imprime el ticket y DEJA RASTRO del resultado.
+
+    El auto-print es best-effort (no debe tumbar la venta), pero antes el
+    resultado se descartaba y un fallo quedaba invisible. Aqui capturamos
+    cualquier excepcion y, si la impresion no fue exitosa (incluido el caso
+    'DISABLED'), lo registramos en log. La auditoria la hace el print_manager.
+    """
+    try:
+        resultado = print_manager.print_ticket_venta(
+            venta=venta, usuario=usuario, reimpresion=False,
+        )
+    except Exception:
+        logger.exception(
+            'Fallo no controlado al imprimir ticket de venta %s', venta.numero_venta
+        )
+        return
+    if not resultado.get('success'):
+        logger.warning(
+            'No se imprimio el ticket de venta %s: %s',
+            venta.numero_venta,
+            resultado.get('error') or resultado.get('mensaje'),
+        )
 
 
 def _hook_encolar_ecf(venta: Venta, tipo_ecf: str) -> None:

@@ -139,17 +139,20 @@ class TestImpresoraView(LoginRequiredMixin, View):
         """
         try:
             resultado = print_manager.test_printer()
-            
+
             # Registrar en auditoría
-            Auditoria.objects.create(
+            Auditoria.registrar(
+                accion=Auditoria.TipoAccion.TEST_IMPRESORA,
+                descripcion='Prueba de impresora',
                 usuario=request.user,
-                accion='TEST_IMPRESORA',
-                detalles={
-                    'resultado': resultado['success'],
-                    'mensaje': resultado['mensaje']
-                }
+                metadata={
+                    'origen': 'impresion',
+                    'tipo': 'test',
+                    'mensaje': resultado['mensaje'],
+                },
+                exito=resultado['success'],
             )
-            
+
             return JsonResponse(resultado)
             
         except Exception as e:
@@ -188,36 +191,36 @@ class HistorialImpresionesView(LoginRequiredMixin, TemplateView):
         solo_reimpresiones = self.request.GET.get('solo_reimpresiones') == '1'
         
         # Construir query
-        filtros = Q(accion__in=['IMPRESION_TICKET', 'ERROR_IMPRESION'])
-        
+        filtros = Q(metadata__origen='impresion')
+
         if fecha_desde:
             try:
                 fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d')
-                filtros &= Q(fecha__gte=fecha_desde_dt)
+                filtros &= Q(fecha_hora__gte=fecha_desde_dt)
             except ValueError:
                 pass
-        
+
         if fecha_hasta:
             try:
                 fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d')
                 fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
-                filtros &= Q(fecha__lte=fecha_hasta_dt)
+                filtros &= Q(fecha_hora__lte=fecha_hasta_dt)
             except ValueError:
                 pass
-        
+
         if usuario_id:
             filtros &= Q(usuario_id=usuario_id)
-        
+
         if solo_errores:
-            filtros &= Q(accion='ERROR_IMPRESION')
-        
+            filtros &= Q(exito=False)
+
         if solo_reimpresiones:
-            filtros &= Q(accion='IMPRESION_TICKET', detalles__reimpresion=True)
-        
+            filtros &= Q(exito=True, metadata__reimpresion=True)
+
         # Obtener registros
         impresiones = Auditoria.objects.filter(filtros).select_related(
             'usuario'
-        ).order_by('-fecha')[:200]
+        ).order_by('-fecha_hora')[:200]
         
         context['impresiones'] = impresiones
         
@@ -367,14 +370,15 @@ class UltimasImpresionesAPIView(LoginRequiredMixin, View):
         
         data = []
         for imp in impresiones:
+            meta = imp.metadata or {}
             data.append({
                 'id': imp.id,
                 'accion': imp.get_accion_display(),
-                'fecha': imp.fecha.isoformat(),
+                'fecha': imp.fecha_hora.isoformat(),
                 'usuario': imp.usuario.get_full_name() or imp.usuario.username,
-                'numero_venta': imp.detalles.get('numero_venta', ''),
-                'reimpresion': imp.detalles.get('reimpresion', False),
-                'error': imp.detalles.get('error', None)
+                'numero_venta': meta.get('numero_venta', ''),
+                'reimpresion': meta.get('reimpresion', False),
+                'error': meta.get('error', None)
             })
         
         return JsonResponse({

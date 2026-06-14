@@ -72,6 +72,8 @@ class Auditoria(models.Model):
         VENTA_ANULADA = 'VENTA_CANCEL', 'Venta anulada'
         TICKET_IMPRESO = 'TICKET_PRINT', 'Ticket impreso'
         TICKET_REIMPRESO = 'TICKET_REPRINT', 'Ticket reimpreso'
+        RECIBO_CXC_IMPRESO = 'RECIBO_CXC_PRINT', 'Recibo CxC impreso'
+        TEST_IMPRESORA = 'PRINTER_TEST', 'Prueba de impresora'
         
         # Usuarios
         USUARIO_CREADO = 'USER_CREATE', 'Usuario creado'

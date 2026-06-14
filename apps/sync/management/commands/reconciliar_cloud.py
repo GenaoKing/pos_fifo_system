@@ -79,6 +79,14 @@ class Command(BaseCommand):
             default=None,
             help='Procesa como maximo N registros por entidad (para pruebas).',
         )
+        parser.add_argument(
+            '--http-timeout',
+            type=int,
+            default=60,
+            help='Timeout HTTP por request en segundos. Default 60; util para el '
+                 'cold-start de staging (Container App escala a cero). No toca '
+                 'SYNC_HTTP_TIMEOUT del daemon.',
+        )
 
     # ------------------------------------------------------------------
     # Setup
@@ -91,7 +99,7 @@ class Command(BaseCommand):
         self.actualizar = opts['actualizar']
         self.dry_run = opts['dry_run']
         self.limit = opts['limit']
-        self.timeout = getattr(settings, 'SYNC_HTTP_TIMEOUT', 10)
+        self.timeout = opts.get('http_timeout') or getattr(settings, 'SYNC_HTTP_TIMEOUT', 10)
         # La API de maestros aplica throttling (scope 'maestros', ~60/min).
         # Un catalogo grande supera ese ritmo, asi que reintentamos ante 429
         # respetando Retry-After. Es un bootstrap unico: la lentitud no importa.
@@ -196,13 +204,28 @@ class Command(BaseCommand):
             return resp
 
     def _preflight(self):
-        # 1) health publico
-        try:
-            r = requests.get(self._url('/api/v1/health/'), timeout=self.timeout)
-        except requests.RequestException as exc:
-            raise CommandError(f'No hay conexion al cloud ({self.cloud_url}): {exc}')
-        if r.status_code != 200:
-            raise CommandError(f'Health del cloud no responde 200 (HTTP {r.status_code}).')
+        # 1) Warm-up del health: el Container App de staging escala a cero, asi
+        #    que la 1a request puede tardar ~60-90s. Reintentamos antes de fallar.
+        intentos = 6
+        ultimo = None
+        for i in range(1, intentos + 1):
+            try:
+                r = requests.get(self._url('/api/v1/health/'), timeout=self.timeout)
+                if r.status_code == 200:
+                    break
+                ultimo = f'HTTP {r.status_code}'
+            except requests.RequestException as exc:
+                ultimo = str(exc)
+            if i < intentos:
+                self.stdout.write(self.style.WARNING(
+                    f'  Cloud no responde aun ({ultimo}); despertando, '
+                    f'intento {i}/{intentos}...'
+                ))
+                time.sleep(5)
+        else:
+            raise CommandError(
+                f'No hay conexion al cloud ({self.cloud_url}) tras {intentos} intentos: {ultimo}'
+            )
 
         # 2) el token autentica y puede leer maestros
         try:
