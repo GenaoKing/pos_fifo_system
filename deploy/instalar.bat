@@ -102,10 +102,10 @@ if not exist "%PROJECT_DIR%\deploy\env_cliente.bat" (
     echo  *** IMPORTANTE ***
     echo  Se abrira el archivo de configuracion.
     echo  DEBE editar al menos:
-    echo    - DB_PASSWORD (contrasena para el usuario de la BD del POS)
-    echo    - INITIAL_SYSADMIN_PASSWORD (password temporal del primer SYSADMIN)
-    echo    - NEGOCIO_NOMBRE (nombre del negocio)
-    echo    - NEGOCIO_PRESET (tipo de negocio)
+    echo    - DB_PASSWORD: contrasena para el usuario de la BD del POS
+    echo    - INITIAL_SYSADMIN_PASSWORD: password temporal del primer SYSADMIN
+    echo    - NEGOCIO_NOMBRE: nombre del negocio
+    echo    - NEGOCIO_PRESET: tipo de negocio
     echo.
     echo  Guarde, cierre el Notepad, y presione una tecla para continuar.
     echo.
@@ -202,7 +202,7 @@ echo [FASE 5/10] Configurando base de datos...
 REM --- Obtener contrasena de postgres si no esta en env ---
 if "%PG_SUPERPASS%"=="" (
     echo   Se necesita la contrasena del usuario 'postgres' de PostgreSQL.
-    echo   (Es la que se definio al instalar PostgreSQL)
+    echo   Es la que se definio al instalar PostgreSQL.
     echo.
     set /p "PG_SUPERPASS=  Contrasena de postgres: "
     echo.
@@ -356,7 +356,8 @@ echo [FASE 10/10] Finalizando...
 REM --- Generar SECRET_KEY unica si no se ha cambiado ---
 if "%DJANGO_SECRET_KEY%"=="CAMBIAR-POR-KEY-UNICA-POR-INSTALACION" (
     echo   Generando SECRET_KEY unica...
-    for /f "delims=" %%k in ('python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"') do (
+    REM token_urlsafe -> solo [A-Za-z0-9-_]: no rompe cmd ni el -replace de PowerShell.
+    for /f "delims=" %%k in ('python -c "import secrets;print(secrets.token_urlsafe(48))"') do (
         set "NEW_KEY=%%k"
     )
 

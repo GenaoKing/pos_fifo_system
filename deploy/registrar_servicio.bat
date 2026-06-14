@@ -75,7 +75,7 @@ if exist "%NSSM_PATH%" (
     echo     nssm stop %SERVICE_NAME%       - Detener
     echo     nssm restart %SERVICE_NAME%    - Reiniciar
     echo     nssm status %SERVICE_NAME%     - Ver estado
-    echo     nssm edit %SERVICE_NAME%       - Editar config (GUI)
+    echo     nssm edit %SERVICE_NAME%       - Editar config en GUI
     echo     nssm remove %SERVICE_NAME%     - Eliminar servicio
 
     goto :fin

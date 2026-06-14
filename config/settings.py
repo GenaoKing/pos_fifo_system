@@ -297,6 +297,12 @@ ROLES_SISTEMA = {
 # CONFIGURACIÓN DE IMPRESORAS (hardware, configurable por instalación vía env)
 # ============================================================================
 
+# python-escpos solo acepta el pin 2 o 5 para el cajon; cualquier otro valor
+# lanza CashDrawerError. Validamos para no quedar nunca en un valor invalido.
+_THERMAL_CASH_DRAWER_PIN = int(os.environ.get('THERMAL_CASH_DRAWER_PIN', '2'))
+if _THERMAL_CASH_DRAWER_PIN not in (2, 5):
+    _THERMAL_CASH_DRAWER_PIN = 2
+
 THERMAL_PRINTER = {
     # Habilitación del sistema de impresión
     'ENABLED': os.environ.get('THERMAL_PRINTER_ENABLED', 'true').lower() == 'true',
@@ -318,7 +324,7 @@ THERMAL_PRINTER = {
 
     # Cajón de dinero
     'CASH_DRAWER': os.environ.get('THERMAL_CASH_DRAWER', 'true').lower() == 'true',
-    'CASH_DRAWER_PIN': int(os.environ.get('THERMAL_CASH_DRAWER_PIN', '0')),  # 0 = pin 2, 1 = pin 5
+    'CASH_DRAWER_PIN': _THERMAL_CASH_DRAWER_PIN,  # python-escpos solo acepta 2 o 5
 
     # Dimensiones del papel
     'PAPER_WIDTH': int(os.environ.get('THERMAL_PAPER_WIDTH', '48')),  # 80mm = 48 chars

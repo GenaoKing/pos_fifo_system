@@ -32,7 +32,7 @@ echo.
 REM --- Verificar administrador ---
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Ejecute como Administrador (click derecho - Ejecutar como administrador).
+    echo [ERROR] Ejecute como Administrador: clic derecho, Ejecutar como administrador.
     pause
     exit /b 1
 )
@@ -52,8 +52,8 @@ for %%I in ("%DST_DIR%") do set "DST_DIR=%%~fI"
 
 REM --- Validaciones de rutas ---
 if /i "%SRC_DIR%"=="%DST_DIR%" (
-    echo [ERROR] El paquete nuevo (STAGING) no puede ser la misma carpeta que el
-    echo         install vivo. Copielo a una carpeta aparte (ej: C:\pos_update).
+    echo [ERROR] El paquete nuevo STAGING no puede ser la misma carpeta que el
+    echo         install vivo. Copielo a una carpeta aparte, ej: C:\pos_update
     pause
     exit /b 1
 )
@@ -63,7 +63,7 @@ if not exist "%DST_DIR%\manage.py" (
     exit /b 1
 )
 if not exist "%DST_DIR%\deploy\env_cliente.bat" (
-    echo [ERROR] Falta "%DST_DIR%\deploy\env_cliente.bat" (config del cliente).
+    echo [ERROR] Falta "%DST_DIR%\deploy\env_cliente.bat" - config del cliente.
     echo         Si es una instalacion nueva use deploy\instalar.bat, no este script.
     pause
     exit /b 1
@@ -200,6 +200,8 @@ REM ============================================================================
 echo [FASE 7/8] Inicializando RBAC / modulos / sucursal (idempotente)...
 if "%NEGOCIO_NOMBRE%"=="" set "NEGOCIO_NOMBRE=Royal Plast"
 
+echo   - crear_sucursal (%SUCURSAL_CODIGO%)
+python manage.py crear_sucursal --codigo "%SUCURSAL_CODIGO%" --nombre "%NEGOCIO_NOMBRE%" --settings=config.settings_production
 echo   - bootstrap_negocio
 python manage.py bootstrap_negocio --nombre "%NEGOCIO_NOMBRE%" --settings=config.settings_production
 echo   - sync_permisos
@@ -208,8 +210,6 @@ echo   - bootstrap_suscripciones
 python manage.py bootstrap_suscripciones --settings=config.settings_production
 echo   - sync_modulos
 python manage.py sync_modulos --settings=config.settings_production
-echo   - crear_sucursal (%SUCURSAL_CODIGO%)
-python manage.py crear_sucursal --codigo "%SUCURSAL_CODIGO%" --nombre "%NEGOCIO_NOMBRE%" --settings=config.settings_production
 
 echo   Verificando el sistema...
 python manage.py check --settings=config.settings_production
@@ -221,7 +221,7 @@ REM ============================================================================
 echo [FASE 8/8] Reiniciando servicios...
 if exist "%NSSM_PATH%" (
     "%NSSM_PATH%" start POSFifoSystem >nul 2>&1
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo   [AVISO] No se pudo iniciar POSFifoSystem por NSSM.
         echo           Si aun no existe el servicio, ejecute deploy\registrar_servicio.bat
     ) else (
@@ -252,7 +252,7 @@ if /i not "%SYNC_ENABLED%"=="true" (
     echo  SYNC AUN NO ACTIVADO. Para encenderlo:
     echo    1. En el cloud: python manage.py vincular_sucursal_token --sucursal %SUCURSAL_CODIGO%
     echo    2. Edite deploy\env_cliente.bat: SYNC_ENABLED=true, CLOUD_API_URL, CLOUD_API_TOKEN
-    echo    3. Ejecute (admin): deploy\registrar_sync_servicio.bat
+    echo    3. Ejecute como admin: deploy\registrar_sync_servicio.bat
     echo    Ver: deploy\ACTUALIZACION_ROYAL_PLAST.md
 )
 echo.

@@ -873,7 +873,7 @@ function productosManager() {
             
             const response = await fetch(`/productos/${productoId}/subir-imagen/`, {
                 method: 'POST',
-                headers: jsonHeaders(),
+                headers: { 'X-CSRFToken': getCsrfToken() },
                 body: formData
             });
             

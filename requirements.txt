@@ -16,6 +16,8 @@ reportlab>=4.0
 python-barcode>=0.15
 openpyxl>=3.1
 PyYAML>=6.0
+pytz>=2024.1
+qrcode>=7.4
 
 # Impresoras
 python-escpos>=3.0
@@ -26,5 +28,6 @@ pyserial>=3.5
 django-extensions>=4.0
 
 djangorestframework>=3.15.0
+djangorestframework-simplejwt>=5.5,<6.0
 
 requests>=2.31.0

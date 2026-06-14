@@ -32,7 +32,8 @@ set EXTRA_HOSTS=
 REM --- Django ---
 set DJANGO_SETTINGS_MODULE=config.settings_production
 set DJANGO_DEBUG=false
-set DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION
+REM Entrecomillada: evita que un &/(/) en la key parta el comando en cmd.
+set "DJANGO_SECRET_KEY=CAMBIAR-POR-KEY-UNICA-POR-INSTALACION"
 
 REM --- Usuario inicial ---
 set INITIAL_SYSADMIN_USERNAME=Santiago
@@ -40,8 +41,13 @@ set INITIAL_SYSADMIN_PASSWORD=CAMBIAR-PASSWORD-INICIAL-SYSADMIN
 
 REM --- Impresoras (nombre EXACTO de "Dispositivos e impresoras") ---
 REM Configurar DESPUES de instalar drivers. Dejar vacio hasta entonces.
+REM PRINTER_TERMICA/PRINTER_ZEBRA es la UNICA fuente del nombre; el mapeo de
+REM abajo las traduce a lo que la app realmente lee (THERMAL_PRINTER_NAME /
+REM ZEBRA_PRINTER_NAME). No editar el mapeo.
 set PRINTER_TERMICA=
 set PRINTER_ZEBRA=
+if defined PRINTER_TERMICA set "THERMAL_PRINTER_NAME=%PRINTER_TERMICA%"
+if defined PRINTER_ZEBRA set "ZEBRA_PRINTER_NAME=%PRINTER_ZEBRA%"
 
 REM --- Preset de negocio para configuracion inicial ---
 REM Opciones: plasticos, accesorios_auto, retail_general

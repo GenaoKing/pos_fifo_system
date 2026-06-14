@@ -121,8 +121,9 @@ def main():
         check('DEBUG = False', not settings.DEBUG,
               'DEBUG esta en True, use settings_production')
         check('SECRET_KEY configurada',
-              'CAMBIAR' not in settings.SECRET_KEY,
-              'Genere una SECRET_KEY unica')
+              'CAMBIAR' not in settings.SECRET_KEY and len(settings.SECRET_KEY) >= 32,
+              'SECRET_KEY ausente, default o muy corta (>=32). Revise que no este '
+              'truncada por un & sin comillas en env_cliente.bat')
         check('ALLOWED_HOSTS configurado',
               len(settings.ALLOWED_HOSTS) > 0,
               'Configure ALLOWED_HOSTS')
@@ -244,8 +245,10 @@ def main():
                 win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
             )]
 
-            termica = os.environ.get('PRINTER_TERMICA', '')
-            zebra = os.environ.get('PRINTER_ZEBRA', '')
+            # La app lee THERMAL_PRINTER_NAME/ZEBRA_PRINTER_NAME; PRINTER_* es la
+            # variable de cara al usuario que el .bat mapea a esas. Leer la efectiva.
+            termica = os.environ.get('THERMAL_PRINTER_NAME', '') or os.environ.get('PRINTER_TERMICA', '')
+            zebra = os.environ.get('ZEBRA_PRINTER_NAME', '') or os.environ.get('PRINTER_ZEBRA', '')
 
             if termica:
                 check(f'Impresora termica ({termica})',

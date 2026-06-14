@@ -1,3 +1,4 @@
+
 # Runbook — Actualización de Royal Plast (POS local) + activación de sync cloud
 
 Guía operativa para llevar la instalación existente de Royal Plast a la versión
@@ -109,21 +110,49 @@ El backup pre-update queda en `C:\pos_fifo_system\backups\..._PRE_UPDATE_*.dump`
 
 ---
 
-## 4. ⚠️ Reconciliación de datos inicial (decidir antes de encender el PULL)
+## 4. Bootstrap inicial del catálogo (local → cloud) — UNA sola vez
 
-- El **PULL** baja maestros **cloud → local** (`update_or_create`, no borra).
-- El **PUSH** sube solo **eventos nuevos** (ventas posteriores a `SYNC_ENABLED=true`);
-  **no** hace backfill del histórico.
-- El catálogo autoritativo de Royal Plast hoy vive **local**.
+> Hacerlo **antes** de encender el daemon de sync, y después de actualizar el POS.
 
-Opciones (confirmar con Santiago):
-- **A (recomendada):** exportar el catálogo local e importarlo al cloud primero; luego
-  encender el ciclo completo (push + pull).
-- **B:** arrancar con `--only-push` (solo subir ventas) hasta consolidar el catálogo
-  en el cloud, y recién ahí habilitar el pull.
+Contexto: el **PULL** baja maestros cloud → local; el **PUSH** del daemon solo sube
+ventas nuevas (no hace backfill). El catálogo autoritativo de Royal Plast hoy vive
+**local**, así que primero lo subimos al cloud con el comando `reconciliar_cloud`.
+Después de esto, el flujo correcto es el normal: **portal → local** (el cloud autora
+los maestros y la sucursal los baja).
 
-Para forzar solo-push temporalmente: `deploy\iniciar_sync.bat --only-push` (o ajustar
-el servicio). El daemon por defecto hace ciclo completo.
+### 4.1 En el CLOUD: token de un usuario SYSADMIN/ADMIN
+El push se autentica con un token DRF de un usuario **administrador** del cloud
+(no el token de sucursal, que es de solo lectura):
+```
+python manage.py crear_tokens_api --usuario <sysadmin>
+```
+Copia el token.
+
+### 4.2 En el LOCAL: correr el reconciliador
+```
+set CLOUD_ADMIN_TOKEN=<token-del-paso-4.1>
+:: 1) Ensayo (no escribe nada, muestra qué haría)
+python manage.py reconciliar_cloud --cloud-url https://<url-cloud-produccion> --dry-run
+:: 2) Aplicar (sube categorías, productos y clientes)
+python manage.py reconciliar_cloud --cloud-url https://<url-cloud-produccion>
+```
+Notas:
+- Es **idempotente**: por defecto solo crea lo que falta (clave natural:
+  categoría=nombre, producto=sku, cliente=cédula/nombre). Re-correrlo es seguro.
+- Con `--actualizar` además hace PATCH de lo que ya existe en el cloud.
+- Maneja el **throttling** del cloud automáticamente (espera y reintenta ante 429);
+  para un catálogo grande puede tardar varios minutos — es normal.
+- Omite lo que el portal no acepta y lo reporta: cliente CONTADO (genérico interno),
+  productos con precio ≤ 0, y productos cuya categoría no se pudo crear.
+- Si usas `--solo`, corre **categorías antes que productos** (la FK es obligatoria).
+
+### 4.3 Verificar
+Revisa el resumen por entidad (`creados/actualizados/ya_existian/omitidos/errores`)
+y, si hubo `omitidos`/`errores`, corrige esos registros en el POS local y vuelve a
+correr el comando (idempotente).
+
+Solo cuando el catálogo está en el cloud, continúa con el paso 3 (activar el daemon).
+A partir de ahí, edita los maestros **desde el portal**, no localmente.
 
 ---
 

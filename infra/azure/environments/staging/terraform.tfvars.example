@@ -10,7 +10,7 @@ location     = "canadacentral"
 # Tu suscripcion de estudiante/free puede limitar regiones. Canada Central fue
 # la region permitida para PostgreSQL y Container Apps en pruebas previas.
 observability_location  = null
-static_web_app_location = "canadacentral"
+static_web_app_location = "centralus"
 static_web_app_sku_tier = "Free"
 static_web_app_sku_size = "Free"
 
@@ -56,9 +56,9 @@ db_port           = "5432"
 db_sslmode        = "require"
 
 api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"
-api_cors_allowed_origins  = ""
-api_csrf_trusted_origins  = ""
-api_min_replicas          = 0
+api_cors_allowed_origins  = "http://localhost:5173,http://127.0.0.1:5173,https://salmon-rock-01cc45c10.7.azurestaticapps.net"
+api_csrf_trusted_origins  = "https://salmon-rock-01cc45c10.7.azurestaticapps.net"
+api_min_replicas          = 1
 api_max_replicas          = 1
 app_version               = "staging"
 git_commit_sha            = "unknown"

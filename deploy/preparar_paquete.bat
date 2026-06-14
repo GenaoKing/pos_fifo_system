@@ -19,6 +19,17 @@ set "PROJECT_DIR=%~dp0.."
 set "DIST_DIR=%PROJECT_DIR%\dist\pos_fifo_system"
 cd /d "%PROJECT_DIR%"
 
+REM --- Gate de validacion: no empaquetar un paquete invalido (lint .bat + check venv limpio) ---
+echo [0/5] Validando antes de empaquetar...
+call "%PROJECT_DIR%\scripts\validar_paquete.bat"
+if errorlevel 1 (
+    echo.
+    echo [ABORTADO] La validacion fallo. Corrige los errores y reintenta.
+    pause
+    exit /b 1
+)
+echo.
+
 REM --- Limpiar dist anterior ---
 if exist "%PROJECT_DIR%\dist" rmdir /s /q "%PROJECT_DIR%\dist"
 mkdir "%DIST_DIR%"

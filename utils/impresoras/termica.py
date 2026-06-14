@@ -48,13 +48,13 @@ def _get_negocio_config():
         'RNC': config.rnc or '',
         'PHONE': config.telefono or '',
         'ADDRESS': config.direccion or '',
-        'FOOTER_MESSAGE': config.texto_pie_ticket or 'Gracias por su compra',
+        'FOOTER_MESSAGE': getattr(config, 'texto_pie_ticket', None) or 'Gracias por su compra',
         'FOOTER_LINE2': '',
         'WHATSAPP': config.telefono or '',
         'INSTAGRAM': '',
         'FACEBOOK': '',
         'LOGO_PATH': config.logo.path if config.logo else None,
-        'LOGO_ENABLED': config.imprimir_logo_ticket,
+        'LOGO_ENABLED': getattr(config, 'imprimir_logo_ticket', True),
     }
 
 

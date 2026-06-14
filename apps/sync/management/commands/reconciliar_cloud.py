@@ -32,6 +32,7 @@ Si no se pasa --cloud-url se usa settings.CLOUD_API_URL.
 Si no se pasa --token se usa la env var CLOUD_ADMIN_TOKEN.
 """
 import os
+import time
 from decimal import Decimal
 
 import requests
@@ -91,6 +92,10 @@ class Command(BaseCommand):
         self.dry_run = opts['dry_run']
         self.limit = opts['limit']
         self.timeout = getattr(settings, 'SYNC_HTTP_TIMEOUT', 10)
+        # La API de maestros aplica throttling (scope 'maestros', ~60/min).
+        # Un catalogo grande supera ese ritmo, asi que reintentamos ante 429
+        # respetando Retry-After. Es un bootstrap unico: la lentitud no importa.
+        self.max_429_retries = 8
 
         if not self.cloud_url:
             raise CommandError(
@@ -154,6 +159,42 @@ class Command(BaseCommand):
     def _url(self, path):
         return f"{self.cloud_url}/{path.lstrip('/')}"
 
+    def _retry_after(self, resp):
+        """Segundos a esperar ante un 429. Usa el header Retry-After si viene;
+        si no, un default conservador. Capado para no colgarse demasiado."""
+        raw = resp.headers.get('Retry-After')
+        segundos = None
+        if raw:
+            try:
+                segundos = int(float(raw))
+            except (TypeError, ValueError):
+                segundos = None
+        if segundos is None:
+            segundos = 10
+        return max(1, min(segundos + 1, 65))
+
+    def _request(self, method, url, **kwargs):
+        """HTTP con reintento automatico ante 429 (throttling). Convierte
+        errores de red en _CloudError para que un fallo puntual no tumbe todo."""
+        kwargs.setdefault('timeout', self.timeout)
+        kwargs.setdefault('headers', self._headers)
+        intentos = 0
+        while True:
+            try:
+                resp = requests.request(method, url, **kwargs)
+            except requests.RequestException as exc:
+                raise _CloudError(f'red: {exc}')
+            if resp.status_code == 429 and intentos < self.max_429_retries:
+                intentos += 1
+                espera = self._retry_after(resp)
+                self.stdout.write(self.style.WARNING(
+                    f'  throttled (429); esperando {espera}s y reintentando '
+                    f'({intentos}/{self.max_429_retries})...'
+                ))
+                time.sleep(espera)
+                continue
+            return resp
+
     def _preflight(self):
         # 1) health publico
         try:
@@ -185,13 +226,8 @@ class Command(BaseCommand):
         """GET endpoint?search=... y devuelve el primer item para el que
         match(item) sea True, o None. `match` recibe el dict del item."""
         try:
-            r = requests.get(
-                self._url(endpoint),
-                params={'search': search},
-                headers=self._headers,
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
+            r = self._request('GET', self._url(endpoint), params={'search': search})
+        except _CloudError as exc:
             self.stderr.write(self.style.WARNING(f'  busqueda fallo ({search}): {exc}'))
             return None
         if r.status_code >= 400:
@@ -208,21 +244,18 @@ class Command(BaseCommand):
 
     def _crear(self, endpoint, body):
         if self.dry_run:
-            return {'id': None, '_dry': True}
-        r = requests.post(
-            self._url(endpoint), json=body, headers=self._headers, timeout=self.timeout,
-        )
+            # id centinela truthy: permite que productos resuelvan la categoria
+            # (que se "crearia") sin escribir nada.
+            return {'id': '(dry)'}
+        r = self._request('POST', self._url(endpoint), json=body)
         if r.status_code >= 400:
             raise _CloudError(f'HTTP {r.status_code}: {r.text[:300]}')
         return r.json()
 
     def _actualizar_remoto(self, endpoint, item_id, body):
         if self.dry_run:
-            return {'id': item_id, '_dry': True}
-        r = requests.patch(
-            self._url(f'{endpoint}{item_id}/'),
-            json=body, headers=self._headers, timeout=self.timeout,
-        )
+            return {'id': item_id}
+        r = self._request('PATCH', self._url(f'{endpoint}{item_id}/'), json=body)
         if r.status_code >= 400:
             raise _CloudError(f'HTTP {r.status_code}: {r.text[:300]}')
         return r.json()

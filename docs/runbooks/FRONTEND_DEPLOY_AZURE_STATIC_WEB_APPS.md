@@ -19,8 +19,11 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
   (`posfifo-dev-portal-swa`, RG `posfifo-dev-frontend-rg`, Free, branch
   `develop`).
 - CORS dev aplicado para el origen ASWA dev.
-- Pendiente: redeployar ASWA con `VITE_API_URL` en el workflow para que el
-  bundle apunte al backend dev.
+- ASWA staging creado el 2026-06-13:
+  `https://salmon-rock-01cc45c10.7.azurestaticapps.net`
+  (`posfifo-staging-portal-swa`, RG `posfifo-staging-frontend-rg`, Free,
+  workflow en branch `main`).
+- CORS staging aplicado para el origen ASWA staging.
 
 ## Modelo mental
 
@@ -146,6 +149,60 @@ VITE_API_URL_STAGING=https://posfifo-staging-api.calmflower-b43e72c3.canadacentr
 ASWA normalmente crea un secret/token de deploy. Si lo crea el portal, no
 renombrarlo sin actualizar el workflow.
 
+Nota importante: `Azure/static-web-apps-deploy@v1` no acepta
+`github_id_token`. Para estos ASWA el contrato usado es deployment token:
+
+```yaml
+with:
+  azure_static_web_apps_api_token: ${{ secrets.NOMBRE_DEL_SECRET }}
+  action: "upload"
+  app_location: "/"
+  api_location: ""
+  output_location: "dist"
+  app_build_command: "npm run build"
+```
+
+Si el workflow muestra `Unexpected input(s) 'github_id_token'`, eliminar ese
+input y el paso que obtiene el GitHub Id Token.
+
+Staging temporal Royal Plast:
+
+- Workflow: `.github/workflows/azure-static-web-apps-salmon-rock-01cc45c10.yml`
+  en `pos-cloud-dashboard`.
+- Branch: `main`.
+- API horneada en build desde GitHub Actions Variable:
+  `VITE_API_URL_STAGING`.
+- Secret requerido en GitHub Actions:
+  `AZURE_STATIC_WEB_APPS_API_TOKEN_SALMON_ROCK_01CC45C10`.
+
+Para obtener el deployment token desde Azure CLI:
+
+```powershell
+az staticwebapp secrets list `
+  --name posfifo-staging-portal-swa `
+  --resource-group posfifo-staging-frontend-rg `
+  --query "properties.apiKey" `
+  --output tsv
+```
+
+Crear el secret en GitHub:
+
+```text
+Repo pos-cloud-dashboard
+Settings -> Secrets and variables -> Actions -> New repository secret
+Name: AZURE_STATIC_WEB_APPS_API_TOKEN_SALMON_ROCK_01CC45C10
+Value: salida del comando az staticwebapp secrets list
+```
+
+Crear la variable no secreta:
+
+```text
+Repo pos-cloud-dashboard
+Settings -> Secrets and variables -> Actions -> Variables -> New repository variable
+Name: VITE_API_URL_STAGING
+Value: https://posfifo-staging-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
+```
+
 ## Node/Oryx
 
 `pos-cloud-dashboard/package.json` declara:
@@ -182,6 +239,21 @@ https://agreeable-moss-051bc0010.7.azurestaticapps.net
 
 Ya fue agregado a `infra/azure/environments/dev/terraform.tfvars` y aplicado
 con Terraform el 2026-06-13.
+
+Staging actual:
+
+```text
+https://salmon-rock-01cc45c10.7.azurestaticapps.net
+```
+
+Fue agregado directamente a Container Apps staging el 2026-06-13 para habilitar
+el portal temporal. Reflejar tambien en
+`infra/azure/environments/staging/terraform.tfvars` para evitar drift:
+
+```hcl
+api_cors_allowed_origins = "http://localhost:5173,http://127.0.0.1:5173,https://salmon-rock-01cc45c10.7.azurestaticapps.net"
+api_csrf_trusted_origins = "https://salmon-rock-01cc45c10.7.azurestaticapps.net"
+```
 
 Ambientes:
 
