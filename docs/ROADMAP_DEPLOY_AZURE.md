@@ -482,16 +482,19 @@ DoD:
 
 Objetivo: preparar el salto de "portal por cliente" a plataforma.
 
-- [ ] Decidir estrategia tenant:
-  - deploy por cliente al inicio
-  - `django-tenants` cuando haya 2+ clientes pagos o necesidad real
+- [x] Decidir estrategia tenant:
+  - **DB-per-tenant** como solucion global aprobada.
+  - Un control plane global + una base PostgreSQL por tenant en un servidor compartido.
+  - Fuente viva: `docs/TENANCY_DB_PER_TENANT.md`.
 - [ ] Separar variables por cliente/ambiente.
 - [ ] Definir naming convention:
   - `posfifo-dev-*`
   - `posfifo-stg-*`
   - `posfifo-prod-*`
 - [ ] Definir estrategia de dominios por cliente.
-- [ ] Definir migraciones por tenant.
+- [ ] Definir migraciones por tenant:
+  - `migrate` control plane una vez.
+  - `migrate_tenants` iterando BDs tenant.
 
 **Frontend multi-tenant — recomendación (seam ya listo):**
 

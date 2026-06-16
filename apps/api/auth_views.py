@@ -1,34 +1,20 @@
-"""
-apps/api/auth_views.py
-Views de autenticación JWT para el portal administrativo cloud (Fase 5).
-
-PortalTokenObtainPairView:
-    Login del portal. Extiende el flujo default de SimpleJWT con:
-    1. Chequeo explícito de Usuario.activo (porque el modelo usa 'activo'
-       y no 'is_active'; el ModelBackend de Django no lo bloquea solo).
-    2. Bloqueo de rol CAJERA (el portal cloud es admin-only).
-    3. Claims custom en el JWT (username, rol, tenant_id placeholder).
-    4. Bloque 'user' en la respuesta del login para hidratar el contexto
-       del frontend sin un /me extra en el primer render.
-
-perfil_actual:
-    GET /me/ — el frontend lo llama tras un refresh o reload para
-    reconstruir el contexto de sesión.
-"""
+from django.contrib.auth import get_user_model
 from django.utils import timezone
-from rest_framework import serializers
+from rest_framework import serializers, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from apps.tenancy.context import tenant_context, tenancy_enabled
+from apps.tenancy.models import Identity, Membership, Tenant
 
 
-class PortalTokenObtainPairSerializer(TokenObtainPairSerializer):
-
+class LegacyPortalTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
-        """Claims que viajan dentro del JWT firmado."""
         token = super().get_token(user)
         token['username'] = user.username
         token['rol'] = getattr(user, 'rol', None)
@@ -37,64 +23,203 @@ class PortalTokenObtainPairSerializer(TokenObtainPairSerializer):
             if hasattr(user, 'get_full_name')
             else user.username
         )
-
-        # TENANCY: el claim lleva el slug del Negocio (tenant) del usuario.
-        # Null para usuarios globales (ej. SYSADMIN sin negocio asignado).
         token['tenant_id'] = user.negocio.slug if getattr(user, 'negocio_id', None) else None
         return token
 
     def validate(self, attrs):
-        # super().validate() ejecuta authenticate() y popula self.user
         data = super().validate(attrs)
-
-        # 1. Bloqueo explícito de usuarios inactivos.
-        # El modelo Usuario usa 'activo' (no 'is_active'), así que el
-        # ModelBackend de Django NO lo bloquea por default.
-        if not getattr(self.user, 'activo', True):
-            raise serializers.ValidationError(
-                {'detail': 'Usuario inactivo. Contacte al administrador.'},
-                code='usuario_inactivo',
-            )
-
-        # 2. Solo SYSADMIN y ADMIN entran al portal cloud.
-        rol = getattr(self.user, 'rol', None)
-        if rol not in ('SYSADMIN', 'ADMIN'):
-            raise serializers.ValidationError(
-                {'detail': 'Solo administradores pueden acceder al portal cloud.'},
-                code='rol_no_autorizado',
-            )
-
-        # 3. Tocar último_acceso (best-effort; no crítico).
-        if hasattr(self.user, 'ultimo_acceso'):
-            self.user.ultimo_acceso = timezone.now()
-            self.user.save(update_fields=['ultimo_acceso'])
-
-        # 4. Adjuntar perfil para el primer render del portal.
+        _validar_usuario_portal(self.user)
+        _touch_user(self.user)
         data['user'] = _user_payload(self.user)
         return data
 
 
-class PortalTokenObtainPairView(TokenObtainPairView):
-    """Login del portal cloud."""
-    serializer_class = PortalTokenObtainPairSerializer
+class TenantPortalLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(trim_whitespace=False)
+
+    def validate(self, attrs):
+        email = attrs['email'].strip().lower()
+        password = attrs['password']
+
+        identity = Identity.objects.using('default').filter(email__iexact=email).first()
+        if identity is None or not identity.check_password(password):
+            raise serializers.ValidationError({'detail': 'Credenciales invalidas.'})
+        if not identity.activo:
+            raise serializers.ValidationError({'detail': 'Identity inactiva.'})
+
+        memberships = list(
+            Membership.objects.using('default')
+            .select_related('tenant')
+            .filter(identity=identity, activo=True, tenant__activo=True)
+        )
+
+        if identity.is_global and not memberships:
+            return _global_token_payload(identity)
+
+        if len(memberships) != 1:
+            raise serializers.ValidationError(
+                {'detail': 'El MVP requiere exactamente un tenant activo para login.'}
+            )
+
+        membership = memberships[0]
+        tenant = membership.tenant
+        with tenant_context(tenant):
+            User = get_user_model()
+            user = User.objects.filter(username=membership.username).first()
+            if user is None:
+                raise serializers.ValidationError(
+                    {'detail': 'Usuario operativo no existe en la base del tenant.'}
+                )
+            _validar_usuario_portal(user)
+            _touch_user(user)
+            payload = _tenant_token_payload(identity, tenant, user)
+
+        identity.ultimo_acceso = timezone.now()
+        identity.save(update_fields=['ultimo_acceso'])
+        return payload
+
+
+class PortalTokenObtainPairView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        serializer_class = (
+            TenantPortalLoginSerializer
+            if tenancy_enabled()
+            else LegacyPortalTokenObtainPairSerializer
+        )
+        serializer = serializer_class(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def impersonar_tenant(request):
+    """SYSADMIN global -> JWT scoped to one tenant."""
+    if not getattr(request.user, 'is_global_identity', False):
+        return Response({'detail': 'Solo una Identity global puede impersonar.'}, status=403)
+
+    tenant_key = (request.data.get('tenant_key') or request.data.get('tenant') or '').strip()
+    username = (request.data.get('username') or '').strip()
+    if not tenant_key:
+        return Response({'detail': 'tenant_key es requerido.'}, status=400)
+
+    tenant = Tenant.objects.using('default').filter(tenant_key=tenant_key, activo=True).first()
+    if tenant is None:
+        return Response({'detail': 'Tenant inactivo o inexistente.'}, status=404)
+
+    with tenant_context(tenant):
+        User = get_user_model()
+        qs = User.objects.filter(activo=True)
+        if username:
+            user = qs.filter(username=username).first()
+        else:
+            user = qs.filter(rol__in=('ADMIN', 'SYSADMIN')).order_by('id').first()
+        if user is None:
+            return Response({'detail': 'No hay usuario operativo activo para impersonar.'}, status=400)
+        payload = _tenant_token_payload(request.user.identity, tenant, user)
+
+    return Response(payload)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def perfil_actual(request):
-    """GET /api/v1/auth/me/ — perfil del usuario autenticado por JWT."""
     return Response(_user_payload(request.user))
 
 
-def _user_payload(user):
-    """Forma canónica del usuario para el frontend. Centralizada para
-    que login y /me/ devuelvan exactamente la misma shape.
+def _tenant_token_payload(identity, tenant, user):
+    user.tenant_key = tenant.tenant_key
+    user.identity_id = identity.pk
+    refresh = RefreshToken.for_user(user)
+    _add_tenant_claims(refresh, identity, tenant, user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+        'user': _user_payload(user),
+    }
 
-    Incluye `permisos` (codigos efectivos del catalogo) y `modulos` (keys de
-    modulos activos en el plan del negocio) para que el frontend refleje lo que
-    el backend concede, y `negocio` (tenant) para el contexto. El enforcement
-    real vive server-side; esto es para UX.
-    """
+
+def _global_token_payload(identity):
+    refresh = RefreshToken()
+    refresh['identity_id'] = identity.pk
+    refresh['is_global'] = True
+    refresh['email'] = identity.email
+    refresh['rol'] = 'SYSADMIN'
+    identity.ultimo_acceso = timezone.now()
+    identity.save(update_fields=['ultimo_acceso'])
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+        'user': {
+            'id': identity.pk,
+            'username': identity.email,
+            'email': identity.email,
+            'full_name': identity.nombre or identity.email,
+            'rol': 'SYSADMIN',
+            'negocio': None,
+            'tenant_id': None,
+            'permisos': [],
+            'modulos': [],
+            'is_global': True,
+        },
+    }
+
+
+def _add_tenant_claims(token, identity, tenant, user):
+    token['identity_id'] = identity.pk
+    token['tenant_key'] = tenant.tenant_key
+    token['tenant_id'] = tenant.tenant_key
+    token['username'] = user.username
+    token['rol'] = getattr(user, 'rol', None)
+    token['full_name'] = (
+        user.get_full_name()
+        if hasattr(user, 'get_full_name')
+        else user.username
+    )
+
+
+def _validar_usuario_portal(user):
+    if not getattr(user, 'activo', True):
+        raise serializers.ValidationError(
+            {'detail': 'Usuario inactivo. Contacte al administrador.'},
+            code='usuario_inactivo',
+        )
+
+    rol = getattr(user, 'rol', None)
+    if rol not in ('SYSADMIN', 'ADMIN'):
+        raise serializers.ValidationError(
+            {'detail': 'Solo administradores pueden acceder al portal cloud.'},
+            code='rol_no_autorizado',
+        )
+
+
+def _touch_user(user):
+    if hasattr(user, 'ultimo_acceso'):
+        user.ultimo_acceso = timezone.now()
+        user.save(update_fields=['ultimo_acceso'])
+
+
+def _user_payload(user):
+    if getattr(user, 'is_global_identity', False):
+        return {
+            'id': user.pk,
+            'username': user.username,
+            'email': user.email,
+            'first_name': '',
+            'last_name': '',
+            'full_name': user.get_full_name(),
+            'rol': 'SYSADMIN',
+            'negocio': None,
+            'tenant_id': None,
+            'permisos': [],
+            'modulos': [],
+            'is_global': True,
+        }
+
     from apps.permisos.engine import permisos_de_usuario
     from apps.suscripciones.engine import modulos_negocio
 
@@ -106,6 +231,10 @@ def _user_payload(user):
             'slug': negocio.slug,
             'nombre': negocio.nombre,
         }
+
+    tenant_id = getattr(user, 'tenant_key', None)
+    if tenant_id is None and negocio is not None:
+        tenant_id = negocio.slug
 
     return {
         'id': user.id,
@@ -120,7 +249,7 @@ def _user_payload(user):
         ),
         'rol': getattr(user, 'rol', None),
         'negocio': negocio_payload,
-        'tenant_id': negocio.slug if negocio is not None else None,
+        'tenant_id': tenant_id,
         'permisos': sorted(permisos_de_usuario(user)),
         'modulos': sorted(modulos_negocio(negocio)),
     }

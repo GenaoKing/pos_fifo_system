@@ -539,7 +539,7 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 1. **Tokens en memoria vs `sessionStorage` para el refresh.** Roadmap original dice "memory only". Implicación: cada reload obliga a re-login. ¿Aceptable o usamos `sessionStorage` (se borra al cerrar la tab) como compromiso?
 2. **App Service vs Container Apps.** Decidido: Docker + Azure Container Apps como arquitectura objetivo; App Service Linux sin Docker queda como plan B para demo rapida.
 3. **WebSocket vs polling.** TanStack Query con `refetchInterval: 30000` cubre el 90% de los casos. WebSocket sería overkill.
-4. **Cuándo introducir `django-tenants`.** No bloquea Fase 5 — los hooks `TENANCY` ya están dispuestos. Detonante natural: segundo cliente pagando.
+4. **Tenancy cloud.** Decision actual: DB-per-tenant, no `django-tenants`. No bloquea Fase 5, pero SK Performance no debe entrar al cloud hasta que el control plane + una DB por tenant este implementado. Fuente viva: `docs/TENANCY_DB_PER_TENANT.md`.
 5. **Mobile-responsive: prioridad.** Si los dueños usan móvil mucho → desde F4. Si solo PC en oficina → diferir a 5.G.
 6. **i18n.** Probablemente no en esta fase (todos los clientes son DO, español).
 7. **Comparativos multi-sucursal.** RESUELTO 2026-06-12: `/comparativo` habilitado en el portal (sub-fase 5.B / F5) con gate por permiso `reportes.consolidado.ver`. Queda el smoke contra API desplegada como el resto de pantallas.
@@ -552,7 +552,7 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 1. **Performance del sync engine con N sucursales.** Cuando lleguemos a 10+ sucursales, la cola `EventoSync` puede crecer. Mitigación: índices (5.G) + monitoreo desde el mismo portal (ya en 5.A).
 2. **Drift entre POS local y cloud cuando una sucursal está offline mucho.** El semáforo amarillo/rojo lo comunica al owner.
 3. **Costos de Azure post free-tier.** Hoy todo está cubierto por cuenta de estudiante. Calcular plan de costos antes de que expire.
-4. **Maintenance burden pre-tenancy.** Cada cliente = un deploy separado del cloud collector hasta que entre `django-tenants`. Soportable hasta 3–4 clientes; doloroso desde el 5°.
+4. **Maintenance burden pre-tenancy.** Cada cliente no debe ser un deploy separado. La ruta aprobada es un backend compartido con control plane + DB por tenant. Hasta implementarlo, evitar subir nuevos clientes reales al cloud.
 5. **Falla del refresh interceptor en F2.** Si el flujo de refresh tiene un bug sutil, la UX se vuelve horrible (logout cada 30 min sin razón). Cubrir con tests específicos en 5.G.
 
 ---
@@ -562,7 +562,7 @@ Estas tareas pueden tocar varios pasos, pero conviene tenerlas listadas.
 - App móvil nativa (React Native u otra) — está en el roadmap del producto, no en Fase 5
 - Gestión de cola e-CF desde el portal (monitoreo de errores DGII, reintentos)
 - IA para escaneo de facturas de compra (modelo evaluado, no implementado)
-- Implementación real de `django-tenants` con schema-per-cliente
+- Implementación real de DB-per-tenant con control plane global
 - Catálogo de vehículos / VIN decoder para SK Performance
 - Gestión de financiación cooperativa desde portal (hoy solo se usa en sucursal)
 

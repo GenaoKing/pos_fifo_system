@@ -19,7 +19,13 @@ Con esto, un mismo endpoint puede aceptar ambos:
 
 La permission class EsSucursalAutenticada decide cual es aceptable.
 """
-from rest_framework.authentication import TokenAuthentication
+from django.utils import timezone
+from rest_framework.authentication import TokenAuthentication, get_authorization_header
+from rest_framework.exceptions import AuthenticationFailed
+
+from apps.tenancy.context import set_current_tenant, tenancy_enabled
+from apps.tenancy.models import SyncToken
+from apps.tenancy.registry import configure_tenant_database
 
 
 class SucursalTokenAuthentication(TokenAuthentication):
@@ -32,19 +38,70 @@ class SucursalTokenAuthentication(TokenAuthentication):
     """
     keyword = 'Token'
 
+    def authenticate(self, request):
+        if not tenancy_enabled():
+            return super().authenticate(request)
+
+        auth = get_authorization_header(request).split()
+        if not auth or auth[0].lower() != self.keyword.lower().encode():
+            return None
+
+        if len(auth) == 1:
+            raise AuthenticationFailed('Credenciales de token no provistas.')
+        if len(auth) > 2:
+            raise AuthenticationFailed('Token invalido. No debe contener espacios.')
+
+        try:
+            key = auth[1].decode()
+        except UnicodeError:
+            raise AuthenticationFailed('Token invalido.')
+
+        return self.authenticate_credentials_for_tenant(key, request)
+
+    def authenticate_credentials_for_tenant(self, key, request):
+        token_hash = SyncToken.hash_token(key)
+        sync_token = (
+            SyncToken.objects.using('default')
+            .select_related('tenant')
+            .filter(token_hash=token_hash, activo=True, tenant__activo=True)
+            .first()
+        )
+        if sync_token is None:
+            raise AuthenticationFailed('Token de sucursal invalido o revocado.')
+
+        tenant, alias = configure_tenant_database(sync_token.tenant)
+        tokens = set_current_tenant(tenant.tenant_key, alias)
+        request._tenant_context_tokens = tokens
+
+        user, token = super().authenticate_credentials(key)
+        token.tenant_key = tenant.tenant_key
+        token.sucursal_codigo = sync_token.sucursal_codigo
+
+        sync_token.ultimo_uso = timezone.now()
+        sync_token.save(update_fields=['ultimo_uso'])
+
+        return self._attach_sucursal(user, token, expected_codigo=sync_token.sucursal_codigo)
+
     def authenticate_credentials(self, key):
         # Resolver usuario via TokenAuthentication estandar de DRF
         user, token = super().authenticate_credentials(key)
+
+        return self._attach_sucursal(user, token)
+
+    def _attach_sucursal(self, user, token, expected_codigo=None):
 
         # Intentar encontrar la sucursal cuyo usuario_servicio es este user
         sucursal = None
         try:
             # Importacion diferida: evita circular imports al cargar DRF
             from apps.sucursales.models import Sucursal
-            sucursal = Sucursal.objects.filter(
+            qs = Sucursal.objects.filter(
                 usuario_servicio=user,
                 activa=True,
-            ).first()
+            )
+            if expected_codigo:
+                qs = qs.filter(codigo=expected_codigo)
+            sucursal = qs.first()
         except Exception:
             # Si el campo usuario_servicio no existe aun (migracion pendiente),
             # no rompas - simplemente deja sucursal en None.

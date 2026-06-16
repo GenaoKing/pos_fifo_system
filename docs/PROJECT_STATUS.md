@@ -21,8 +21,10 @@ bitacoras y exploraciones viven en subcarpetas.
 | --- | --- | --- | --- |
 | Vision/producto | En progreso | `VISION_PRODUCTO_2026.md` | Elegir la proxima apuesta de producto luego de cerrar deploy dev/staging. |
 | POS local | MVP funcional en produccion local | `ROADMAP_CLOUD.md` | Limpiar usos legacy de settings y hacer smoke operativo final. |
+| Deploy POS local | Update in-place + gate de validacion | `DEPLOY_POS_LOCAL.md` | Bootstrap real de catalogo y encender sync de Royal Plast; rotar SECRET_KEY. |
 | Portal cloud | MVP funcional parcial | `ROADMAP_PORTAL.md` | ASWA dev existe; redeployar workflow con `VITE_API_URL` y hacer smoke de login publicado. |
 | Deploy Azure backend | MVP dev funcional | `ROADMAP_DEPLOY_AZURE.md` | Crear `staging` con remote state propio y roles menos amplios. |
+| Tenancy cloud | Decision tomada | `TENANCY_DB_PER_TENANT.md` | Implementar control plane + DB por tenant; Royal Plast primero, SK bloqueado hasta cerrar contrato. |
 | Terraform/Azure | Dev funcional con state remoto | `ROADMAP_DEPLOY_AZURE.md` + `docs/runbooks/TERRAFORM_*` | Scaffold de `staging`; no crear prod hasta validar staging. |
 | RBAC/permisos | En progreso avanzado | `RBAC_PERMISOS.md` | Completar cutover POS local y enforcement/gating pendiente. |
 | Modulos vendibles | Fundacion implementada | `ARQUITECTURA_MODULOS.md` | Fases 2-4: enforcement, admin/React y hooks de datos bloqueantes. |
@@ -126,6 +128,7 @@ Siguiente foco:
 - `PROJECT_STATUS.md`
 - `VISION_PRODUCTO_2026.md`
 - `ROADMAP_CLOUD.md`
+- `DEPLOY_POS_LOCAL.md`
 - `ROADMAP_PORTAL.md`
 - `ROADMAP_DEPLOY_AZURE.md`
 - `ROADMAP_ECF_FASE_INICIAL.md`
@@ -134,6 +137,7 @@ Siguiente foco:
 - `ARQUITECTURA_MODULOS.md`
 - `TESTING.md`
 - `BUGS.md`
+- `TENANCY_DB_PER_TENANT.md`
 
 ### Runbooks operativos
 

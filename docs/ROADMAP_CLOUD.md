@@ -288,7 +288,7 @@ GET /api/v1/reportes/inventario-consolidado/?categoria=&bajo_stock=&activo=
 | Fase 4 - Sync engine | MVP implementado | `EventoSync`, `VersionMaestro`, `SyncEngine`, `sincronizar`, `push_eventos`, `pull_maestros`, handlers cloud de ventas/CxC/anulaciones. | Proxy de escrituras locales de maestros hacia cloud, heartbeat/liveness explícito, `INVENTARIO_SNAPSHOT` real y operación como servicio. |
 | Fase 5 - Portal cloud | MVP parcial | Backend API listo; portal React reportado en `ROADMAP_PORTAL.md` con dashboard, maestros, reportes, inventario y CxC read-only. | Deploy frontend ASWA bloqueado/no aplicado, smoke E2E cloud, `/comparativo` y endurecimiento final. |
 | Fase 6 - Producción multi-sucursal | Pendiente | Base técnica existe en dev. | Staging, piloto segunda sucursal, instalador multi-sucursal, jobs operativos, rollback y monitoreo. |
-| Fase 7+ - SaaS/futuro | En progreso | **RBAC data-driven** (`docs/RBAC_PERMISOS.md`) y **módulos/suscripciones vendibles** (`docs/ARQUITECTURA_MODULOS.md`) **implementados** (motor + API + portal + POS local); deploy Docker/ACA en marcha. | Producción, **multi-tenant real con `django-tenants`** (hoy row-level por `negocio`), aislamiento de datos por tenant, dominios, **billing/pasarela de pago** (hoy entitlements manuales) y producto móvil/IA. |
+| Fase 7+ - SaaS/futuro | En progreso | **RBAC data-driven** (`docs/RBAC_PERMISOS.md`) y **módulos/suscripciones vendibles** (`docs/ARQUITECTURA_MODULOS.md`) **implementados** (motor + API + portal + POS local); deploy Docker/ACA en marcha; tenancy definido como **DB-per-tenant** (`docs/TENANCY_DB_PER_TENANT.md`). | Producción, implementar control plane + una DB por tenant, dominios, **billing/pasarela de pago** (hoy entitlements manuales) y producto móvil/IA. |
 
 ### FASE 0 — Completar sistema local (prioridad inmediata)
 > Estado 2026-06-09: mayormente cerrado. Queda limpieza legacy de settings y
@@ -644,7 +644,7 @@ pos-cloud-dashboard/
 - Cada sucursal con su propio RNC + certificado .p12
 
 **SaaS multi-tenant**
-- `django-tenants` con schema-per-tenant en PostgreSQL
+- DB-per-tenant en PostgreSQL: control plane global + una base por empresa cliente
 - Cada "empresa" (Royal Plast, Auto Parts, etc.) es un tenant
 - Portal de administración central
 - Deployment: Docker → Azure Container Apps

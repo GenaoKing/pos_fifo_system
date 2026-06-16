@@ -38,7 +38,7 @@ Usuario.rol      (enum legacy, informativo — ver §10)
 
 | Modelo | Archivo | Rol |
 |---|---|---|
-| `Negocio` | `apps/negocios/models.py` | Tenant. Agrupa N sucursales. `slug` único (futuro `schema_name` de django-tenants). |
+| `Negocio` | `apps/negocios/models.py` | Tenant lógico actual. Agrupa N sucursales. En DB-per-tenant evoluciona hacia registro del control plane con `tenant_key` estable. |
 | `Permiso` | `apps/permisos/models.py` | Catálogo **global** de acciones (`codigo`, ej. `clientes.crear`). Lo que *se puede* controlar. |
 | `Rol` | `apps/permisos/models.py` | Rol **por negocio** (`unique_together (negocio, slug)`). `es_sistema` protege los default. M2M `permisos`. |
 | `AsignacionRol` | `apps/permisos/models.py` | Une `usuario`→`rol`, opcional `sucursal` (null = todas las del negocio). `activo` permite **soft-delete** y `fecha_modificacion` (`auto_now`) es el cursor del sync de asignaciones (§7.1, §10). |
@@ -209,19 +209,24 @@ selectores de la pantalla de asignación (la gestión de usuarios vive fuera de 
 
 ---
 
-## 8. Multitenancy y futuro `django-tenants`
+## 8. Multitenancy y DB-per-tenant
 
-Hoy es **row-level** (FK `negocio`). Es el **puente** hacia schema-per-tenant:
+Hoy es **row-level** (FK `negocio`). La decision cloud actual es
+**DB-per-tenant**: control plane global + una base PostgreSQL por tenant. Fuente
+viva: `docs/TENANCY_DB_PER_TENANT.md`.
+
+Esto cambia el objetivo futuro:
 - **`negocio_actual(request)` es el único punto de resolución de tenant.** Úsalo siempre.
-  Con django-tenants pasa a significar "el schema actual" (lo fija un middleware) y los
-  filtros `negocio=...` desaparecen en un solo lugar.
-- `Permiso` → futuro `SHARED_APPS`; `Rol`/`AsignacionRol` → `TENANT_APPS`. La FK `Rol.negocio`
-  es lo único que se vuelve redundante (trivial de quitar).
-- `Negocio.slug` es el candidato natural a modelo tenant (slug → `schema_name`).
+  Con DB-per-tenant pasa a significar "el tenant/BD activa" y debe fallar rapido
+  si se consulta data operativa sin tenant activo.
+- `Permiso`, catalogo de modulos, planes y memberships viven en el control plane.
+- `Rol`/`AsignacionRol` y usuarios operativos viven en la BD del tenant.
+- `Negocio.slug` deja de ser `schema_name`; el identificador tecnico estable es
+  `tenant_key` y la BD se nombra `tnt_<tenant_key>`.
 
 **Importante:** el RBAC controla **qué acciones** puede hacer un usuario, **no** el
 **aislamiento de datos** entre tenants. Hoy los maestros (productos/clientes) **no** están
-scoped por negocio; el cloud es de-facto single-tenant hasta django-tenants. La excepción
+scoped por negocio; el cloud es de-facto single-tenant hasta DB-per-tenant. La excepción
 son los endpoints admin RBAC (§7), que **sí** scopean por negocio por corrección.
 
 ---
@@ -294,8 +299,8 @@ Esta sección es el punto de entrada para quien retome el RBAC. Ninguno bloquea 
 1. **Aislamiento de datos por tenant** en maestros *(el más importante para escalar a multi-cliente
    en una sola BD cloud)* — el RBAC controla *acciones*, **no** *qué datos* ve cada tenant; hoy los
    maestros (productos/clientes) no están scoped por negocio, así que el cloud es de-facto
-   single-tenant. Lo resolverá `django-tenants` (schema-per-tenant) o, como puente, un scoping por
-   `negocio` apoyado en `negocio_actual`. Ver §8. **Empezar aquí** antes de vender a un 3.º cliente
+   single-tenant. Lo resolverá DB-per-tenant con control plane global. Ver §8 y
+   `docs/TENANCY_DB_PER_TENANT.md`. **Empezar aquí** antes de vender a un 3.º cliente
    en la BD compartida.
 2. **`es_acceso_total` incluye `ADMIN` (transitorio)** — migrar los admins reales a roles explícitos
    y luego quitar `'ADMIN'` de `es_acceso_total`, para poder restringir también al admin por negocio.

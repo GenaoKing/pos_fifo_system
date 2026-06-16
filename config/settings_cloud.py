@@ -158,7 +158,7 @@ CORS_ALLOW_CREDENTIALS = _bool_env('CORS_ALLOW_CREDENTIALS', True)
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.tenancy.authentication.TenantJWTAuthentication',
         *REST_FRAMEWORK.get('DEFAULT_AUTHENTICATION_CLASSES', []),
     ],
 }

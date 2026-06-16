@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django_extensions',
     
     # Apps del proyecto
+    'apps.tenancy',
     'apps.negocios',
     'apps.usuarios',
     'apps.permisos',
@@ -70,6 +71,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.tenancy.middleware.ClearTenantContextMiddleware',
     # Middleware de auditoría (agregar después)
     # 'apps.auditoria.middleware.AuditoriaMiddleware',
     'apps.auditoria.middleware.AuditoriaMiddleware',
@@ -120,6 +122,14 @@ DATABASES = {
         'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
+
+TENANCY_DB_PER_TENANT_ENABLED = (
+    os.environ.get('TENANCY_DB_PER_TENANT_ENABLED', 'false').lower() == 'true'
+)
+TENANCY_ALLOW_UNSCOPED_OPERATIONS = (
+    os.environ.get('TENANCY_ALLOW_UNSCOPED_OPERATIONS', 'false').lower() == 'true'
+)
+DATABASE_ROUTERS = ['apps.tenancy.router.TenantDatabaseRouter']
 
 
 # Password validation
