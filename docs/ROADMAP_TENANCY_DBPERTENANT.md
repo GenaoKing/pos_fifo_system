@@ -92,6 +92,9 @@ solo shot, sin escribir endpoints de import por entidad.
 - [x] **Comandos:** `bootstrap_tenant` idempotente (modo *clean* y modo
       *migración-desde-local*), `migrate_tenants`, flag `--tenant`, `backup_tenant`.
 - [x] **Pruebas y smoke multi-DB** (`control_plane` + `demo` + `demo2`).
+- [x] **Hardening runtime:** contexto tenant se limpia por request; JWT tenant
+      esta disponible en settings base; router dual-home para
+      `auth/contenttypes/usuarios/negocios`; admin control-plane soportado.
 - 🚪 **Gate cumplido local/dev:** `bootstrap_tenant --tenant demo` levanta todo de cero; login por
   email entra a `demo`; un segundo `demo2` está **totalmente aislado** (cero datos
   cruzados); `migrate_tenants` corre en ambos; suite verde. **Sin tocar prod.**
@@ -105,19 +108,29 @@ Evidencia local (2026-06-16):
 - Producto `SMOKE-DEMO-001` creado en `demo` no aparece en `demo2`.
 - Token de sync de `demo` lee `/api/v1/maestros/productos/` con HTTP 200; token desconocido falla con 401.
 - `migrate_tenants --noinput` corre en `demo` y `demo2` sin migraciones pendientes.
+- Cierre extra: `/api/v1/auth/me/` queda cubierto con JWT global en tests y el
+  runbook `docs/runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md` prepara el dry-run
+  del dump real de Royal Plast.
 
 > Bajo DB-per-tenant, los `.objects.all()` de maestros y el matching por clave
 > natural del sync pasan a ser correctos por construcción. No hay auditoría masiva
 > de querysets — ese es el punto de elegir C.
 
-### Fase 2 — Storage  🟢 (paralelo a Fase 1)
+### Fase 2 — Storage  🟡 (núcleo local implementado; smoke Azure pendiente)
 
-- [ ] Backend de storage a Azure Blob con **prefijo por `tenant_key`**.
+- [x] Backend de media con rutas canónicas **prefijadas por `tenant_key`** en BD
+      (`demo/productos/...`, `demo/config/...`) cuando hay tenant activo.
+- [x] Compatibilidad mono-tenant local: sin tenant activo conserva rutas legacy
+      (`productos/...`, `config/...`).
 - [x] Fix del upload multipart (#7) — ya correcto en el repo (verificado
       2026-06-16): `subirImagen` usa solo `X-CSRFToken`, sin `Content-Type`.
-- [ ] Comando de migración de media local → Blob bajo el prefijo del tenant.
-- 🚪 **Salida:** imágenes del tenant `demo` viven en `media-public/demo/` y se
-  sirven; upload multipart OK.
+- [x] PDF header no depende de `logo.path`; puede leer logo desde storage remoto.
+- [x] Comando de migración de media local → ruta/blob bajo prefijo del tenant:
+      `migrar_media_tenant --tenant demo --source-media-root .\media --apply`.
+- [ ] Activar `enable_media_storage=true` en Azure dev y ejecutar smoke real de
+      blobs públicos.
+- 🚪 **Salida:** imágenes de `demo` y `demo2` viven en `media-public/<tenant>/`
+  y se sirven; upload multipart OK; Azure dev validado con URL pública.
 
 ### Fase 3 — Infra prod con Terraform  (arranca cuando Fase 1 está ~probada)
 
@@ -182,6 +195,12 @@ Fase 1 (núcleo) ──────────────► Fase 3 (infra) �
 7. **Control plane MÍNIMO** — `Permiso`, suscripción y `Negocio` self-row viven
    por tenant (cualquier FK/M2M desde un modelo de tenant debe ser local). Reduce
    el scope de Fase 1.
+8. **Auditoria operativa por tenant** — no se centraliza en `default`; SYSADMIN
+   revisa por tenant via impersonation o usuario local.
+9. **Django admin control-plane soportado** — `usuarios/negocios/auth/contenttypes`
+   existen en `default` solo como compatibilidad de admin/control-plane.
+10. **Multi-membership UI diferida** — reutilizar `admin-email` en otro tenant
+    falla en bootstrap; el camino de soporte es Identity global + impersonation.
 
 ## Riesgos / abiertas
 
@@ -194,6 +213,10 @@ Fase 1 (núcleo) ──────────────► Fase 3 (infra) �
 
 ## Próximo paso inmediato
 
-Cerrar los detalles de **Fase 2 — Storage** en paralelo con el diseño operativo de
-Fase 3: prefijo de media por `tenant_key`, upload multipart y cómo el pipeline
-prod ejecutará `migrate` + `migrate_tenants` sin tocar Royal Plast todavía.
+1. Ejecutar el dry-run del dump real de Royal Plast siguiendo
+   `docs/runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md`.
+2. Ejecutar smoke Azure dev de **Fase 2 — Storage** cuando se confirme prender
+   el Storage Account: Terraform plan/apply, upload de demo/demo2 y verificación
+   de URLs públicas.
+3. Diseñar cómo el pipeline prod ejecutará `migrate` + `migrate_tenants` sin tocar
+   Royal Plast todavía.

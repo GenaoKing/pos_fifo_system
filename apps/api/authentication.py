@@ -23,7 +23,11 @@ from django.utils import timezone
 from rest_framework.authentication import TokenAuthentication, get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed
 
-from apps.tenancy.context import set_current_tenant, tenancy_enabled
+from apps.tenancy.context import (
+    bind_tenant_context_to_request,
+    set_current_tenant,
+    tenancy_enabled,
+)
 from apps.tenancy.models import SyncToken
 from apps.tenancy.registry import configure_tenant_database
 
@@ -71,7 +75,7 @@ class SucursalTokenAuthentication(TokenAuthentication):
 
         tenant, alias = configure_tenant_database(sync_token.tenant)
         tokens = set_current_tenant(tenant.tenant_key, alias)
-        request._tenant_context_tokens = tokens
+        bind_tenant_context_to_request(request, tokens)
 
         user, token = super().authenticate_credentials(key)
         token.tenant_key = tenant.tenant_key
@@ -80,7 +84,16 @@ class SucursalTokenAuthentication(TokenAuthentication):
         sync_token.ultimo_uso = timezone.now()
         sync_token.save(update_fields=['ultimo_uso'])
 
-        return self._attach_sucursal(user, token, expected_codigo=sync_token.sucursal_codigo)
+        user, token = self._attach_sucursal(
+            user,
+            token,
+            expected_codigo=sync_token.sucursal_codigo,
+        )
+        request.sucursal = token.sucursal
+        django_request = getattr(request, '_request', None)
+        if django_request is not None:
+            django_request.sucursal = token.sucursal
+        return user, token
 
     def authenticate_credentials(self, key):
         # Resolver usuario via TokenAuthentication estandar de DRF

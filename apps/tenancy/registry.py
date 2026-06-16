@@ -1,10 +1,14 @@
 from copy import deepcopy
+from threading import RLock
 
 from django.conf import settings
 from django.db import connections
 from django.db.utils import OperationalError, ProgrammingError
 
 from .context import tenancy_enabled
+
+
+_registry_lock = RLock()
 
 
 def tenant_alias(tenant_key):
@@ -36,8 +40,10 @@ def configure_tenant_database(tenant_or_key):
 
     alias = tenant_alias(tenant.tenant_key)
     config = tenant_db_config(tenant)
-    settings.DATABASES[alias] = config
-    connections.databases[alias] = config
+    with _registry_lock:
+        if settings.DATABASES.get(alias) != config:
+            settings.DATABASES[alias] = config
+            connections.databases[alias] = config
     return tenant, alias
 
 

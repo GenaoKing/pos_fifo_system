@@ -350,6 +350,7 @@ ZEBRA_PRINTER_NAME = os.environ.get('ZEBRA_PRINTER_NAME', 'ZDesigner LP 2824')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'apps.tenancy.authentication.TenantJWTAuthentication',
         'apps.api.authentication.SucursalTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],

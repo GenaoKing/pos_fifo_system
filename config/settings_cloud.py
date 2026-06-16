@@ -155,12 +155,13 @@ if cors_middleware not in MIDDLEWARE:
 CORS_ALLOWED_ORIGINS = _csv_env('CORS_ALLOWED_ORIGINS')
 CORS_ALLOW_CREDENTIALS = _bool_env('CORS_ALLOW_CREDENTIALS', True)
 
+_auth_classes = [
+    'apps.tenancy.authentication.TenantJWTAuthentication',
+    *REST_FRAMEWORK.get('DEFAULT_AUTHENTICATION_CLASSES', []),
+]
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'apps.tenancy.authentication.TenantJWTAuthentication',
-        *REST_FRAMEWORK.get('DEFAULT_AUTHENTICATION_CLASSES', []),
-    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': list(dict.fromkeys(_auth_classes)),
 }
 
 SIMPLE_JWT = {

@@ -33,12 +33,40 @@ class Tenant(models.Model):
         if self.tenant_key:
             self.tenant_key = self.tenant_key.lower().replace('-', '_')
         if not self.slug:
-            self.slug = slugify(self.nombre)[:110] or self.tenant_key
+            self.slug = self._slug_unico(self.nombre, tenant_key=self.tenant_key)
         if not self.db_name:
             self.db_name = f'tnt_{self.tenant_key}'
         if not self.media_prefix:
             self.media_prefix = f'{self.tenant_key}/'
         super().save(*args, **kwargs)
+
+    @classmethod
+    def _slug_unico(cls, nombre, *, tenant_key='', exclude_pk=None):
+        base = slugify(nombre)[:100] or slugify(tenant_key)[:100] or 'tenant'
+        db = cls.objects.db
+
+        def exists(candidate):
+            qs = cls.objects.using(db).filter(slug=candidate)
+            if exclude_pk:
+                qs = qs.exclude(pk=exclude_pk)
+            return qs.exists()
+
+        if not exists(base):
+            return base
+
+        tenant_suffix = slugify(tenant_key)[:20]
+        if tenant_suffix:
+            candidate = f'{base}-{tenant_suffix}'[:120]
+            if not exists(candidate):
+                return candidate
+
+        i = 2
+        while True:
+            suffix = f'-{i}'
+            candidate = f'{base[:120 - len(suffix)]}{suffix}'
+            if not exists(candidate):
+                return candidate
+            i += 1
 
 
 class Identity(models.Model):

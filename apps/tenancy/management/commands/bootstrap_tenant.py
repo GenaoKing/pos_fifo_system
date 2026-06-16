@@ -30,12 +30,42 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         tenant_key = opts['tenant'].strip().lower().replace('-', '_')
         nombre = opts['nombre'].strip()
-        slug = (opts.get('slug') or slugify(nombre) or tenant_key).strip()
+        explicit_slug = bool(opts.get('slug'))
+        raw_slug = (opts.get('slug') or '').strip()
         admin_email = (opts.get('admin_email') or f'admin@{tenant_key}.local').strip().lower()
         admin_password = opts.get('admin_password') or 'Admin123!'
         sucursal_codigo = opts['sucursal_codigo'].strip().upper()
         sucursal_nombre = opts.get('sucursal_nombre') or f'{nombre} - Principal'
         dry_run = opts['dry_run']
+
+        existing_tenant = Tenant.objects.using('default').filter(tenant_key=tenant_key).first()
+        if explicit_slug:
+            slug = slugify(raw_slug) or tenant_key
+            slug_owner = Tenant.objects.using('default').filter(slug=slug).exclude(
+                tenant_key=tenant_key,
+            ).first()
+            if slug_owner is not None:
+                raise CommandError(
+                    f'El slug "{slug}" ya pertenece al tenant "{slug_owner.tenant_key}".'
+                )
+        elif existing_tenant is not None:
+            slug = existing_tenant.slug
+        else:
+            slug = Tenant._slug_unico(nombre, tenant_key=tenant_key)
+
+        conflicting_membership = (
+            Membership.objects.using('default')
+            .select_related('tenant', 'identity')
+            .filter(identity__email__iexact=admin_email, activo=True)
+            .exclude(tenant__tenant_key=tenant_key)
+            .first()
+        )
+        if conflicting_membership is not None:
+            raise CommandError(
+                f'El admin-email "{admin_email}" ya tiene una membresia activa '
+                f'en el tenant "{conflicting_membership.tenant.tenant_key}". '
+                'Use otro email o una Identity global con impersonation.'
+            )
 
         self.stdout.write('Bootstrap tenant')
         self.stdout.write(f'  tenant_key: {tenant_key}')

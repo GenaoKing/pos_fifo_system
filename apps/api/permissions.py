@@ -90,7 +90,7 @@ class TienePermiso(BasePermission):
         codigo = self.codigo or getattr(view, 'required_permission', None)
         if not codigo:
             return True
-        sucursal = getattr(request, 'sucursal', None)
+        sucursal = _request_sucursal(request)
         return user.tiene_permiso(codigo, sucursal=sucursal)
 
 
@@ -112,6 +112,10 @@ def _es_token_de_sucursal(request):
     return sucursal is not None and getattr(sucursal, 'activa', False)
 
 
+def _request_sucursal(request):
+    return getattr(request, 'sucursal', None) or getattr(request.auth, 'sucursal', None)
+
+
 class PuedeLeerMaestro(BasePermission):
     """
     Lectura de datos maestros. Permite:
@@ -130,7 +134,7 @@ class PuedeLeerMaestro(BasePermission):
         if not base:
             return True
         return user.tiene_permiso(
-            f'{base}.ver', sucursal=getattr(request, 'sucursal', None)
+            f'{base}.ver', sucursal=_request_sucursal(request)
         )
 
 

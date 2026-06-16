@@ -1,4 +1,4 @@
-from .context import reset_current_tenant
+from .context import clear_current_tenant, reset_current_tenant
 
 
 class ClearTenantContextMiddleware:
@@ -8,8 +8,11 @@ class ClearTenantContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        response = self.get_response(request)
-        tokens = getattr(request, '_tenant_context_tokens', None)
-        if tokens:
-            reset_current_tenant(tokens)
-        return response
+        clear_current_tenant()
+        try:
+            return self.get_response(request)
+        finally:
+            tokens = getattr(request, '_tenant_context_tokens', None)
+            if tokens:
+                reset_current_tenant(tokens)
+            clear_current_tenant()

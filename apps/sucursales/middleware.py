@@ -9,7 +9,7 @@ Agregar en settings.py MIDDLEWARE despues de AuthenticationMiddleware:
     'apps.sucursales.middleware.SucursalMiddleware',
 """
 from .models import get_sucursal_actual
-from apps.tenancy.context import get_current_tenant_alias, tenancy_enabled
+from apps.tenancy.context import tenancy_enabled
 
 
 class SucursalMiddleware:
@@ -23,7 +23,7 @@ class SucursalMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if tenancy_enabled() and not get_current_tenant_alias():
+        if tenancy_enabled():
             request.sucursal = None
             return self.get_response(request)
 

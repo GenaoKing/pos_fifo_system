@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .context import set_current_tenant, tenancy_enabled
+from .context import bind_tenant_context_to_request, set_current_tenant, tenancy_enabled
 from .models import Identity
 from .registry import configure_tenant_database
 
@@ -90,7 +90,7 @@ class TenantJWTAuthentication(JWTAuthentication):
             raise AuthenticationFailed('Tenant invalido o inactivo.', code='tenant_invalid') from exc
 
         tokens = set_current_tenant(tenant.tenant_key, alias)
-        request._tenant_context_tokens = tokens
+        bind_tenant_context_to_request(request, tokens)
 
         username = validated_token.get('username')
         if not username:

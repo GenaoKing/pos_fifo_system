@@ -3,6 +3,8 @@ Middleware para auditoría automática
 apps/auditoria/middleware.py
 """
 from django.utils.deprecation import MiddlewareMixin
+
+from apps.tenancy.context import tenancy_enabled
 from .models import Auditoria, get_client_ip, get_user_agent
 
 
@@ -42,6 +44,9 @@ class AuditoriaMiddleware(MiddlewareMixin):
     
     # Métodos HTTP que disparan auditoría
     METODOS_AUDITABLES = ['POST', 'PUT', 'PATCH', 'DELETE']
+
+    def _skip_api_tenancy(self, request):
+        return tenancy_enabled() and request.path.startswith('/api/')
     
     def process_request(self, request):
         """
@@ -49,6 +54,9 @@ class AuditoriaMiddleware(MiddlewareMixin):
         Guarda información relevante en el request para uso posterior.
         """
         # Guardar información del request para process_response
+        if self._skip_api_tenancy(request):
+            return None
+
         request.audit_info = {
             'path': request.path,
             'method': request.method,
@@ -64,6 +72,9 @@ class AuditoriaMiddleware(MiddlewareMixin):
         Aquí podemos auditar el acceso a vistas específicas.
         """
         # Solo auditar usuarios autenticados
+        if self._skip_api_tenancy(request):
+            return None
+
         if not request.user.is_authenticated:
             return None
         
@@ -80,6 +91,9 @@ class AuditoriaMiddleware(MiddlewareMixin):
         Se ejecuta después de que la vista genera la respuesta.
         Aquí registramos la auditoría si es necesario.
         """
+        if self._skip_api_tenancy(request):
+            return response
+
         try:
             # Solo auditar usuarios autenticados
             if not request.user.is_authenticated:
@@ -119,6 +133,9 @@ class AuditoriaMiddleware(MiddlewareMixin):
         Se ejecuta cuando una vista lanza una excepción.
         Registra el error en auditoría.
         """
+        if self._skip_api_tenancy(request):
+            return None
+
         try:
             if request.user.is_authenticated:
                 audit_info = getattr(request, 'audit_info', {})
@@ -217,6 +234,9 @@ class SesionAuditoriaMiddleware(MiddlewareMixin):
         """
         Verifica la sesión del usuario y detecta anomalías.
         """
+        if tenancy_enabled() and request.path.startswith('/api/'):
+            return None
+
         if not request.user.is_authenticated:
             return None
         

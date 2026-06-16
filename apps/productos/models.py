@@ -2,6 +2,8 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.postgres.indexes import GinIndex
 
+from apps.tenancy.media import producto_image_upload_to
+
 
 class Categoria(models.Model):
     """Categorías para agrupar productos"""
@@ -142,7 +144,7 @@ class Producto(models.Model):
     # Imagen (opcional)
     imagen = models.ImageField(
         'Imagen',
-        upload_to='productos/',
+        upload_to=producto_image_upload_to,
         blank=True,
         null=True,
     )

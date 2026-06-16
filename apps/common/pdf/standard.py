@@ -204,15 +204,30 @@ def _config_or_default(config=None):
     return get_config()
 
 
-def _logo_path(config) -> str | None:
+def _logo_source(config):
     logo = getattr(config, 'logo', None)
     if not logo:
         return None
+
     try:
         path = logo.path
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, NotImplementedError):
+        # AzureStorage (y otros backends remotos) lanzan NotImplementedError en
+        # .path; no es un error, solo significa "no hay ruta local" -> leer bytes.
+        path = None
+    if path and os.path.exists(path):
+        return path
+
+    try:
+        logo.open('rb')
+        return BytesIO(logo.read())
+    except Exception:
         return None
-    return path if path and os.path.exists(path) else None
+    finally:
+        try:
+            logo.close()
+        except Exception:
+            pass
 
 
 def business_header(config=None, *, width: float = CONTENT_WIDTH):
@@ -234,9 +249,9 @@ def business_header(config=None, *, width: float = CONTENT_WIDTH):
         lines.append(para(address, styles['PdfMuted']))
     info = lines
 
-    logo_path = _logo_path(config)
-    if logo_path:
-        left = Image(logo_path, width=0.9 * inch, height=0.9 * inch)
+    logo_source = _logo_source(config)
+    if logo_source:
+        left = Image(logo_source, width=0.9 * inch, height=0.9 * inch)
         data = [[left, info]]
         col_widths = [1.05 * inch, width - 1.05 * inch]
     else:
@@ -249,7 +264,7 @@ def business_header(config=None, *, width: float = CONTENT_WIDTH):
         ('BOX', (0, 0), (-1, -1), 0.6, BORDER),
         ('LINEBELOW', (0, 0), (-1, -1), 2, PRIMARY),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER' if not logo_path else 'LEFT'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER' if not logo_source else 'LEFT'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10),
         ('RIGHTPADDING', (0, 0), (-1, -1), 10),
         ('TOPPADDING', (0, 0), (-1, -1), 8),

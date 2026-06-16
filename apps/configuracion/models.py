@@ -12,6 +12,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from apps.tenancy.media import config_logo_upload_to
+
 
 class ConfiguracionNegocio(models.Model):
     """
@@ -63,7 +65,7 @@ class ConfiguracionNegocio(models.Model):
     )
     logo = models.ImageField(
         'Logo',
-        upload_to='config/',
+        upload_to=config_logo_upload_to,
         blank=True,
         null=True,
         help_text='Logo para tickets, PDFs y cotizaciones'

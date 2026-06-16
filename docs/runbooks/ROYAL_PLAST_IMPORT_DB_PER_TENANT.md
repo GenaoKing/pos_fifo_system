@@ -1,0 +1,298 @@
+# Runbook — Import Royal Plast a DB-per-tenant
+
+Estado: borrador operativo para dry-run. Fecha: 2026-06-16.
+
+Objetivo: validar el dump real de Royal Plast contra el contrato DB-per-tenant
+sin tocar produccion ni activar sync. El primer ensayo debe restaurar en una BD
+temporal, comparar totales y documentar diferencias antes de promover el flujo a
+Fase 4.
+
+## Responsabilidades
+
+**Santiago**
+
+- Indicar ruta local del dump y formato (`custom`, `plain sql`, `tar`, comprimido).
+- Confirmar si el dump fue tomado con la misma version/commit de migraciones que
+  este repo, o al menos la fecha exacta del codigo instalado.
+- Proveer totales esperados desde Royal Plast local:
+  - cantidad de categorias, productos activos/inactivos y clientes;
+  - total de ventas historicas;
+  - total vendido bruto/neto segun reporte usado por el dueno;
+  - inventario valorizado y/o unidades por SKU criticos;
+  - CxC abierta/parcial/vencida y saldo total;
+  - cantidad de usuarios/cajeras y sucursales.
+- Confirmar ventana donde se podria rotar `DJANGO_SECRET_KEY` y encender sync
+  mas adelante. No se hace en este dry-run.
+
+**Codex**
+
+- Restaurar el dump en una BD temporal.
+- Ejecutar migraciones si aplica y detectar drift de schema.
+- Crear/validar control plane `Tenant`, `Identity`, `Membership` y `SyncToken`.
+- Ejecutar queries de validacion y documentar diferencias.
+- Dejar comandos reproducibles para repetir el import.
+
+## Preflight
+
+No usar `tnt_royalplast` en el primer ensayo. Usar una BD descartable:
+
+```powershell
+$env:TENANCY_DB_PER_TENANT_ENABLED='true'
+$env:DJANGO_SETTINGS_MODULE='config.settings_development'
+```
+
+Crear tenant dry-run en control plane:
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py bootstrap_tenant `
+  --tenant royalplastdryrun `
+  --nombre "Royal Plast Dry Run" `
+  --admin-email admin@royalplast.local `
+  --admin-password Admin123! `
+  --sucursal-codigo RP-001 `
+  --settings=config.settings_development
+```
+
+Esto crea una BD limpia `tnt_royalplastdryrun`. Para probar un restore desde
+dump, normalmente conviene descartarla y recrearla desde el dump, o restaurar
+data-only sobre una BD ya migrada. La eleccion depende del formato del dump.
+
+## Identificar Formato Del Dump
+
+```powershell
+pg_restore --list "RUTA\royal_plast.dump"
+```
+
+- Si lista objetos: formato custom/tar apto para `pg_restore`.
+- Si falla y el archivo abre como SQL: usar `psql -f`.
+- Si esta comprimido (`.gz`, `.zip`), extraer a una carpeta temporal fuera del
+  repo o a una ruta ignorada.
+
+## Camino A — Dump Custom/Tar Completo
+
+Restaurar en BD temporal nueva:
+
+```powershell
+dropdb -h localhost -U pos_user --if-exists tnt_royalplast_import_test
+createdb -h localhost -U pos_user tnt_royalplast_import_test
+pg_restore -h localhost -U pos_user -d tnt_royalplast_import_test `
+  --clean --if-exists --no-owner --no-privileges `
+  "RUTA\royal_plast.dump"
+```
+
+Luego registrar temporalmente esa BD como tenant si se quiere validarla desde
+Django:
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py shell --settings=config.settings_development
+```
+
+```python
+from apps.tenancy.models import Tenant
+Tenant.objects.update_or_create(
+    tenant_key='royalplastimport',
+    defaults={
+        'slug': 'royal-plast-import',
+        'nombre': 'Royal Plast Import Test',
+        'db_name': 'tnt_royalplast_import_test',
+        'media_prefix': 'royalplastimport/',
+        'activo': True,
+    },
+)
+```
+
+## Camino B — Data-Only Sobre BD Migrada
+
+Usar si el dump viene de la misma version de schema o si queremos que Django cree
+primero las tablas.
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py bootstrap_tenant `
+  --tenant royalplastimport `
+  --nombre "Royal Plast Import Test" `
+  --admin-email admin@royalplast.local `
+  --admin-password Admin123! `
+  --sucursal-codigo RP-001 `
+  --settings=config.settings_development
+
+pg_restore -h localhost -U pos_user -d tnt_royalplastimport `
+  --data-only --disable-triggers --no-owner --no-privileges `
+  "RUTA\royal_plast.dump"
+```
+
+Riesgo: si el dump incluye secuencias o datos ya sembrados por migrations, puede
+haber conflictos. En ese caso se documenta y se decide si conviene restore
+completo + migraciones o un proceso de transformacion.
+
+## Validaciones Django
+
+Ejecutar con tenant activo:
+
+```powershell
+$env:TENANCY_DB_PER_TENANT_ENABLED='true'
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py shell --settings=config.settings_development
+```
+
+```python
+from apps.tenancy.context import force_tenancy, tenant_context
+from apps.tenancy.models import Tenant
+
+with force_tenancy(True):
+    tenant = Tenant.objects.get(tenant_key='royalplastimport')
+    with tenant_context(tenant):
+        from apps.negocios.models import Negocio
+        from apps.sucursales.models import Sucursal
+        from apps.usuarios.models import Usuario
+        from apps.productos.models import Categoria, Producto
+        from apps.clientes.models import Cliente
+        from apps.ventas.models import Venta
+        from apps.cuentas_por_cobrar.models import CuentaPorCobrar
+
+        print('negocios', Negocio.objects.count())
+        print('sucursales', list(Sucursal.objects.values_list('codigo', 'nombre')))
+        print('usuarios', Usuario.objects.count())
+        print('categorias', Categoria.objects.count())
+        print('productos', Producto.objects.count())
+        print('clientes', Cliente.objects.count())
+        print('ventas', Venta.objects.count())
+        print('cxc', CuentaPorCobrar.objects.count())
+```
+
+Validar login/control plane:
+
+```powershell
+$env:TENANCY_DB_PER_TENANT_ENABLED='true'
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py migrate_tenants `
+  --tenant royalplastimport `
+  --settings=config.settings_development `
+  --noinput
+```
+
+## Checklist De Aceptacion
+
+- El restore termina sin errores no explicados.
+- `migrate_tenants --tenant royalplastimport` no deja migraciones pendientes.
+- Existe exactamente un `Negocio` self-row o se define el arreglo necesario.
+- Todas las `Sucursal` tienen `negocio_id`.
+- Usuarios operativos existen y las ventas conservan FK a usuario.
+- Ventas, caja, inventario y CxC cuadran contra los totales dados por Santiago.
+- El token de sync queda registrado en `SyncToken`, pero `SYNC_ENABLED` sigue
+  apagado.
+- No se activa Royal Plast cloud real hasta cerrar diferencias.
+
+## Decisiones Que Saldran Del Dry-Run
+
+- Restore completo vs data-only sobre BD migrada.
+- Si hace falta script de normalizacion post-restore para self-row `Negocio`.
+- Si hay drift de migraciones entre la instalacion local de Royal Plast y este
+  repo.
+- Estrategia para imagenes/media: copiar rutas existentes, migrar a Blob en Fase
+  2 o dejar placeholder hasta validar catalogo.
+
+## Dry-Run 2026-06-16 — `docs/dumps/royal_backup.dump`
+
+Archivo inspeccionado:
+
+```text
+docs/dumps/royal_backup.dump
+Formato: PostgreSQL custom dump, gzip
+Origen: royal_plastic_pos
+Dump creado: 2026-06-13 14:30:54
+PostgreSQL origen: 15.17
+```
+
+Hallazgo de schema:
+
+- El dump es anterior al contrato actual: no trae `negocios`, `sucursales`,
+  `permisos`, `suscripciones`, `sync`, `tenancy`, ni tablas de CxC.
+- Restaurar completo y luego correr `migrate_tenants` funciono sobre una BD
+  temporal.
+- Despues de migrar, las migraciones crean `Negocio` y asignan `Usuario.negocio`,
+  pero no crean `Sucursal`; por eso ventas/compras/lotes quedan con
+  `sucursal_id=NULL` hasta normalizar.
+
+Comandos ejecutados:
+
+```powershell
+$env:PGPASSWORD='Prueba123'
+dropdb -h localhost -U pos_user --if-exists tnt_royalplast_import_test
+createdb -h localhost -U pos_user tnt_royalplast_import_test
+pg_restore -h localhost -U pos_user -d tnt_royalplast_import_test `
+  --clean --if-exists --no-owner --no-privileges `
+  docs\dumps\royal_backup.dump
+```
+
+Registro temporal en control plane:
+
+```python
+from apps.tenancy.models import Tenant
+Tenant.objects.update_or_create(
+    tenant_key='royalplastimport',
+    defaults={
+        'slug': 'royal-plast-import',
+        'nombre': 'Royal Plast Import Test',
+        'db_name': 'tnt_royalplast_import_test',
+        'media_prefix': 'royalplastimport/',
+        'activo': True,
+    },
+)
+```
+
+Migracion y normalizacion:
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py migrate_tenants `
+  --tenant royalplastimport `
+  --settings=config.settings_development `
+  --noinput
+
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py normalizar_import_tenant `
+  --tenant royalplastimport `
+  --nombre "Royal Plast EIRL" `
+  --slug royal-plast `
+  --sucursal-codigo RP-001 `
+  --sucursal-nombre "Royal Plast - Principal" `
+  --admin-email admin@royalplast.local `
+  --admin-password Admin123! `
+  --settings=config.settings_development
+```
+
+Resultado despues de normalizar:
+
+| Metrica | Valor |
+| --- | ---: |
+| Negocios | 1 |
+| Sucursales | 1 (`RP-001`) |
+| Usuarios | 3 (2 originales + usuario de servicio sync) |
+| Categorias | 20 |
+| Productos | 273 |
+| Clientes | 3 |
+| Ventas | 320 |
+| Ventas completadas | 320 |
+| Total ventas | 447,530.00 |
+| Pagos efectivo | 320 / 447,530.00 |
+| Compras | 4 |
+| Lotes | 4 |
+| Unidades actuales en lotes | 387 |
+| Valor costo en lotes | 86,555.00 |
+| Ventas sin sucursal | 0 |
+| Compras sin sucursal | 0 |
+| Lotes sin sucursal | 0 |
+
+Smokes:
+
+- Login `admin@royalplast.local` / `Admin123!`: HTTP 200,
+  `tenant_id=royalplastimport`, usuario operativo `Santiago`.
+- Token de sync `RP-001`: `/api/v1/maestros/productos/` devuelve HTTP 200 y
+  `count=273`.
+
+Pendiente de decision:
+
+- Confirmar si el codigo real de sucursal debe ser `RP-001` u otro valor usado en
+  la instalacion local.
+- Confirmar si `admin@royalplast.local` es solo temporal o si debe cambiarse por
+  el email real del dueno/admin.
+- Confirmado por Santiago: los totales 320 ventas y 447,530.00 cuadran con este
+  dump del 2026-06-13.
+- Antes del go-live vendra un dump mas fresco; este dry-run valida el camino
+  tecnico, no es el dataset final para produccion.

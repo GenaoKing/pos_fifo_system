@@ -91,37 +91,36 @@ deploy tambien puede construir y desplegar la imagen.
 
 ## Subir imagenes existentes
 
-La BD guarda rutas relativas del `ImageField`, por ejemplo:
+En modo DB-per-tenant, la BD guarda rutas relativas del `ImageField` con
+prefijo por `tenant_key`, por ejemplo:
 
 ```text
-productos/mi-producto.jpg
-config/logo.png
+demo/productos/mi-producto.jpg
+demo/config/logo.png
 ```
 
-Por eso se deben subir los archivos preservando esas rutas dentro del container.
+El modo mono-tenant local conserva rutas legacy (`productos/...`, `config/...`)
+mientras no haya tenant activo. Para tenants, usar el comando Django porque
+sube/copia el archivo y actualiza la ruta en BD de forma idempotente:
 
 Desde la raiz del backend:
 
 ```powershell
-az storage blob upload-batch `
-  --auth-mode login `
-  --account-name posfifodevmedia `
-  --destination media-public `
-  --source .\media `
-  --pattern "productos/*" `
-  --overwrite false
+python manage.py migrar_media_tenant `
+  --settings=config.settings_development `
+  --tenant demo `
+  --source-media-root .\media `
+  --apply
 ```
 
-Para logos:
+Para revisar antes de escribir:
 
 ```powershell
-az storage blob upload-batch `
-  --auth-mode login `
-  --account-name posfifodevmedia `
-  --destination media-public `
-  --source .\media `
-  --pattern "config/*" `
-  --overwrite false
+python manage.py migrar_media_tenant `
+  --settings=config.settings_development `
+  --tenant demo `
+  --source-media-root .\media `
+  --dry-run
 ```
 
 ## Smoke test
@@ -141,14 +140,14 @@ az storage blob list `
   --auth-mode login `
   --account-name posfifodevmedia `
   --container-name media-public `
-  --prefix productos/ `
+  --prefix demo/productos/ `
   --output table
 ```
 
-4. Confirmar que `/api/v1/productos/` devuelve `imagen_url` apuntando a:
+4. Confirmar que `/api/v1/maestros/productos/` devuelve `imagen_url` apuntando a:
 
 ```text
-https://posfifodevmedia.blob.core.windows.net/media-public/productos/...
+https://posfifodevmedia.blob.core.windows.net/media-public/demo/productos/...
 ```
 
 5. Abrir el portal y confirmar que la imagen renderiza.
@@ -165,7 +164,7 @@ az storage blob list `
   --auth-mode login `
   --account-name posfifodevmedia `
   --container-name media-public `
-  --prefix productos/ `
+  --prefix demo/productos/ `
   --output table
 ```
 

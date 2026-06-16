@@ -4,11 +4,8 @@ from .context import TenantContextError, get_current_tenant_alias, tenancy_enabl
 
 
 CONTROL_PLANE_APPS = {'tenancy'}
-SHARED_DJANGO_APPS = {
-    'auth',
-    'contenttypes',
-    'sessions',
-}
+DEFAULT_ONLY_APPS = {'admin', 'sessions'}
+DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios'}
 
 
 class TenantDatabaseRouter:
@@ -42,10 +39,10 @@ class TenantDatabaseRouter:
             return db == 'default'
 
         if db == 'default':
-            return app_label in SHARED_DJANGO_APPS
+            return app_label in CONTROL_PLANE_APPS | DEFAULT_ONLY_APPS | DUAL_HOME_APPS
 
         if db.startswith('tnt_'):
-            return app_label not in CONTROL_PLANE_APPS
+            return app_label not in CONTROL_PLANE_APPS | DEFAULT_ONLY_APPS
 
         return None
 
@@ -57,8 +54,11 @@ class TenantDatabaseRouter:
         if app_label in CONTROL_PLANE_APPS:
             return 'default'
 
-        if app_label in SHARED_DJANGO_APPS:
-            return None
+        if app_label in DEFAULT_ONLY_APPS:
+            return 'default'
+
+        if app_label in DUAL_HOME_APPS:
+            return get_current_tenant_alias() or 'default'
 
         alias = get_current_tenant_alias()
         if alias:

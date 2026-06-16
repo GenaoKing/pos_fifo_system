@@ -35,9 +35,23 @@ def set_current_tenant(tenant_key, alias):
 
 
 def reset_current_tenant(tokens):
+    if not tokens:
+        return
     key_token, alias_token = tokens
     _tenant_alias.reset(alias_token)
     _tenant_key.reset(key_token)
+
+
+def clear_current_tenant():
+    _tenant_alias.set(None)
+    _tenant_key.set(None)
+
+
+def bind_tenant_context_to_request(request, tokens):
+    request._tenant_context_tokens = tokens
+    django_request = getattr(request, '_request', None)
+    if django_request is not None:
+        django_request._tenant_context_tokens = tokens
 
 
 @contextmanager

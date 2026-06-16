@@ -128,7 +128,8 @@ Ejemplo: `tenant_key=royalplast` → BD `tnt_royalplast`, media
 
 - **`AUTH_USER_MODEL` sigue siendo `usuarios.Usuario`** (sin swap, que es
   doloroso). La tabla `usuarios` existe en todas las bases por el grafo de
-  dependencias de Django, pero **solo se puebla en las BD de tenant**.
+  dependencias de Django. En `default` solo soporta Django admin/control-plane;
+  los usuarios operativos reales viven en la BD del tenant.
 - El control plane agrega **`Identity`** (credenciales globales) + **`Membership`**.
   Son la fuente de verdad de "quién puede entrar y a qué tenant".
 - **La credencial vive en `Identity` (control plane) desde el día 1**, no en el
@@ -165,6 +166,9 @@ maestros no se tocan; solo cambia de dónde sale `request.user`.
 Como el login es por email, el email debe ser único entre tenants. Si en el
 futuro una misma persona tiene dos negocios, el email deja de ser 1:1 y ahí entra
 el `Membership` con N filas + selector de negocio (fuera del MVP, ver §10).
+En el MVP, `bootstrap_tenant` falla si se reutiliza un `admin-email` con una
+membresía activa en otro tenant; para soporte multi-tenant se usa Identity global
+e impersonation.
 
 ### Usuario global / SYSADMIN
 
@@ -200,12 +204,16 @@ el `Membership` con N filas + selector de negocio (fuera del MVP, ver §10).
   entrar a `tenant_context`, se lee el registro `Tenant` del control plane y se
   agrega el alias de conexión por tenant activo. Se evita consultar la BD dentro
   de `AppConfig.ready()`.
-- **Middleware tenant** (después de auth): fija el `tenant_key` activo en un
-  thread-local a partir del claim del JWT.
+- **Middleware tenant:** limpia el contexto al inicio y al final de cada request.
+  La autenticación DRF fija el `tenant_key` activo y guarda los tokens de reset
+  en el request Django subyacente para evitar fugas entre requests.
 - **DB router**:
   - Modelos del control plane (`Tenant`, `Identity`, `Membership`, `Domain`,
     registro de tokens, puntero de plan) → `default`. **No incluye** `Permiso`,
     `Modulo`, `Plan` ni suscripción: esos viven por tenant (ver §2).
+  - Compatibilidad admin/control-plane: `admin`, `sessions` → `default`;
+    `auth`, `contenttypes`, `usuarios` y `negocios` son dual-home. Sin tenant
+    activo usan `default`; con tenant activo usan la BD del tenant.
   - Modelos de tenant → alias del tenant activo (thread-local).
   - **Si un modelo de tenant se consulta sin tenant activo → el router lanza
     error** (fail-fast, defensa en profundidad: nunca caer silenciosamente a
@@ -267,6 +275,9 @@ Reglas: **fail-fast** si falta tenant, sucursal o credencial; orden fijo (la
 sucursal se crea antes de engancharse al negocio); todo el seed que ya existe
 (`crear_sucursal`, `bootstrap_negocio`, `bootstrap_suscripciones`, `sync_permisos`)
 queda **encadenado en orden** dentro de este comando, no suelto.
+También falla si `--slug` explícito ya pertenece a otro tenant o si
+`--admin-email` ya tiene una membership activa en otro tenant. Si el slug se
+omite, se genera uno único de forma idempotente.
 
 ---
 
@@ -287,7 +298,12 @@ media-public/
 
 - Imágenes de productos y logos = públicas. Reportes, XML/e-CF, PDFs fiscales y
   documentos privados **no** van acá (futuro: container privado + URLs SAS).
-- Comando de migración de media local → blob bajo el prefijo del tenant.
+- La ruta canónica guardada en BD incluye el prefijo estable del tenant:
+  `royalplast/productos/...` y `royalplast/config/...`. El modo mono-tenant
+  local conserva rutas legacy (`productos/...`, `config/...`) mientras no haya
+  tenant activo.
+- Comando de migración de media local → blob/ruta prefijada:
+  `migrar_media_tenant --tenant <key> --source-media-root <media> --apply`.
 - Recordatorio del piloto: el upload de imagen es **multipart**, no JSON — no
   reusar `jsonHeaders()` en ese path.
 
@@ -374,6 +390,16 @@ Cerradas (2026-06-16):
 7. **Implementación Fase 1:** `apps.tenancy` queda opt-in con
    `TENANCY_DB_PER_TENANT_ENABLED`; el modo mono-tenant local sigue funcionando
    cuando la bandera está apagada.
+
+8. **Auditoria operativa:** vive en la BD del tenant. No se centraliza en
+   `default`; soporte/SYSADMIN revisa por tenant via impersonation o usuario
+   local.
+9. **Django admin control-plane:** queda soportado con tablas compat en
+   `default` para `auth/contenttypes/usuarios/negocios`; no representan datos
+   operativos compartidos.
+10. **Multi-membership:** selector publico diferido. Reusar `admin-email` en otro
+    tenant falla en bootstrap; soporte multi-tenant usa Identity global +
+    impersonation.
 
 Abiertas:
 
