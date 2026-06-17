@@ -1,13 +1,3 @@
-module "container_registry" {
-  source = "../../modules/container-registry"
-
-  name                = local.acr_name
-  location            = local.container_apps_location
-  resource_group_name = azurerm_resource_group.main.name
-  sku                 = var.acr_sku
-  tags                = local.container_tags
-}
-
 module "container_apps" {
   source = "../../modules/container-apps"
 
@@ -18,8 +8,8 @@ module "container_apps" {
   resource_group_name        = azurerm_resource_group.main.name
   log_analytics_workspace_id = module.observability.container_apps_log_analytics_workspace_id
 
-  registry_id     = module.container_registry.id
-  registry_server = module.container_registry.login_server
+  registry_id     = local.registry_id
+  registry_server = local.registry_login_server
   image           = local.container_image
 
   enable_api         = var.enable_api_container_app
@@ -36,17 +26,19 @@ module "container_apps" {
   cloud_environment    = var.environment
   app_version          = var.app_version
   git_commit_sha       = var.git_commit_sha
-  db_name              = var.db_name
-  db_user              = var.db_user
+  db_name              = local.prod_db_name
+  db_user              = local.prod_db_user
   db_password          = var.db_password
-  db_host              = var.db_host
+  db_host              = local.prod_db_host
   db_port              = var.db_port
   db_sslmode           = var.db_sslmode
+  db_connect_timeout   = var.db_connect_timeout
 
   use_key_vault_secrets         = var.use_key_vault_secrets
   key_vault_id                  = var.enable_key_vault ? module.key_vault[0].id : null
   key_vault_uri                 = var.enable_key_vault ? module.key_vault[0].vault_uri : null
   django_secret_key_secret_name = var.django_secret_key_secret_name
+  db_user_secret_name           = var.db_user_secret_name
   db_password_secret_name       = var.db_password_secret_name
 
   enable_blob_media            = var.enable_media_storage

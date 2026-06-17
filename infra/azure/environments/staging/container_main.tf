@@ -50,6 +50,7 @@ module "container_apps" {
   db_password_secret_name       = var.db_password_secret_name
 
   enable_blob_media            = var.enable_media_storage
+  enable_db_per_tenant         = var.enable_db_per_tenant
   media_storage_account_id     = var.enable_media_storage ? module.media_storage[0].id : null
   media_storage_account_name   = var.enable_media_storage ? module.media_storage[0].name : ""
   media_storage_container_name = var.media_storage_container_name

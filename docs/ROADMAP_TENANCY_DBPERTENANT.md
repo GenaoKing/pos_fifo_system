@@ -132,14 +132,21 @@ Evidencia local (2026-06-16):
 - 🚪 **Salida:** imágenes de `demo` y `demo2` viven en `media-public/<tenant>/`
   y se sirven; upload multipart OK; Azure dev validado con URL pública.
 
-### Fase 3 — Infra prod con Terraform  (arranca cuando Fase 1 está ~probada)
+### Fase 3 — Infra prod con Terraform  (en implementacion)
 
-- [ ] Env Terraform prod: **PostgreSQL Flexible Server (Burstable)**.
-- [ ] Reusar patrones de dev: Container Apps, ACR, Key Vault, Storage,
-      observabilidad, remote state propio.
-- [ ] Secreto único de conexión (rol por tenant = hardening futuro).
-- [ ] **Migrate job tenant-aware** en el pipeline (control plane + `migrate_tenants`).
-- 🚪 **Salida:** prod arriba; `demo` creado y validado *en prod*; pipeline corre
+- [x] Nuevo root `platform` con remote state `azure/platform.tfstate`.
+- [x] Nuevo root `prod` con remote state `azure/prod.tfstate`.
+- [x] PostgreSQL Flexible Server (Burstable) vive en `platform`.
+- [x] Prod consume `platform` via `terraform_remote_state`.
+- [x] Prod no crea ACR propio: usa temporalmente `posfifodevacr` como ACR
+      compartido por RBAC/Managed Identity.
+- [x] Container Apps acepta registry externo y mantiene `AcrPull` para API/job.
+- [x] **Migrate job tenant-aware:** comando `migrate_cloud` corre control plane +
+      `migrate_tenants`.
+- [ ] Aplicar `platform` en Azure.
+- [ ] Cargar secretos prod en Key Vault.
+- [ ] Aplicar `prod` y activar API/job con imagen SHA.
+- 🚪 **Salida:** prod arriba; `demo` creado y validado *en prod*; migrate job corre
   migraciones tenant-aware; smoke `/health/` OK.
 
 ### Fase 4 — Onboarding real de Royal Plast  (convergencia)

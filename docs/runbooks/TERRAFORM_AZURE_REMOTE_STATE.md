@@ -17,6 +17,28 @@ Blob key dev: azure/dev.tfstate
 Backend config: infra/azure/environments/dev/backend.tf
 ```
 
+## State keys actuales
+
+Todos los ambientes Terraform nuevos usan el mismo backend bootstrap:
+
+```text
+Resource Group: posfifo-tfstate-rg
+Storage Account: posfifotfstatedev
+Container: tfstate
+```
+
+Keys canonicas:
+
+```text
+dev:      azure/dev.tfstate
+staging:  azure/staging.tfstate
+platform: azure/platform.tfstate
+prod:     azure/prod.tfstate
+```
+
+`platform` y `prod` no deben arrancar con state local. El Storage Account de
+state sigue siendo bootstrap manual y no se administra desde esos states.
+
 Validaciones ya ejecutadas:
 
 ```powershell

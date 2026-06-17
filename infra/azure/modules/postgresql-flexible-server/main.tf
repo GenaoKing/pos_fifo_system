@@ -1,0 +1,41 @@
+resource "azurerm_postgresql_flexible_server" "main" {
+  name                = var.name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+
+  version                           = var.postgresql_version
+  administrator_login               = var.administrator_login
+  administrator_password_wo         = var.administrator_password
+  administrator_password_wo_version = var.administrator_password_version
+  sku_name                          = var.sku_name
+  storage_mb                        = var.storage_mb
+  backup_retention_days             = var.backup_retention_days
+  geo_redundant_backup_enabled      = var.geo_redundant_backup_enabled
+  auto_grow_enabled                 = var.auto_grow_enabled
+  public_network_access_enabled     = var.public_network_access_enabled
+
+  authentication {
+    active_directory_auth_enabled = false
+    password_auth_enabled         = true
+  }
+
+  tags = var.tags
+}
+
+resource "azurerm_postgresql_flexible_server_database" "database" {
+  for_each = toset(var.database_names)
+
+  name      = each.value
+  server_id = azurerm_postgresql_flexible_server.main.id
+  charset   = var.database_charset
+  collation = var.database_collation
+}
+
+resource "azurerm_postgresql_flexible_server_firewall_rule" "rule" {
+  for_each = var.firewall_rules
+
+  name             = each.key
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  start_ip_address = each.value.start_ip_address
+  end_ip_address   = each.value.end_ip_address
+}

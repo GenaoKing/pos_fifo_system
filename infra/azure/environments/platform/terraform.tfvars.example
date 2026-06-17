@@ -1,0 +1,43 @@
+# Copiar este archivo como terraform.tfvars y completar valores reales.
+# terraform.tfvars esta ignorado por git.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+project_slug = "posfifo"
+environment  = "platform"
+location     = "canadacentral"
+
+extra_tags = {
+  owner = "santiago"
+}
+
+# ACR compartido temporalmente. En F3 no se importa ni se mueve; solo se lee.
+shared_acr_name                = "posfifodevacr"
+shared_acr_resource_group_name = "posfifo-dev-rg"
+
+# PostgreSQL platform global para prod DB-per-tenant.
+postgres_server_name            = null
+postgres_admin_login            = "posadmin"
+# No guardar el password en este archivo. Usar:
+# $env:TF_VAR_postgres_admin_password = "<PASSWORD-SEGURO>"
+postgres_admin_password_version = 1
+postgresql_version              = "16"
+postgres_sku_name               = "B_Standard_B1ms"
+postgres_storage_mb             = 32768
+postgres_backup_retention_days  = 7
+postgres_database_names         = ["pos_fifo_prod"]
+
+postgres_firewall_rules = {
+  # Necesaria sin VNET: las Container Apps (egress Azure) llegan a la BD por aca.
+  allow-azure-services = {
+    start_ip_address = "0.0.0.0"
+    end_ip_address   = "0.0.0.0"
+  }
+  # Agregar la(s) IP(s) publica(s) del operador para correr bootstrap_tenant/psql
+  # localmente contra esta BD (el rule de azure-services NO cubre tu laptop).
+  # Reemplazar por tu IP real en terraform.tfvars (ignorado por git):
+  # operator-home = {
+  #   start_ip_address = "203.0.113.10"
+  #   end_ip_address   = "203.0.113.10"
+  # }
+}

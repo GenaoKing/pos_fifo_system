@@ -42,6 +42,7 @@ existing_container_apps_environment_name = "posfifo-dev-aca-env"
 
 enable_api_container_app = false
 enable_migrate_job       = false
+enable_db_per_tenant     = true
 
 container_image_repository = "pos-fifo-backend"
 container_image_tag        = "staging"

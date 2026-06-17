@@ -1,5 +1,6 @@
 locals {
   django_secret_key_vault_uri = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.django_secret_key_secret_name}"
+  db_user_vault_uri           = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.db_user_secret_name}"
   db_password_vault_uri       = var.key_vault_uri == null ? null : "${trimsuffix(var.key_vault_uri, "/")}/secrets/${var.db_password_secret_name}"
 
   container_app_environment_id   = var.existing_environment_id == null ? azurerm_container_app_environment.main[0].id : var.existing_environment_id
@@ -117,6 +118,13 @@ resource "azurerm_container_app" "api" {
     identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.api[0].id : null
   }
 
+  secret {
+    name                = "db-user"
+    value               = var.use_key_vault_secrets ? null : var.db_user
+    key_vault_secret_id = var.use_key_vault_secrets ? local.db_user_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.api[0].id : null
+  }
+
   ingress {
     external_enabled           = true
     target_port                = 8000
@@ -185,8 +193,8 @@ resource "azurerm_container_app" "api" {
       }
 
       env {
-        name  = "DB_USER"
-        value = var.db_user
+        name        = "DB_USER"
+        secret_name = "db-user"
       }
 
       env {
@@ -237,6 +245,11 @@ resource "azurerm_container_app" "api" {
       env {
         name  = "AZURE_CLIENT_ID"
         value = azurerm_user_assigned_identity.api[0].client_id
+      }
+
+      env {
+        name  = "TENANCY_DB_PER_TENANT_ENABLED"
+        value = tostring(var.enable_db_per_tenant)
       }
 
       startup_probe {
@@ -304,6 +317,13 @@ resource "azurerm_container_app_job" "migrate" {
     identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.migrate[0].id : null
   }
 
+  secret {
+    name                = "db-user"
+    value               = var.use_key_vault_secrets ? null : var.db_user
+    key_vault_secret_id = var.use_key_vault_secrets ? local.db_user_vault_uri : null
+    identity            = var.use_key_vault_secrets ? azurerm_user_assigned_identity.migrate[0].id : null
+  }
+
   manual_trigger_config {
     parallelism              = 1
     replica_completion_count = 1
@@ -316,8 +336,8 @@ resource "azurerm_container_app_job" "migrate" {
       cpu    = 0.5
       memory = "1Gi"
 
-      command = ["python"]
-      args    = ["manage.py", "migrate", "--settings=config.settings_cloud", "--noinput"]
+      command = var.migrate_command
+      args    = var.migrate_args
 
       env {
         name  = "DJANGO_SETTINGS_MODULE"
@@ -355,8 +375,8 @@ resource "azurerm_container_app_job" "migrate" {
       }
 
       env {
-        name  = "DB_USER"
-        value = var.db_user
+        name        = "DB_USER"
+        secret_name = "db-user"
       }
 
       env {
@@ -402,6 +422,11 @@ resource "azurerm_container_app_job" "migrate" {
       env {
         name  = "AZURE_CLIENT_ID"
         value = azurerm_user_assigned_identity.migrate[0].client_id
+      }
+
+      env {
+        name  = "TENANCY_DB_PER_TENANT_ENABLED"
+        value = tostring(var.enable_db_per_tenant)
       }
     }
   }

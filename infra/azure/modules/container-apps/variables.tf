@@ -161,7 +161,7 @@ variable "db_connect_timeout" {
 }
 
 variable "use_key_vault_secrets" {
-  description = "Usa referencias a Key Vault para django-secret-key y db-password en vez de valores directos en Terraform."
+  description = "Usa referencias a Key Vault para django-secret-key, db-user y db-password en vez de valores directos en Terraform."
   type        = bool
   default     = false
 }
@@ -192,10 +192,34 @@ variable "db_password_secret_name" {
   default     = "db-password"
 }
 
+variable "db_user_secret_name" {
+  description = "Nombre del secreto en Key Vault para DB_USER."
+  type        = string
+  default     = "db-user"
+}
+
 variable "enable_blob_media" {
   description = "Activa media publica en Azure Blob Storage para settings_cloud."
   type        = bool
   default     = false
+}
+
+variable "enable_db_per_tenant" {
+  description = "Activa el modo DB-per-tenant (TENANCY_DB_PER_TENANT_ENABLED) en API y migrate job."
+  type        = bool
+  default     = false
+}
+
+variable "migrate_command" {
+  description = "Comando base del Container App Job de migraciones."
+  type        = list(string)
+  default     = ["python"]
+}
+
+variable "migrate_args" {
+  description = "Argumentos del Container App Job de migraciones."
+  type        = list(string)
+  default     = ["manage.py", "migrate_cloud", "--settings=config.settings_cloud", "--noinput"]
 }
 
 variable "media_storage_account_id" {

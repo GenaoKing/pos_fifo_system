@@ -1,0 +1,70 @@
+# Copiar este archivo como terraform.tfvars y completar valores reales.
+# terraform.tfvars esta ignorado por git.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+project_slug = "posfifo"
+environment  = "prod"
+location     = "canadacentral"
+
+observability_location = null
+log_retention_days     = 30
+
+extra_tags = {
+  owner = "santiago"
+}
+
+# Remote state: usa el backend ya existente.
+tfstate_resource_group_name  = "posfifo-tfstate-rg"
+tfstate_storage_account_name = "posfifotfstatedev"
+tfstate_container_name       = "tfstate"
+platform_state_key           = "azure/platform.tfstate"
+
+# Media publica cloud. Activar cuando el smoke dev de Fase 2 este cerrado.
+enable_media_storage                         = false
+media_storage_account_name                   = null
+media_storage_container_name                 = "media-public"
+grant_current_user_media_blob_contributor    = true
+
+# Backend container platform. Prod no crea ACR: consume el ACR compartido desde platform.
+project_name            = "posfifo"
+container_apps_location = null
+
+existing_container_apps_environment_id   = null
+existing_container_apps_environment_name = null
+
+enable_api_container_app = false
+enable_migrate_job       = false
+enable_db_per_tenant     = true
+
+container_image_repository = "pos-fifo-backend"
+container_image_tag        = "prod-REEMPLAZAR_SHA"
+
+# Prod MVP scale-to-zero.
+api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"
+api_cors_allowed_origins  = ""
+api_csrf_trusted_origins  = ""
+api_min_replicas          = 0
+api_max_replicas          = 1
+app_version               = "prod"
+git_commit_sha            = "unknown"
+
+# DB host/name vienen de platform por remote state. User/password reales se cargan en Key Vault.
+db_name     = "pos_fifo_prod"
+db_user     = null
+db_password = null
+db_host     = null
+db_port     = "5432"
+db_sslmode  = "require"
+
+# Secrets en Key Vault para no poner valores planos en Container Apps.
+enable_key_vault                                = true
+key_vault_name                                  = null
+key_vault_location                              = null
+key_vault_purge_protection_enabled              = true
+grant_current_user_key_vault_secrets_officer    = true
+use_key_vault_secrets                           = true
+django_secret_key_secret_name                   = "django-secret-key"
+db_user_secret_name                             = "db-user"
+db_password_secret_name                         = "db-password"
+django_secret_key                               = null

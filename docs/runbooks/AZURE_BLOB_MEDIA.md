@@ -29,6 +29,44 @@ Cuando `enable_media_storage=true`, el ambiente crea:
 No se crean CDN, private endpoints, file shares, queues ni redundancia
 geo-replicada.
 
+## Autenticacion de Terraform contra Storage (keys deshabilitadas)
+
+**Decision de arquitectura:** los Storage Accounts se crean con
+`shared_access_key_enabled = false` (solo Managed Identity / Azure AD, sin account
+keys). Esto endurece la cuenta pero rompe el comportamiento por defecto del provider
+azurerm: al crear la cuenta hace un poll del Blob Service usando la account key y
+falla con `403 KeyBasedAuthenticationNotPermitted`.
+
+**Solucion (estandar del proyecto):** el provider azurerm usa Azure AD para el
+data-plane de Storage. Ya esta en `environments/dev/provider.tf` y
+`environments/staging/provider.tf`:
+
+```hcl
+provider "azurerm" {
+  # ...
+  storage_use_azuread = true
+}
+```
+
+**Prerrequisito de quien corre `terraform apply`:** como el data-plane ahora se
+autentica por AAD, el principal que ejecuta el apply (tu usuario con `az login`, o
+el service principal de CI) necesita un rol de datos de Storage en el scope del RG
+(o superior) ANTES del apply. El role assignment `current_user_blob_contributor` del
+modulo se crea DESPUES de la cuenta, asi que no cubre el poll de creacion; hay que
+otorgarlo una vez, fuera de banda:
+
+```powershell
+az role assignment create `
+  --assignee (az ad signed-in-user show --query id -o tsv) `
+  --role "Storage Blob Data Contributor" `
+  --scope /subscriptions/<sub-id>/resourceGroups/posfifo-dev-rg
+# esperar ~5 min a que propague el RBAC, luego: terraform apply
+```
+
+Alternativa descartada (documentada por completitud): poner
+`shared_access_key_enabled = true` desbloquea el apply sin AAD pero deja keys
+activas; se prefirio MI-only.
+
 ## Activar en dev
 
 En `infra/azure/environments/dev/terraform.tfvars`:

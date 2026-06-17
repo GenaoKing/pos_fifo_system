@@ -4,20 +4,8 @@ variable "project_name" {
   default     = "posfifo"
 }
 
-variable "acr_name" {
-  description = "Nombre globalmente unico del ACR. Null usa una convencion basada en project/environment."
-  type        = string
-  default     = null
-}
-
-variable "acr_sku" {
-  description = "SKU del Azure Container Registry."
-  type        = string
-  default     = "Basic"
-}
-
 variable "container_apps_location" {
-  description = "Region para ACR y Container Apps. Null usa var.location."
+  description = "Region para Container Apps. Null usa var.location."
   type        = string
   default     = null
 }
@@ -73,19 +61,19 @@ variable "migrate_job_name" {
 }
 
 variable "container_image_repository" {
-  description = "Repositorio dentro del ACR."
+  description = "Repositorio dentro del ACR compartido."
   type        = string
   default     = "pos-fifo-backend"
 }
 
 variable "container_image_tag" {
-  description = "Tag de imagen a desplegar."
+  description = "Tag de imagen a desplegar. Usar SHA o prod-<shortsha>, nunca latest."
   type        = string
-  default     = "dev"
+  default     = "prod-REEMPLAZAR_SHA"
 }
 
 variable "django_secret_key" {
-  description = "SECRET_KEY de Django cloud. Requerido cuando enable_api_container_app o enable_migrate_job son true."
+  description = "SECRET_KEY de Django cloud. Null si use_key_vault_secrets=true."
   type        = string
   sensitive   = true
   nullable    = true
@@ -111,7 +99,7 @@ variable "api_csrf_trusted_origins" {
 }
 
 variable "api_min_replicas" {
-  description = "Replicas minimas de la API. Usar 1 para debugging, 0 para permitir scale-to-zero."
+  description = "Replicas minimas de la API. Prod MVP usa 0 para scale-to-zero."
   type        = number
   default     = 0
 }
@@ -125,7 +113,7 @@ variable "api_max_replicas" {
 variable "app_version" {
   description = "Version logica expuesta por /api/v1/health/."
   type        = string
-  default     = "dev"
+  default     = "prod"
 }
 
 variable "git_commit_sha" {
@@ -135,21 +123,21 @@ variable "git_commit_sha" {
 }
 
 variable "db_name" {
-  description = "Nombre de la DB PostgreSQL existente."
+  description = "Nombre de la DB control-plane prod. Null usa pos_fifo_prod."
   type        = string
   nullable    = true
   default     = null
 }
 
 variable "db_user" {
-  description = "Usuario de PostgreSQL existente."
+  description = "Usuario PostgreSQL. Null cuando use_key_vault_secrets=true y se cargue db-user en Key Vault."
   type        = string
   nullable    = true
   default     = null
 }
 
 variable "db_password" {
-  description = "Password de PostgreSQL existente. Queda en tfvars local y state; D3 lo movera a Key Vault/secrets."
+  description = "Password PostgreSQL. Null si use_key_vault_secrets=true."
   type        = string
   sensitive   = true
   nullable    = true
@@ -157,7 +145,7 @@ variable "db_password" {
 }
 
 variable "db_host" {
-  description = "Host de PostgreSQL existente."
+  description = "Host PostgreSQL. Null usa fqdn de platform."
   type        = string
   nullable    = true
   default     = null
@@ -176,7 +164,7 @@ variable "db_sslmode" {
 }
 
 variable "db_connect_timeout" {
-  description = "Timeout de conexion PostgreSQL en segundos para evitar health checks colgados."
+  description = "Timeout de conexion PostgreSQL en segundos."
   type        = string
   default     = "5"
 }

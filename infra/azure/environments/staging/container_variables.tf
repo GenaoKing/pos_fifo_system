@@ -54,6 +54,12 @@ variable "enable_migrate_job" {
   default     = false
 }
 
+variable "enable_db_per_tenant" {
+  description = "Activa TENANCY_DB_PER_TENANT_ENABLED en API y migrate job."
+  type        = bool
+  default     = true
+}
+
 variable "api_container_app_name" {
   description = "Nombre de la Container App API. Null usa convencion local."
   type        = string
