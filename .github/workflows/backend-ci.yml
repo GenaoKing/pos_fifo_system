@@ -178,14 +178,6 @@ jobs:
         if: steps.target.outputs.deploy == 'true'
         uses: actions/checkout@v4
 
-      - name: Azure login
-        if: steps.target.outputs.deploy == 'true'
-        uses: azure/login@v2
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
       - name: Validate required variables
         if: steps.target.outputs.deploy == 'true'
         shell: bash
@@ -208,6 +200,14 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Azure login
+        if: steps.target.outputs.deploy == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Show Azure target context
         if: steps.target.outputs.deploy == 'true'
