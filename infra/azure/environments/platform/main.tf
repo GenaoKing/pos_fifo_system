@@ -14,6 +14,7 @@ module "postgresql" {
 
   name                           = local.postgres_server_name
   location                       = var.location
+  zone                           = var.postgres_zone
   resource_group_name            = azurerm_resource_group.main.name
   postgresql_version             = var.postgresql_version
   administrator_login            = var.postgres_admin_login

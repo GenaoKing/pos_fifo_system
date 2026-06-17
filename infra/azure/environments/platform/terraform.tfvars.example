@@ -21,6 +21,7 @@ postgres_admin_login            = "posadmin"
 # No guardar el password en este archivo. Usar:
 # $env:TF_VAR_postgres_admin_password = "<PASSWORD-SEGURO>"
 postgres_admin_password_version = 1
+postgres_zone                   = null
 postgresql_version              = "16"
 postgres_sku_name               = "B_Standard_B1ms"
 postgres_storage_mb             = 32768

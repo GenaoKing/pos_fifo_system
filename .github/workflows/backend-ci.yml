@@ -4,14 +4,26 @@ on:
   pull_request:
     branches:
       - develop
+      - staging
       - main
   push:
     branches:
       - develop
+      - staging
+      - main
   workflow_dispatch:
     inputs:
-      deploy_dev:
-        description: "Deploy backend dev after checks"
+      target_environment:
+        description: "Environment to deploy from its matching branch"
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - staging
+          - prod
+      deploy_backend:
+        description: "Deploy backend after checks"
         required: true
         type: boolean
         default: false
@@ -71,40 +83,117 @@ jobs:
       - name: Collect static dry run
         run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
 
-  deploy-dev:
-    name: Build and deploy dev
+  deploy-backend:
+    name: Build and deploy ${{ matrix.environment }}
     runs-on: ubuntu-latest
     needs: checks
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_dev)
 
     permissions:
       contents: read
       id-token: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: dev
+            branch: develop
+            azure_client_id_secret: AZURE_CLIENT_ID
+            azure_tenant_id_secret: AZURE_TENANT_ID
+            azure_subscription_id_secret: AZURE_SUBSCRIPTION_ID
+            azure_resource_group_var: AZURE_RESOURCE_GROUP
+            azure_acr_name_var: AZURE_ACR_NAME
+            azure_acr_login_server_var: AZURE_ACR_LOGIN_SERVER
+            azure_container_app_name_var: AZURE_CONTAINER_APP_NAME
+            azure_migrate_job_name_var: AZURE_MIGRATE_JOB_NAME
+            azure_api_base_url_var: AZURE_API_BASE_URL
+            run_migrations_var: RUN_MIGRATIONS_ON_DEPLOY
+          - environment: staging
+            branch: staging
+            azure_client_id_secret: STAGING_AZURE_CLIENT_ID
+            azure_tenant_id_secret: STAGING_AZURE_TENANT_ID
+            azure_subscription_id_secret: STAGING_AZURE_SUBSCRIPTION_ID
+            azure_resource_group_var: STAGING_AZURE_RESOURCE_GROUP
+            azure_acr_name_var: STAGING_AZURE_ACR_NAME
+            azure_acr_login_server_var: STAGING_AZURE_ACR_LOGIN_SERVER
+            azure_container_app_name_var: STAGING_AZURE_CONTAINER_APP_NAME
+            azure_migrate_job_name_var: STAGING_AZURE_MIGRATE_JOB_NAME
+            azure_api_base_url_var: STAGING_AZURE_API_BASE_URL
+            run_migrations_var: STAGING_RUN_MIGRATIONS_ON_DEPLOY
+          - environment: prod
+            branch: main
+            azure_client_id_secret: PROD_AZURE_CLIENT_ID
+            azure_tenant_id_secret: PROD_AZURE_TENANT_ID
+            azure_subscription_id_secret: PROD_AZURE_SUBSCRIPTION_ID
+            azure_resource_group_var: PROD_AZURE_RESOURCE_GROUP
+            azure_acr_name_var: PROD_AZURE_ACR_NAME
+            azure_acr_login_server_var: PROD_AZURE_ACR_LOGIN_SERVER
+            azure_container_app_name_var: PROD_AZURE_CONTAINER_APP_NAME
+            azure_migrate_job_name_var: PROD_AZURE_MIGRATE_JOB_NAME
+            azure_api_base_url_var: PROD_AZURE_API_BASE_URL
+            run_migrations_var: PROD_RUN_MIGRATIONS_ON_DEPLOY
+
     env:
-      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
-      AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
-      AZURE_CONTAINER_APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
-      AZURE_MIGRATE_JOB_NAME: ${{ vars.AZURE_MIGRATE_JOB_NAME }}
-      AZURE_API_BASE_URL: ${{ vars.AZURE_API_BASE_URL }}
+      AZURE_CLIENT_ID: ${{ secrets[matrix.azure_client_id_secret] }}
+      AZURE_TENANT_ID: ${{ secrets[matrix.azure_tenant_id_secret] }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets[matrix.azure_subscription_id_secret] }}
+      AZURE_RESOURCE_GROUP: ${{ vars[matrix.azure_resource_group_var] }}
+      AZURE_ACR_NAME: ${{ vars[matrix.azure_acr_name_var] }}
+      AZURE_ACR_LOGIN_SERVER: ${{ vars[matrix.azure_acr_login_server_var] }}
+      AZURE_CONTAINER_APP_NAME: ${{ vars[matrix.azure_container_app_name_var] }}
+      AZURE_MIGRATE_JOB_NAME: ${{ vars[matrix.azure_migrate_job_name_var] }}
+      AZURE_API_BASE_URL: ${{ vars[matrix.azure_api_base_url_var] }}
+      RUN_MIGRATIONS_ON_DEPLOY: ${{ vars[matrix.run_migrations_var] }}
       IMAGE_TAG: ${{ github.sha }}
+      PROMOTION_TAG: ${{ matrix.environment }}-${{ github.sha }}
+      STABLE_ENV_TAG: ${{ matrix.environment }}
 
     steps:
+      - name: Resolve deploy target
+        id: target
+        shell: bash
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_ENVIRONMENT: ${{ matrix.environment }}
+          DISPATCH_TARGET_ENVIRONMENT: ${{ inputs.target_environment || '' }}
+          DISPATCH_DEPLOY_BACKEND: ${{ inputs.deploy_backend || false }}
+        run: |
+          deploy=false
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "$MATRIX_BRANCH" ]; then
+            deploy=true
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] &&
+             [ "$DISPATCH_DEPLOY_BACKEND" = "true" ] &&
+             [ "$DISPATCH_TARGET_ENVIRONMENT" = "$MATRIX_ENVIRONMENT" ] &&
+             [ "$GITHUB_REF_NAME" = "$MATRIX_BRANCH" ]; then
+            deploy=true
+          fi
+
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "Target row: environment=$MATRIX_ENVIRONMENT branch=$MATRIX_BRANCH deploy=$deploy"
+
       - name: Checkout
+        if: steps.target.outputs.deploy == 'true'
         uses: actions/checkout@v4
 
       - name: Azure login
+        if: steps.target.outputs.deploy == 'true'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Validate required variables
+        if: steps.target.outputs.deploy == 'true'
         shell: bash
         run: |
           required=(
+            AZURE_CLIENT_ID
+            AZURE_TENANT_ID
+            AZURE_SUBSCRIPTION_ID
             AZURE_RESOURCE_GROUP
             AZURE_ACR_NAME
             AZURE_ACR_LOGIN_SERVER
@@ -115,13 +204,15 @@ jobs:
 
           for name in "${required[@]}"; do
             if [ -z "${!name}" ]; then
-              echo "$name is required as a GitHub Actions variable."
+              echo "$name is required for '${{ matrix.environment }}'."
               exit 1
             fi
           done
 
       - name: Show Azure target context
+        if: steps.target.outputs.deploy == 'true'
         run: |
+          echo "Deploy environment: ${{ matrix.environment }}"
           echo "Azure account:"
           az account show --query "{name:name,id:id,tenantId:tenantId}" --output table
 
@@ -144,20 +235,29 @@ jobs:
             --output table
 
       - name: ACR login
+        if: steps.target.outputs.deploy == 'true'
         run: az acr login --name "$AZURE_ACR_NAME"
 
       - name: Build image
+        if: steps.target.outputs.deploy == 'true'
         run: |
           docker build \
             --label org.opencontainers.image.revision="${GITHUB_SHA}" \
             --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG" \
+            -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG" \
+            -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG" \
             .
 
       - name: Push image
-        run: docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+        if: steps.target.outputs.deploy == 'true'
+        run: |
+          docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG"
+          docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG"
 
       - name: Update API image
+        if: steps.target.outputs.deploy == 'true'
         run: |
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -165,6 +265,7 @@ jobs:
             --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
 
       - name: Smoke test health
+        if: steps.target.outputs.deploy == 'true'
         run: |
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 20 "$AZURE_API_BASE_URL/api/v1/health/"; then
@@ -178,6 +279,7 @@ jobs:
           exit 1
 
       - name: Update migrate job image if present
+        if: steps.target.outputs.deploy == 'true'
         shell: bash
         run: |
           if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
@@ -190,7 +292,7 @@ jobs:
           fi
 
       - name: Start migrate job
-        if: (github.event_name == 'push' && vars.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations)
+        if: steps.target.outputs.deploy == 'true' && ((github.event_name == 'push' && env.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations))
         run: |
           az containerapp job start \
             --resource-group "$AZURE_RESOURCE_GROUP" \

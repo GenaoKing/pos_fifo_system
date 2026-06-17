@@ -8,6 +8,13 @@ variable "location" {
   type        = string
 }
 
+variable "zone" {
+  description = "Availability zone del servidor. Null deja que Azure/provider decida."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
 variable "resource_group_name" {
   description = "Resource Group donde vive PostgreSQL."
   type        = string

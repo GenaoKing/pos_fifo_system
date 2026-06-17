@@ -1,7 +1,7 @@
 # GitHub Actions - Backend Django a Azure Container Apps
 
-Este documento cubre la fase D3 del roadmap: validar el backend en PR y desplegar
-dev desde GitHub Actions.
+Este documento cubre la fase D3/F3 del roadmap: validar el backend en PR y
+desplegar dev, staging y prod desde GitHub Actions.
 
 Workflow creado:
 
@@ -30,28 +30,47 @@ Job `checks`:
 - Ejecuta `python manage.py check --settings=config.settings_cloud`.
 - Ejecuta `collectstatic --dry-run`.
 
-Job `deploy-dev`:
+Job `deploy-backend`:
 
 - Login a Azure con OIDC.
 - Imprime contexto Azure no sensible: subscription, resource group, Container
   Apps y jobs.
 - Login a ACR.
 - Build de Docker image.
-- Tag con SHA de commit.
+- Tags con SHA de commit, `<ambiente>-<sha>` y tag estable del ambiente.
 - Push a ACR.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
 - Actualiza imagen del job `migrate` si existe.
 - Opcionalmente ejecuta migraciones.
 
+El deploy se decide por branch:
+
+```text
+develop -> dev
+staging -> staging
+main    -> prod
+```
+
 ## Secrets de GitHub
 
-Crear estos como **Repository secrets**:
+Crear estos como **Repository secrets** para dev:
 
 ```text
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
+```
+
+Crear los equivalentes por ambiente para staging/prod:
+
+```text
+STAGING_AZURE_CLIENT_ID
+STAGING_AZURE_TENANT_ID
+STAGING_AZURE_SUBSCRIPTION_ID
+PROD_AZURE_CLIENT_ID
+PROD_AZURE_TENANT_ID
+PROD_AZURE_SUBSCRIPTION_ID
 ```
 
 Estos no son secretos de la app Django. Son datos para que GitHub haga login a
@@ -143,34 +162,39 @@ suscripcion.
 Si el workflow necesita leer otros recursos, ajustar con permisos mas finos. No
 usar Owner salvo para pruebas muy cortas.
 
-## Branches: main, develop y features
+## Branches: main, staging, develop y features
 
 Flujo recomendado para este repo:
 
 ```text
-features/cloud-dashboard -> PR -> develop -> deploy dev
-develop probado -> PR -> main
+features/* -> PR -> develop -> deploy dev
+develop probado -> PR -> staging -> deploy staging
+staging probado -> PR -> main -> deploy prod
 ```
 
 Como `main` es la default branch, GitHub necesita que el archivo del workflow
 exista tambien en `main` para que aparezca normalmente en la pestana Actions y
 para poder usar `Run workflow`.
 
-Para deploy real, el branch autorizado por OIDC es:
+Para deploy real, los branches autorizados por OIDC son:
 
 ```text
 develop
+staging
+main
 ```
 
 Por eso el federated credential usa:
 
 ```text
 repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop
+repo:GenaoKing/pos_fifo_system:ref:refs/heads/staging
+repo:GenaoKing/pos_fifo_system:ref:refs/heads/main
 ```
 
 No autorizar ramas `features/*` para deploy cloud salvo una prueba muy puntual.
-Las ramas feature deberian validar por PR checks; el deploy dev ocurre al hacer
-merge a `develop`.
+Las ramas feature deberian validar por PR checks; el deploy ocurre al hacer
+merge al branch de ambiente correspondiente.
 
 ## Si Azure for Students bloquea App registrations
 
@@ -403,9 +427,10 @@ Desde GitHub:
 1. Ir a `Actions`.
 2. Seleccionar `Backend CI/CD`.
 3. `Run workflow`.
-4. Seleccionar branch `develop`.
-5. `deploy_dev = true`.
-6. `run_migrations = false` para primer test.
+4. Seleccionar el branch del ambiente: `develop`, `staging` o `main`.
+5. `target_environment = dev`, `staging` o `prod`.
+6. `deploy_backend = true`.
+7. `run_migrations = false` para primer test.
 
 Si el deploy pasa, probar de nuevo con:
 
@@ -422,14 +447,22 @@ archivo:
 
 GitHub no muestra workflows que solo existen localmente.
 
-## Deploy automatico desde develop
+## Deploy automatico por ambiente
 
-El workflow corre `deploy-dev` en push a `develop`.
+El workflow corre `deploy-backend` en push al branch de ambiente:
 
-El tag de imagen sera:
+```text
+develop -> dev
+staging -> staging
+main    -> prod
+```
+
+Los tags de imagen seran:
 
 ```text
 <commit-sha>
+<ambiente>-<commit-sha>
+<ambiente>
 ```
 
 En este primer corte, el SHA queda en el tag de la imagen. La deuda de
@@ -449,7 +482,7 @@ drift en un `terraform plan`.
 
 ## Frontera Terraform vs CI
 
-En dev, la frontera queda asi:
+En cada ambiente, la frontera queda asi:
 
 - Terraform gestiona infraestructura, env vars, secrets, identities, RBAC y
   probes.
@@ -590,5 +623,4 @@ si debe existir y el workflow fallara si no lo encuentra.
 - Agregar espera/verificacion formal del job de migraciones.
 - Configurar environments de GitHub (`dev`, `staging`, `prod`) con approvals.
 - Migrar Terraform state local a remote state protegido.
-- Crear workflows separados para staging/prod con aprobacion.
 - Agregar rollback documentado por revision/imagen anterior.

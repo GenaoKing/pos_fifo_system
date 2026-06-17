@@ -32,6 +32,24 @@ variable "observability_location" {
   default     = null
 }
 
+variable "static_web_app_location" {
+  description = "Region soportada por Azure Static Web Apps."
+  type        = string
+  default     = "centralus"
+}
+
+variable "static_web_app_sku_tier" {
+  description = "Tier de Static Web App. Free para prod MVP."
+  type        = string
+  default     = "Free"
+}
+
+variable "static_web_app_sku_size" {
+  description = "Size de Static Web App. Normalmente coincide con sku_tier."
+  type        = string
+  default     = "Free"
+}
+
 variable "log_retention_days" {
   description = "Dias de retencion de Log Analytics."
   type        = number
@@ -42,4 +60,10 @@ variable "extra_tags" {
   description = "Tags adicionales para auditoria/costos."
   type        = map(string)
   default     = {}
+}
+
+variable "enable_static_web_app" {
+  description = "Crea Azure Static Web Apps para el portal prod."
+  type        = bool
+  default     = false
 }

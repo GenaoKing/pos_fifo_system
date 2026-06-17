@@ -22,6 +22,13 @@ variable "postgres_admin_password_version" {
   default     = 1
 }
 
+variable "postgres_zone" {
+  description = "Availability zone actual del PostgreSQL platform. Usar para evitar drift despues de creado."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
 variable "postgresql_version" {
   description = "Version mayor de PostgreSQL."
   type        = string

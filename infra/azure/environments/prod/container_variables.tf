@@ -67,9 +67,17 @@ variable "container_image_repository" {
 }
 
 variable "container_image_tag" {
-  description = "Tag de imagen a desplegar. Usar SHA o prod-<shortsha>, nunca latest."
+  description = "Tag de imagen bootstrap para Terraform. CI/CD despliega SHA; prod usa el tag estable prod."
   type        = string
-  default     = "prod-REEMPLAZAR_SHA"
+  default     = "prod"
+
+  validation {
+    condition = !(
+      (var.enable_api_container_app || var.enable_migrate_job) &&
+      (trimspace(var.container_image_tag) == "" || var.container_image_tag == "latest" || var.container_image_tag == "prod-REEMPLAZAR_SHA")
+    )
+    error_message = "Para activar API/job en prod, container_image_tag debe existir en ACR y no puede ser latest ni prod-REEMPLAZAR_SHA."
+  }
 }
 
 variable "django_secret_key" {

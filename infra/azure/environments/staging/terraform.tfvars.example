@@ -81,4 +81,4 @@ enable_github_actions_identity = false
 github_actions_identity_name   = null
 github_repository_owner        = null
 github_repository_name         = null
-github_deploy_branch           = "develop"
+github_deploy_branch           = "staging"

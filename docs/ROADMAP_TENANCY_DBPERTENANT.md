@@ -143,6 +143,9 @@ Evidencia local (2026-06-16):
 - [x] Container Apps acepta registry externo y mantiene `AcrPull` para API/job.
 - [x] **Migrate job tenant-aware:** comando `migrate_cloud` corre control plane +
       `migrate_tenants`.
+- [x] ASWA prod queda administrado por Terraform con flag `enable_static_web_app`.
+- [x] CI/CD backend separa branches: `develop`→dev, `staging`→staging,
+      `main`→prod.
 - [ ] Aplicar `platform` en Azure.
 - [ ] Cargar secretos prod en Key Vault.
 - [ ] Aplicar `prod` y activar API/job con imagen SHA.

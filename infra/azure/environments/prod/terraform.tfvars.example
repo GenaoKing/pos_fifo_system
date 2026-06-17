@@ -7,12 +7,17 @@ project_slug = "posfifo"
 environment  = "prod"
 location     = "canadacentral"
 
-observability_location = null
-log_retention_days     = 30
+observability_location  = null
+static_web_app_location = "centralus"
+static_web_app_sku_tier = "Free"
+static_web_app_sku_size = "Free"
+log_retention_days      = 30
 
 extra_tags = {
   owner = "santiago"
 }
+
+enable_static_web_app = false
 
 # Remote state: usa el backend ya existente.
 tfstate_resource_group_name  = "posfifo-tfstate-rg"
@@ -38,7 +43,7 @@ enable_migrate_job       = false
 enable_db_per_tenant     = true
 
 container_image_repository = "pos-fifo-backend"
-container_image_tag        = "prod-REEMPLAZAR_SHA"
+container_image_tag        = "prod"
 
 # Prod MVP scale-to-zero.
 api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"
@@ -68,3 +73,10 @@ django_secret_key_secret_name                   = "django-secret-key"
 db_user_secret_name                             = "db-user"
 db_password_secret_name                         = "db-password"
 django_secret_key                               = null
+
+# GitHub Actions OIDC identity para deploy prod desde main.
+enable_github_actions_identity = false
+github_actions_identity_name   = null
+github_repository_owner        = null
+github_repository_name         = null
+github_deploy_branch           = "main"

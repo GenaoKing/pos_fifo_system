@@ -13,6 +13,12 @@ output "observability" {
   sensitive   = true
 }
 
+output "static_web_app" {
+  description = "Outputs de Azure Static Web Apps. Null si enable_static_web_app=false."
+  value       = var.enable_static_web_app ? module.static_web_app[0] : null
+  sensitive   = true
+}
+
 output "postgres" {
   description = "Datos no secretos de PostgreSQL consumidos desde platform."
   value = {

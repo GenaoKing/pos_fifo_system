@@ -13,6 +13,7 @@ Estado: runbook de implementacion para Fase 3 DB-per-tenant.
 
 - Resource Group prod.
 - Observabilidad.
+- Azure Static Web Apps para el portal si `enable_static_web_app=true`.
 - Key Vault.
 - Container App API.
 - Container App Job de migraciones.
@@ -130,7 +131,9 @@ copy terraform.tfvars.example terraform.tfvars
 Editar:
 
 - `subscription_id`
-- `container_image_tag` con SHA o `prod-<shortsha>`
+- `container_image_tag="prod"` como tag bootstrap estable
+- `enable_static_web_app=true` si se quiere crear el recurso ASWA prod
+- `static_web_app_location`, normalmente `centralus`
 - `api_allowed_hosts` cuando haya dominio/FQDN definitivo
 - `enable_api_container_app=true` despues de publicar imagen
 - `enable_migrate_job=true` cuando el job de migraciones deba existir
@@ -184,6 +187,57 @@ python manage.py bootstrap_tenant --tenant demo --settings=config.settings_cloud
 > ejecutarlo desde Azure como override del comando del migrate job.
 
 Luego validar `/api/v1/health/`, login demo y `/api/v1/auth/me/`.
+
+## CI/CD
+
+Contrato de branches:
+
+```text
+develop -> dev
+staging -> staging
+main    -> prod
+```
+
+El workflow `.github/workflows/backend-ci.yml` corre checks en PR/push a esos
+branches. En push, hace deploy solo del ambiente que corresponde al branch.
+
+Variables/secrets esperados:
+
+```text
+dev:     AZURE_...
+staging: STAGING_AZURE_...
+prod:    PROD_AZURE_...
+```
+
+Para prod:
+
+```text
+PROD_AZURE_CLIENT_ID
+PROD_AZURE_TENANT_ID
+PROD_AZURE_SUBSCRIPTION_ID
+PROD_AZURE_RESOURCE_GROUP
+PROD_AZURE_ACR_NAME
+PROD_AZURE_ACR_LOGIN_SERVER
+PROD_AZURE_CONTAINER_APP_NAME
+PROD_AZURE_MIGRATE_JOB_NAME
+PROD_AZURE_API_BASE_URL
+```
+
+El workflow publica tres tags por imagen:
+
+```text
+<git sha>
+prod-<git sha>
+prod
+```
+
+Terraform prod usa `container_image_tag="prod"` solo para crear recursos desde
+cero. El modulo ignora cambios posteriores de `image`; CI/CD despliega la imagen
+real por SHA con `az containerapp update`.
+
+Si prod se recrea desde cero, el tag `prod` debe existir ya en ACR. El camino
+normal es ejecutar primero el workflow contra `main`, que publica ese tag
+estable, o promover manualmente un SHA conocido antes del `terraform apply`.
 
 ## Notas
 

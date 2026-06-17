@@ -33,12 +33,12 @@ variable "github_repository_name" {
 }
 
 variable "github_deploy_branch" {
-  description = "Branch autorizado para hacer deploy staging."
+  description = "Branch autorizado para hacer deploy prod."
   type        = string
-  default     = "staging"
+  default     = "main"
 
   validation {
     condition     = can(regex("^[^[:space:]]+$", var.github_deploy_branch))
-    error_message = "github_deploy_branch no debe contener espacios. Usa nombres como main, develop o release/v1."
+    error_message = "github_deploy_branch no debe contener espacios. Usa nombres como main o release/v1."
   }
 }
