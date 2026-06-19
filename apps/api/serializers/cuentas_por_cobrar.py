@@ -88,6 +88,10 @@ class CuentaPorCobrarSerializer(serializers.ModelSerializer):
     sucursal_codigo = serializers.CharField(
         source='sucursal.codigo', read_only=True, default=None
     )
+    # Deuda real al emitir = capital financiado + interes (property del modelo).
+    monto_financiado = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
     esta_vencida = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -105,6 +109,7 @@ class CuentaPorCobrarSerializer(serializers.ModelSerializer):
             'saldo_original',
             'interes_porcentaje',
             'monto_interes',
+            'monto_financiado',
             'saldo',
             'estado',
             'fecha_emision',

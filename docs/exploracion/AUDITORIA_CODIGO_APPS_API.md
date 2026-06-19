@@ -221,3 +221,59 @@ viewsets de maestros.
 5. Alinear serializer/API de CxC con la feature de interes financiero si se
    confirma para el proximo corte.
 6. Limpiar `__pycache__` si esta versionado o si molesta en auditorias locales.
+
+## Resolucion (2026-06-18)
+
+Verificados los 8 hallazgos contra el codigo actual y corregidos 001-006 + 008.
+Decision de scope multi-tenant: el solicitante sin negocio resoluble (SYSADMIN/
+global, sin `?negocio=`) ve TODO por defecto (compat con `negocio_actual` y con
+"Null = usuario global" del modelo Usuario); puede acotar con `?negocio=<id>`.
+Patron unico de tenant: `apps.negocios.utils.negocio_actual`.
+
+- **API-001 — RESUELTO.** Helper `_scope_por_tenant` en
+  `apps/api/views/cuentas_por_cobrar.py` (token de sucursal -> esa sucursal;
+  usuario con negocio -> `sucursal__negocio`; global -> sin filtro). Aplicado en
+  `get_queryset` (cierra list y el IDOR de retrieve -> 404) y en `resumen`,
+  `aging`, `cartera_clientes`, `cobros`, `proximos_vencimientos`.
+  Tests: `apps/api/tests/test_cxc_scope_negocio.py`.
+
+- **API-002 — RESUELTO.** `_active_sucursales(codigo, negocio)` en
+  `apps/api/services/reporting.py`; `negocio` propagado a `build_ventas_hoy`,
+  `build_comparativo`, `build_ventas_por_cajero`, `build_top_productos`,
+  `build_cierre_consolidado`. Las vistas en `apps/api/views/reportes.py` resuelven
+  `negocio_actual(request)`. `sucursales_status` (`apps/api/views/sucursales.py`)
+  filtra sucursales por negocio. `inventario_consolidado` NO se scopea (Producto
+  sin FK negocio; aislamiento por DB-per-tenant) — ver API-006.
+  Tests: `apps/api/tests/test_reportes_scope_negocio.py`.
+
+- **API-003 — RESUELTO, con matiz.** El 500 descrito NO podia ocurrir: `Venta.usuario`
+  es NOT NULL, asi que una venta replicada sin usuario nunca se persiste; el bug
+  real era que `_handler_venta_creada` (`apps/api/views/sync.py`) reventaba con
+  IntegrityError y dejaba el evento en ERROR (la venta NO se replicaba). Fix:
+  fallback `usuario = _resolver_usuario(...) or sucursal.usuario_servicio` (mismo
+  patron que el handler de pagos CxC, que cae a `cuenta.creado_por`). Se mantiene
+  ademas el null-check defensivo en `build_ventas_por_cajero`.
+  Tests: `apps/api/tests/test_sync_venta_sin_usuario.py`.
+
+- **API-004 — RESUELTO.** `ReadAfterWriteMixin` en `apps/api/views/maestros.py`;
+  Producto/Categoria/Cliente declaran `read_serializer_class` y ya no repiten
+  create/update. Contrato de respuesta intacto.
+
+- **API-005 — RESUELTO.** `SyncIncrementalMixin` ya no muta `self.queryset`: cada
+  viewset implementa `get_base_queryset()` y el mixin aplica `?desde=` sobre el.
+  Comentario de `X-Total-Count` aclarado (total FILTRADO, antes de paginar).
+
+- **API-006 — RESUELTO (contrato).** `build_inventario_consolidado` agrega
+  `es_snapshot_local: true` y `fuente_stock: 'LOCAL'`, con docstring explicito de
+  que es snapshot local (no consolidado por sucursal) y no scopeado por negocio.
+  Forma de respuesta estable; clave `LOCAL` intacta (el frontend la renderiza).
+
+- **API-007 — NO APLICA.** `git ls-files` no devuelve `__pycache__`/`.pyc`
+  trackeados; `.gitignore` ya los ignora.
+
+- **API-008 — RESUELTO.** El serializer ya exponia `saldo_original`,
+  `interes_porcentaje`, `monto_interes`; se agrega `monto_financiado` (property del
+  modelo). Aditivo: el frontend lo computaba a mano.
+
+Regresion: las 92 pruebas previas de maestros/CxC/reportes siguen verdes; 18
+pruebas nuevas cubren el aislamiento y el fallback de sync.

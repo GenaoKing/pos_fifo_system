@@ -170,6 +170,14 @@ En el MVP, `bootstrap_tenant` falla si se reutiliza un `admin-email` con una
 membresía activa en otro tenant; para soporte multi-tenant se usa Identity global
 e impersonation.
 
+> **Invariante — el cloud siempre corre tenancy-ON.** Todos los ambientes cloud
+> usan `TENANCY_DB_PER_TENANT_ENABLED=true`. El portal React manda `email` en
+> `POST /api/v1/auth/login/`, lo que asume el serializer tenant
+> (`TenantPortalLoginSerializer`). **No correr el backend cloud con tenancy OFF:**
+> en modo legacy el login usa `username` (SimpleJWT) y el portal recibiría 400. Si
+> alguna vez hiciera falta un ambiente cloud legacy, primero el backend debe
+> aceptar `email` o `username` en el login.
+
 ### Usuario global / SYSADMIN
 
 - Es una `Identity` con `is_global=True`, sin membership fija.
@@ -345,14 +353,16 @@ media-public/
 Decidido: **cargar TODO desde local → cloud**, incluido el histórico de ventas,
 para que el dueño vea totales desde el teléfono.
 
-1. `bootstrap_tenant --tenant royalplast` → crea BD, sucursal, admin, plan,
-   tokens, prefijo de media.
-2. Import inicial local → `tnt_royalplast`: categorías, productos, clientes,
-   usuarios operativos, imágenes, inventario, CxC **y el historial completo de
-   ventas/caja**.
-3. Validar catálogo + inventario + totales contra el local.
-4. Activar sync cuando esté validado.
-5. SK Performance entra **después**, limpio, directo con el contrato C (no se
+1. Crear una BD tenant descartable/final y restaurar el dump completo con
+   `pg_restore`.
+2. Registrar `Tenant` en el control plane apuntando a esa BD.
+3. Correr `migrate_tenants --tenant <tenant_key>` y luego
+   `normalizar_import_tenant` para crear self-row `Negocio`, sucursal, admin,
+   plan, token sync y backfills.
+4. Validar catálogo + inventario + totales contra el local.
+5. Importar imágenes a Blob cuando el smoke de media esté cerrado.
+6. Activar sync cuando esté validado.
+7. SK Performance entra **después**, limpio, directo con el contrato C (no se
    sube hasta validar el camino con Royal Plast).
 
 > Nota de volumen: importar todo el histórico de ventas hace el bootstrap más

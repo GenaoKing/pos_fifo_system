@@ -127,12 +127,13 @@ Evidencia local (2026-06-16):
 - [x] PDF header no depende de `logo.path`; puede leer logo desde storage remoto.
 - [x] Comando de migración de media local → ruta/blob bajo prefijo del tenant:
       `migrar_media_tenant --tenant demo --source-media-root .\media --apply`.
-- [ ] Activar `enable_media_storage=true` en Azure dev y ejecutar smoke real de
-      blobs públicos.
-- 🚪 **Salida:** imágenes de `demo` y `demo2` viven en `media-public/<tenant>/`
+- [ ] Smoke real de blob en Azure dev: el storage account `posfifodevmedia` ya
+      está **creado y aplicado** (verificado 2026-06-18); falta subir una imagen y
+      confirmar el blob `media-public/<tenant>/` + `imagen_url` pública.
+- 🚪 **Salida:** imágenes de `demo`/`demo2` viven en `media-public/<tenant>/`
   y se sirven; upload multipart OK; Azure dev validado con URL pública.
 
-### Fase 3 — Infra prod con Terraform  (en implementacion)
+### Fase 3 — Infra prod con Terraform  🟢 infra aplicada; falta cerrar el gate
 
 - [x] Nuevo root `platform` con remote state `azure/platform.tfstate`.
 - [x] Nuevo root `prod` con remote state `azure/prod.tfstate`.
@@ -146,19 +147,39 @@ Evidencia local (2026-06-16):
 - [x] ASWA prod queda administrado por Terraform con flag `enable_static_web_app`.
 - [x] CI/CD backend separa branches: `develop`→dev, `staging`→staging,
       `main`→prod.
-- [ ] Aplicar `platform` en Azure.
-- [ ] Cargar secretos prod en Key Vault.
-- [ ] Aplicar `prod` y activar API/job con imagen SHA.
-- 🚪 **Salida:** prod arriba; `demo` creado y validado *en prod*; migrate job corre
-  migraciones tenant-aware; smoke `/health/` OK.
+- [x] Aplicar `platform` en Azure → `posfifoplatformpg` (Flexible v16, **Ready**) con
+      BD `pos_fifo_prod` y firewall (azure-services + IPs de operador). *Verificado 2026-06-18.*
+- [x] Cargar secretos prod en Key Vault (la API prod arranca leyéndolos).
+- [x] Aplicar `prod` y activar API/job → `posfifo-prod-api` (imagen `10c8a4f`, apunta
+      a `posfifoplatformpg`/`pos_fifo_prod`, `TENANCY_DB_PER_TENANT_ENABLED=true`) +
+      job `posfifo-prod-migrate`. *Verificado 2026-06-18.*
+- [x] **Gate cerrado (2026-06-18):** control plane `pos_fifo_prod` migrado (job
+      `posfifo-prod-migrate-x86ns0h` *Succeeded*); `demo` bootstrapeado en el platform
+      PG (`tnt_demo` creada); login en prod `admin@demo.local` → **200** con
+      `tenant_id=demo`; `/api/v1/health/` OK.
+- 🚪 **Salida:** prod arriba, control plane migrado, `demo` validado en prod. ✅
 
 ### Fase 4 — Onboarding real de Royal Plast  (convergencia)
 
-- [ ] `bootstrap_tenant --tenant royalplast` en prod (crea BD, sucursal, admin,
-      plan, token, prefijo de media; registra `Tenant` + `Identity` + `Membership`).
-- [ ] **Import completo desde local** (modo migración): ventas/historial,
-      inventario/lotes, CxC, usuarios operativos, roles/asignaciones, config —
-      vía dump/load. Por lotes; subir `SYNC_HTTP_TIMEOUT` por el cold-start.
+> **Prerrequisitos — gate de Fase 3 CERRADO (2026-06-18). Listo para cargar RP.**
+>
+> 1. ✅ Control plane prod migrado (`posfifo-prod-migrate` *Succeeded*).
+> 2. ✅ `demo` validado en prod (`tnt_demo` creada; login → 200 `tenant_id=demo`).
+> 3. (paralelo, NO bloquea la carga del DB) Smoke de blob de Fase 2.
+>
+> El **mecanismo** de import ya está dry-run-validado (ver
+> `runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md`: 273 prod / 320 ventas / 447,530.00).
+> Para RP no se usa `bootstrap_tenant` como primer paso: el camino es
+> `createdb` → `pg_restore` → registrar `Tenant` → `migrate_tenants` →
+> `normalizar_import_tenant`.
+
+- [x] **Dry-run prod descartable:** restaurar el dump actual en
+      `tnt_royalplastdryrun`, registrar `Tenant royalplastdryrun`, migrar y
+      normalizar con sucursal `01` y `storibio57+dryrun@gmail.com`. Cerrado
+      2026-06-18; luego se borro la BD/tenant descartable.
+- [ ] **Cutover real:** recrear `tnt_royalplast` desde dump fresco, registrar
+      `Tenant royalplast`, correr `migrate_tenants` y `normalizar_import_tenant`
+      con sucursal `01` y `storibio57@gmail.com`.
 - [ ] Import de **imágenes** de RP a Blob.
 - [ ] **Validación:** totales/inventario/CxC contra el local; el dueño ve totales
       desde el teléfono.

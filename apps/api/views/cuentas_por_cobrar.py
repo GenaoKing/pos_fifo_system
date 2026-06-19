@@ -32,6 +32,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, PagoCxC
+from apps.negocios.utils import negocio_actual
 
 from ..pagination import StandardPagination
 from ..permissions import PuedeLeerMaestro, requiere_modulo
@@ -47,6 +48,25 @@ ESTADOS_ABIERTOS = (
     CuentaPorCobrar.ESTADO_PARCIAL,
     CuentaPorCobrar.ESTADO_VENCIDA,
 )
+
+
+def _scope_por_tenant(qs, request, *, prefijo=''):
+    """Acota el queryset al tenant del request (aislamiento multi-negocio).
+
+    - Token de servicio de sucursal (sync)  -> esa sucursal.
+    - Usuario con negocio                    -> su negocio (todas sus sucursales).
+    - Usuario global/SYSADMIN (negocio None) -> sin filtro; puede acotar con ?negocio=.
+
+    `prefijo` ajusta el path del FK a Sucursal: '' para CuentaPorCobrar (filtra
+    `sucursal`), 'cuenta__' para CuotaCxC/PagoCxC (filtra `cuenta__sucursal`).
+    """
+    sucursal = getattr(getattr(request, 'auth', None), 'sucursal', None)
+    if sucursal is not None:
+        return qs.filter(**{f'{prefijo}sucursal': sucursal})
+    negocio = negocio_actual(request)
+    if negocio is not None:
+        return qs.filter(**{f'{prefijo}sucursal__negocio': negocio})
+    return qs
 
 
 class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
@@ -80,6 +100,10 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = CuentaPorCobrar.objects.select_related(
             'cliente', 'venta', 'metodo_plazo', 'sucursal'
         )
+
+        # Aislamiento multi-tenant: aplica antes de los filtros de query y cubre
+        # tanto list como retrieve (un pk de otro negocio/sucursal -> 404).
+        queryset = _scope_por_tenant(queryset, self.request)
 
         # El detalle serializa cuotas + abonos: prefetch solo cuando hace falta.
         if self.action == 'retrieve':
@@ -124,7 +148,8 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
         abiertas_q = Q(estado__in=ESTADOS_ABIERTOS)
         vencidas_q = abiertas_q & Q(fecha_limite__lt=hoy)
 
-        datos = CuentaPorCobrar.objects.aggregate(
+        base = _scope_por_tenant(CuentaPorCobrar.objects.all(), request)
+        datos = base.aggregate(
             cartera_total=Sum('saldo', filter=abiertas_q),
             saldo_vencido=Sum('saldo', filter=vencidas_q),
             cuentas_abiertas=Count('id', filter=abiertas_q),
@@ -157,7 +182,9 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
             saldo__gt=0,
             cuenta__estado__in=ESTADOS_ABIERTOS,
         ).exclude(estado=CuotaCxC.ESTADO_ANULADA)
+        cuotas = _scope_por_tenant(cuotas, request, prefijo='cuenta__')
 
+        # ?sucursal= acota DENTRO del scope del tenant; nunca lo amplia.
         sucursal = request.query_params.get('sucursal')
         if sucursal:
             cuotas = cuotas.filter(cuenta__sucursal__codigo=sucursal)
@@ -188,8 +215,9 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
         saldo descendente. Paginada con el mismo StandardPagination del listado.
         """
         hoy = timezone.localdate()
+        base = _scope_por_tenant(CuentaPorCobrar.objects.all(), request)
         filas = (
-            CuentaPorCobrar.objects
+            base
             .filter(estado__in=ESTADOS_ABIERTOS)
             .values('cliente_id', 'cliente__nombre', 'cliente__cedula_rnc')
             .annotate(
@@ -235,6 +263,7 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
             fecha_pago__date__gte=desde,
             fecha_pago__date__lte=hasta,
         )
+        pagos = _scope_por_tenant(pagos, request, prefijo='cuenta__')
 
         if agrupar == 'cajero':
             filas = (
@@ -288,7 +317,7 @@ class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):
         limite = hoy + timedelta(days=dias)
 
         cuotas = (
-            CuotaCxC.objects
+            _scope_por_tenant(CuotaCxC.objects.all(), request, prefijo='cuenta__')
             .filter(
                 saldo__gt=0,
                 cuenta__estado__in=ESTADOS_ABIERTOS,

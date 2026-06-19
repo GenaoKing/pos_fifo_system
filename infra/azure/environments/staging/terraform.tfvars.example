@@ -37,6 +37,12 @@ container_apps_location = null
 acr_name                = null
 acr_sku                 = "Basic"
 
+# Reutilizar un ACR existente para evitar costo recurrente de otro registry.
+# Ejemplo con ACR dev compartido.
+existing_container_registry_id           = "/subscriptions/<subscription-id>/resourceGroups/posfifo-dev-rg/providers/Microsoft.ContainerRegistry/registries/posfifodevacr"
+existing_container_registry_name         = "posfifodevacr"
+existing_container_registry_login_server = "posfifodevacr.azurecr.io"
+
 existing_container_apps_environment_id   = "/subscriptions/e88372f6-b224-4d73-bf17-c61f32559c45/resourceGroups/posfifo-dev-rg/providers/Microsoft.App/managedEnvironments/posfifo-dev-aca-env"
 existing_container_apps_environment_name = "posfifo-dev-aca-env"
 
@@ -59,7 +65,7 @@ db_sslmode        = "require"
 api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"
 api_cors_allowed_origins  = "http://localhost:5173,http://127.0.0.1:5173,https://salmon-rock-01cc45c10.7.azurestaticapps.net"
 api_csrf_trusted_origins  = "https://salmon-rock-01cc45c10.7.azurestaticapps.net"
-api_min_replicas          = 1
+api_min_replicas          = 0
 api_max_replicas          = 1
 app_version               = "staging"
 git_commit_sha            = "unknown"

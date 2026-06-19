@@ -1,11 +1,16 @@
 # Runbook — Import Royal Plast a DB-per-tenant
 
-Estado: borrador operativo para dry-run. Fecha: 2026-06-16.
+Estado: runbook operativo para dry-run prod descartable. Fecha: 2026-06-18.
 
 Objetivo: validar el dump real de Royal Plast contra el contrato DB-per-tenant
 sin tocar produccion ni activar sync. El primer ensayo debe restaurar en una BD
 temporal, comparar totales y documentar diferencias antes de promover el flujo a
 Fase 4.
+
+Autorizacion operativa: Royal Plast autorizo inspeccionar y manipular los datos
+del dump en un ambiente de prueba. Aun asi, los documentos deben registrar
+conteos/agregados y no copiar datos sensibles puntuales salvo que sean necesarios
+para diagnostico.
 
 ## Responsabilidades
 
@@ -41,21 +46,10 @@ $env:TENANCY_DB_PER_TENANT_ENABLED='true'
 $env:DJANGO_SETTINGS_MODULE='config.settings_development'
 ```
 
-Crear tenant dry-run en control plane:
-
-```powershell
-C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py bootstrap_tenant `
-  --tenant royalplastdryrun `
-  --nombre "Royal Plast Dry Run" `
-  --admin-email admin@royalplast.local `
-  --admin-password Admin123! `
-  --sucursal-codigo RP-001 `
-  --settings=config.settings_development
-```
-
-Esto crea una BD limpia `tnt_royalplastdryrun`. Para probar un restore desde
-dump, normalmente conviene descartarla y recrearla desde el dump, o restaurar
-data-only sobre una BD ya migrada. La eleccion depende del formato del dump.
+Para Royal Plast no se usa `bootstrap_tenant` como primer paso. Ese comando es
+el camino clean para tenants nuevos (`demo`, SK futuro). RP trae data historica,
+asi que el camino aprobado es: crear BD descartable, restaurar dump completo,
+registrar `Tenant`, correr `migrate_tenants` y luego `normalizar_import_tenant`.
 
 ## Identificar Formato Del Dump
 
@@ -101,20 +95,14 @@ Tenant.objects.update_or_create(
 )
 ```
 
-## Camino B — Data-Only Sobre BD Migrada
+## Camino B — Data-Only Sobre BD Migrada (no usado para RP actual)
 
 Usar si el dump viene de la misma version de schema o si queremos que Django cree
-primero las tablas.
+primero las tablas. No es el camino elegido para el dump actual de Royal Plast,
+porque el dry-run validado fue restore completo + migraciones. Para RP no crear
+la BD con `bootstrap_tenant` antes del restore.
 
 ```powershell
-C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py bootstrap_tenant `
-  --tenant royalplastimport `
-  --nombre "Royal Plast Import Test" `
-  --admin-email admin@royalplast.local `
-  --admin-password Admin123! `
-  --sucursal-codigo RP-001 `
-  --settings=config.settings_development
-
 pg_restore -h localhost -U pos_user -d tnt_royalplastimport `
   --data-only --disable-triggers --no-owner --no-privileges `
   "RUTA\royal_plast.dump"
@@ -168,10 +156,98 @@ C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py migrate_tenants `
   --noinput
 ```
 
+## Camino Prod Descartable — Dump Actual
+
+Este es el camino aprobado para probar contra el PostgreSQL platform/prod con el
+dump actual, sin tocar el tenant final `royalplast`.
+
+Contrato:
+
+```text
+tenant_key: royalplastdryrun
+db_name: tnt_royalplastdryrun
+slug: royal-plast-dryrun
+media_prefix: royalplastdryrun/
+sucursal_codigo: 01
+admin_email: storibio57+dryrun@gmail.com
+```
+
+Preparar variables locales contra prod leyendo secretos desde Key Vault, no desde
+archivos planos:
+
+```powershell
+$env:TENANCY_DB_PER_TENANT_ENABLED='true'
+$env:DJANGO_SETTINGS_MODULE='config.settings_cloud'
+$env:DB_NAME='pos_fifo_prod'
+$env:DB_SSLMODE='require'
+$env:ALLOWED_HOSTS='localhost,127.0.0.1'
+$env:DB_HOST='<platform-postgres-fqdn>'
+$env:DB_USER='<keyvault:db-user>'
+$env:DB_PASSWORD='<keyvault:db-password>'
+$env:DJANGO_SECRET_KEY='<keyvault:django-secret-key>'
+```
+
+Restaurar y registrar el tenant descartable:
+
+```powershell
+dropdb -h $env:DB_HOST -U $env:DB_USER --if-exists tnt_royalplastdryrun
+createdb -h $env:DB_HOST -U $env:DB_USER tnt_royalplastdryrun
+pg_restore -h $env:DB_HOST -U $env:DB_USER -d tnt_royalplastdryrun `
+  --clean --if-exists --no-owner --no-privileges `
+  docs\dumps\royal_backup.dump
+```
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py shell --settings=config.settings_cloud
+```
+
+```python
+from apps.tenancy.models import Tenant
+Tenant.objects.update_or_create(
+    tenant_key='royalplastdryrun',
+    defaults={
+        'slug': 'royal-plast-dryrun',
+        'nombre': 'Royal Plast Dry Run',
+        'db_name': 'tnt_royalplastdryrun',
+        'media_prefix': 'royalplastdryrun/',
+        'activo': True,
+    },
+)
+```
+
+Migrar y normalizar:
+
+```powershell
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py migrate_tenants `
+  --tenant royalplastdryrun `
+  --settings=config.settings_cloud `
+  --noinput
+
+C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py normalizar_import_tenant `
+  --tenant royalplastdryrun `
+  --nombre "Royal Plast EIRL" `
+  --slug royal-plast-dryrun `
+  --sucursal-codigo 01 `
+  --sucursal-nombre "Royal Plast - Principal" `
+  --admin-email storibio57+dryrun@gmail.com `
+  --admin-password "<GENERAR_PASSWORD_DRYRUN>" `
+  --show-sync-token `
+  --settings=config.settings_cloud
+```
+
+Gate del dry-run prod:
+
+- Restore, migraciones y normalizacion terminan sin errores.
+- Ventas, compras y lotes quedan con `sucursal_id` asignado.
+- Login con `storibio57+dryrun@gmail.com` devuelve `tenant_id=royalplastdryrun`.
+- Token sync dry-run lee maestros; `demo` no ve datos de RP.
+- Totales agregados quedan documentados. El dump actual debe rondar los 440k
+  pesos en ventas; el valor exacto se registra al cierre.
+
 ## Checklist De Aceptacion
 
 - El restore termina sin errores no explicados.
-- `migrate_tenants --tenant royalplastimport` no deja migraciones pendientes.
+- `migrate_tenants --tenant <tenant_key_descartable>` no deja migraciones pendientes.
 - Existe exactamente un `Negocio` self-row o se define el arreglo necesario.
 - Todas las `Sucursal` tienen `negocio_id`.
 - Usuarios operativos existen y las ventas conservan FK a usuario.
@@ -288,11 +364,62 @@ Smokes:
 
 Pendiente de decision:
 
-- Confirmar si el codigo real de sucursal debe ser `RP-001` u otro valor usado en
-  la instalacion local.
-- Confirmar si `admin@royalplast.local` es solo temporal o si debe cambiarse por
-  el email real del dueno/admin.
+- Decision 2026-06-18: el codigo real de sucursal para el import es `01`.
+- Decision 2026-06-18: el email real del dueno/admin para el cutover final es
+  `storibio57@gmail.com`; el dry-run prod usa `storibio57+dryrun@gmail.com`.
 - Confirmado por Santiago: los totales 320 ventas y 447,530.00 cuadran con este
   dump del 2026-06-13.
 - Antes del go-live vendra un dump mas fresco; este dry-run valida el camino
   tecnico, no es el dataset final para produccion.
+
+## Dry-Run Prod Descartable 2026-06-18 — `royalplastdryrun`
+
+Ambiente: PostgreSQL platform/prod `posfifoplatformpg`, control plane
+`pos_fifo_prod`, tenant descartable `royalplastdryrun` en BD
+`tnt_royalplastdryrun`.
+
+Comandos efectivos:
+
+1. Cleanup de `Tenant royalplastdryrun` si existia.
+2. `dropdb --if-exists --force tnt_royalplastdryrun`.
+3. `createdb tnt_royalplastdryrun`.
+4. `pg_restore --clean --if-exists --no-owner --no-privileges docs\dumps\royal_backup.dump`.
+5. Registrar `Tenant royalplastdryrun` con slug `royal-plast-dryrun`.
+6. `migrate_tenants --tenant royalplastdryrun --settings=config.settings_cloud --noinput`.
+7. `normalizar_import_tenant --tenant royalplastdryrun --sucursal-codigo 01 --admin-email storibio57+dryrun@gmail.com`.
+
+Resultado despues de normalizar en prod:
+
+| Metrica | Valor |
+| --- | ---: |
+| Categorias | 20 |
+| Productos | 273 |
+| Clientes | 3 |
+| Usuarios | 3 |
+| Ventas | 320 |
+| Ventas completadas | 320 |
+| Total ventas | 447,530.00 |
+| Compras | 4 |
+| Lotes | 4 |
+| Unidades actuales en lotes | 387 |
+| Valor costo en lotes | 86,555.00 |
+| CxC | 0 |
+| Ventas sin sucursal | 0 |
+| Compras sin sucursal | 0 |
+| Lotes sin sucursal | 0 |
+
+Smokes prod:
+
+- Membership control-plane: `storibio57+dryrun@gmail.com` -> `Santiago` / `ADMIN`.
+- Sucursal token registrado para sucursal `01`.
+- Login API prod con el email dry-run: HTTP 200.
+- `/api/v1/auth/me/`: `tenant_key=royalplastdryrun`, `username=Santiago`.
+- Token sync dry-run: `/api/v1/maestros/productos/` devuelve `count=273`.
+- Aislamiento: `tnt_demo` tiene `productos=0`; no contiene los 273 productos RP.
+
+Cierre:
+
+- Cerrado 2026-06-18: se borraron `Tenant royalplastdryrun`,
+  `tnt_royalplastdryrun` y la Identity dry-run si quedaba sin memberships.
+- Se creo y luego se elimino la regla temporal de firewall
+  `operator-rp-dryrun-186-7-5-23`.

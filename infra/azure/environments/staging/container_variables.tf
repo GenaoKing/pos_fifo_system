@@ -16,6 +16,27 @@ variable "acr_sku" {
   default     = "Basic"
 }
 
+variable "existing_container_registry_id" {
+  description = "ID de un ACR existente a reutilizar. Si se define, staging no crea ACR propio."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "existing_container_registry_name" {
+  description = "Nombre del ACR existente reutilizado para outputs."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
+variable "existing_container_registry_login_server" {
+  description = "Login server del ACR existente, por ejemplo posfifodevacr.azurecr.io."
+  type        = string
+  nullable    = true
+  default     = null
+}
+
 variable "container_apps_location" {
   description = "Region para ACR y Container Apps. Null usa var.location."
   type        = string

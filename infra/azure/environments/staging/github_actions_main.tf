@@ -28,7 +28,7 @@ resource "azurerm_federated_identity_credential" "github_actions_develop" {
 resource "azurerm_role_assignment" "github_actions_acr_push" {
   count = var.enable_github_actions_identity ? 1 : 0
 
-  scope                = module.container_registry.id
+  scope                = local.container_registry_id
   role_definition_name = "AcrPush"
   principal_id         = azurerm_user_assigned_identity.github_actions[0].principal_id
 }

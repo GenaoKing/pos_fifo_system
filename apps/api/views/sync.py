@@ -361,7 +361,11 @@ def _handler_venta_creada(sucursal, payload):
         logger.info('Venta %s ya existe en cloud, skip', numero_venta)
         return
 
-    usuario = _resolver_usuario(payload.get('usuario_username'))
+    # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
+    # resuelto), caer al usuario de servicio de la sucursal en vez de reventar
+    # con IntegrityError y dejar el evento en ERROR (la venta nunca se replicaria).
+    # Mismo patron que el handler de pagos CxC (cae a cuenta.creado_por).
+    usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
     cliente = None
     if payload.get('cliente_cedula_rnc'):
         cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()

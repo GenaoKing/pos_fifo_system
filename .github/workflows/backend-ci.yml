@@ -61,6 +61,21 @@ jobs:
       DB_SSLMODE: disable
       SECURE_SSL_REDIRECT: "false"
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pos_user
+          POSTGRES_PASSWORD: Prueba123
+          POSTGRES_DB: pos_fifo_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos_user -d pos_fifo_dev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,6 +97,13 @@ jobs:
 
       - name: Collect static dry run
         run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
+
+      - name: Run test suite
+        # settings_development hardcodea pos_fifo_dev/pos_user/Prueba123@localhost,
+        # que matchea el service postgres de arriba. pos_user es superuser del
+        # contenedor -> CREATEDB para test_pos_fifo_dev y para los tests de
+        # comandos de tenancy (CREATE DATABASE tnt_*).
+        run: python manage.py test --settings=config.settings_development
 
   deploy-backend:
     name: Build and deploy ${{ matrix.environment }}
@@ -160,7 +182,10 @@ jobs:
         run: |
           deploy=false
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "$MATRIX_BRANCH" ]; then
+          # Push auto-deploya dev/staging, pero NO prod: prod requiere
+          # workflow_dispatch manual (gate interino hasta tener GitHub
+          # Environments + required reviewers).
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "$MATRIX_BRANCH" ] && [ "$MATRIX_ENVIRONMENT" != "prod" ]; then
             deploy=true
           fi
 
@@ -256,8 +281,73 @@ jobs:
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG"
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG"
 
+      # --- Orden: migrar ANTES de cambiar la imagen de la API ---
+      # Asi el codigo nuevo nunca corre contra un schema viejo, y una migracion
+      # fallida aborta el deploy sin haber tocado la API.
+
+      - name: Update migrate job image if present
+        if: steps.target.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_MIGRATE_JOB_NAME" \
+              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          else
+            echo "::warning::Container Apps job '$AZURE_MIGRATE_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping migrate job image update."
+          fi
+
+      - name: Run migrations and wait for completion
+        if: steps.target.outputs.deploy == 'true' && ((github.event_name == 'push' && env.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations))
+        shell: bash
+        run: |
+          if ! az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
+            echo "Migrate job '$AZURE_MIGRATE_JOB_NAME' not found in '$AZURE_RESOURCE_GROUP'; cannot run migrations."
+            exit 1
+          fi
+
+          echo "Starting migrate job..."
+          execution=$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_MIGRATE_JOB_NAME" \
+            --query "name" -o tsv)
+          echo "Migration execution: $execution"
+
+          # Esperar a que la ejecucion termine. Sin esto, una migracion fallida
+          # pasaria desapercibida (job start es async).
+          for attempt in $(seq 1 60); do
+            status=$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_MIGRATE_JOB_NAME" \
+              --job-execution-name "$execution" \
+              --query "properties.status" -o tsv 2>/dev/null || echo "Unknown")
+            echo "Migration status ($attempt/60): $status"
+            case "$status" in
+              Succeeded) echo "Migrations OK."; exit 0 ;;
+              Failed|Degraded|Cancelled) echo "Migration execution ended as '$status'."; exit 1 ;;
+            esac
+            sleep 10
+          done
+
+          echo "Timed out waiting for migration execution to finish."
+          exit 1
+
+      - name: Capture current API image (for rollback)
+        if: steps.target.outputs.deploy == 'true'
+        id: current_image
+        shell: bash
+        run: |
+          prev=$(az containerapp show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --query "properties.template.containers[0].image" -o tsv 2>/dev/null || echo "")
+          echo "previous_image=$prev" >> "$GITHUB_OUTPUT"
+          echo "Previous API image: ${prev:-<none>}"
+
       - name: Update API image
         if: steps.target.outputs.deploy == 'true'
+        id: update_api
         run: |
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -278,22 +368,12 @@ jobs:
 
           exit 1
 
-      - name: Update migrate job image if present
-        if: steps.target.outputs.deploy == 'true'
+      - name: Rollback API image on failure
+        if: failure() && steps.target.outputs.deploy == 'true' && steps.update_api.outcome == 'success' && steps.current_image.outputs.previous_image != ''
         shell: bash
         run: |
-          if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
-            az containerapp job update \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --name "$AZURE_MIGRATE_JOB_NAME" \
-              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
-          else
-            echo "::warning::Container Apps job '$AZURE_MIGRATE_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping migrate job image update."
-          fi
-
-      - name: Start migrate job
-        if: steps.target.outputs.deploy == 'true' && ((github.event_name == 'push' && env.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations))
-        run: |
-          az containerapp job start \
+          echo "::warning::Verificacion post-deploy fallo tras el swap de imagen; revirtiendo la API a la imagen previa."
+          az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_MIGRATE_JOB_NAME"
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --image "${{ steps.current_image.outputs.previous_image }}"

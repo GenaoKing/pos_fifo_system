@@ -20,6 +20,7 @@ from apps.api.services.reporting import (
     build_ventas_hoy,
     build_ventas_por_cajero,
 )
+from apps.negocios.utils import negocio_actual
 
 from ..permissions import requiere_permiso
 
@@ -35,34 +36,39 @@ def _service_response(builder, request, *args, **kwargs):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def ventas_hoy(request, codigo_sucursal=None):
-    return _service_response(build_ventas_hoy, request, codigo_sucursal=codigo_sucursal)
+    return _service_response(
+        build_ventas_hoy, request,
+        codigo_sucursal=codigo_sucursal, negocio=negocio_actual(request),
+    )
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.consolidado.ver')])
 def comparativo_sucursales(request):
-    return _service_response(build_comparativo, request)
+    return _service_response(build_comparativo, request, negocio=negocio_actual(request))
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def ventas_por_cajero(request):
-    return _service_response(build_ventas_por_cajero, request)
+    return _service_response(build_ventas_por_cajero, request, negocio=negocio_actual(request))
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def top_productos(request):
-    return _service_response(build_top_productos, request)
+    return _service_response(build_top_productos, request, negocio=negocio_actual(request))
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.consolidado.ver')])
 def cierre_consolidado(request):
-    return _service_response(build_cierre_consolidado, request)
+    return _service_response(build_cierre_consolidado, request, negocio=negocio_actual(request))
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.consolidado.ver')])
 def inventario_consolidado(request):
+    # Sin scope por negocio: Producto no tiene FK negocio; su aislamiento es
+    # DB-per-tenant. Ver build_inventario_consolidado (snapshot local, no consolidado).
     return _service_response(build_inventario_consolidado, request)

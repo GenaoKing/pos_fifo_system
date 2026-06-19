@@ -1,8 +1,9 @@
 output "container_registry" {
   description = "Datos operativos del Azure Container Registry."
   value = {
-    name         = module.container_registry.name
-    login_server = module.container_registry.login_server
+    name                  = local.container_registry_name
+    login_server          = local.container_registry_login_server
+    managed_by_this_state = !local.use_existing_container_registry
   }
 }
 

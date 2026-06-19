@@ -23,6 +23,11 @@ class Command(TenantCommandMixin, BaseCommand):
         parser.add_argument('--plan', default='empresarial', help='Plan a asignar si existe.')
         parser.add_argument('--dry-run', action='store_true', help='Reporta conteos sin escribir.')
         parser.add_argument(
+            '--show-sync-token',
+            action='store_true',
+            help='Muestra el token sync plano en stdout. Por defecto se enmascara.',
+        )
+        parser.add_argument(
             '--force-sucursal-backfill',
             action='store_true',
             help='Asigna filas con sucursal nula a la sucursal inicial aun cuando '
@@ -31,6 +36,11 @@ class Command(TenantCommandMixin, BaseCommand):
 
     def handle(self, *args, **options):
         tenant = self.get_tenant(options['tenant'])
+        admin_email = options['admin_email'].strip().lower()
+        if not admin_email:
+            raise CommandError('--admin-email no puede estar vacio.')
+        options['admin_email'] = admin_email
+        self._validate_admin_email_available(tenant, admin_email)
 
         with force_tenancy(True):
             with tenant_context(tenant):
@@ -40,7 +50,7 @@ class Command(TenantCommandMixin, BaseCommand):
             self._normalize_control_plane(tenant, options, summary['admin_username'], summary['sync_token'])
 
         for key, value in summary.items():
-            if key == 'sync_token':
+            if key == 'sync_token' and not options['show_sync_token']:
                 value = value[:8] + '...' if value else ''
             self.stdout.write(f'{key}: {value}')
 
@@ -214,7 +224,7 @@ class Command(TenantCommandMixin, BaseCommand):
 
     def _normalize_control_plane(self, tenant, options, admin_username, sync_token):
         identity, _ = Identity.objects.using('default').get_or_create(
-            email=options['admin_email'].lower(),
+            email=options['admin_email'],
             defaults={'nombre': options['nombre'], 'activo': True},
         )
         identity.nombre = options['nombre']
@@ -237,6 +247,21 @@ class Command(TenantCommandMixin, BaseCommand):
                 'descripcion': f'Sync {tenant.tenant_key}/{options["sucursal_codigo"].upper()}',
             },
         )
+
+    def _validate_admin_email_available(self, tenant, admin_email):
+        conflicting_membership = (
+            Membership.objects.using('default')
+            .select_related('tenant', 'identity')
+            .filter(identity__email__iexact=admin_email, activo=True)
+            .exclude(tenant__tenant_key=tenant.tenant_key)
+            .first()
+        )
+        if conflicting_membership is not None:
+            raise CommandError(
+                f'El admin-email "{admin_email}" ya tiene una membresia activa '
+                f'en el tenant "{conflicting_membership.tenant.tenant_key}". '
+                'Use otro email o una Identity global con impersonation.'
+            )
 
     def _first_admin_username(self, User):
         user = User.objects.filter(rol__in=('SYSADMIN', 'ADMIN'), activo=True).order_by('id').first()

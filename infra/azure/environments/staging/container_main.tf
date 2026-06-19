@@ -1,4 +1,6 @@
 module "container_registry" {
+  count = local.use_existing_container_registry ? 0 : 1
+
   source = "../../modules/container-registry"
 
   name                = local.acr_name
@@ -18,8 +20,8 @@ module "container_apps" {
   resource_group_name        = azurerm_resource_group.main.name
   log_analytics_workspace_id = module.observability.container_apps_log_analytics_workspace_id
 
-  registry_id     = module.container_registry.id
-  registry_server = module.container_registry.login_server
+  registry_id     = local.container_registry_id
+  registry_server = local.container_registry_login_server
   image           = local.container_image
 
   enable_api         = var.enable_api_container_app

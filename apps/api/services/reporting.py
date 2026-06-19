@@ -102,8 +102,16 @@ def _parse_single_date(params, name='fecha'):
     return _parse_date(params.get(name), name, timezone.localdate())
 
 
-def _active_sucursales(codigo=None):
+def _active_sucursales(codigo=None, negocio=None):
+    """Sucursales activas que alimentan los reportes consolidados.
+
+    `negocio` acota al tenant del solicitante (aislamiento multi-negocio); None
+    = usuario global/SYSADMIN -> todas las sucursales activas. `codigo` acota
+    DENTRO del scope (un codigo de otro negocio devuelve 404).
+    """
     queryset = Sucursal.objects.filter(activa=True).order_by('codigo')
+    if negocio is not None:
+        queryset = queryset.filter(negocio=negocio)
     if codigo:
         queryset = queryset.filter(codigo=codigo)
         if not queryset.exists():
@@ -263,10 +271,10 @@ def _aggregate_sales_by_sucursal(periodo: Periodo, codigos):
     return data
 
 
-def build_ventas_hoy(params, codigo_sucursal=None):
+def build_ventas_hoy(params, codigo_sucursal=None, negocio=None):
     hoy = timezone.localdate()
     periodo = Periodo(hoy, hoy)
-    sucursales = _active_sucursales(codigo_sucursal)
+    sucursales = _active_sucursales(codigo_sucursal, negocio)
     codigos = [s.codigo for s in sucursales]
     metrics_by_sucursal = _aggregate_sales_by_sucursal(periodo, codigos)
 
@@ -338,7 +346,7 @@ def build_ventas_hoy(params, codigo_sucursal=None):
     }
 
 
-def build_comparativo(params):
+def build_comparativo(params, negocio=None):
     periodo = _parse_period(params)
     agrupacion = params.get('agrupacion') or 'dia'
     if agrupacion not in ('dia', 'semana', 'mes'):
@@ -360,7 +368,7 @@ def build_comparativo(params):
             status_code=400,
         )
 
-    sucursales = _active_sucursales(params.get('sucursal'))
+    sucursales = _active_sucursales(params.get('sucursal'), negocio)
     codigos = [s.codigo for s in sucursales]
     totals = _aggregate_sales_by_sucursal(periodo, codigos)
     series = defaultdict(lambda: defaultdict(_empty_metrics))
@@ -413,9 +421,9 @@ def build_comparativo(params):
     }
 
 
-def build_ventas_por_cajero(params):
+def build_ventas_por_cajero(params, negocio=None):
     periodo = _parse_period(params)
-    sucursales = _active_sucursales(params.get('sucursal'))
+    sucursales = _active_sucursales(params.get('sucursal'), negocio)
     codigos = [s.codigo for s in sucursales]
     rows = defaultdict(lambda: {**_empty_metrics(), **_empty_payment_metrics(), 'usuario': None, 'sucursal': None})
 
@@ -449,11 +457,23 @@ def build_ventas_por_cajero(params):
     for row in rows.values():
         usuario = row['usuario']
         sucursal = row['sucursal']
-        nombre = usuario.get_full_name() if hasattr(usuario, 'get_full_name') else ''
+        # Defensa en profundidad: hoy Venta.usuario y PagoCxC.registrado_por son
+        # NOT NULL (el sync cae al usuario_servicio si el cajero no existe en
+        # cloud, ver apps/api/views/sync.py), pero si alguna vez llega un usuario
+        # nulo lo representamos como "Sin usuario" en vez de reventar con
+        # AttributeError (usuario.id) -> 500.
+        if usuario is not None:
+            usuario_id = usuario.id
+            username = usuario.username
+            nombre = usuario.get_full_name() or usuario.username
+        else:
+            usuario_id = None
+            username = 'sin_usuario'
+            nombre = 'Sin usuario'
         cajeros.append({
-            'usuario_id': usuario.id,
-            'username': usuario.username,
-            'nombre': nombre or usuario.username,
+            'usuario_id': usuario_id,
+            'username': username,
+            'nombre': nombre,
             'sucursal_codigo': sucursal.codigo,
             'cantidad_ventas': row['cantidad_ventas'],
             'ventas_facturadas': _money(row['ventas_facturadas']),
@@ -474,9 +494,9 @@ def build_ventas_por_cajero(params):
     }
 
 
-def build_top_productos(params):
+def build_top_productos(params, negocio=None):
     periodo = _parse_period(params)
-    sucursales = _active_sucursales(params.get('sucursal'))
+    sucursales = _active_sucursales(params.get('sucursal'), negocio)
     codigos = [s.codigo for s in sucursales]
     try:
         limit = int(params.get('limit', 10))
@@ -521,10 +541,10 @@ def build_top_productos(params):
     }
 
 
-def build_cierre_consolidado(params):
+def build_cierre_consolidado(params, negocio=None):
     fecha = _parse_single_date(params)
     periodo = Periodo(fecha, fecha)
-    sucursales = _active_sucursales(params.get('sucursal'))
+    sucursales = _active_sucursales(params.get('sucursal'), negocio)
     codigos = [s.codigo for s in sucursales]
     totals = _aggregate_sales_by_sucursal(periodo, codigos)
     payments = defaultdict(_empty_payment_metrics)
@@ -555,7 +575,7 @@ def build_cierre_consolidado(params):
         'desde': str(fecha),
         'hasta': str(fecha),
         **({'sucursal': params.get('sucursal')} if params.get('sucursal') else {}),
-    })['cajeros']
+    }, negocio=negocio)['cajeros']
     por_cajero_by_sucursal = defaultdict(list)
     for row in por_cajero:
         por_cajero_by_sucursal[row['sucursal_codigo']].append(row)
@@ -611,6 +631,16 @@ def build_cierre_consolidado(params):
 
 
 def build_inventario_consolidado(params):
+    """Snapshot de inventario LOCAL (single-source), NO consolidado por sucursal.
+
+    Hoy el stock vive en `Producto.stock_actual` (replicado del POS), no hay un
+    modelo de stock por sucursal en cloud: por eso `stock_por_sucursal` trae una
+    sola clave `LOCAL`. El payload marca esto explicito con `es_snapshot_local` y
+    `fuente_stock` para que el portal no lo presente como dato multi-sucursal real.
+
+    No se scopea por negocio: `Producto` no tiene FK negocio; su aislamiento es
+    DB-per-tenant (una BD por tenant), no row-level.
+    """
     productos = Producto.objects.select_related('categoria')
 
     activo = params.get('activo', 'true')
@@ -654,4 +684,8 @@ def build_inventario_consolidado(params):
         },
         'ultima_actualizacion_por_sucursal': {},
         'sucursales_sin_datos': [],
+        # Contrato explicito: snapshot de una sola fuente (LOCAL), no consolidado
+        # por sucursal. El frontend no debe presentarlo como dato multi-sucursal.
+        'es_snapshot_local': True,
+        'fuente_stock': 'LOCAL',
     }

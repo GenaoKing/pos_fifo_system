@@ -198,8 +198,19 @@ staging -> staging
 main    -> prod
 ```
 
-El workflow `.github/workflows/backend-ci.yml` corre checks en PR/push a esos
-branches. En push, hace deploy solo del ambiente que corresponde al branch.
+El workflow `.github/workflows/backend-ci.yml` corre `checks` (incluye la suite de
+tests con un Postgres de servicio) en PR/push a esos branches, y luego deploy:
+
+- **Gate de prod:** push a `main` **NO** auto-deploya prod. Prod solo se despliega
+  por `workflow_dispatch` manual (`deploy_backend=true`, `target_environment=prod`,
+  corriendo sobre `main`). dev/staging sí auto-deployan en push a su branch. El gate
+  maduro (GitHub Environments + required reviewers) queda como paso futuro.
+- **Migraciones primero:** con `RUN_MIGRATIONS_ON_DEPLOY=true` (o dispatch con
+  `run_migrations`), el migrate job corre y el workflow **espera su resultado ANTES**
+  de cambiar la imagen de la API; una migración fallida aborta el deploy sin tocar
+  la API.
+- **Rollback:** si el smoke `/api/v1/health/` falla tras el swap, la API se revierte
+  a la imagen previa.
 
 Variables/secrets esperados:
 

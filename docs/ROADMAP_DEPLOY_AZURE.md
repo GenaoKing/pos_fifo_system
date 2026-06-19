@@ -401,8 +401,8 @@ Objetivo: separar "probado en dev" de "candidato a prod".
     PostgreSQL; preferible usuario/password separado cuando sea practico.
 - [x] Mantener `api_min_replicas=0`, `api_max_replicas=1` mientras staging sea
   apagable/on-demand.
-- [x] Publicar imagen Docker `staging` en ACR staging o decidir reutilizar ACR
-  dev para el primer smoke.
+- [x] Reutilizar ACR dev (`posfifodevacr`) para staging y eliminar el ACR propio
+  de staging para reducir costo recurrente.
 - [~] Deploy desde rama `main` o tags release. Hoy staging esta desplegado
   manualmente; automatizacion/promocion formal queda pendiente.
 - [x] Ejecutar migraciones de staging via Container Apps Job.

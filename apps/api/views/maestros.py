@@ -49,11 +49,21 @@ class SyncIncrementalMixin:
     
     La respuesta incluye headers con metadata de sync:
         X-Sync-Timestamp: timestamp del servidor al momento de la respuesta
-        X-Total-Count: total de registros (sin paginar)
+        X-Total-Count: total FILTRADO (incluye ?desde= y los filtros del viewset),
+                       antes de paginar. No es el total global del recurso.
     """
 
+    def get_base_queryset(self):
+        """Queryset base del viewset, con sus filtros propios pero SIN el ?desde=.
+
+        Cada viewset de maestros lo sobreescribe devolviendo su queryset ya
+        filtrado (sin mutar atributos compartidos). Fallback seguro a la
+        resolucion estandar de DRF si un viewset no lo define.
+        """
+        return super().get_queryset()
+
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = self.get_base_queryset()
         desde = self.request.query_params.get('desde')
 
         if desde:
@@ -80,12 +90,45 @@ class SyncIncrementalMixin:
 
         from django.utils import timezone
         response['X-Sync-Timestamp'] = timezone.now().isoformat()
+        # Total filtrado (incluye ?desde= y los filtros del viewset), sin paginar.
         response['X-Total-Count'] = self.get_queryset().count()
 
         return response
 
 
-class ProductoViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class ReadAfterWriteMixin:
+    """create/update que devuelven SIEMPRE la representacion de LECTURA.
+
+    Los maestros usan un write serializer para validar/guardar y un read
+    serializer (con campos calculados: imagen_url, fechas, etc.) para responder,
+    por consistencia con el GET. El viewset declara `read_serializer_class`.
+
+    Contrato: POST -> 201 con read serializer; PUT/PATCH -> 200 con read serializer.
+    """
+    read_serializer_class = None
+
+    def _read(self, instance):
+        cls = self.read_serializer_class or self.get_serializer_class()
+        return cls(instance, context=self.get_serializer_context())
+
+    def create(self, request, *args, **kwargs):
+        write_serializer = self.get_serializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        instance = write_serializer.save()
+        return Response(self._read(instance).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        write_serializer = self.get_serializer(
+            instance, data=request.data, partial=partial
+        )
+        write_serializer.is_valid(raise_exception=True)
+        instance = write_serializer.save()
+        return Response(self._read(instance).data)
+
+
+class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Productos.
 
@@ -110,17 +153,15 @@ class ProductoViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelV
     pagination_class = LargePagination
     throttle_scope = 'maestros'
     permiso_base = 'productos'
+    read_serializer_class = ProductoSerializer
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return ProductoSerializer
         return ProductoWriteSerializer
 
-    def get_queryset(self):
+    def get_base_queryset(self):
         queryset = Producto.objects.select_related('categoria').all()
-
-        # Guardar queryset base por si necesitamos calcular totales en headers.
-        self._base_queryset = queryset
 
         # Filtros opcionales
         activo = self.request.query_params.get('activo')
@@ -141,40 +182,10 @@ class ProductoViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelV
                 | Q(codigo_barras__icontains=search)
             )
 
-        # Patrón heredado: el mixin SyncIncrementalMixin lee self.queryset
-        # para aplicar el filtro ?desde=.
-        self.queryset = queryset
-        return super().get_queryset()
+        return queryset
 
-    def create(self, request, *args, **kwargs):
-        """POST → 201. Devuelve el producto con el read serializer completo
-        (incluye imagen_url, fechas, etc.) para consistencia con el GET."""
-        write_serializer = self.get_serializer(data=request.data)
-        write_serializer.is_valid(raise_exception=True)
-        producto = write_serializer.save()
 
-        read_serializer = ProductoSerializer(
-            producto, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
-
-    def update(self, request, *args, **kwargs):
-        """PUT / PATCH → 200. Devuelve la representación de lectura completa."""
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        write_serializer = self.get_serializer(
-            instance, data=request.data, partial=partial
-        )
-        write_serializer.is_valid(raise_exception=True)
-        producto = write_serializer.save()
-
-        read_serializer = ProductoSerializer(
-            producto, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data)
-
-class CategoriaViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Categorías.
 
@@ -199,13 +210,14 @@ class CategoriaViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.Model
     pagination_class = LargePagination
     throttle_scope = 'maestros'
     permiso_base = 'categorias'
+    read_serializer_class = CategoriaSerializer
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return CategoriaSerializer
         return CategoriaWriteSerializer
 
-    def get_queryset(self):
+    def get_base_queryset(self):
         queryset = Categoria.objects.all()
 
         activa = self.request.query_params.get('activa')
@@ -216,36 +228,10 @@ class CategoriaViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.Model
         if search:
             queryset = queryset.filter(nombre__icontains=search)
 
-        self.queryset = queryset
-        return super().get_queryset()
-
-    def create(self, request, *args, **kwargs):
-        write_serializer = self.get_serializer(data=request.data)
-        write_serializer.is_valid(raise_exception=True)
-        categoria = write_serializer.save()
-
-        read_serializer = CategoriaSerializer(
-            categoria, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
-
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        write_serializer = self.get_serializer(
-            instance, data=request.data, partial=partial
-        )
-        write_serializer.is_valid(raise_exception=True)
-        categoria = write_serializer.save()
-
-        read_serializer = CategoriaSerializer(
-            categoria, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data)
+        return queryset
 
 
-class ClienteViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Clientes.
 
@@ -271,13 +257,14 @@ class ClienteViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelVi
     pagination_class = LargePagination
     throttle_scope = 'maestros'
     permiso_base = 'clientes'
+    read_serializer_class = ClienteSerializer
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
             return ClienteSerializer
         return ClienteWriteSerializer
 
-    def get_queryset(self):
+    def get_base_queryset(self):
         queryset = Cliente.objects.all()
 
         tipo = self.request.query_params.get('tipo')
@@ -296,30 +283,4 @@ class ClienteViewSet(MaestroPermisoMixin, SyncIncrementalMixin, viewsets.ModelVi
                 | Q(cedula_rnc__icontains=search)
             )
 
-        self.queryset = queryset
-        return super().get_queryset()
-
-    def create(self, request, *args, **kwargs):
-        write_serializer = self.get_serializer(data=request.data)
-        write_serializer.is_valid(raise_exception=True)
-        cliente = write_serializer.save()
-
-        read_serializer = ClienteSerializer(
-            cliente, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
-
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        write_serializer = self.get_serializer(
-            instance, data=request.data, partial=partial
-        )
-        write_serializer.is_valid(raise_exception=True)
-        cliente = write_serializer.save()
-
-        read_serializer = ClienteSerializer(
-            cliente, context=self.get_serializer_context()
-        )
-        return Response(read_serializer.data)
+        return queryset
