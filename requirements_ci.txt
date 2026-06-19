@@ -1,0 +1,11 @@
+# POS FIFO System - Dependencias para GitHub Actions / CI
+#
+# No usar este archivo para la imagen Docker runtime. El contenedor cloud
+# instala requirements_cloud.txt; CI agrega herramientas de prueba encima.
+
+-r requirements_cloud.txt
+
+pytest==8.3.4
+pytest-django==4.9.0
+factory-boy==3.3.1
+freezegun==1.5.1

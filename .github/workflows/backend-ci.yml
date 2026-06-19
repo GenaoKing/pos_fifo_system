@@ -85,12 +85,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements_cloud.txt
+          cache-dependency-path: |
+            requirements_cloud.txt
+            requirements_ci.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_cloud.txt
+          pip install -r requirements_ci.txt
 
       - name: Django system check
         run: python manage.py check --settings=config.settings_cloud
@@ -103,7 +105,16 @@ jobs:
         # que matchea el service postgres de arriba. pos_user es superuser del
         # contenedor -> CREATEDB para test_pos_fifo_dev y para los tests de
         # comandos de tenancy (CREATE DATABASE tnt_*).
-        run: python manage.py test --settings=config.settings_development
+        shell: bash
+        run: |
+          mapfile -t django_tests < <(
+            find apps -path '*/tests/test_*.py' \
+              ! -path 'apps/facturacion_electronica/*' \
+              | sed 's#/#.#g; s#\.py$##'
+          )
+
+          python manage.py test "${django_tests[@]}" --settings=config.settings_development
+          python -m pytest apps/facturacion_electronica/tests --ds=config.settings_development -q
 
   deploy-backend:
     name: Build and deploy ${{ matrix.environment }}

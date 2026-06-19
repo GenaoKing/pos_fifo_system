@@ -35,6 +35,11 @@ apps/<app>/
 
 El `__init__.py` está listo — agregar archivos `test_*.py` cuando se necesiten.
 
+> **Nota CI:** `facturacion_electronica` usa fixtures de pytest (`monkeypatch`,
+> fixtures propias, `pytest.raises`), por eso no debe correr con `manage.py test`.
+> GitHub Actions instala `requirements_ci.txt`, corre la suite Django por archivos
+> excluyendo e-CF, y luego ejecuta e-CF con pytest.
+
 ---
 
 ## Cómo correr los tests
@@ -59,7 +64,10 @@ python manage.py test \
     --settings=config.settings_development
 
 # Todo el proyecto (discovery automático desde raíz)
-python manage.py test --settings=config.settings_development
+python manage.py test <modulos_test_django> --settings=config.settings_development
+
+# Suite e-CF (usa pytest fixtures/pytest-django)
+python -m pytest apps/facturacion_electronica/tests --ds=config.settings_development -q
 ```
 
 > **Nota:** `manage.py test apps.api` (apuntando a un package con `__init__.py` vacío)

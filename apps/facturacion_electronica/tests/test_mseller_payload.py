@@ -195,7 +195,7 @@ class TestPayloadTipo31:
 
     def test_tipo_31_credito_agrega_fecha_limite_pago_al_final(self, config_negocio):
         cliente = ClienteConRNCFactory()
-        venta = crear_venta_con_detalles(cliente=cliente)
+        venta = crear_venta_con_detalles(cliente=cliente, condicion_pago='CREDITO')
         ecf_data = _inyectar_emisor(
             venta_a_ecf_data(venta, tipo_ecf='31'),
             tipo_pago=2,
