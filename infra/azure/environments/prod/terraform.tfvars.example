@@ -75,8 +75,9 @@ db_password_secret_name                         = "db-password"
 django_secret_key                               = null
 
 # GitHub Actions OIDC identity para deploy prod desde main.
-enable_github_actions_identity = false
-github_actions_identity_name   = null
-github_repository_owner        = null
-github_repository_name         = null
+# Prod usa Secrets/Variables PROD_* y workflow_dispatch con aprobacion manual.
+enable_github_actions_identity = true
+github_actions_identity_name   = "posfifo-prod-github-actions-id"
+github_repository_owner        = "GenaoKing"
+github_repository_name         = "pos_fifo_system"
 github_deploy_branch           = "main"

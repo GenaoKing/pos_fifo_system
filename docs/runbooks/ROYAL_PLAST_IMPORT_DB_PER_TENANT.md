@@ -2,6 +2,30 @@
 
 Estado: runbook operativo para dry-run prod descartable. Fecha: 2026-06-18.
 
+## Estado Actual 2026-06-19
+
+- Dry-run prod descartable cerrado correctamente y luego limpiado:
+  `royalplastdryrun`/`tnt_royalplastdryrun` ya no son parte del control plane.
+- Prod esta vivo contra `pos_fifo_prod`; `/api/v1/health/` responde `ok`.
+- El control plane prod solo tiene `demo`; el tenant real `royalplast` todavia
+  no existe.
+- CI/CD prod ya tiene identidad OIDC y GitHub `PROD_*`; el deploy de prod es
+  manual desde branch `main`.
+- La API prod corre una imagen anterior. Antes del cutover real conviene
+  promover el codigo aprobado a `main` y ejecutar el workflow prod manual.
+- Media publica en prod sigue pendiente: no hay Storage Account media de prod.
+  Para go-live con fotos/logos visibles hay que activar Blob o aceptar que las
+  imagenes no estaran disponibles en el primer corte.
+
+Siguiente gate para cutover real:
+
+1. Tener dump fresco final de Royal Plast.
+2. Desplegar a prod la version aprobada del codigo.
+3. Crear/restaurar `tnt_royalplast`.
+4. Registrar `Tenant royalplast` en `pos_fifo_prod`.
+5. Ejecutar `migrate_tenants` y `normalizar_import_tenant`.
+6. Validar totales, login, sync token e imagenes antes de activar sync.
+
 Objetivo: validar el dump real de Royal Plast contra el contrato DB-per-tenant
 sin tocar produccion ni activar sync. El primer ensayo debe restaurar en una BD
 temporal, comparar totales y documentar diferencias antes de promover el flujo a

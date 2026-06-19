@@ -26,9 +26,13 @@ Job `checks`:
 
 - Checkout.
 - Python 3.12.
-- Instala `requirements_cloud.txt`.
+- Instala `requirements_ci.txt` (`requirements_cloud.txt` + herramientas de
+  test).
 - Ejecuta `python manage.py check --settings=config.settings_cloud`.
 - Ejecuta `collectstatic --dry-run`.
+- Ejecuta tests Django con `manage.py test`, excluyendo
+  `facturacion_electronica`.
+- Ejecuta tests e-CF con `pytest`, porque esa suite usa fixtures de pytest.
 
 Job `deploy-backend`:
 
@@ -39,20 +43,51 @@ Job `deploy-backend`:
 - Build de Docker image.
 - Tags con SHA de commit, `<ambiente>-<sha>` y tag estable del ambiente.
 - Push a ACR.
+- Actualiza imagen del job `migrate` si existe.
+- Opcionalmente ejecuta migraciones y espera resultado.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
-- Actualiza imagen del job `migrate` si existe.
-- Opcionalmente ejecuta migraciones.
+- Si el smoke falla despues del cambio de imagen, intenta rollback a la imagen
+  anterior.
 
 El deploy se decide por branch:
 
 ```text
-develop -> dev
-staging -> staging
-main    -> prod
+develop -> dev automatico en push
+staging -> staging automatico en push
+main    -> prod manual con workflow_dispatch
 ```
 
 ## Secrets de GitHub
+
+### Contrato global por ambiente
+
+Cada ambiente que despliega desde GitHub Actions necesita **su propia identidad
+OIDC**, aunque comparta ACR, Container Apps Environment o PostgreSQL server con
+otro ambiente. La identidad es el "usuario operativo" de GitHub dentro de Azure
+y debe confiar solo en el branch de ese ambiente.
+
+| Ambiente | Branch | Prefix GitHub | Identidad Terraform | Subject OIDC |
+|---|---|---|---|---|
+| dev | `develop` | sin prefix (`AZURE_*`) | `posfifo-dev-github-actions-id` | `repo:GenaoKing/pos_fifo_system:ref:refs/heads/develop` |
+| staging | `staging` | `STAGING_*` | `posfifo-staging-github-actions-id` | `repo:GenaoKing/pos_fifo_system:ref:refs/heads/staging` |
+| prod | `main` | `PROD_*` | `posfifo-prod-github-actions-id` | `repo:GenaoKing/pos_fifo_system:ref:refs/heads/main` |
+
+Regla para agentes/personas: si un ambiente nuevo va a hacer deploy desde
+GitHub Actions, verificar estas cuatro piezas antes de mirar errores de Docker o
+Django:
+
+1. Terraform tiene `enable_github_actions_identity=true` para ese ambiente.
+2. El `github_deploy_branch` coincide con el branch real del workflow.
+3. GitHub tiene los tres Secrets `<PREFIX>AZURE_CLIENT_ID`,
+   `<PREFIX>AZURE_TENANT_ID`, `<PREFIX>AZURE_SUBSCRIPTION_ID`.
+4. GitHub tiene las Variables `<PREFIX>AZURE_RESOURCE_GROUP`,
+   `<PREFIX>AZURE_ACR_NAME`, `<PREFIX>AZURE_ACR_LOGIN_SERVER`,
+   `<PREFIX>AZURE_CONTAINER_APP_NAME`, `<PREFIX>AZURE_MIGRATE_JOB_NAME`,
+   `<PREFIX>AZURE_API_BASE_URL` y `<PREFIX>RUN_MIGRATIONS_ON_DEPLOY`.
+
+El prefix dev historicamente no usa `DEV_`; staging y prod si usan
+`STAGING_`/`PROD_`.
 
 Crear estos como **Repository secrets** para dev:
 
@@ -114,12 +149,12 @@ AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 AZURE_CONTAINER_APP_NAME=posfifo-dev-api
 AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
 AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
-RUN_MIGRATIONS_ON_DEPLOY=false
+RUN_MIGRATIONS_ON_DEPLOY=true
 ```
 
-`RUN_MIGRATIONS_ON_DEPLOY=false` mantiene las migraciones bajo control manual.
-Si quieres que cada push a `develop` dispare el job de migraciones, cambiar a
-`true`.
+`RUN_MIGRATIONS_ON_DEPLOY=true` hace que cada push a `develop` corra el job de
+migraciones antes del deploy de API. En staging/prod lo mantenemos en `false`
+para ejecutar migraciones solo bajo decision manual.
 
 ### Crear las variables en la UI de GitHub
 
@@ -138,10 +173,65 @@ AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 AZURE_CONTAINER_APP_NAME=posfifo-dev-api
 AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
 AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
-RUN_MIGRATIONS_ON_DEPLOY=false
+RUN_MIGRATIONS_ON_DEPLOY=true
 ```
 
 Variables no son secretas. Son nombres de recursos y URLs operativas.
+
+### Variables actuales de staging
+
+Staging reutiliza el ACR de dev para ahorrar costo, pero usa RG/API/job propios.
+Valores actuales:
+
+```text
+STAGING_AZURE_RESOURCE_GROUP=posfifo-staging-rg
+STAGING_AZURE_ACR_NAME=posfifodevacr
+STAGING_AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
+STAGING_AZURE_CONTAINER_APP_NAME=posfifo-staging-api
+STAGING_AZURE_MIGRATE_JOB_NAME=posfifo-staging-migrate
+STAGING_AZURE_API_BASE_URL=https://posfifo-staging-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
+STAGING_RUN_MIGRATIONS_ON_DEPLOY=false
+```
+
+Secrets actuales de staging:
+
+```text
+STAGING_AZURE_CLIENT_ID=<output terraform github_actions_identity.client_id>
+STAGING_AZURE_TENANT_ID=<az account show --query tenantId -o tsv>
+STAGING_AZURE_SUBSCRIPTION_ID=<az account show --query id -o tsv>
+```
+
+No guardar `db-password`, `django-secret-key` ni tokens de negocio en GitHub.
+Eso vive en Azure Key Vault del ambiente.
+
+### Variables actuales de prod
+
+Prod reutiliza el ACR compartido, pero usa RG/API/job/Key Vault propios. El
+deploy de prod **no** corre por push automatico a `main`; se ejecuta con
+`workflow_dispatch` desde branch `main`.
+
+Valores actuales:
+
+```text
+PROD_AZURE_RESOURCE_GROUP=posfifo-prod-rg
+PROD_AZURE_ACR_NAME=posfifodevacr
+PROD_AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
+PROD_AZURE_CONTAINER_APP_NAME=posfifo-prod-api
+PROD_AZURE_MIGRATE_JOB_NAME=posfifo-prod-migrate
+PROD_AZURE_API_BASE_URL=https://posfifo-prod-api.greenglacier-6158bae1.canadacentral.azurecontainerapps.io
+PROD_RUN_MIGRATIONS_ON_DEPLOY=false
+```
+
+Secrets actuales de prod:
+
+```text
+PROD_AZURE_CLIENT_ID=<output terraform github_actions_identity.client_id>
+PROD_AZURE_TENANT_ID=<az account show --query tenantId -o tsv>
+PROD_AZURE_SUBSCRIPTION_ID=<az account show --query id -o tsv>
+```
+
+El Key Vault de prod es `posfifoprodkv`; ahi viven `django-secret-key`,
+`db-user` y `db-password`.
 
 ## Crear identidad OIDC en Azure
 
@@ -447,15 +537,23 @@ archivo:
 
 GitHub no muestra workflows que solo existen localmente.
 
-## Deploy automatico por ambiente
+## Deploy por ambiente
 
-El workflow corre `deploy-backend` en push al branch de ambiente:
+El workflow corre `deploy-backend` automatico solo para dev/staging:
 
 ```text
 develop -> dev
 staging -> staging
-main    -> prod
 ```
+
+Prod requiere corrida manual:
+
+```text
+branch main -> workflow_dispatch -> target_environment=prod -> deploy_backend=true
+```
+
+Para prod, `run_migrations=true` solo debe usarse cuando se haya revisado el
+plan de cambios de schema y el backup/cutover correspondiente.
 
 Los tags de imagen seran:
 
@@ -608,19 +706,22 @@ El workflow ahora imprime:
 
 Usa esa salida para comparar GitHub vs local.
 
-Para no bloquear el deploy de API, el workflow actualiza primero la API y luego
-actualiza el job de migraciones solo si existe. Si `run_migrations=true`, el job
-si debe existir y el workflow fallara si no lo encuentra.
+El workflow actualiza primero la imagen del job de migraciones si existe. Si
+`run_migrations=true`, el job debe existir, se ejecuta antes del cambio de API y
+el deploy falla si la migracion no termina en `Succeeded`. Despues de ese gate
+se cambia la imagen de la API y se valida `/api/v1/health/`.
 
-## Deuda pendiente antes de prod
+## Deuda pendiente para endurecer prod
 
 - Agregar tests criticos reales al job `checks`:
   - auth/API,
   - sync,
   - CxC,
   - reportes cloud.
-- Decidir si migraciones corren automaticas en dev o solo manuales.
-- Agregar espera/verificacion formal del job de migraciones.
 - Configurar environments de GitHub (`dev`, `staging`, `prod`) con approvals.
-- Migrar Terraform state local a remote state protegido.
-- Agregar rollback documentado por revision/imagen anterior.
+- Mantener prod con `workflow_dispatch` manual hasta tener approvals formales.
+- Documentar rollback operativo por revision/imagen anterior con un ejemplo de
+  comando manual.
+- Definir politica por ambiente para `run_migrations`:
+  - dev: automatico actualmente.
+  - staging/prod: manual actualmente.

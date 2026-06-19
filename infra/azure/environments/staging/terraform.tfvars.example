@@ -81,10 +81,9 @@ django_secret_key_secret_name                   = "django-secret-key"
 db_password_secret_name                         = "db-password"
 
 # D3 GitHub Actions OIDC identity.
-# En staging dejar apagado hasta decidir si el deploy sera manual o via GitHub
-# Actions con variables/secrets separados.
-enable_github_actions_identity = false
-github_actions_identity_name   = null
-github_repository_owner        = null
-github_repository_name         = null
+# Staging despliega desde el branch staging con Secrets/Variables STAGING_*.
+enable_github_actions_identity = true
+github_actions_identity_name   = "posfifo-staging-github-actions-id"
+github_repository_owner        = "GenaoKing"
+github_repository_name         = "pos_fifo_system"
 github_deploy_branch           = "staging"

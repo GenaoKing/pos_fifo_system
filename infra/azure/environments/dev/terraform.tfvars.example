@@ -73,7 +73,8 @@ django_secret_key_secret_name                   = "django-secret-key"
 db_password_secret_name                         = "db-password"
 
 # D3 GitHub Actions OIDC identity.
-# Usar esta opcion si Azure for Students/Entra bloquea App registrations.
+# Activar cuando dev despliegue desde GitHub Actions usando branch develop.
+# Dev usa Secrets/Variables sin prefix: AZURE_CLIENT_ID, AZURE_RESOURCE_GROUP, etc.
 enable_github_actions_identity = false
 github_actions_identity_name   = null
 github_repository_owner        = null
