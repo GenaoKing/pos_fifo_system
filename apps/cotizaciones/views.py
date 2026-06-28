@@ -25,6 +25,8 @@ from apps.cotizaciones.pdf_generator import generar_pdf_cotizacion
 from .models import Cotizacion, DetalleCotizacion
 from apps.clientes.models import Cliente
 from apps.productos.models import Producto
+from apps.sucursales.models import get_sucursal_actual
+from apps.sync import events as sync_events
 
 
 @login_required
@@ -108,6 +110,7 @@ def guardar_cotizacion(request):
             cotizacion = Cotizacion.objects.create(
                 cliente=cliente,
                 usuario=request.user,
+                sucursal=getattr(request, 'sucursal', None) or get_sucursal_actual(),
                 total=Decimal('0')
             )
 
@@ -140,6 +143,8 @@ def guardar_cotizacion(request):
             cotizacion.total = total_cotizacion
             cotizacion.notas = data.get('notas', '').strip() or None
             cotizacion.save()
+
+            transaction.on_commit(lambda c=cotizacion: sync_events.evento_cotizacion_creada(c))
 
             return JsonResponse({
                 'success': True,
@@ -250,6 +255,8 @@ def marcar_convertida(request, cotizacion_id):
             from apps.ventas.models import Venta
             cotizacion.venta = Venta.objects.get(id=venta_id)
         cotizacion.save()
+
+        transaction.on_commit(lambda c=cotizacion: sync_events.evento_cotizacion_convertida(c))
 
         return JsonResponse({
             'success': True,

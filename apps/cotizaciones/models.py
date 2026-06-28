@@ -19,7 +19,6 @@ class Cotizacion(models.Model):
 
     numero_cotizacion = models.CharField(
         max_length=50,
-        unique=True,
         verbose_name='Numero de Cotizacion'
     )
 
@@ -35,6 +34,16 @@ class Cotizacion(models.Model):
         on_delete=models.PROTECT,
         related_name='cotizaciones',
         verbose_name='Creado por'
+    )
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='cotizaciones',
+        verbose_name='Sucursal',
+        blank=True,
+        null=True,
+        help_text='Sucursal donde se creo la cotizacion. Null para cotizaciones legacy.'
     )
 
     fecha_creacion = models.DateTimeField(
@@ -93,6 +102,13 @@ class Cotizacion(models.Model):
             models.Index(fields=['numero_cotizacion']),
             models.Index(fields=['fecha_creacion']),
             models.Index(fields=['estado']),
+            models.Index(fields=['sucursal', 'estado']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sucursal', 'numero_cotizacion'],
+                name='unique_cotizacion_por_sucursal_numero',
+            ),
         ]
 
     def __str__(self):
@@ -105,10 +121,12 @@ class Cotizacion(models.Model):
 
         if not self.numero_cotizacion:
             fecha_str = self.fecha_creacion.strftime('%Y%m%d')
+            prefijo = f'{self.sucursal.codigo}-COT-{fecha_str}' if self.sucursal else f'COT-{fecha_str}'
             ultimo = Cotizacion.objects.filter(
-                numero_cotizacion__startswith=f'COT-{fecha_str}'
+                sucursal=self.sucursal,
+                numero_cotizacion__startswith=prefijo
             ).count()
-            self.numero_cotizacion = f'COT-{fecha_str}-{str(ultimo + 1).zfill(5)}'
+            self.numero_cotizacion = f'{prefijo}-{str(ultimo + 1).zfill(5)}'
 
         super().save(*args, **kwargs)
 
