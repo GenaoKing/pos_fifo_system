@@ -155,6 +155,12 @@ class ConfiguracionNegocio(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(365)],
         help_text='Cantidad de dias permitidos para anular una venta'
     )
+    cantidad_copias_ticket = models.PositiveSmallIntegerField(
+        'Cantidad de copias de ticket',
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        help_text='Total de tickets a imprimir por venta. Use 2 para cliente + archivo interno.'
+    )
 
 
      # =========================================================================

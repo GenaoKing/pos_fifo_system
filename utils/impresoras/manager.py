@@ -10,6 +10,7 @@ Versión: 2.0 - Migrado a ConfiguracionNegocio
 
 import logging
 import json
+from copy import deepcopy
 from datetime import datetime
 from django.conf import settings
 from django.db import transaction
@@ -37,6 +38,25 @@ def _is_printing_enabled():
     except Exception:
         # BD no disponible (primera migración, etc.)
         return settings.THERMAL_PRINTER.get('ENABLED', False)
+
+
+def _get_cantidad_copias_ticket():
+    """
+    Lee la cantidad de copias configurada. El fallback preserva la conducta
+    historica si la BD/configuracion aun no esta disponible.
+    """
+    try:
+        from apps.configuracion.utils import get_config
+        cantidad = getattr(get_config(), 'cantidad_copias_ticket', 1)
+    except Exception:
+        cantidad = 1
+
+    try:
+        cantidad = int(cantidad)
+    except (TypeError, ValueError):
+        cantidad = 1
+
+    return max(1, min(cantidad, 5))
 
 
 def _obtener_ecf_para_ticket(venta):
@@ -126,23 +146,41 @@ class PrintManager:
             }
         
         # Intentar imprimir
+        copias_solicitadas = 1 if reimpresion else _get_cantidad_copias_ticket()
+        copias_impresas = 0
         try:
-            printer = self.printer_class()
-            printer.print_ticket(venta_data)
+            for numero_copia in range(1, copias_solicitadas + 1):
+                printer = self.printer_class()
+                printer.print_ticket(
+                    self._preparar_venta_data_copia(
+                        venta_data=venta_data,
+                        numero_copia=numero_copia,
+                        total_copias=copias_solicitadas,
+                    )
+                )
+                copias_impresas += 1
             
             self._registrar_auditoria_impresion(
                 venta=venta,
                 usuario=usuario,
                 reimpresion=reimpresion,
-                exitosa=True
+                exitosa=True,
+                copias_solicitadas=copias_solicitadas,
+                copias_impresas=copias_impresas,
             )
             
-            mensaje = "Ticket reimpreso exitosamente" if reimpresion else "Ticket impreso exitosamente"
+            if reimpresion:
+                mensaje = "Ticket reimpreso exitosamente"
+            elif copias_solicitadas == 1:
+                mensaje = "Ticket impreso exitosamente"
+            else:
+                mensaje = f"Ticket impreso exitosamente ({copias_solicitadas} copias)"
             logger.info(f"✓ {mensaje}: {venta.numero_venta}")
             
             return {
                 'success': True,
-                'mensaje': mensaje
+                'mensaje': mensaje,
+                'copias': copias_impresas,
             }
             
         except Exception as e:
@@ -154,13 +192,16 @@ class PrintManager:
                 usuario=usuario,
                 reimpresion=reimpresion,
                 exitosa=False,
-                error=str(e)
+                error=str(e),
+                copias_solicitadas=copias_solicitadas,
+                copias_impresas=copias_impresas,
             )
             
             return {
                 'success': False,
                 'mensaje': 'No se pudo imprimir el ticket',
-                'error': str(e)
+                'error': str(e),
+                'copias': copias_impresas,
             }
     
     def print_recibo_cxc(self, pago, usuario, reimpresion=False):
@@ -381,9 +422,35 @@ class PrintManager:
             }
         
         return venta_data
+
+    def _preparar_venta_data_copia(self, venta_data, numero_copia, total_copias):
+        """Ajusta los datos de una copia sin mutar el ticket base."""
+        copia_data = deepcopy(venta_data)
+        copia_data['numero_copia'] = numero_copia
+        copia_data['total_copias'] = total_copias
+
+        if total_copias > 1:
+            if numero_copia == 1:
+                copia_data['etiqueta_copia'] = 'COPIA CLIENTE'
+            else:
+                copia_data['etiqueta_copia'] = 'COPIA ARCHIVO INTERNO'
+
+        if numero_copia > 1:
+            copia_data['tiene_efectivo'] = False
+
+        return copia_data
     
     @transaction.atomic
-    def _registrar_auditoria_impresion(self, venta, usuario, reimpresion, exitosa, error=None):
+    def _registrar_auditoria_impresion(
+        self,
+        venta,
+        usuario,
+        reimpresion,
+        exitosa,
+        error=None,
+        copias_solicitadas=1,
+        copias_impresas=0,
+    ):
         """Registra el evento de impresión en auditoría"""
         try:
             from apps.sucursales.models import get_sucursal_actual
@@ -405,6 +472,8 @@ class PrintManager:
                 'reimpresion': reimpresion,
                 'total': float(venta.total),
                 'fecha_venta': venta.fecha_venta.isoformat(),
+                'copias_solicitadas': copias_solicitadas,
+                'copias_impresas': copias_impresas,
             }
             if error:
                 metadata['error'] = error

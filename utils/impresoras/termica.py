@@ -91,7 +91,10 @@ class ThermalPrinter2Connect:
             raise ThermalPrinterException("Sistema de impresión deshabilitado")
         
         try:
-            logger.info("Intentando conectar con impresora 2Connect via Windows...")
+            logger.info(
+                "Intentando conectar con impresora 2Connect via Windows: %r",
+                self.config['PRINTER_NAME'],
+            )
             self.printer = Win(self.config['PRINTER_NAME'])
             self.printer.profile.media['width'] = {'pixels': 576, 'mm': 80}
             
@@ -272,6 +275,11 @@ class ThermalPrinter2Connect:
         self.printer.text(f"Cajero: ")
         self.printer.set(bold=False)
         self.printer.text(f"{venta_data['cajero']}\n")
+
+        if venta_data.get('etiqueta_copia'):
+            self.printer.set(align='center', bold=True)
+            self.printer.text(f"{venta_data['etiqueta_copia']}\n")
+            self.printer.set(align='left', bold=False)
         
         if venta_data.get('cliente'):
             self.printer.text(f"Cliente: {venta_data['cliente']}\n")
@@ -584,6 +592,7 @@ class ThermalPrinter2Connect:
         """Envía pulso para abrir el cajón de dinero"""
         try:
             pin = self.config['CASH_DRAWER_PIN']
+            logger.info("Enviando pulso de cajon de dinero: pin=%s", pin)
             self.printer.cashdraw(pin)
             logger.info("✓ Cajón de dinero abierto")
         except Exception as e:

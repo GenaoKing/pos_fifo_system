@@ -34,6 +34,7 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
         ('Parametros Operativos', {
             'fields': (
                 'formato_codigo_barras', 'dias_anulacion',
+                'cantidad_copias_ticket',
             )
         }),
     )
