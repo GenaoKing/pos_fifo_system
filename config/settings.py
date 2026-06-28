@@ -9,6 +9,28 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _env_text(name, default=''):
+    value = os.environ.get(name, default)
+    return value.strip().strip('"').strip("'")
+
+
+def _env_bool(name, default=False):
+    value = _env_text(name, '')
+    if value == '':
+        return default
+    return value.lower() in ('1', 'true', 'yes', 'on')
+
+
+def _env_int(name, default):
+    value = _env_text(name, '')
+    if value == '':
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
 # En instalaciones reales definir DJANGO_SECRET_KEY en el entorno.
 SECRET_KEY = os.environ.get(
@@ -309,18 +331,18 @@ ROLES_SISTEMA = {
 
 # python-escpos solo acepta el pin 2 o 5 para el cajon; cualquier otro valor
 # lanza CashDrawerError. Validamos para no quedar nunca en un valor invalido.
-_THERMAL_CASH_DRAWER_PIN = int(os.environ.get('THERMAL_CASH_DRAWER_PIN', '2'))
+_THERMAL_CASH_DRAWER_PIN = _env_int('THERMAL_CASH_DRAWER_PIN', 2)
 if _THERMAL_CASH_DRAWER_PIN not in (2, 5):
     _THERMAL_CASH_DRAWER_PIN = 2
 
 THERMAL_PRINTER = {
     # Habilitación del sistema de impresión
-    'ENABLED': os.environ.get('THERMAL_PRINTER_ENABLED', 'true').lower() == 'true',
+    'ENABLED': _env_bool('THERMAL_PRINTER_ENABLED', True),
 
     # Configuración de conexión USB
     'INTERFACE': 'usb',
     # Nombre en "Dispositivos e impresoras" de Windows
-    'PRINTER_NAME': os.environ.get('THERMAL_PRINTER_NAME', '2connect pos'),
+    'PRINTER_NAME': _env_text('THERMAL_PRINTER_NAME', '2connect pos'),
 
     # Vendor ID y Product ID (detectados automáticamente por python-escpos)
     # Si hay problemas, ejecutar: python -m escpos.cli ls
@@ -329,23 +351,23 @@ THERMAL_PRINTER = {
 
     # Configuraciones de impresión
     'AUTO_CUT': True,        # Cortador automático
-    'CHARSET': os.environ.get('THERMAL_CHARSET', 'CP850'),    # Caracteres latinos/españoles
-    'CODE_PAGE': os.environ.get('THERMAL_CHARSET', 'CP850'),  # Página de códigos
+    'CHARSET': _env_text('THERMAL_CHARSET', 'CP850'),    # Caracteres latinos/españoles
+    'CODE_PAGE': _env_text('THERMAL_CHARSET', 'CP850'),  # Página de códigos
 
     # Cajón de dinero
-    'CASH_DRAWER': os.environ.get('THERMAL_CASH_DRAWER', 'true').lower() == 'true',
+    'CASH_DRAWER': _env_bool('THERMAL_CASH_DRAWER', True),
     'CASH_DRAWER_PIN': _THERMAL_CASH_DRAWER_PIN,  # python-escpos solo acepta 2 o 5
 
     # Dimensiones del papel
-    'PAPER_WIDTH': int(os.environ.get('THERMAL_PAPER_WIDTH', '48')),  # 80mm = 48 chars
+    'PAPER_WIDTH': _env_int('THERMAL_PAPER_WIDTH', 48),  # 80mm = 48 chars
     'HIGH_QUALITY': True,
     # Ancho del logo del ticket en píxeles (la imagen viene de ConfiguracionNegocio.logo)
-    'LOGO_WIDTH': int(os.environ.get('THERMAL_LOGO_WIDTH', '200')),
+    'LOGO_WIDTH': _env_int('THERMAL_LOGO_WIDTH', 200),
     'LOGO_HEIGHT': None,     # Auto-proporcional
 }
 
 # Impresora de etiquetas Zebra (nombre en "Dispositivos e impresoras" de Windows)
-ZEBRA_PRINTER_NAME = os.environ.get('ZEBRA_PRINTER_NAME', 'ZDesigner LP 2824')
+ZEBRA_PRINTER_NAME = _env_text('ZEBRA_PRINTER_NAME', 'ZDesigner LP 2824')
 
 
 REST_FRAMEWORK = {

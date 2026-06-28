@@ -12,10 +12,18 @@ BASE_DIR = Path(__file__).resolve().parent
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings_production')
 
+
+def env_int(name, default):
+    raw = os.environ.get(name, '')
+    if not raw.strip():
+        return default
+    return int(raw)
+
+
 def get_server_config():
     host = os.environ.get('SERVER_IP', '0.0.0.0')
-    port = int(os.environ.get('SERVER_PORT', '8080'))
-    threads = int(os.environ.get('SERVER_THREADS', '4'))
+    port = env_int('SERVER_PORT', 8080)
+    threads = env_int('SERVER_THREADS', 4)
     return host, port, threads
 
 
