@@ -48,6 +48,12 @@ set PRINTER_TERMICA=
 set PRINTER_ZEBRA=
 if defined PRINTER_TERMICA set "THERMAL_PRINTER_NAME=%PRINTER_TERMICA%"
 if defined PRINTER_ZEBRA set "ZEBRA_PRINTER_NAME=%PRINTER_ZEBRA%"
+set THERMAL_PRINTER_ENABLED=true
+set THERMAL_CHARSET=CP850
+set THERMAL_CASH_DRAWER=true
+set THERMAL_CASH_DRAWER_PIN=2
+set THERMAL_PAPER_WIDTH=48
+set THERMAL_LOGO_WIDTH=200
 
 REM --- Preset de negocio para configuracion inicial ---
 REM Opciones: plasticos, accesorios_auto, retail_general
@@ -78,6 +84,9 @@ set SYNC_INTERVAL=60
 set SYNC_BATCH_SIZE=50
 set SYNC_MAX_RETRIES=10
 set SYNC_HTTP_TIMEOUT=10
+
+REM --- Servidor local ---
+set SERVER_THREADS=4
 
 REM --- Rutas (no editar) ---
 set POS_DIR=%~dp0..

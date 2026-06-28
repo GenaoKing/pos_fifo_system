@@ -552,6 +552,16 @@ Prod requiere corrida manual:
 branch main -> workflow_dispatch -> target_environment=prod -> deploy_backend=true
 ```
 
+Un push directo o merge a `main` solo corre los checks. Si en logs aparece:
+
+```text
+Target row: environment=prod branch=main deploy=false
+```
+
+eso significa que el gate de prod funciono correctamente: no se publico nada
+automaticamente. Para publicar prod hay que usar `Run workflow` o `gh workflow
+run` con `deploy_backend=true`.
+
 Para prod, `run_migrations=true` solo debe usarse cuando se haya revisado el
 plan de cambios de schema y el backup/cutover correspondiente.
 

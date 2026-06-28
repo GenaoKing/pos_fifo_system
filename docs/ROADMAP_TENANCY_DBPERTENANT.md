@@ -130,6 +130,9 @@ Evidencia local (2026-06-16):
 - [ ] Smoke real de blob en Azure dev: el storage account `posfifodevmedia` ya
       está **creado y aplicado** (verificado 2026-06-18); falta subir una imagen y
       confirmar el blob `media-public/<tenant>/` + `imagen_url` pública.
+- [x] Smoke real de blob en Azure prod: `posfifoprodmedia` + `media-public`
+      aplicado 2026-06-20; blob
+      `royalplast/productos/_smoke-logo-royal.jpeg` responde HTTP 200.
 - 🚪 **Salida:** imágenes de `demo`/`demo2` viven en `media-public/<tenant>/`
   y se sirven; upload multipart OK; Azure dev validado con URL pública.
 
@@ -165,7 +168,8 @@ Evidencia local (2026-06-16):
 >
 > 1. ✅ Control plane prod migrado (`posfifo-prod-migrate` *Succeeded*).
 > 2. ✅ `demo` validado en prod (`tnt_demo` creada; login → 200 `tenant_id=demo`).
-> 3. (paralelo, NO bloquea la carga del DB) Smoke de blob de Fase 2.
+> 3. ✅ Blob prod aplicado y smoke directo validado; queda importar imágenes
+>    reales de RP después de restaurar/registrar el tenant.
 >
 > El **mecanismo** de import ya está dry-run-validado (ver
 > `runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md`: 273 prod / 320 ventas / 447,530.00).

@@ -1,6 +1,7 @@
 # Azure Blob Media para imagenes publicas
 
-Estado: MVP economico para cloud.
+Estado: MVP economico para cloud. Prod aplicado y smoke directo validado
+2026-06-20.
 
 Este runbook cubre imagenes no sensibles: productos y logos. No usar este
 container para reportes, cierres, XML/e-CF ni documentos privados.
@@ -38,8 +39,8 @@ azurerm: al crear la cuenta hace un poll del Blob Service usando la account key 
 falla con `403 KeyBasedAuthenticationNotPermitted`.
 
 **Solucion (estandar del proyecto):** el provider azurerm usa Azure AD para el
-data-plane de Storage. Ya esta en `environments/dev/provider.tf` y
-`environments/staging/provider.tf`:
+data-plane de Storage. Ya esta en `environments/dev/provider.tf`,
+`environments/staging/provider.tf` y `environments/prod/provider.tf`:
 
 ```hcl
 provider "azurerm" {
@@ -101,6 +102,81 @@ Ver outputs:
 terraform output media_storage
 ```
 
+## Activar en prod
+
+Prod usa la misma arquitectura economica de dev, con un Storage Account por
+ambiente y un solo container publico para imagenes/logos no sensibles.
+
+En `infra/azure/environments/prod/terraform.tfvars`:
+
+```hcl
+enable_media_storage                      = true
+media_storage_account_name                = null
+media_storage_container_name              = "media-public"
+grant_current_user_media_blob_contributor = true
+```
+
+`media_storage_account_name = null` usa la convencion:
+
+```text
+posfifoprodmedia
+```
+
+Antes del primer apply, confirmar que el usuario que ejecuta Terraform tiene rol
+de datos sobre el Resource Group de prod:
+
+```powershell
+az role assignment create `
+  --assignee (az ad signed-in-user show --query id -o tsv) `
+  --role "Storage Blob Data Contributor" `
+  --scope /subscriptions/e88372f6-b224-4d73-bf17-c61f32559c45/resourceGroups/posfifo-prod-rg
+```
+
+Si el rol se acaba de crear, esperar unos minutos por propagacion de RBAC.
+
+Luego:
+
+```powershell
+cd C:\Proyectos\pos_fifo_system\infra\azure\environments\prod
+terraform validate
+terraform plan
+terraform apply
+terraform output media_storage
+```
+
+El plan esperado crea/actualiza:
+
+- Storage Account `posfifoprodmedia`.
+- Container publico `media-public`.
+- RBAC `Storage Blob Data Contributor` para API, migrate job y usuario actual.
+- Nueva revision de la API/job con:
+  - `AZURE_BLOB_MEDIA_ENABLED=true`
+  - `AZURE_STORAGE_ACCOUNT_NAME=posfifoprodmedia`
+  - `AZURE_STORAGE_MEDIA_CONTAINER=media-public`
+
+Smoke basico:
+
+```powershell
+curl https://posfifo-prod-api.greenglacier-6158bae1.canadacentral.azurecontainerapps.io/api/v1/health/
+
+az storage blob list `
+  --auth-mode login `
+  --account-name posfifoprodmedia `
+  --container-name media-public `
+  --prefix royalplast/ `
+  --output table
+```
+
+Smoke prod validado 2026-06-20:
+
+```text
+Storage Account: posfifoprodmedia
+Container: media-public
+Blob: royalplast/productos/_smoke-logo-royal.jpeg
+URL: https://posfifoprodmedia.blob.core.windows.net/media-public/royalplast/productos/_smoke-logo-royal.jpeg
+Resultado: HTTP 200, Content-Type image/jpeg
+```
+
 ## Rebuild/deploy de la API
 
 Este cambio agrega dependencias cloud:
@@ -148,6 +224,27 @@ python manage.py migrar_media_tenant `
   --settings=config.settings_development `
   --tenant demo `
   --source-media-root .\media `
+  --apply
+```
+
+Para Royal Plast en prod, ejecutar el mismo comando con `settings_cloud` despues
+de restaurar/registrar el tenant:
+
+```powershell
+python manage.py migrar_media_tenant `
+  --settings=config.settings_cloud `
+  --tenant royalplast `
+  --source-media-root <ruta-media-local-royal> `
+  --dry-run
+```
+
+Si el dry-run cuadra:
+
+```powershell
+python manage.py migrar_media_tenant `
+  --settings=config.settings_cloud `
+  --tenant royalplast `
+  --source-media-root <ruta-media-local-royal> `
   --apply
 ```
 

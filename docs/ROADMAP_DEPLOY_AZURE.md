@@ -362,7 +362,11 @@ depender del disco efimero del contenedor.
   Identity solo cuando `AZURE_BLOB_MEDIA_ENABLED=true`.
 - [x] Mantener POS/local con filesystem (`MEDIA_ROOT`).
 - [x] Crear runbook `docs/runbooks/AZURE_BLOB_MEDIA.md`.
-- [ ] Aplicar Terraform en dev y publicar imagen Docker nueva.
+- [x] Aplicar Terraform en prod para media publica:
+  - Storage Account `posfifoprodmedia`
+  - container `media-public`
+  - API/job con `AZURE_BLOB_MEDIA_ENABLED=true`
+  - smoke directo `royalplast/productos/_smoke-logo-royal.jpeg` HTTP 200
 - [ ] Subir imagenes existentes de `media/productos/` y `media/config/`.
 - [ ] Smoke test portal: productos muestran imagen real desde Blob.
 

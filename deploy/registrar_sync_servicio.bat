@@ -68,25 +68,28 @@ if exist "%NSSM_PATH%" (
     "%NSSM_PATH%" set %SERVICE_NAME% AppRotateBytes 5242880
 
     REM --- Variables de entorno para el servicio ---
+    REM Cada par ENTRECOMILLADO: protege espacios y caracteres especiales de cmd
+    REM (& ( ) ^) en valores como el SECRET_KEY. Sin comillas, NSSM rechaza con
+    REM "environment should comprise strings of the form key=value".
     "%NSSM_PATH%" set %SERVICE_NAME% AppEnvironmentExtra ^
-        DJANGO_SETTINGS_MODULE=config.settings_production ^
-        DJANGO_DEBUG=false ^
-        DJANGO_SECRET_KEY=%DJANGO_SECRET_KEY% ^
-        DB_NAME=%DB_NAME% ^
-        DB_USER=%DB_USER% ^
-        DB_PASSWORD=%DB_PASSWORD% ^
-        DB_HOST=%DB_HOST% ^
-        DB_PORT=%DB_PORT% ^
-        SUCURSAL_CODIGO=%SUCURSAL_CODIGO% ^
-        SYNC_ENABLED=true ^
-        CLOUD_API_URL=%CLOUD_API_URL% ^
-        CLOUD_API_TOKEN=%CLOUD_API_TOKEN% ^
-        SYNC_INTERVAL=%SYNC_INTERVAL% ^
-        SYNC_BATCH_SIZE=%SYNC_BATCH_SIZE% ^
-        SYNC_MAX_RETRIES=%SYNC_MAX_RETRIES% ^
-        SYNC_HTTP_TIMEOUT=%SYNC_HTTP_TIMEOUT% ^
-        PGCLIENTENCODING=UTF8 ^
-        PYTHONUTF8=1
+        "DJANGO_SETTINGS_MODULE=config.settings_production" ^
+        "DJANGO_DEBUG=false" ^
+        "DJANGO_SECRET_KEY=%DJANGO_SECRET_KEY%" ^
+        "DB_NAME=%DB_NAME%" ^
+        "DB_USER=%DB_USER%" ^
+        "DB_PASSWORD=%DB_PASSWORD%" ^
+        "DB_HOST=%DB_HOST%" ^
+        "DB_PORT=%DB_PORT%" ^
+        "SUCURSAL_CODIGO=%SUCURSAL_CODIGO%" ^
+        "SYNC_ENABLED=true" ^
+        "CLOUD_API_URL=%CLOUD_API_URL%" ^
+        "CLOUD_API_TOKEN=%CLOUD_API_TOKEN%" ^
+        "SYNC_INTERVAL=%SYNC_INTERVAL%" ^
+        "SYNC_BATCH_SIZE=%SYNC_BATCH_SIZE%" ^
+        "SYNC_MAX_RETRIES=%SYNC_MAX_RETRIES%" ^
+        "SYNC_HTTP_TIMEOUT=%SYNC_HTTP_TIMEOUT%" ^
+        "PGCLIENTENCODING=UTF8" ^
+        "PYTHONUTF8=1"
 
     "%NSSM_PATH%" start %SERVICE_NAME%
 

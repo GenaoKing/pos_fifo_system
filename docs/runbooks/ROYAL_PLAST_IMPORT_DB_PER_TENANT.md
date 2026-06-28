@@ -13,9 +13,10 @@ Estado: runbook operativo para dry-run prod descartable. Fecha: 2026-06-18.
   manual desde branch `main`.
 - La API prod corre una imagen anterior. Antes del cutover real conviene
   promover el codigo aprobado a `main` y ejecutar el workflow prod manual.
-- Media publica en prod sigue pendiente: no hay Storage Account media de prod.
-  Para go-live con fotos/logos visibles hay que activar Blob o aceptar que las
-  imagenes no estaran disponibles en el primer corte.
+- Media publica prod aplicada: Storage Account `posfifoprodmedia`, container
+  `media-public`, API/job con `AZURE_BLOB_MEDIA_ENABLED=true`. Smoke directo
+  validado con `royalplast/productos/_smoke-logo-royal.jpeg` respondiendo HTTP
+  200 como `image/jpeg`.
 
 Siguiente gate para cutover real:
 
@@ -24,7 +25,8 @@ Siguiente gate para cutover real:
 3. Crear/restaurar `tnt_royalplast`.
 4. Registrar `Tenant royalplast` en `pos_fifo_prod`.
 5. Ejecutar `migrate_tenants` y `normalizar_import_tenant`.
-6. Validar totales, login, sync token e imagenes antes de activar sync.
+6. Importar imagenes reales a Blob y validar `imagen_url` en portal.
+7. Validar totales, login, sync token e imagenes antes de activar sync.
 
 Objetivo: validar el dump real de Royal Plast contra el contrato DB-per-tenant
 sin tocar produccion ni activar sync. El primer ensayo debe restaurar en una BD

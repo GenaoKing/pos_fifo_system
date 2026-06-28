@@ -70,3 +70,8 @@ docs/latency_results_*.json
 !**/*.tfvars.example
 
 **/.claude/*
+
+# Artefactos locales sensibles (dumps de BD, logs de servicio, env con
+# tokens/credenciales). NUNCA commitear.
+docs/dumps/
+docs/sk/
