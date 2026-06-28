@@ -31,6 +31,17 @@ from utils.impresoras.zebra import imprimir_etiquetas_compra
 from django.db import transaction
 from apps.sync import events as sync_events
 
+
+def _encolar_compra_y_movimientos(compra):
+    sync_events.evento_compra_registrada(compra)
+    for detalle in compra.detalles.select_related('lote').all():
+        lote = getattr(detalle, 'lote', None)
+        if not lote:
+            continue
+        for movimiento in lote.movimientos.filter(referencia_tipo='Compra', referencia_id=compra.id):
+            sync_events.evento_inventario_movimiento(movimiento)
+    sync_events.evento_inventario_snapshot(sucursal=compra.sucursal)
+
 # ============================================
 # LISTA DE COMPRAS
 # ============================================
@@ -174,6 +185,8 @@ def compra_crear(request):
                 # 5. Actualizar el total de la compra
                 compra.total = total_compra
                 compra.save()
+
+                transaction.on_commit(lambda c=compra: _encolar_compra_y_movimientos(c))
                 
                 # Respuesta exitosa
                 return JsonResponse({
@@ -549,7 +562,7 @@ def compra_editar(request, compra_id):
                 sucursal=getattr(request, 'sucursal', None),
             )
 
-            transaction.on_commit(lambda c=compra: sync_events.evento_compra_registrada(c))
+            transaction.on_commit(lambda c=compra: _encolar_compra_y_movimientos(c))
 
         return JsonResponse({
             'success': True,
@@ -801,7 +814,12 @@ def api_ajustar_inventario(request):
             )
  
             # 2. Crear MovimientoLote
-            MovimientoLote.objects.create(
+            # NOTA(bug preexistente): AjusteInventario.save() YA crea un
+            # MovimientoLote y ajusta el lote, por lo que esta creacion manual
+            # genera un segundo movimiento por cada ajuste (el stock no se
+            # duplica, pero el ledger si). La variable `movimiento` queda sin
+            # uso. Pendiente eliminar esta duplicacion tras validar reportes.
+            movimiento = MovimientoLote.objects.create(
                 lote=lote,
                 tipo=tipo_movimiento_map[tipo],
                 cantidad=cantidad_ajuste,
@@ -825,6 +843,7 @@ def api_ajustar_inventario(request):
             )
             
             transaction.on_commit(lambda a=ajuste: sync_events.evento_ajuste_inventario(a))
+            transaction.on_commit(lambda s=lote.sucursal: sync_events.evento_inventario_snapshot(sucursal=s))
 
  
         return JsonResponse({

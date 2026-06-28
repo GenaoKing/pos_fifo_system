@@ -136,6 +136,12 @@ class Command(BaseCommand):
             ))
             return
 
+        heartbeat_ok = engine.heartbeat()
+        hb_style = self.style.SUCCESS if heartbeat_ok else self.style.WARNING
+        self.stdout.write(hb_style(
+            f'[{self._now()}] HEARTBEAT {"ok" if heartbeat_ok else "fallo"}'
+        ))
+
         if not only_pull:
             m = engine.push_eventos()
             style = self.style.SUCCESS if m['fallidos'] == 0 else self.style.WARNING
@@ -148,7 +154,10 @@ class Command(BaseCommand):
             m = engine.pull_maestros()
             self.stdout.write(self.style.SUCCESS(
                 f"[{self._now()}] PULL categorias={m['categorias']} "
-                f"productos={m['productos']} clientes={m['clientes']}"
+                f"productos={m['productos']} clientes={m['clientes']} "
+                f"roles={m.get('roles', 0)} asignaciones={m.get('asignaciones', 0)} "
+                f"metodos_credito={m.get('metodos_credito', 0)} "
+                f"configuracion={m.get('configuracion', 0)}"
             ))
 
         # Registrar log si pidieron el ciclo completo

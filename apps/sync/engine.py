@@ -90,6 +90,24 @@ class SyncEngine:
         except requests.RequestException:
             return False
 
+    def heartbeat(self):
+        """
+        Senal explicita de liveness hacia el cloud. A diferencia de
+        push_eventos(), actualiza ultima_sync aunque no haya eventos pendientes.
+        """
+        self._require_config()
+        try:
+            resp = requests.post(
+                self._url('/api/v1/sync/heartbeat/'),
+                json={'timestamp': timezone.now().isoformat()},
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+            return resp.status_code < 400
+        except requests.RequestException as exc:
+            logger.warning('heartbeat: fallo de red: %s', exc)
+            return False
+
     # ------------------------------------------------------------------
     # PUSH: eventos locales -> cloud
     # ------------------------------------------------------------------
@@ -235,6 +253,8 @@ class SyncEngine:
             'clientes': 0,
             'roles': 0,
             'asignaciones': 0,
+            'metodos_credito': 0,
+            'configuracion': 0,
             'total': 0,
         }
 
@@ -263,9 +283,20 @@ class SyncEngine:
         except Exception as exc:
             logger.exception('pull_maestros: error en asignaciones: %s', exc)
 
+        try:
+            metricas['metodos_credito'] = self._pull_metodos_credito()
+        except Exception as exc:
+            logger.exception('pull_maestros: error en metodos_credito: %s', exc)
+
+        try:
+            metricas['configuracion'] = self._pull_configuracion()
+        except Exception as exc:
+            logger.exception('pull_maestros: error en configuracion: %s', exc)
+
         metricas['total'] = (
             metricas['categorias'] + metricas['productos']
             + metricas['clientes'] + metricas['roles'] + metricas['asignaciones']
+            + metricas['metodos_credito'] + metricas['configuracion']
         )
         logger.info('pull_maestros: %s', metricas)
         return metricas
@@ -545,6 +576,112 @@ class SyncEngine:
             apply,
         )
 
+    def _pull_metodos_credito(self):
+        """Sincroniza reglas de credito administradas desde cloud."""
+        from apps.cuentas_por_cobrar.models import MetodoPlazoCredito
+        from apps.sucursales.models import get_sucursal_actual
+
+        sucursal_actual = get_sucursal_actual()
+
+        def apply(item):
+            nombre = item.get('nombre')
+            if not nombre:
+                return
+            tipo = item.get('tipo') or MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+            if tipo not in dict(MetodoPlazoCredito.TIPO_CHOICES):
+                tipo = MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
+            frecuencia = item.get('frecuencia') or MetodoPlazoCredito.FRECUENCIA_MENSUAL
+            if frecuencia not in dict(MetodoPlazoCredito.FRECUENCIA_CHOICES):
+                frecuencia = MetodoPlazoCredito.FRECUENCIA_MENSUAL
+
+            sucursal = None
+            sucursal_codigo = item.get('sucursal_codigo')
+            if sucursal_codigo:
+                if not sucursal_actual or sucursal_codigo != sucursal_actual.codigo:
+                    logger.warning(
+                        'pull metodos_credito: sucursal %s no es esta instalacion; omitido',
+                        sucursal_codigo,
+                    )
+                    return
+                sucursal = sucursal_actual
+
+            MetodoPlazoCredito.objects.update_or_create(
+                nombre=nombre,
+                defaults={
+                    'tipo': tipo,
+                    'dias_vencimiento': max(int(item.get('dias_vencimiento') or 30), 1),
+                    'cantidad_cuotas': max(int(item.get('cantidad_cuotas') or 1), 1),
+                    'frecuencia': frecuencia,
+                    'inicial_minima_porcentaje': item.get('inicial_minima_porcentaje') or '0.00',
+                    'interes_porcentaje': item.get('interes_porcentaje') or '0.00',
+                    'activo': item.get('activo', True),
+                    'sucursal': sucursal,
+                },
+            )
+
+        return self._pull_generic(
+            'metodos_credito',
+            '/api/v1/sync/metodos-credito/',
+            apply,
+        )
+
+    def _pull_configuracion(self):
+        """Sincroniza solo configuracion cloud-safe; excluye hardware/local."""
+        from apps.configuracion.models import ConfiguracionNegocio
+        from apps.sucursales.models import get_sucursal_actual
+
+        sucursal = get_sucursal_actual()
+        config = ConfiguracionNegocio.load(sucursal=sucursal)
+        count = 0
+        cursor_tabla = 'configuracion'
+
+        def apply(item):
+            nonlocal count
+            allowed = [
+                'nombre_negocio',
+                'rnc',
+                'direccion',
+                'telefono',
+                'email_negocio',
+                'permitir_inventario_negativo',
+                'modulo_etiquetas_zebra',
+                'modulo_financiacion_coop',
+                'modulo_cotizaciones',
+                'modulo_impresion_termica',
+                'modulo_barcode_scanner',
+                'modulo_reportes_ondemand',
+                'modulo_ecf',
+                'modulo_dashboard',
+                'pago_efectivo',
+                'pago_transferencia',
+                'pago_tarjeta',
+                'formato_codigo_barras',
+                'dias_anulacion',
+                'cantidad_copias_ticket',
+                'ecf_proveedor',
+                'itbis_incluido_en_precio',
+                'itbis_porcentaje_global',
+                'modo_contingencia',
+            ]
+            update_fields = []
+            for field in allowed:
+                if field in item and hasattr(config, field):
+                    setattr(config, field, item[field])
+                    update_fields.append(field)
+            if update_fields:
+                config.save(update_fields=update_fields + ['fecha_modificacion'])
+                count += 1
+
+        # Configuracion devuelve una lista pequena, pero usamos el cursor comun.
+        # _pull_generic gestiona el cursor (VersionMaestro) con la
+        # fecha_modificacion que devuelve el endpoint.
+        downloaded = self._pull_generic(
+            cursor_tabla,
+            '/api/v1/sync/configuracion/',
+            apply,
+        )
+        return downloaded or count
+
     # ------------------------------------------------------------------
     # Ciclo completo (lo que usa el command)
     # ------------------------------------------------------------------
@@ -580,6 +717,7 @@ class SyncEngine:
                 return resultado
 
             resultado['online'] = True
+            resultado['heartbeat'] = self.heartbeat()
             resultado['push'] = self.push_eventos()
             resultado['pull'] = self.pull_maestros()
 

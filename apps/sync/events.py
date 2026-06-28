@@ -167,11 +167,13 @@ def evento_ajuste_inventario(ajuste):
         logger.exception('No se pudo serializar ajuste %s: %s', ajuste.pk, exc)
         return None
 
+    sucursal = ajuste.lote.sucursal if ajuste.lote.sucursal_id else None
     return _crear_evento(
         tipo='AJUSTE_INVENTARIO',
         payload=payload,
         referencia=f'Ajuste-{ajuste.pk}',
         objeto_id_local=ajuste.pk,
+        sucursal=sucursal,
     )
 
 
@@ -188,6 +190,75 @@ def evento_compra_registrada(compra):
         payload=payload,
         referencia=getattr(compra, 'numero_compra', '') or f'Compra-{compra.pk}',
         objeto_id_local=compra.pk,
+        sucursal=compra.sucursal,
+    )
+
+
+def evento_inventario_movimiento(movimiento):
+    """Encola un movimiento de inventario como ledger cloud."""
+    try:
+        payload = serializers.serializar_movimiento_inventario(movimiento)
+    except Exception as exc:
+        logger.exception('No se pudo serializar movimiento inventario %s: %s', movimiento.pk, exc)
+        return None
+
+    sucursal = movimiento.lote.sucursal if movimiento.lote.sucursal_id else None
+    return _crear_evento(
+        tipo='INVENTARIO_MOVIMIENTO_REGISTRADO',
+        payload=payload,
+        referencia=f"MovInv-{movimiento.pk}-{movimiento.tipo}",
+        objeto_id_local=movimiento.pk,
+        sucursal=sucursal,
+    )
+
+
+def evento_inventario_snapshot(sucursal=None):
+    """Encola un snapshot completo del inventario local actual."""
+    try:
+        payload = serializers.serializar_inventario_snapshot(sucursal=sucursal)
+    except Exception as exc:
+        logger.exception('No se pudo serializar snapshot inventario: %s', exc)
+        return None
+
+    return _crear_evento(
+        tipo='INVENTARIO_SNAPSHOT',
+        payload=payload,
+        referencia=f"Snapshot-{payload.get('sucursal_codigo') or 'LOCAL'}",
+        sucursal=sucursal,
+    )
+
+
+def evento_cotizacion_creada(cotizacion):
+    """Encola un evento COTIZACION_CREADA."""
+    try:
+        payload = serializers.serializar_cotizacion(cotizacion)
+    except Exception as exc:
+        logger.exception('No se pudo serializar cotizacion %s: %s', cotizacion.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='COTIZACION_CREADA',
+        payload=payload,
+        referencia=cotizacion.numero_cotizacion,
+        objeto_id_local=cotizacion.pk,
+        sucursal=cotizacion.sucursal,
+    )
+
+
+def evento_cotizacion_convertida(cotizacion):
+    """Encola un evento COTIZACION_CONVERTIDA."""
+    try:
+        payload = serializers.serializar_cotizacion(cotizacion)
+    except Exception as exc:
+        logger.exception('No se pudo serializar conversion cotizacion %s: %s', cotizacion.pk, exc)
+        return None
+
+    return _crear_evento(
+        tipo='COTIZACION_CONVERTIDA',
+        payload=payload,
+        referencia=cotizacion.numero_cotizacion,
+        objeto_id_local=cotizacion.pk,
+        sucursal=cotizacion.sucursal,
     )
 
 

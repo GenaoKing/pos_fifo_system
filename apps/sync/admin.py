@@ -6,7 +6,13 @@ Admin para monitorear y diagnosticar el sync desde /admin/.
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import EventoSync, VersionMaestro, LogSync
+from .models import (
+    EventoSync,
+    InventarioMovimientoSync,
+    InventarioSucursalSnapshot,
+    LogSync,
+    VersionMaestro,
+)
 
 
 @admin.register(EventoSync)
@@ -101,6 +107,36 @@ class LogSyncAdmin(admin.ModelAdmin):
             color, obj.get_resultado_display()
         )
     resultado_badge.short_description = 'Resultado'
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(InventarioMovimientoSync)
+class InventarioMovimientoSyncAdmin(admin.ModelAdmin):
+    list_display = (
+        'fecha_movimiento', 'sucursal', 'producto_sku', 'tipo', 'cantidad',
+        'referencia_tipo', 'referencia_id',
+    )
+    list_filter = ('sucursal', 'tipo', 'fecha_movimiento')
+    search_fields = ('producto_sku', 'producto_nombre', 'lote_numero', 'usuario_username', 'notas')
+    readonly_fields = [field.name for field in InventarioMovimientoSync._meta.fields]
+    date_hierarchy = 'fecha_movimiento'
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(InventarioSucursalSnapshot)
+class InventarioSucursalSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        'sucursal', 'producto_sku', 'producto_nombre', 'stock_actual',
+        'stock_minimo', 'bajo_stock', 'valor_fifo', 'timestamp',
+    )
+    list_filter = ('sucursal', 'bajo_stock')
+    search_fields = ('producto_sku', 'producto_nombre')
+    readonly_fields = [field.name for field in InventarioSucursalSnapshot._meta.fields]
+    date_hierarchy = 'timestamp'
 
     def has_add_permission(self, request):
         return False

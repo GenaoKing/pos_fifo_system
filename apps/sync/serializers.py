@@ -309,17 +309,22 @@ def serializar_cierre_caja(turno):
 
 def serializar_ajuste_inventario(ajuste):
     """Serializa un AjusteInventario (merma, dano, correccion)."""
+    lote = ajuste.lote
+    producto = lote.producto if lote and lote.producto_id else None
+    sucursal = lote.sucursal if lote and lote.sucursal_id else None
     return {
         'ajuste_id_local': ajuste.id,
-        'sucursal_codigo': 'LOCAL',
-        'producto_sku': ajuste.producto.sku if getattr(ajuste, 'producto_id', None) else None,
+        'sucursal_codigo': sucursal.codigo if sucursal else None,
+        'producto_sku': producto.sku if producto else None,
+        'producto_nombre': producto.nombre if producto else '',
+        'lote_numero': lote.numero_lote if lote else '',
         'tipo': ajuste.tipo,
         'cantidad': _d(ajuste.cantidad),
         'motivo': getattr(ajuste, 'motivo', '') or '',
         'usuario_username': (
             ajuste.usuario.username if getattr(ajuste, 'usuario_id', None) else None
         ),
-        'fecha': _dt(getattr(ajuste, 'fecha', None) or getattr(ajuste, 'created_at', None)),
+        'fecha': _dt(getattr(ajuste, 'fecha_ajuste', None)),
     }
 
 
@@ -327,18 +332,116 @@ def serializar_compra(compra):
     """Serializa una Compra con sus detalles."""
     return {
         'compra_id_local': compra.id,
-        'sucursal_codigo': 'LOCAL',
+        'sucursal_codigo': compra.sucursal.codigo if compra.sucursal_id else None,
         'numero_compra': getattr(compra, 'numero_compra', '') or '',
+        'numero_factura': getattr(compra, 'numero_factura', '') or '',
         'proveedor': str(getattr(compra, 'proveedor', '') or ''),
         'fecha_compra': _dt(getattr(compra, 'fecha_compra', None)),
         'total': _d(getattr(compra, 'total', 0)),
+        'notas': getattr(compra, 'notas', '') or '',
+        'usuario_username': compra.usuario.username if compra.usuario_id else None,
         'detalles': [
             {
                 'producto_sku': d.producto.sku if d.producto_id else None,
+                'producto_nombre': d.producto.nombre if d.producto_id else '',
                 'cantidad': _d(d.cantidad),
                 'costo_unitario': _d(d.costo_unitario),
                 'subtotal': _d(getattr(d, 'subtotal', None) or d.cantidad * d.costo_unitario),
+                'lote_numero': d.lote.numero_lote if hasattr(d, 'lote') else '',
             }
             for d in compra.detalles.all()
         ] if hasattr(compra, 'detalles') else [],
+    }
+
+
+def serializar_movimiento_inventario(movimiento):
+    """Serializa un MovimientoLote como ledger auditable para cloud."""
+    lote = movimiento.lote
+    producto = lote.producto if lote and lote.producto_id else None
+    sucursal = lote.sucursal if lote and lote.sucursal_id else None
+    return {
+        'movimiento_id_local': movimiento.id,
+        'sucursal_codigo': sucursal.codigo if sucursal else None,
+        'tipo': movimiento.tipo,
+        'producto_sku': producto.sku if producto else None,
+        'producto_nombre': producto.nombre if producto else '',
+        'lote_numero': lote.numero_lote if lote else '',
+        'cantidad': movimiento.cantidad,
+        'cantidad_anterior': movimiento.cantidad_anterior,
+        'cantidad_nueva': movimiento.cantidad_nueva,
+        'costo_unitario': _d(lote.costo_unitario) if lote else None,
+        'referencia_tipo': movimiento.referencia_tipo or '',
+        'referencia_id': movimiento.referencia_id,
+        'usuario_username': movimiento.usuario.username if movimiento.usuario_id else None,
+        'notas': movimiento.notas or '',
+        'fecha_movimiento': _dt(movimiento.fecha_creacion),
+    }
+
+
+def serializar_inventario_snapshot(sucursal=None):
+    """Snapshot actual de stock por SKU para la sucursal local."""
+    from django.utils import timezone
+    from apps.inventario.fifo_logic import calcular_valuacion_fifo, obtener_stock_disponible
+    from apps.productos.models import Producto
+    from apps.sucursales.models import get_sucursal_actual
+
+    sucursal = sucursal or get_sucursal_actual()
+    timestamp = timezone.now()
+    productos = Producto.objects.filter(activo=True).order_by('sku')
+    items = []
+    for producto in productos:
+        stock_actual = int(obtener_stock_disponible(producto.id))
+        stock_minimo = int(producto.stock_minimo or 0)
+        items.append({
+            'producto_sku': producto.sku,
+            'producto_nombre': producto.nombre,
+            'stock_actual': stock_actual,
+            'stock_minimo': stock_minimo,
+            'bajo_stock': stock_actual < stock_minimo,
+            'valor_fifo': _d(calcular_valuacion_fifo(producto.id)),
+        })
+
+    return {
+        'sucursal_codigo': sucursal.codigo if sucursal else None,
+        'timestamp': _dt(timestamp),
+        'items': items,
+    }
+
+
+# ============================================================================
+# COTIZACIONES
+# ============================================================================
+
+def serializar_cotizacion(cotizacion):
+    """Serializa una cotizacion completa con detalles."""
+    return {
+        'cotizacion_id_local': cotizacion.id,
+        'numero_cotizacion': cotizacion.numero_cotizacion,
+        'sucursal_codigo': cotizacion.sucursal.codigo if cotizacion.sucursal_id else None,
+        'cliente_cedula_rnc': (
+            cotizacion.cliente.cedula_rnc
+            if cotizacion.cliente_id and cotizacion.cliente.cedula_rnc else None
+        ),
+        'cliente_nombre': cotizacion.cliente.nombre if cotizacion.cliente_id else '',
+        'usuario_username': cotizacion.usuario.username if cotizacion.usuario_id else None,
+        'fecha_creacion': _dt(cotizacion.fecha_creacion),
+        'subtotal': _d(cotizacion.subtotal),
+        'descuento_total': _d(cotizacion.descuento_total),
+        'total': _d(cotizacion.total),
+        'estado': cotizacion.estado,
+        'venta_numero': cotizacion.venta.numero_venta if cotizacion.venta_id else None,
+        'notas': cotizacion.notas or '',
+        'detalles': [
+            {
+                'producto_sku': d.producto.sku if d.producto_id else None,
+                'producto_nombre': d.producto.nombre if d.producto_id else '',
+                'cantidad': d.cantidad,
+                'precio_unitario': _d(d.precio_unitario),
+                'subtotal': _d(d.subtotal),
+                'descuento_monto': _d(d.descuento_monto),
+                'descuento_porcentaje': _d(d.descuento_porcentaje),
+                'total_linea': _d(d.total_linea),
+            }
+            for d in cotizacion.detalles.all()
+        ],
     }

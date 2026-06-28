@@ -14,8 +14,12 @@ Handlers por tipo de evento (Opcion 3 del diseno, Fase 4.5):
     APERTURA_CAJA      -> Crea TurnoCaja con estado='ABIERTO'
     MOVIMIENTO_CAJA    -> Crea MovimientoCaja colgado de turno ABIERTO
     CIERRE_CAJA        -> Actualiza TurnoCaja existente (abierto por APERTURA)
-    AJUSTE_INVENTARIO  -> Log-only por ahora (futuro: crear Ajuste en cloud)
-    COMPRA_REGISTRADA  -> Log-only por ahora
+    AJUSTE_INVENTARIO  -> Ledger cloud de ajuste de inventario
+    COMPRA_REGISTRADA  -> Ledger cloud de lineas de compra
+    INVENTARIO_MOVIMIENTO_REGISTRADO -> Ledger cloud de movimiento de lote
+    INVENTARIO_SNAPSHOT -> Upsert de stock actual por sucursal/SKU
+    COTIZACION_CREADA  -> Crea cotizacion + detalles
+    COTIZACION_CONVERTIDA -> Marca cotizacion convertida y vincula venta
 
 Idempotencia:
     El hash_payload identifica eventos unicos. El cloud reutiliza la tabla
@@ -179,6 +183,29 @@ def sync_status(request):
 
 
 # ============================================================================
+# POST /api/v1/sync/heartbeat/
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def heartbeat(request):
+    """Actualiza liveness de la sucursal aunque no haya eventos pendientes."""
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response(
+            {'error': 'Token sin sucursal asociada'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    sucursal.ultima_sync = timezone.now()
+    sucursal.save(update_fields=['ultima_sync'])
+    return Response({
+        'sucursal_codigo': sucursal.codigo,
+        'ultima_sync': sucursal.ultima_sync,
+    })
+
+
+# ============================================================================
 # GET /api/v1/sync/roles/  — definiciones de rol del negocio (cloud -> sucursal)
 # ============================================================================
 
@@ -272,6 +299,106 @@ def asignaciones_para_sucursal(request):
 
 
 # ============================================================================
+# GET /api/v1/sync/metodos-credito/
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def metodos_credito_para_sucursal(request):
+    """Devuelve reglas de credito globales o especificas de la sucursal."""
+    from django.db.models import Q
+    from django.utils.dateparse import parse_datetime
+    from apps.cuentas_por_cobrar.models import MetodoPlazoCredito
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response([])
+
+    qs = (
+        MetodoPlazoCredito.objects
+        .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
+        .select_related('sucursal')
+        .order_by('id')
+    )
+    desde = request.query_params.get('desde')
+    if desde:
+        ts = parse_datetime(desde)
+        if ts:
+            qs = qs.filter(fecha_modificacion__gt=ts)
+
+    return Response([
+        {
+            'nombre': m.nombre,
+            'tipo': m.tipo,
+            'dias_vencimiento': m.dias_vencimiento,
+            'cantidad_cuotas': m.cantidad_cuotas,
+            'frecuencia': m.frecuencia,
+            'inicial_minima_porcentaje': str(m.inicial_minima_porcentaje),
+            'interes_porcentaje': str(m.interes_porcentaje),
+            'activo': m.activo,
+            'sucursal_codigo': m.sucursal.codigo if m.sucursal_id else None,
+            'fecha_modificacion': m.fecha_modificacion.isoformat(),
+        }
+        for m in qs
+    ])
+
+
+# ============================================================================
+# GET /api/v1/sync/configuracion/
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def configuracion_para_sucursal(request):
+    """Devuelve solo configuracion cloud-safe; excluye hardware/local."""
+    from apps.configuracion.models import ConfiguracionNegocio
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response([])
+
+    config = ConfiguracionNegocio.load(sucursal=sucursal)
+
+    # Sync incremental: si la sucursal ya tiene una version igual o mas
+    # reciente, no devolvemos nada (evita reescribir la config local en cada
+    # ciclo). Mismo contrato ?desde= que el resto de endpoints de sync.
+    desde = request.query_params.get('desde')
+    if desde:
+        ts = parse_datetime(desde)
+        if ts and config.fecha_modificacion and config.fecha_modificacion <= ts:
+            return Response([])
+
+    data = {
+        'nombre_negocio': config.nombre_negocio,
+        'rnc': config.rnc,
+        'direccion': config.direccion,
+        'telefono': config.telefono,
+        'email_negocio': config.email_negocio,
+        'permitir_inventario_negativo': config.permitir_inventario_negativo,
+        'modulo_etiquetas_zebra': config.modulo_etiquetas_zebra,
+        'modulo_financiacion_coop': config.modulo_financiacion_coop,
+        'modulo_cotizaciones': config.modulo_cotizaciones,
+        'modulo_impresion_termica': config.modulo_impresion_termica,
+        'modulo_barcode_scanner': config.modulo_barcode_scanner,
+        'modulo_reportes_ondemand': config.modulo_reportes_ondemand,
+        'modulo_ecf': config.modulo_ecf,
+        'modulo_dashboard': config.modulo_dashboard,
+        'pago_efectivo': config.pago_efectivo,
+        'pago_transferencia': config.pago_transferencia,
+        'pago_tarjeta': config.pago_tarjeta,
+        'formato_codigo_barras': config.formato_codigo_barras,
+        'dias_anulacion': config.dias_anulacion,
+        'cantidad_copias_ticket': getattr(config, 'cantidad_copias_ticket', 1),
+        'ecf_proveedor': config.ecf_proveedor,
+        'itbis_incluido_en_precio': config.itbis_incluido_en_precio,
+        'itbis_porcentaje_global': str(config.itbis_porcentaje_global),
+        'modo_contingencia': config.modo_contingencia,
+        'fecha_modificacion': config.fecha_modificacion.isoformat(),
+    }
+    return Response([data])
+
+
+# ============================================================================
 # HANDLERS por tipo de evento
 # ============================================================================
 
@@ -287,6 +414,12 @@ def _extraer_referencia(tipo_evento, payload):
         return f"Ajuste-{payload.get('ajuste_id_local', '?')}"
     if tipo_evento == 'COMPRA_REGISTRADA':
         return payload.get('numero_compra', '')
+    if tipo_evento == 'INVENTARIO_MOVIMIENTO_REGISTRADO':
+        return f"MovInv-{payload.get('movimiento_id_local', '?')}-{payload.get('tipo', '?')}"
+    if tipo_evento == 'INVENTARIO_SNAPSHOT':
+        return f"Snapshot-{payload.get('sucursal_codigo') or '?'}"
+    if tipo_evento in ('COTIZACION_CREADA', 'COTIZACION_CONVERTIDA'):
+        return payload.get('numero_cotizacion', '')
     if tipo_evento in ('CXC_CREADA', 'CXC_ANULADA'):
         return payload.get('numero_venta', '')
     if tipo_evento == 'CXC_PAGO_REGISTRADO':
@@ -598,27 +731,224 @@ def _handler_cierre_caja(sucursal, payload):
         )
 
 
-# ---- INVENTARIO / COMPRAS (log-only por ahora) ----
+# ---- INVENTARIO / COMPRAS ----
 
 def _handler_ajuste_inventario(sucursal, payload):
-    """Log-only. Futuro: crear AjusteInventario en cloud con FK a sucursal."""
-    logger.info(
-        'AJUSTE_INVENTARIO: sucursal=%s producto=%s tipo=%s cant=%s',
-        sucursal.codigo if sucursal else '?',
-        payload.get('producto_sku'),
-        payload.get('tipo'),
-        payload.get('cantidad'),
-    )
+    """Registra un ajuste como movimiento auditable en el ledger cloud."""
+    payload = {
+        **payload,
+        'movimiento_id_local': payload.get('ajuste_id_local'),
+        'referencia_tipo': 'AjusteInventario',
+        'referencia_id': payload.get('ajuste_id_local'),
+        'fecha_movimiento': payload.get('fecha'),
+        'notas': payload.get('motivo', ''),
+    }
+    _registrar_movimiento_inventario_sync(sucursal, payload)
 
 
 def _handler_compra(sucursal, payload):
-    """Log-only por ahora."""
-    logger.info(
-        'COMPRA_REGISTRADA: sucursal=%s numero=%s total=%s',
-        sucursal.codigo if sucursal else '?',
-        payload.get('numero_compra'),
-        payload.get('total'),
+    """Registra la compra y sus lineas como ledger auditable de inventario."""
+    compra_id = payload.get('compra_id_local')
+    numero = payload.get('numero_compra') or ''
+    fecha = payload.get('fecha_compra')
+    usuario = payload.get('usuario_username')
+
+    for idx, detalle in enumerate(payload.get('detalles', []), start=1):
+        movimiento_payload = {
+            'movimiento_id_local': None,
+            'tipo': 'COMPRA',
+            'producto_sku': detalle.get('producto_sku'),
+            'producto_nombre': detalle.get('producto_nombre', ''),
+            'lote_numero': detalle.get('lote_numero', ''),
+            'cantidad': int(Decimal(str(detalle.get('cantidad') or 0))),
+            'cantidad_anterior': None,
+            'cantidad_nueva': None,
+            'costo_unitario': detalle.get('costo_unitario'),
+            'referencia_tipo': 'Compra',
+            'referencia_id': compra_id,
+            'usuario_username': usuario,
+            'notas': f"Compra {numero} linea {idx}",
+            'fecha_movimiento': fecha,
+            'numero_compra': numero,
+        }
+        _registrar_movimiento_inventario_sync(sucursal, movimiento_payload)
+
+
+def _handler_movimiento_inventario(sucursal, payload):
+    """Registra un MovimientoLote replicado desde la sucursal."""
+    _registrar_movimiento_inventario_sync(sucursal, payload)
+
+
+def _handler_inventario_snapshot(sucursal, payload):
+    """Upsert del stock actual por producto para una sucursal."""
+    from apps.sync.models import InventarioSucursalSnapshot
+
+    timestamp = parse_datetime(payload['timestamp']) if payload.get('timestamp') else timezone.now()
+    for item in payload.get('items', []):
+        sku = item.get('producto_sku')
+        if not sku:
+            continue
+        InventarioSucursalSnapshot.objects.update_or_create(
+            sucursal=sucursal,
+            producto_sku=sku,
+            defaults={
+                'producto_nombre': item.get('producto_nombre', '') or '',
+                'stock_actual': int(item.get('stock_actual') or 0),
+                'stock_minimo': int(item.get('stock_minimo') or 0),
+                'bajo_stock': bool(item.get('bajo_stock', False)),
+                'valor_fifo': Decimal(str(item.get('valor_fifo') or '0')),
+                'timestamp': timestamp,
+                'payload': item,
+            },
+        )
+
+
+def _registrar_movimiento_inventario_sync(sucursal, payload):
+    from apps.sync.models import InventarioMovimientoSync
+
+    if sucursal is None:
+        raise ValueError('Movimiento de inventario sin sucursal autenticada')
+
+    sku = payload.get('producto_sku')
+    if not sku:
+        raise ValueError('Movimiento de inventario sin producto_sku')
+
+    fecha = (
+        parse_datetime(payload['fecha_movimiento'])
+        if payload.get('fecha_movimiento') else timezone.now()
     )
+    movimiento_id = payload.get('movimiento_id_local')
+    defaults = {
+        'tipo': payload.get('tipo') or 'AJUSTE',
+        'referencia_tipo': payload.get('referencia_tipo', '') or '',
+        'referencia_id': payload.get('referencia_id'),
+        'producto_sku': sku,
+        'producto_nombre': payload.get('producto_nombre', '') or '',
+        'lote_numero': payload.get('lote_numero', '') or '',
+        'cantidad': int(Decimal(str(payload.get('cantidad') or 0))),
+        'cantidad_anterior': payload.get('cantidad_anterior'),
+        'cantidad_nueva': payload.get('cantidad_nueva'),
+        'costo_unitario': (
+            Decimal(str(payload.get('costo_unitario')))
+            if payload.get('costo_unitario') is not None else None
+        ),
+        'usuario_username': payload.get('usuario_username') or '',
+        'notas': payload.get('notas', '') or '',
+        'fecha_movimiento': fecha,
+        'payload': payload,
+    }
+
+    if movimiento_id:
+        InventarioMovimientoSync.objects.update_or_create(
+            sucursal=sucursal,
+            movimiento_id_local=movimiento_id,
+            defaults=defaults,
+        )
+        return
+
+    exists = InventarioMovimientoSync.objects.filter(
+        sucursal=sucursal,
+        referencia_tipo=defaults['referencia_tipo'],
+        referencia_id=defaults['referencia_id'],
+        producto_sku=sku,
+        lote_numero=defaults['lote_numero'],
+        tipo=defaults['tipo'],
+    ).exists()
+    if not exists:
+        InventarioMovimientoSync.objects.create(
+            sucursal=sucursal,
+            movimiento_id_local=None,
+            **defaults,
+        )
+
+
+# ---- COTIZACIONES ----
+
+def _resolver_cliente_cotizacion(payload):
+    from apps.clientes.models import Cliente
+
+    if payload.get('cliente_cedula_rnc'):
+        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+        if cliente:
+            return cliente
+    nombre = payload.get('cliente_nombre')
+    if nombre:
+        cliente = Cliente.objects.filter(nombre=nombre).first()
+        if cliente:
+            return cliente
+    return Cliente.get_cliente_contado()
+
+
+def _handler_cotizacion_creada(sucursal, payload):
+    from apps.cotizaciones.models import Cotizacion, DetalleCotizacion
+    from apps.productos.models import Producto
+
+    numero = payload.get('numero_cotizacion')
+    if not numero:
+        raise ValueError('Payload sin numero_cotizacion')
+
+    cliente = _resolver_cliente_cotizacion(payload)
+    usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
+    fecha_creacion = (
+        parse_datetime(payload['fecha_creacion'])
+        if payload.get('fecha_creacion') else timezone.now()
+    )
+
+    cotizacion, _ = Cotizacion.objects.update_or_create(
+        sucursal=sucursal,
+        numero_cotizacion=numero,
+        defaults={
+            'cliente': cliente,
+            'usuario': usuario,
+            'fecha_creacion': fecha_creacion,
+            'subtotal': Decimal(payload.get('subtotal', '0')),
+            'descuento_total': Decimal(payload.get('descuento_total', '0')),
+            'total': Decimal(payload.get('total', '0')),
+            'estado': payload.get('estado', 'PENDIENTE'),
+            'notas': payload.get('notas', '') or '',
+        },
+    )
+    cotizacion.detalles.all().delete()
+    for item in payload.get('detalles', []):
+        sku = item.get('producto_sku')
+        producto = Producto.objects.filter(sku=sku).first() if sku else None
+        if producto is None:
+            raise ValueError(f'Producto SKU {sku} no existe en cloud para cotizacion {numero}')
+        DetalleCotizacion.objects.create(
+            cotizacion=cotizacion,
+            producto=producto,
+            cantidad=int(item.get('cantidad') or 0),
+            precio_unitario=Decimal(item.get('precio_unitario', '0')),
+            subtotal=Decimal(item.get('subtotal', '0')),
+            descuento_monto=Decimal(item.get('descuento_monto', '0')),
+            descuento_porcentaje=Decimal(item.get('descuento_porcentaje', '0')),
+            total_linea=Decimal(item.get('total_linea', '0')),
+        )
+
+
+def _handler_cotizacion_convertida(sucursal, payload):
+    from apps.cotizaciones.models import Cotizacion
+    from apps.ventas.models import Venta
+
+    numero = payload.get('numero_cotizacion')
+    if not numero:
+        raise ValueError('Payload sin numero_cotizacion')
+
+    cotizacion = Cotizacion.objects.filter(sucursal=sucursal, numero_cotizacion=numero).first()
+    if cotizacion is None:
+        _handler_cotizacion_creada(sucursal, payload)
+        cotizacion = Cotizacion.objects.get(sucursal=sucursal, numero_cotizacion=numero)
+
+    venta_numero = payload.get('venta_numero')
+    venta = None
+    if venta_numero:
+        venta = Venta.objects.filter(numero_venta=venta_numero).first()
+        if venta is None:
+            raise ValueError(f'Venta {venta_numero} no existe en cloud todavia')
+
+    cotizacion.estado = 'CONVERTIDA'
+    cotizacion.venta = venta
+    cotizacion.save(update_fields=['estado', 'venta'])
 
 
 # ---- CUENTAS POR COBRAR ----
@@ -827,6 +1157,10 @@ HANDLERS = {
     'CIERRE_CAJA': _handler_cierre_caja,
     'AJUSTE_INVENTARIO': _handler_ajuste_inventario,
     'COMPRA_REGISTRADA': _handler_compra,
+    'INVENTARIO_MOVIMIENTO_REGISTRADO': _handler_movimiento_inventario,
+    'INVENTARIO_SNAPSHOT': _handler_inventario_snapshot,
+    'COTIZACION_CREADA': _handler_cotizacion_creada,
+    'COTIZACION_CONVERTIDA': _handler_cotizacion_convertida,
     'CXC_CREADA': _handler_cxc_creada,
     'CXC_PAGO_REGISTRADO': _handler_cxc_pago,
     'CXC_PAGO_ANULADO': _handler_cxc_pago_anulado,

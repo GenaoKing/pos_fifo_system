@@ -168,6 +168,9 @@ class VersionMaestro(models.Model):
         ('categorias', 'Categorias'),
         ('clientes', 'Clientes'),
         ('configuracion', 'Configuracion'),
+        ('metodos_credito', 'Metodos de credito'),
+        ('roles', 'Roles'),
+        ('asignaciones', 'Asignaciones'),
     ]
 
     tabla = models.CharField(
@@ -206,6 +209,103 @@ class VersionMaestro(models.Model):
         """Helper: garantiza que existe un cursor para la tabla."""
         obj, _ = cls.objects.get_or_create(tabla=tabla)
         return obj
+
+
+class InventarioMovimientoSync(models.Model):
+    """
+    Ledger cloud de movimientos de inventario recibidos por sync.
+
+    No intenta reconstruir FIFO cloud: conserva el hecho operativo tal como lo
+    emitio la sucursal para auditoria, trazabilidad y diagnostico.
+    """
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='movimientos_inventario_sync',
+        verbose_name='Sucursal',
+    )
+    tipo = models.CharField(max_length=32, db_index=True, verbose_name='Tipo')
+    movimiento_id_local = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='ID local del movimiento',
+    )
+    referencia_tipo = models.CharField(max_length=50, blank=True, default='')
+    referencia_id = models.PositiveIntegerField(null=True, blank=True)
+    producto_sku = models.CharField(max_length=50, db_index=True)
+    producto_nombre = models.CharField(max_length=200, blank=True, default='')
+    lote_numero = models.CharField(max_length=50, blank=True, default='')
+    cantidad = models.IntegerField()
+    cantidad_anterior = models.IntegerField(null=True, blank=True)
+    cantidad_nueva = models.IntegerField(null=True, blank=True)
+    costo_unitario = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    usuario_username = models.CharField(max_length=150, blank=True, default='')
+    notas = models.TextField(blank=True, default='')
+    fecha_movimiento = models.DateTimeField(db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Movimiento de inventario sincronizado'
+        verbose_name_plural = 'Movimientos de inventario sincronizados'
+        ordering = ['-fecha_movimiento', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sucursal', 'movimiento_id_local'],
+                name='unique_movimiento_inventario_sync_local',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['sucursal', 'producto_sku']),
+            models.Index(fields=['referencia_tipo', 'referencia_id']),
+        ]
+
+    def __str__(self):
+        return f'{self.sucursal.codigo} {self.producto_sku} {self.tipo} {self.cantidad}'
+
+
+class InventarioSucursalSnapshot(models.Model):
+    """
+    Ultimo snapshot de stock por producto y sucursal.
+
+    Es la fuente cloud para inventario multi-sucursal: los eventos dan
+    trazabilidad, el snapshot da el estado actual confiable.
+    """
+
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='inventario_snapshots',
+        verbose_name='Sucursal',
+    )
+    producto_sku = models.CharField(max_length=50, db_index=True)
+    producto_nombre = models.CharField(max_length=200, blank=True, default='')
+    stock_actual = models.IntegerField(default=0)
+    stock_minimo = models.IntegerField(default=0)
+    bajo_stock = models.BooleanField(default=False, db_index=True)
+    valor_fifo = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    timestamp = models.DateTimeField(db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Snapshot de inventario por sucursal'
+        verbose_name_plural = 'Snapshots de inventario por sucursal'
+        ordering = ['sucursal', 'producto_sku']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sucursal', 'producto_sku'],
+                name='unique_snapshot_inventario_sucursal_producto',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['sucursal', 'bajo_stock']),
+            models.Index(fields=['producto_sku', 'timestamp']),
+        ]
+
+    def __str__(self):
+        return f'{self.sucursal.codigo} {self.producto_sku}: {self.stock_actual}'
 
 
 class LogSync(models.Model):

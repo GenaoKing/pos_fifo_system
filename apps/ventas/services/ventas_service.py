@@ -232,6 +232,12 @@ def procesar_venta_service(
         # ------------------ Hooks post-commit
         # Sync engine (existente)
         transaction.on_commit(lambda v=venta: sync_events.evento_venta_creada(v))
+        # NOTA(perf): el snapshot recorre todos los productos activos (O(N)
+        # consultas FIFO) y serializa el inventario completo en el payload.
+        # Hacerlo por venta es caro en catalogos grandes; pendiente moverlo a
+        # un snapshot periodico (comando/cron) y dejar el tiempo real a los
+        # eventos de movimiento por linea.
+        transaction.on_commit(lambda: sync_events.evento_inventario_snapshot())
 
         # Impresión fuera de la transacción: si la térmica falla, no
         # se hace rollback de la venta. Mismo patrón que sync.

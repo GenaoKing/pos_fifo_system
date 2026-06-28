@@ -148,6 +148,9 @@ def anular_venta_service(
         transaction.on_commit(
             lambda v=venta: sync_events.evento_venta_anulada(v)
         )
+        # NOTA(perf): ver ventas_service.procesar_venta_service. El snapshot por
+        # anulacion es O(N) productos; pendiente migrar a snapshot periodico.
+        transaction.on_commit(lambda: sync_events.evento_inventario_snapshot())
 
         # Encolado de NC tipo 34 (Semana 3): si la venta tiene ECF
         # aprobado, hay que reflejar la anulación con DGII vía Nota
