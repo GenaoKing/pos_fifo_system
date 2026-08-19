@@ -210,8 +210,8 @@ def api_abrir_turno(request):
                 notas_apertura=notas,
             )
 
-            # Fase 4: encolar evento de sync
-            transaction.on_commit(lambda t=turno: sync_events.evento_apertura_caja(t))
+            # Outbox transaccional: atomico con la apertura del turno.
+            sync_events.evento_apertura_caja(turno)
 
             return JsonResponse({
                 'success': True,
@@ -272,8 +272,8 @@ def api_cerrar_turno(request):
                 notas=notas
             )
 
-            # Fase 4: encolar evento de sync
-            transaction.on_commit(lambda t=turno: sync_events.evento_cierre_caja(t))
+            # Outbox transaccional: atomico con el cierre del turno.
+            sync_events.evento_cierre_caja(turno)
 
             return JsonResponse({
                 'success': True,
@@ -388,10 +388,8 @@ def api_registrar_movimiento(request):
 
             # Recalcular esperado
             desglose = turno.calcular_esperado()
-            # Fase 4.5: encolar evento de sync para el cloud
-            transaction.on_commit(
-                lambda m=movimiento: sync_events.evento_movimiento_caja(m)
-            )
+            # Outbox transaccional: atomico con el movimiento.
+            sync_events.evento_movimiento_caja(movimiento)
 
             return JsonResponse({
                 'success': True,

@@ -212,6 +212,12 @@ def procesar_venta_service(
             credito_data=credito_data,
         )
 
+        # Outbox transaccional: el evento se escribe DENTRO de la transaccion,
+        # atomico con la venta. Va ANTES de crear_cuenta_para_venta a proposito:
+        # el handler cloud de CXC_CREADA rechaza la cuenta si su venta todavia
+        # no llego, y los eventos se empujan en orden de creacion.
+        sync_events.evento_venta_creada(venta)
+
         if es_credito:
             from apps.cuentas_por_cobrar.services import crear_cuenta_para_venta
 
@@ -230,13 +236,14 @@ def procesar_venta_service(
         )
 
         # ------------------ Hooks post-commit
-        # Sync engine (existente)
-        transaction.on_commit(lambda v=venta: sync_events.evento_venta_creada(v))
         # NOTA(perf): el snapshot recorre todos los productos activos (O(N)
         # consultas FIFO) y serializa el inventario completo en el payload.
         # Hacerlo por venta es caro en catalogos grandes; pendiente moverlo a
         # un snapshot periodico (comando/cron) y dejar el tiempo real a los
         # eventos de movimiento por linea.
+        # Por ese costo se queda FUERA de la transaccion: es una foto de estado,
+        # no un hecho de negocio, y perderla es inocuo (la siguiente la
+        # reemplaza). El evento de la venta si es transaccional, mas arriba.
         transaction.on_commit(lambda: sync_events.evento_inventario_snapshot())
 
         # Impresión fuera de la transacción: si la térmica falla, no

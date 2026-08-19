@@ -30,7 +30,8 @@ bitacoras y exploraciones viven en subcarpetas.
 | Modulos vendibles | Fundacion implementada | `ARQUITECTURA_MODULOS.md` | Fases 2-4: enforcement, admin/React y hooks de datos bloqueantes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
-| Bugs/hallazgos | Registro liviano | `BUGS.md` | Convertir pendientes repetidos en issues o tareas de roadmap. |
+| Sync confiable | Plan aprobado, sin ejecutar | `ROADMAP_SYNC_CONFIABLE.md` | Ejecutar Fase 0 (rig contra `royalplastdemo` + `verificar_sync`). |
+| Bugs/hallazgos | 2 bugs abiertos (BUG-A alta, BUG-B media) | `BUGS.md` | Se atacan por `ROADMAP_SYNC_CONFIABLE.md` fases 1 y 2. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -138,6 +139,7 @@ Siguiente foco:
 - `TESTING.md`
 - `BUGS.md`
 - `TENANCY_DB_PER_TENANT.md`
+- `ROADMAP_SYNC_CONFIABLE.md`
 
 ### Runbooks operativos
 
@@ -167,6 +169,21 @@ Siguiente foco:
 ### Exploracion
 
 - `docs/exploracion/OPORTUNIDADES_INNOVACION.md`
+
+## Nota de actualizacion 2026-08-19
+
+Revision completa del repo tras ~7 semanas de inactividad. Cambios de estado
+que este documento aun no reflejaba en sus secciones de abajo:
+
+- **Royal Plast y SK Performance estan EN PRODUCCION cloud y sincronizando a
+  diario** (tenants `royalplast` desde 2026-06-20 y `skperformance` desde
+  2026-06-23). Las Fases 4 y 5 de `ROADMAP_TENANCY_DBPERTENANT.md` estan
+  cerradas de hecho.
+- Se detectaron 2 bugs de sync (BUG-A perdida silenciosa de eventos, BUG-B
+  cursor de pull) documentados en `BUGS.md` y planificados en
+  `ROADMAP_SYNC_CONFIABLE.md`.
+- Prod NO se auto-deploya: requiere `workflow_dispatch` manual. `develop` esta
+  5 commits adelante de `main` con features de sync sin desplegar.
 
 ## Proximo orden recomendado
 

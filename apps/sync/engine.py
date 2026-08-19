@@ -112,6 +112,62 @@ class SyncEngine:
     # PUSH: eventos locales -> cloud
     # ------------------------------------------------------------------
 
+    def _completar_payloads(self, eventos):
+        """
+        Re-serializa los eventos que quedaron sin payload y devuelve solo los
+        enviables.
+
+        Un evento sin payload existe porque preferimos registrar que el hecho
+        ocurrio antes que perderlo cuando el serializador falla (ver
+        `apps/sync/events.py`). Aqui se le da la segunda oportunidad, leyendo el
+        objeto de la BD via `apps/sync/registry.py`.
+        """
+        from .events import _calcular_hash
+        from . import registry
+
+        enviables = []
+        for evento in eventos:
+            if evento.payload:
+                enviables.append(evento)
+                continue
+
+            hecho = registry.por_tipo(evento.tipo_evento)
+            modelo = hecho.modelo() if hecho else None
+
+            if hecho is None or modelo is None or not evento.objeto_id_local:
+                evento.marcar_error(
+                    f'Evento sin payload y sin forma de re-serializarlo '
+                    f'(tipo={evento.tipo_evento}, objeto_id={evento.objeto_id_local})',
+                    max_retries=self.max_retries,
+                )
+                logger.error('Evento %s sin payload no es re-serializable', evento.pk)
+                continue
+
+            obj = modelo.objects.filter(pk=evento.objeto_id_local).first()
+            if obj is None:
+                evento.marcar_error(
+                    f'El objeto local {evento.objeto_id_local} ya no existe',
+                    max_retries=self.max_retries,
+                )
+                continue
+
+            try:
+                payload = hecho.serializar(obj)
+            except Exception as exc:
+                evento.marcar_error(f'Re-serializacion fallida: {exc}',
+                                    max_retries=self.max_retries)
+                logger.exception('Re-serializacion fallida del evento %s', evento.pk)
+                continue
+
+            evento.payload = payload
+            evento.hash_payload = _calcular_hash(payload)
+            evento.estado = 'PENDIENTE'
+            evento.save(update_fields=['payload', 'hash_payload', 'estado'])
+            logger.info('Evento %s re-serializado en el push', evento.pk)
+            enviables.append(evento)
+
+        return enviables
+
     def push_eventos(self):
         """
         Empuja hasta batch_size eventos al cloud.
@@ -129,11 +185,20 @@ class SyncEngine:
             eventos_qs = (
                 EventoSync.objects
                 .select_for_update(skip_locked=True)
-                .filter(estado__in=['PENDIENTE', 'ERROR'])
+                .filter(estado__in=EventoSync.ESTADOS_ENVIABLES)
                 .exclude(intentos__gte=self.max_retries)
                 .order_by('created_at')[:self.batch_size]
             )
             eventos = list(eventos_qs)
+
+            if not eventos:
+                return metricas
+
+            # Los eventos SIN_PAYLOAD se encolaron porque el hecho ocurrio, pero
+            # su serializacion fallo en su momento. Se reintenta aqui, contra el
+            # estado actual de la BD. Los que sigan fallando no entran al batch:
+            # `EventoSyncSerializer` rechaza payloads vacios.
+            eventos = self._completar_payloads(eventos)
 
             if not eventos:
                 return metricas

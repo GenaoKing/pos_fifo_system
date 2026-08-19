@@ -143,13 +143,13 @@ def anular_venta_service(
             ip_address=ip_address,
         )
 
+        # Outbox transaccional: atomico con la anulacion.
+        sync_events.evento_venta_anulada(venta)
+
         # ------------------ Hooks post-commit
-        # Sync engine (existente)
-        transaction.on_commit(
-            lambda v=venta: sync_events.evento_venta_anulada(v)
-        )
         # NOTA(perf): ver ventas_service.procesar_venta_service. El snapshot por
         # anulacion es O(N) productos; pendiente migrar a snapshot periodico.
+        # Se queda fuera de la transaccion por costo (foto de estado).
         transaction.on_commit(lambda: sync_events.evento_inventario_snapshot())
 
         # Encolado de NC tipo 34 (Semana 3): si la venta tiene ECF

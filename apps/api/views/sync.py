@@ -478,6 +478,87 @@ def _resolver_usuario(username):
     return User.objects.filter(username=username).first()
 
 
+def _resolver_o_crear_cliente(sucursal, payload, crear=True):
+    """
+    Resuelve el cliente de un evento y, si hace falta, lo crea.
+
+    Resolutor UNICO para ventas, cuentas por cobrar y cotizaciones. Antes cada
+    handler lo hacia por su cuenta y con criterios distintos.
+
+    Motivacion (BUG-C en docs/BUGS.md): la resolucion era solo por `cedula_rnc`,
+    que es un campo opcional y en la practica vacio. Consecuencia real medida en
+    produccion: 404 de 405 ventas quedaron sin cliente y las 16 ventas a credito
+    de Royal Plast nunca pudieron replicar su cuenta por cobrar
+    (RD$240,435 invisibles en el portal).
+
+    Orden de resolucion:
+        1. `cedula_rnc`, si viene con valor. Sigue mandando: es la identidad
+           real del negocio cuando existe.
+        2. `(origen_sucursal, origen_id_local)`. Identidad estable que no
+           depende de datos que el negocio puede omitir.
+        3. Crear el cliente con lo que trae el payload, sellando su origen.
+
+    Esto revisa a proposito la decision B11b de docs/ROADMAP_PORTAL.md ("el
+    cloud es el unico autor de clientes"). Un cliente puede nacer en la sucursal
+    y promoverse al cloud; queda marcado con su origen para que el portal pueda
+    revisarlo. El cloud sigue siendo la autoridad para EDITAR: aqui solo se crea
+    lo que no existe.
+
+    Devuelve None si no hay forma de identificar ni datos para crear.
+    """
+    from apps.clientes.models import Cliente
+
+    datos = payload.get('cliente') or {}
+    cedula = datos.get('cedula_rnc') or payload.get('cliente_cedula_rnc')
+    id_local = datos.get('id_local')
+
+    # 1) Por cedula/RNC.
+    if cedula:
+        cliente = Cliente.objects.filter(cedula_rnc=cedula).first()
+        if cliente:
+            return cliente
+
+    # 2) Por origen (sucursal + PK local).
+    if sucursal is not None and id_local:
+        cliente = Cliente.objects.filter(
+            origen_sucursal=sucursal,
+            origen_id_local=id_local,
+        ).first()
+        if cliente:
+            # Backfill acotado: si el cliente nacio sin cedula y la sucursal ya
+            # se la cargo, la subimos. Sin esto el pull de maestros devolveria
+            # la cedula vacia a la sucursal y borraria lo que el cajero tecleo.
+            if cedula and not cliente.cedula_rnc:
+                cliente.cedula_rnc = cedula
+                cliente.save(update_fields=['cedula_rnc', 'fecha_modificacion'])
+            return cliente
+
+    # 3) Crear. Sin datos del cliente no hay nada que crear (payload viejo).
+    if not crear or not datos or not datos.get('nombre'):
+        return None
+
+    tipo = datos.get('tipo')
+    if tipo not in dict(Cliente.TIPOS):
+        tipo = 'PERSONAL'
+
+    cliente = Cliente.objects.create(
+        tipo=tipo,
+        nombre=datos['nombre'],
+        cedula_rnc=cedula or None,
+        telefono=datos.get('telefono') or '',
+        direccion=datos.get('direccion') or '',
+        limite_credito=Decimal(str(datos.get('limite_credito') or '0')),
+        plazo_credito_dias=int(datos.get('plazo_credito_dias') or 30),
+        origen_sucursal=sucursal,
+        origen_id_local=id_local,
+    )
+    logger.info(
+        'Cliente %s creado en cloud desde evento de sucursal %s (id_local=%s)',
+        cliente.nombre, getattr(sucursal, 'codigo', None), id_local,
+    )
+    return cliente
+
+
 # ---- VENTAS ----
 
 def _handler_venta_creada(sucursal, payload):
@@ -499,9 +580,7 @@ def _handler_venta_creada(sucursal, payload):
     # con IntegrityError y dejar el evento en ERROR (la venta nunca se replicaria).
     # Mismo patron que el handler de pagos CxC (cae a cuenta.creado_por).
     usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
-    cliente = None
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
 
     venta = Venta.objects.create(
         numero_venta=numero_venta,
@@ -864,19 +943,18 @@ def _registrar_movimiento_inventario_sync(sucursal, payload):
 
 # ---- COTIZACIONES ----
 
-def _resolver_cliente_cotizacion(payload):
+def _resolver_cliente_cotizacion(sucursal, payload):
+    """Cliente de una cotizacion; cae al generico CONTADO si no hay forma.
+
+    Se apoya en el resolutor compartido. El fallback historico "buscar por
+    nombre exacto" se ELIMINA a proposito: fusionaba homonimos en silencio, y
+    en una cotizacion que puede convertirse en venta a credito eso corrompe
+    datos de cartera.
+    """
     from apps.clientes.models import Cliente
 
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
-        if cliente:
-            return cliente
-    nombre = payload.get('cliente_nombre')
-    if nombre:
-        cliente = Cliente.objects.filter(nombre=nombre).first()
-        if cliente:
-            return cliente
-    return Cliente.get_cliente_contado()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
+    return cliente or Cliente.get_cliente_contado()
 
 
 def _handler_cotizacion_creada(sucursal, payload):
@@ -887,7 +965,7 @@ def _handler_cotizacion_creada(sucursal, payload):
     if not numero:
         raise ValueError('Payload sin numero_cotizacion')
 
-    cliente = _resolver_cliente_cotizacion(payload)
+    cliente = _resolver_cliente_cotizacion(sucursal, payload)
     usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
     fecha_creacion = (
         parse_datetime(payload['fecha_creacion'])
@@ -971,13 +1049,18 @@ def _handler_cxc_creada(sucursal, payload):
         logger.info('CxC para venta %s ya existe en cloud, skip', numero_venta)
         return
 
-    cliente = None
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
     if cliente is None and venta.cliente_id:
         cliente = venta.cliente
     if cliente is None:
-        raise ValueError(f'Cliente de CxC {numero_venta} no existe en cloud')
+        # Ultimo recurso: una cuenta por cobrar SIEMPRE necesita titular. Antes
+        # aqui se lanzaba ValueError y el evento moria tras agotar reintentos
+        # (BUG-C). Preferimos registrar la deuda contra el cliente generico y
+        # que sea visible, a perderla en silencio.
+        cliente = Cliente.get_cliente_contado()
+        logger.warning(
+            'CxC %s sin cliente resoluble; se asigna CLIENTE CONTADO', numero_venta
+        )
 
     metodo_tipo = payload.get('metodo_plazo_tipo') or payload.get('modalidad') or MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
     if metodo_tipo not in dict(MetodoPlazoCredito.TIPO_CHOICES):

@@ -38,10 +38,14 @@ class EventoSync(models.Model):
 
     ESTADO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
+        ('SIN_PAYLOAD', 'Sin payload (serializar al enviar)'),
         ('CONFIRMADO', 'Confirmado'),
         ('ERROR', 'Error'),
         ('DESCARTADO', 'Descartado'),
     ]
+
+    # Estados que el push debe reclamar de la cola.
+    ESTADOS_ENVIABLES = ['PENDIENTE', 'ERROR', 'SIN_PAYLOAD']
 
     # Identidad del evento
     sucursal = models.ForeignKey(
@@ -75,12 +79,22 @@ class EventoSync(models.Model):
     )
 
     # Contenido
+    #
+    # payload/hash son NULOS a proposito cuando el evento se encolo pero la
+    # serializacion fallo (estado SIN_PAYLOAD). Preferimos registrar que el
+    # hecho ocurrio -- con payload vacio y reintento diferido -- antes que
+    # perder el evento o tumbar la venta que lo origino. El push los completa
+    # re-serializando desde la BD via apps/sync/registry.py.
     payload = models.JSONField(
+        null=True,
+        blank=True,
         verbose_name='Payload',
-        help_text='Datos serializados que se envian al cloud.'
+        help_text='Datos serializados que se envian al cloud. Nulo si esta pendiente de serializar.'
     )
     hash_payload = models.CharField(
         max_length=64,
+        blank=True,
+        default='',
         db_index=True,
         verbose_name='Hash del payload',
         help_text='SHA-256 hex del payload. Permite idempotencia en el cloud.'

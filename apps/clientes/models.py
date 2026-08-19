@@ -98,6 +98,33 @@ class Cliente(models.Model):
         verbose_name='Fecha de Modificacion'
     )
 
+    # ------------------------------------------------------------------
+    # Origen (solo se usa en el CLOUD; en el POS local quedan en NULL)
+    # ------------------------------------------------------------------
+    #
+    # `cedula_rnc` es opcional en el negocio real: la mayoria de los clientes
+    # de mostrador no la dan. Usarla como unica clave natural hacia que el
+    # cloud no pudiera identificar al cliente de una venta o de una cuenta por
+    # cobrar, y las CxC se rechazaban para siempre (BUG-C en docs/BUGS.md).
+    #
+    # Estos dos campos dan una identidad estable que no depende de datos que
+    # el negocio puede omitir: de que sucursal vino y con que PK nacio alli.
+    origen_sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='clientes_originados',
+        verbose_name='Sucursal de origen',
+        help_text='Sucursal donde se creo el cliente, si nacio en una sucursal.'
+    )
+    origen_id_local = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='ID local de origen',
+        help_text='PK que tiene el cliente en la BD de su sucursal de origen.'
+    )
+
     class Meta:
         verbose_name = 'Cliente'
         verbose_name_plural = 'Clientes'
@@ -107,6 +134,17 @@ class Cliente(models.Model):
             models.Index(fields=['cedula_rnc']),
             models.Index(fields=['tipo', 'activo']),
             models.Index(fields=['nombre']),
+            models.Index(fields=['origen_sucursal', 'origen_id_local']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['origen_sucursal', 'origen_id_local'],
+                condition=models.Q(
+                    origen_sucursal__isnull=False,
+                    origen_id_local__isnull=False,
+                ),
+                name='cliente_origen_unico_por_sucursal',
+            ),
         ]
 
     def __str__(self):
