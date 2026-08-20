@@ -673,14 +673,18 @@ onboarding del 2026-06-23:
 Requiere: re-empaquetar desde el repo actual y correr `deploy/actualizar.bat`
 en sitio. Coordinar con la Fase 4 para no hacer dos visitas.
 
-### D2 — BD huérfana en el servidor de plataforma
+### D2 — ~~BD huérfana~~ — DESCARTADO (2026-08-20)
 
-`tnt_staging_royalplast` (12 MB) existe en `posfifoplatformpg` pero **no tiene
-fila en `tenancy_tenants`** del control plane. Residuo de las pruebas de staging.
+Se registró aquí que `tnt_staging_royalplast` no tenía fila en `tenancy_tenants`
+y por tanto era un residuo a borrar. **Era un error de diagnóstico:** solo se
+consultó el control plane de *prod* (`pos_fifo_prod`).
 
-Acción: confirmar que no la usa nadie y borrarla (`DROP DATABASE`), o registrarla
-si se quiere conservar como banco de pruebas. Hoy es solo ruido, pero ruido en el
-servidor que aloja a los dos clientes reales.
+La BD pertenece al control plane de **staging** (`pos_fifo_staging`), donde está
+registrada como el tenant `staging_royalplast` y activa. Es el banco de pruebas
+de staging y **no hay que borrarla**.
+
+Lección: con DB-per-tenant, "huérfana" solo se puede afirmar tras revisar
+**todos** los control planes, no el de producción.
 
 ### D3 — Aislamiento del servidor de base de datos
 
