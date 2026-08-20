@@ -26,7 +26,7 @@ Robustez:
   aparecen en 'confirmados' pasan a estado CONFIRMADO.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 
 import requests
 from django.conf import settings
@@ -34,6 +34,11 @@ from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger('sync')
+
+# Punto de partida para el primer pull de una tabla (cursor vacio). Ver
+# `_pull_generic`: el parametro `desde` debe viajar siempre para que el servidor
+# use el orden del cursor y no el alfabetico.
+_EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 
 
 class SyncConfigError(Exception):
@@ -410,10 +415,16 @@ class SyncEngine:
         url = self._url(endpoint)
 
         while True:
-            params = {}
-            if req_fecha:
-                params['desde'] = req_fecha.isoformat()
-                params['desde_id'] = req_id
+            # `desde` va SIEMPRE, incluso en el primer pull. El servidor solo
+            # ordena por (fecha_modificacion, id) cuando recibe `?desde=`; sin
+            # el parametro ordena por `nombre` y la clave del ultimo item de la
+            # pagina no sirve como frontera: la pagina siguiente se solapa.
+            # (Paso de verdad: un pull inicial aplico 416 items sobre un
+            # catalogo de 273.)
+            params = {
+                'desde': (req_fecha or _EPOCH).isoformat(),
+                'desde_id': req_id,
+            }
 
             try:
                 resp = requests.get(
@@ -432,6 +443,24 @@ class SyncEngine:
             items = data['results'] if isinstance(data, dict) and 'results' in data else data
             if not items:
                 break
+
+            # Guardarrail de compatibilidad: si el cloud no ordena por el
+            # cursor, el paseo keyset es invalido -- la clave del ultimo item
+            # de la pagina no es frontera de nada y las paginas se solapan.
+            # Pasa contra un cloud anterior a la Fase 2, que ordena por
+            # `nombre` e ignora `desde_id`.
+            #
+            # Medido: contra un cloud viejo, un pull inicial aplicaba 432 veces
+            # y solo llegaban 245 de 273 productos. 28 se perdian.
+            #
+            # Ante la duda, se degrada al recorrido legacy (seguir `next`), que
+            # es correcto aunque no tenga las garantias nuevas.
+            if not self._pagina_ordenada(items):
+                logger.warning(
+                    'pull %s: el cloud no respeta el orden del cursor (version '
+                    'anterior a Fase 2). Degradando a paginacion legacy.', tabla,
+                )
+                return self._pull_legacy(tabla, endpoint, apply_func, cursor)
 
             for item in items:
                 clave = self._clave_cursor(item)
@@ -463,6 +492,77 @@ class SyncEngine:
                 break
 
         self._guardar_cursor(cursor, commit_fecha, commit_id, count, bloqueo)
+        return count
+
+    @classmethod
+    def _pagina_ordenada(cls, items):
+        """True si la pagina viene ordenada por (fecha_modificacion, id).
+
+        Es la firma de que el servidor entiende el contrato del cursor. Un
+        cloud anterior a la Fase 2 ordena por `nombre`, asi que las claves
+        llegan desordenadas y se nota de inmediato.
+        """
+        anterior = None
+        for item in items:
+            clave = cls._clave_cursor(item)
+            if clave is None:
+                continue
+            if anterior is not None and clave < anterior:
+                return False
+            anterior = clave
+        return True
+
+    def _pull_legacy(self, tabla, endpoint, apply_func, cursor):
+        """
+        Recorrido antiguo: seguir el `next` de DRF y avanzar el cursor al maximo
+        `fecha_modificacion` visto.
+
+        Solo se usa contra un cloud que no soporta el cursor keyset. Conserva el
+        comportamiento historico -- incluido su punto debil de saltarse un item
+        que falla -- pero al menos recorre el catalogo completo sin perder
+        registros por solapamiento de paginas.
+        """
+        count = 0
+        max_fecha = cursor.ultima_version
+        url = self._url(endpoint)
+        params = {'desde': cursor.ultima_version.isoformat()} if cursor.ultima_version else {}
+
+        while url:
+            try:
+                resp = requests.get(url, params=params or None, headers=self.headers,
+                                    timeout=self.timeout)
+            except requests.RequestException as exc:
+                logger.warning('pull %s (legacy): error de red: %s', tabla, exc)
+                break
+            if resp.status_code >= 400:
+                logger.error('pull %s (legacy): HTTP %s', tabla, resp.status_code)
+                break
+
+            data = resp.json()
+            if isinstance(data, dict) and 'results' in data:
+                items = data['results']
+                url = data.get('next')
+                params = None
+            else:
+                items = data
+                url = None
+
+            for item in items:
+                try:
+                    apply_func(item)
+                    count += 1
+                except Exception as exc:
+                    logger.exception('pull %s (legacy): error aplicando item: %s', tabla, exc)
+                    continue
+                clave = self._clave_cursor(item)
+                if clave and (max_fecha is None or clave[0] > max_fecha):
+                    max_fecha = clave[0]
+
+        if count:
+            cursor.ultima_version = max_fecha
+            cursor.ultima_sync_exitosa = timezone.now()
+            cursor.registros_ultima_sync = count
+            cursor.save()
         return count
 
     @staticmethod

@@ -287,3 +287,80 @@ class ClaveCursorTests(TestCase):
         self.assertEqual(SyncEngine._ref_item({'sku': 'ABC'}), 'sku=ABC')
         self.assertEqual(SyncEngine._ref_item({'nombre': 'Vaso'}), 'nombre=Vaso')
         self.assertEqual(SyncEngine._ref_item({}), '(sin referencia)')
+
+
+@override_settings(SYNC_ENABLED=True, CLOUD_API_URL='https://cloud.test',
+                   CLOUD_API_TOKEN='t')
+class CompatibilidadConCloudViejoTests(TestCase):
+    """
+    Un cloud anterior a la Fase 2 ordena por `nombre` e ignora `desde_id`. El
+    paseo keyset contra ese servidor es invalido: la clave del ultimo item de
+    la pagina no es frontera de nada y las paginas se solapan.
+
+    Medido contra un cloud real de esa version: un pull inicial aplicaba 432
+    veces y solo llegaban **245 de 273** productos. 28 se perdian.
+
+    El cliente lo detecta y degrada al recorrido legacy, asi que el orden de
+    despliegue deja de poder causar perdida.
+    """
+
+    def setUp(self):
+        self.base = timezone.now() - timedelta(days=1)
+
+    def test_detecta_pagina_desordenada(self):
+        desordenada = [
+            _item('Cat B', self.base + timedelta(seconds=9), 9),
+            _item('Cat A', self.base + timedelta(seconds=1), 1),
+        ]
+        self.assertFalse(SyncEngine._pagina_ordenada(desordenada))
+
+    def test_acepta_pagina_ordenada(self):
+        ordenada = [
+            _item('Cat A', self.base + timedelta(seconds=1), 1),
+            _item('Cat B', self.base + timedelta(seconds=9), 9),
+        ]
+        self.assertTrue(SyncEngine._pagina_ordenada(ordenada))
+
+    def test_empate_de_fecha_con_id_creciente_se_acepta(self):
+        misma = self.base
+        self.assertTrue(SyncEngine._pagina_ordenada(
+            [_item('A', misma, 1), _item('B', misma, 2)]
+        ))
+
+    @mock.patch('apps.sync.engine.requests.get')
+    def test_cloud_viejo_degrada_a_legacy_y_no_pierde_registros(self, mock_get):
+        """Contra un cloud que ordena por nombre, deben llegar TODOS igual."""
+        # Pagina 1 desordenada respecto al cursor (asi responde el cloud viejo).
+        p1 = [
+            _item('Cat A', self.base + timedelta(seconds=30), 30),
+            _item('Cat B', self.base + timedelta(seconds=10), 10),
+        ]
+        p2 = [_item('Cat C', self.base + timedelta(seconds=20), 20)]
+        mock_get.side_effect = [
+            _Resp(_pagina(p1, hay_mas=True)),   # deteccion -> degrada
+            _Resp(_pagina(p1, hay_mas=True)),   # legacy: pagina 1
+            _Resp(_pagina(p2)),                 # legacy: pagina 2 via next
+        ]
+
+        n = SyncEngine()._pull_categorias()
+
+        self.assertEqual(n, 3)
+        self.assertEqual(Categoria.objects.count(), 3)
+        for nombre in ('Cat A', 'Cat B', 'Cat C'):
+            self.assertTrue(Categoria.objects.filter(nombre=nombre).exists(), nombre)
+
+    @mock.patch('apps.sync.engine.requests.get')
+    def test_legacy_avanza_el_cursor_al_maximo(self, mock_get):
+        p1 = [
+            _item('Cat A', self.base + timedelta(seconds=30), 30),
+            _item('Cat B', self.base + timedelta(seconds=10), 10),
+        ]
+        mock_get.side_effect = [_Resp(_pagina(p1)), _Resp(_pagina(p1))]
+
+        SyncEngine()._pull_categorias()
+
+        cursor = VersionMaestro.objects.get(tabla='categorias')
+        self.assertEqual(
+            cursor.ultima_version, self.base + timedelta(seconds=30),
+            'El modo legacy debe avanzar al maximo visto',
+        )

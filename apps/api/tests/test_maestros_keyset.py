@@ -165,3 +165,45 @@ class PaginacionKeysetTests(KeysetTestsBase):
 
         self.assertEqual(len(vistos), total, 'Se saltaron o repitieron registros')
         self.assertEqual(len(set(vistos)), total, 'Hubo ids duplicados entre paginas')
+
+
+class RecorridoRealDelClienteTests(KeysetTestsBase):
+    """
+    Integracion: recorre el endpoint REAL con la misma logica que usa
+    `SyncEngine._pull_generic`, sin mocks.
+
+    Existe por un bug que los tests con mocks no podian ver: el cliente no
+    mandaba `desde` en el primer request (cursor vacio), el servidor ordenaba
+    por `nombre` en vez de por el cursor, y la clave del ultimo item de la
+    pagina no servia como frontera. Resultado real: un pull inicial aplico
+    416 items sobre un catalogo de 273.
+    """
+
+    def test_primer_pull_sin_cursor_no_duplica_ni_pierde(self):
+        base = timezone.now() - timedelta(hours=3)
+        total = 25
+        for i in range(total):
+            # Nombre inverso a la fecha: si el orden es alfabetico, la frontera
+            # del keyset queda mal y aparecen solapamientos.
+            cat = Categoria.objects.create(nombre=f'Cat {(total - i):03d}', activa=True)
+            self._con_fecha(cat, base + timedelta(seconds=i))
+
+        vistos = []
+        # Igual que el engine: primer request con el epoch, no sin parametro.
+        desde = '1970-01-01T00:00:00+00:00'
+        desde_id = 0
+
+        for _ in range(10):
+            resp = self.api().get(
+                f'{self.categorias_url}?desde={quote(desde)}&desde_id={desde_id}'
+                f'&page_size=10'
+            )
+            items = resp.data['results']
+            if not items:
+                break
+            vistos.extend(c['id'] for c in items)
+            desde = items[-1]['fecha_modificacion']
+            desde_id = items[-1]['id']
+
+        self.assertEqual(len(vistos), total, 'Se perdieron o repitieron registros')
+        self.assertEqual(len(set(vistos)), total, f'Hubo duplicados: {len(vistos)} vistos')

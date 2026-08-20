@@ -463,11 +463,36 @@ quedó *debajo* de los decoradores `@api_view`, que pasaron a decorar el helper 
 vez del endpoint. La suite lo atrapó con 6 fallas en los tests de sync. Corregido
 moviendo el helper por encima del bloque de decoradores.
 
+**Verificación end-to-end HECHA (2026-08-19).** Runbook para reproducirla:
+`docs/runbooks/PRUEBAS_SYNC_LOCAL.md`.
+
+- **Fase 2:** se editó el producto en posición alfabética **273 de 273** en el
+  cloud y llegó a la sucursal en un pull incremental de 1 registro.
+- **Fase 1:** cliente **sin cédula** + venta a crédito de RD$15,000 → en el cloud
+  aparecieron el cliente (sellado con `origen_sucursal`/`origen_id_local`), la
+  venta **con cliente enlazado** y la CxC con sus cuotas. Es exactamente lo que
+  hoy falla en producción.
+- **Idempotencia:** reenviar los mismos eventos no duplicó nada.
+- De paso se confirmó que el rollback de una venta se lleva su evento, y que el
+  WARNING de fail-loud salta con credenciales cloud y `SYNC_ENABLED=False`.
+
+**Dos bugs que encontró la prueba real y no los tests:**
+
+1. **Pull inicial aplicaba 416 items sobre 273.** El cliente solo mandaba `desde`
+   cuando ya tenía cursor, así que en el primer pull el servidor ordenaba por
+   `nombre` y la clave del último item no era frontera de nada. Los 13 tests de
+   la fase no lo vieron porque **mockeaban la respuesta del servidor**. Corregido
+   enviando el epoch; cubierto por `RecorridoRealDelClienteTests`, que recorre el
+   endpoint de verdad.
+2. **La suposición de compatibilidad era falsa.** Contra un cloud viejo real
+   llegaron **245 de 273 productos: 28 perdidos**. Ver BUG-B en `docs/BUGS.md`.
+   Mitigado con detección + degradado a paginación legacy.
+
 **Pendiente de esta fase:**
 
-- [ ] Round-trip contra `royalplastdemo`: editar un producto alfabéticamente
-      tardío en el portal y confirmar que baja. Requiere el cloud desplegado.
 - [ ] Despliegue conjunto con la Fase 1 (una sola visita a cada cliente).
+      **El cloud va primero**: hasta que tenga el keyset, la sucursal corre en
+      modo degradado (correcto, pero sin las garantías nuevas).
 
 ---
 

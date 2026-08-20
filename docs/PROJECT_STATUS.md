@@ -152,6 +152,7 @@ Siguiente foco:
 - `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`
 - `docs/runbooks/AZURE_DEV_RESOURCES.md`
 - `docs/runbooks/D0_SECRET_ROTATION.md`
+- `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
 
 ### Handoffs y deuda
 

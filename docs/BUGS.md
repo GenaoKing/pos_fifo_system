@@ -161,9 +161,31 @@ Consecuencias:
    la clave natural de cada recurso.
 6. Indice `(fecha_modificacion, id)` en `Producto`, `Categoria` y `Cliente`.
 
-**Compatibilidad:** a diferencia de BUG-A/BUG-C, aqui el orden de despliegue no
-importa. Cliente nuevo contra cloud viejo ignora `desde_id`; cliente viejo contra
-cloud nuevo cae al filtro anterior. Ambas combinaciones son correctas.
+**Compatibilidad (CORREGIDO tras medirlo, 2026-08-19).** La primera version de
+esta nota decia que el orden de despliegue no importaba. **Es falso**, y se
+comprobo:
+
+| Escenario | Aplicados | Productos distintos que llegaron |
+|---|---|---|
+| Cliente nuevo -> cloud VIEJO | 432 | **245 de 273 (28 perdidos)** |
+| Cliente nuevo -> cloud NUEVO | 273 | 273 de 273 |
+
+Un cloud anterior ordena por `nombre` e ignora `desde_id`, asi que el paseo
+keyset del cliente es invalido: la clave del ultimo item de la pagina no es
+frontera de nada y las paginas se solapan (y por tanto tambien dejan huecos).
+
+**Mitigado en el cliente**, para que el orden de despliegue no pueda causar
+perdida: `_pull_generic` verifica que la pagina venga ordenada por
+`(fecha_modificacion, id)`; si no, loguea WARNING y degrada al recorrido legacy
+(seguir `next`), que recorre el catalogo completo. Verificado: con el fallback,
+contra el cloud viejo llegan 273 de 273.
+
+Cliente viejo contra cloud nuevo siempre fue seguro: sigue `next` sobre un orden
+total, que es correcto.
+
+**Aun asi, desplegar el cloud primero es lo recomendable**: hasta que el cloud
+tenga el keyset, la sucursal corre en modo degradado y no obtiene las garantias
+de esta fase.
 
 ---
 
