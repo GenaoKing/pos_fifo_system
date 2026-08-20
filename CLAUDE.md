@@ -109,6 +109,7 @@ persona o por un agente. Cada paso trae su comando exacto y su salida esperada.
 | Documento | Cuándo usarlo |
 |---|---|
 | `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Instalar un cliente desde cero. Incluye tabla de fallos conocidos. |
+| `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md` | Subir a Blob las imágenes de un cliente importado desde dump. |
 | `docs/runbooks/PRUEBAS_SYNC_LOCAL.md` | Probar cambios del contrato de sync **sin desplegar**, con código nuevo en ambos lados. |
 | `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` | Emular una sucursal contra el cloud de producción (tenant `demo`/`royalplastdemo`). |
 | `docs/BUGS.md` | Bugs vivos con su causa raíz y firma para reconocerlos. Consultarlo ante cualquier síntoma raro. |
