@@ -38,10 +38,14 @@ class EventoSync(models.Model):
 
     ESTADO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
+        ('SIN_PAYLOAD', 'Sin payload (serializar al enviar)'),
         ('CONFIRMADO', 'Confirmado'),
         ('ERROR', 'Error'),
         ('DESCARTADO', 'Descartado'),
     ]
+
+    # Estados que el push debe reclamar de la cola.
+    ESTADOS_ENVIABLES = ['PENDIENTE', 'ERROR', 'SIN_PAYLOAD']
 
     # Identidad del evento
     sucursal = models.ForeignKey(
@@ -75,12 +79,22 @@ class EventoSync(models.Model):
     )
 
     # Contenido
+    #
+    # payload/hash son NULOS a proposito cuando el evento se encolo pero la
+    # serializacion fallo (estado SIN_PAYLOAD). Preferimos registrar que el
+    # hecho ocurrio -- con payload vacio y reintento diferido -- antes que
+    # perder el evento o tumbar la venta que lo origino. El push los completa
+    # re-serializando desde la BD via apps/sync/registry.py.
     payload = models.JSONField(
+        null=True,
+        blank=True,
         verbose_name='Payload',
-        help_text='Datos serializados que se envian al cloud.'
+        help_text='Datos serializados que se envian al cloud. Nulo si esta pendiente de serializar.'
     )
     hash_payload = models.CharField(
         max_length=64,
+        blank=True,
+        default='',
         db_index=True,
         verbose_name='Hash del payload',
         help_text='SHA-256 hex del payload. Permite idempotencia en el cloud.'
@@ -185,6 +199,29 @@ class VersionMaestro(models.Model):
         verbose_name='Ultima version descargada',
         help_text='Timestamp del registro mas reciente aplicado localmente.'
     )
+    # Mitad `id` del cursor keyset. Junto con `ultima_version` forma la clave
+    # (fecha_modificacion, id) que da un orden TOTAL: dos registros guardados en
+    # el mismo instante ya no pueden perderse en el borde del cursor.
+    ultimo_id = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Ultimo id aplicado',
+        help_text='Desempate del cursor cuando varios registros comparten fecha.'
+    )
+    # Un cursor que deja de avanzar porque un registro falla al aplicarse. Antes
+    # ese registro se saltaba en silencio y se perdia para siempre; ahora el
+    # cursor se congela y esto lo hace visible.
+    bloqueado_desde = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Bloqueado desde',
+        help_text='Cuando el cursor dejo de avanzar por un registro que falla.'
+    )
+    bloqueado_detalle = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Detalle del bloqueo',
+        help_text='Que registro y que error estan frenando el cursor.'
+    )
     ultima_sync_exitosa = models.DateTimeField(
         null=True,
         blank=True,
@@ -209,6 +246,23 @@ class VersionMaestro(models.Model):
         """Helper: garantiza que existe un cursor para la tabla."""
         obj, _ = cls.objects.get_or_create(tabla=tabla)
         return obj
+
+    def marcar_bloqueado(self, detalle):
+        """Registra que el cursor no puede avanzar por un registro problematico."""
+        campos = ['bloqueado_detalle']
+        self.bloqueado_detalle = (detalle or '')[:2000]
+        if self.bloqueado_desde is None:
+            self.bloqueado_desde = timezone.now()
+            campos.append('bloqueado_desde')
+        self.save(update_fields=campos)
+
+    def limpiar_bloqueo(self):
+        """El cursor volvio a avanzar limpio: se olvida el bloqueo."""
+        if self.bloqueado_desde is None and not self.bloqueado_detalle:
+            return
+        self.bloqueado_desde = None
+        self.bloqueado_detalle = ''
+        self.save(update_fields=['bloqueado_desde', 'bloqueado_detalle'])
 
 
 class InventarioMovimientoSync(models.Model):

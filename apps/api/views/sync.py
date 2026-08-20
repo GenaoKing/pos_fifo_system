@@ -37,6 +37,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
@@ -209,6 +210,41 @@ def heartbeat(request):
 # GET /api/v1/sync/roles/  — definiciones de rol del negocio (cloud -> sucursal)
 # ============================================================================
 
+def _filtrar_keyset_sync(qs, request):
+    """
+    Aplica el cursor keyset (?desde= + ?desde_id=) a un queryset de sync.
+
+    Comparte semantica con `SyncIncrementalMixin` de apps/api/views/maestros.py:
+    el corte es sobre la tupla `(fecha_modificacion, id)`, no solo sobre la
+    fecha. Sin el desempate, dos registros guardados en el mismo instante hacen
+    que el segundo se pierda cuando el cursor queda parado en ese valor.
+
+    Estos endpoints NO paginan, asi que la inestabilidad de paginacion no les
+    aplica; el empate de timestamps si.
+    """
+    desde = request.query_params.get('desde')
+    if not desde:
+        return qs
+
+    ts = parse_datetime(desde)
+    if not ts:
+        return qs
+
+    desde_id = request.query_params.get('desde_id')
+    try:
+        desde_id = int(desde_id) if desde_id else None
+    except (TypeError, ValueError):
+        desde_id = None
+
+    if desde_id is None:
+        return qs.filter(fecha_modificacion__gt=ts)
+
+    return qs.filter(
+        Q(fecha_modificacion__gt=ts)
+        | Q(fecha_modificacion=ts, id__gt=desde_id)
+    )
+
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def roles_para_sucursal(request):
@@ -228,12 +264,10 @@ def roles_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
-    qs = Rol.objects.filter(negocio_id=negocio_id).prefetch_related('permisos').order_by('id')
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = (Rol.objects.filter(negocio_id=negocio_id)
+          .prefetch_related('permisos')
+          .order_by('fecha_modificacion', 'id'))
+    qs = _filtrar_keyset_sync(qs, request)
 
     data = [
         {
@@ -242,6 +276,9 @@ def roles_para_sucursal(request):
             'activo': r.activo,
             'permisos': sorted(p.codigo for p in r.permisos.all()),
             'fecha_modificacion': r.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad. La identidad cross-BD de un rol
+            # es su `slug`; esto solo desempata el cursor.
+            'cursor_id': r.id,
         }
         for r in qs
     ]
@@ -277,13 +314,9 @@ def asignaciones_para_sucursal(request):
         .filter(rol__negocio_id=negocio_id)
         .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
         .select_related('usuario', 'rol', 'sucursal')
-        .order_by('id')
+        .order_by('fecha_modificacion', 'id')
     )
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = _filtrar_keyset_sync(qs, request)
 
     data = [
         {
@@ -292,6 +325,10 @@ def asignaciones_para_sucursal(request):
             'sucursal_codigo': a.sucursal.codigo if a.sucursal_id else None,
             'activo': a.activo,
             'fecha_modificacion': a.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad. La identidad cross-BD de una
+            # asignacion son sus claves naturales (usuario_username + rol_slug +
+            # sucursal_codigo); esto solo desempata el cursor.
+            'cursor_id': a.id,
         }
         for a in qs
     ]
@@ -318,13 +355,9 @@ def metodos_credito_para_sucursal(request):
         MetodoPlazoCredito.objects
         .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
         .select_related('sucursal')
-        .order_by('id')
+        .order_by('fecha_modificacion', 'id')
     )
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = _filtrar_keyset_sync(qs, request)
 
     return Response([
         {
@@ -338,6 +371,8 @@ def metodos_credito_para_sucursal(request):
             'activo': m.activo,
             'sucursal_codigo': m.sucursal.codigo if m.sucursal_id else None,
             'fecha_modificacion': m.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad (la identidad es `nombre`).
+            'cursor_id': m.id,
         }
         for m in qs
     ])
@@ -478,6 +513,87 @@ def _resolver_usuario(username):
     return User.objects.filter(username=username).first()
 
 
+def _resolver_o_crear_cliente(sucursal, payload, crear=True):
+    """
+    Resuelve el cliente de un evento y, si hace falta, lo crea.
+
+    Resolutor UNICO para ventas, cuentas por cobrar y cotizaciones. Antes cada
+    handler lo hacia por su cuenta y con criterios distintos.
+
+    Motivacion (BUG-C en docs/BUGS.md): la resolucion era solo por `cedula_rnc`,
+    que es un campo opcional y en la practica vacio. Consecuencia real medida en
+    produccion: 404 de 405 ventas quedaron sin cliente y las 16 ventas a credito
+    de Royal Plast nunca pudieron replicar su cuenta por cobrar
+    (RD$240,435 invisibles en el portal).
+
+    Orden de resolucion:
+        1. `cedula_rnc`, si viene con valor. Sigue mandando: es la identidad
+           real del negocio cuando existe.
+        2. `(origen_sucursal, origen_id_local)`. Identidad estable que no
+           depende de datos que el negocio puede omitir.
+        3. Crear el cliente con lo que trae el payload, sellando su origen.
+
+    Esto revisa a proposito la decision B11b de docs/ROADMAP_PORTAL.md ("el
+    cloud es el unico autor de clientes"). Un cliente puede nacer en la sucursal
+    y promoverse al cloud; queda marcado con su origen para que el portal pueda
+    revisarlo. El cloud sigue siendo la autoridad para EDITAR: aqui solo se crea
+    lo que no existe.
+
+    Devuelve None si no hay forma de identificar ni datos para crear.
+    """
+    from apps.clientes.models import Cliente
+
+    datos = payload.get('cliente') or {}
+    cedula = datos.get('cedula_rnc') or payload.get('cliente_cedula_rnc')
+    id_local = datos.get('id_local')
+
+    # 1) Por cedula/RNC.
+    if cedula:
+        cliente = Cliente.objects.filter(cedula_rnc=cedula).first()
+        if cliente:
+            return cliente
+
+    # 2) Por origen (sucursal + PK local).
+    if sucursal is not None and id_local:
+        cliente = Cliente.objects.filter(
+            origen_sucursal=sucursal,
+            origen_id_local=id_local,
+        ).first()
+        if cliente:
+            # Backfill acotado: si el cliente nacio sin cedula y la sucursal ya
+            # se la cargo, la subimos. Sin esto el pull de maestros devolveria
+            # la cedula vacia a la sucursal y borraria lo que el cajero tecleo.
+            if cedula and not cliente.cedula_rnc:
+                cliente.cedula_rnc = cedula
+                cliente.save(update_fields=['cedula_rnc', 'fecha_modificacion'])
+            return cliente
+
+    # 3) Crear. Sin datos del cliente no hay nada que crear (payload viejo).
+    if not crear or not datos or not datos.get('nombre'):
+        return None
+
+    tipo = datos.get('tipo')
+    if tipo not in dict(Cliente.TIPOS):
+        tipo = 'PERSONAL'
+
+    cliente = Cliente.objects.create(
+        tipo=tipo,
+        nombre=datos['nombre'],
+        cedula_rnc=cedula or None,
+        telefono=datos.get('telefono') or '',
+        direccion=datos.get('direccion') or '',
+        limite_credito=Decimal(str(datos.get('limite_credito') or '0')),
+        plazo_credito_dias=int(datos.get('plazo_credito_dias') or 30),
+        origen_sucursal=sucursal,
+        origen_id_local=id_local,
+    )
+    logger.info(
+        'Cliente %s creado en cloud desde evento de sucursal %s (id_local=%s)',
+        cliente.nombre, getattr(sucursal, 'codigo', None), id_local,
+    )
+    return cliente
+
+
 # ---- VENTAS ----
 
 def _handler_venta_creada(sucursal, payload):
@@ -490,8 +606,20 @@ def _handler_venta_creada(sucursal, payload):
     if not numero_venta:
         raise ValueError('Payload sin numero_venta')
 
-    if Venta.objects.filter(numero_venta=numero_venta).exists():
-        logger.info('Venta %s ya existe en cloud, skip', numero_venta)
+    existente = Venta.objects.filter(numero_venta=numero_venta).first()
+    if existente:
+        # Reenvio CORRECTIVO, no un no-op. Una venta replicada por una sucursal
+        # con codigo viejo pudo quedar sin cliente (el payload no traia forma de
+        # identificarlo). Si ahora si viene, se enlaza. Nunca se pisa un cliente
+        # ya asignado.
+        if existente.cliente_id is None:
+            cliente = _resolver_o_crear_cliente(sucursal, payload)
+            if cliente is not None:
+                existente.cliente = cliente
+                existente.save(update_fields=['cliente'])
+                logger.info('Venta %s: cliente enlazado en reenvio', numero_venta)
+        else:
+            logger.info('Venta %s ya existe en cloud, skip', numero_venta)
         return
 
     # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
@@ -499,9 +627,7 @@ def _handler_venta_creada(sucursal, payload):
     # con IntegrityError y dejar el evento en ERROR (la venta nunca se replicaria).
     # Mismo patron que el handler de pagos CxC (cae a cuenta.creado_por).
     usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
-    cliente = None
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
 
     venta = Venta.objects.create(
         numero_venta=numero_venta,
@@ -864,19 +990,18 @@ def _registrar_movimiento_inventario_sync(sucursal, payload):
 
 # ---- COTIZACIONES ----
 
-def _resolver_cliente_cotizacion(payload):
+def _resolver_cliente_cotizacion(sucursal, payload):
+    """Cliente de una cotizacion; cae al generico CONTADO si no hay forma.
+
+    Se apoya en el resolutor compartido. El fallback historico "buscar por
+    nombre exacto" se ELIMINA a proposito: fusionaba homonimos en silencio, y
+    en una cotizacion que puede convertirse en venta a credito eso corrompe
+    datos de cartera.
+    """
     from apps.clientes.models import Cliente
 
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
-        if cliente:
-            return cliente
-    nombre = payload.get('cliente_nombre')
-    if nombre:
-        cliente = Cliente.objects.filter(nombre=nombre).first()
-        if cliente:
-            return cliente
-    return Cliente.get_cliente_contado()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
+    return cliente or Cliente.get_cliente_contado()
 
 
 def _handler_cotizacion_creada(sucursal, payload):
@@ -887,7 +1012,7 @@ def _handler_cotizacion_creada(sucursal, payload):
     if not numero:
         raise ValueError('Payload sin numero_cotizacion')
 
-    cliente = _resolver_cliente_cotizacion(payload)
+    cliente = _resolver_cliente_cotizacion(sucursal, payload)
     usuario = _resolver_usuario(payload.get('usuario_username')) or sucursal.usuario_servicio
     fecha_creacion = (
         parse_datetime(payload['fecha_creacion'])
@@ -967,17 +1092,39 @@ def _handler_cxc_creada(sucursal, payload):
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
 
-    if CuentaPorCobrar.objects.filter(venta=venta).exists():
+    cuenta_existente = CuentaPorCobrar.objects.filter(venta=venta).first()
+    if cuenta_existente:
+        # Reenvio CORRECTIVO. Si la cuenta se creo a nombre del generico
+        # CLIENTE CONTADO -- porque el payload de entonces no permitia
+        # identificar al titular -- y ahora si se puede resolver, se corrige.
+        # Sin esto, una CxC nacida en la ventana de despliegue quedaba con el
+        # titular equivocado PARA SIEMPRE: el reenvio la saltaba por existir.
+        if cuenta_existente.cliente.tipo == 'CONTADO':
+            mejor = _resolver_o_crear_cliente(sucursal, payload)
+            if mejor is not None and mejor.tipo != 'CONTADO':
+                cuenta_existente.cliente = mejor
+                cuenta_existente.save(update_fields=['cliente'])
+                if venta.cliente_id is None:
+                    venta.cliente = mejor
+                    venta.save(update_fields=['cliente'])
+                logger.info('CxC %s: titular corregido a %s en reenvio',
+                            numero_venta, mejor.nombre)
+                return
         logger.info('CxC para venta %s ya existe en cloud, skip', numero_venta)
         return
 
-    cliente = None
-    if payload.get('cliente_cedula_rnc'):
-        cliente = Cliente.objects.filter(cedula_rnc=payload['cliente_cedula_rnc']).first()
+    cliente = _resolver_o_crear_cliente(sucursal, payload)
     if cliente is None and venta.cliente_id:
         cliente = venta.cliente
     if cliente is None:
-        raise ValueError(f'Cliente de CxC {numero_venta} no existe en cloud')
+        # Ultimo recurso: una cuenta por cobrar SIEMPRE necesita titular. Antes
+        # aqui se lanzaba ValueError y el evento moria tras agotar reintentos
+        # (BUG-C). Preferimos registrar la deuda contra el cliente generico y
+        # que sea visible, a perderla en silencio.
+        cliente = Cliente.get_cliente_contado()
+        logger.warning(
+            'CxC %s sin cliente resoluble; se asigna CLIENTE CONTADO', numero_venta
+        )
 
     metodo_tipo = payload.get('metodo_plazo_tipo') or payload.get('modalidad') or MetodoPlazoCredito.TIPO_VENCIMIENTO_UNICO
     if metodo_tipo not in dict(MetodoPlazoCredito.TIPO_CHOICES):

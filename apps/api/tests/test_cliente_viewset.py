@@ -307,10 +307,17 @@ class ClienteViewSetPermissionTests(TestCase):
         Admin edita → fecha_modificacion cambia → sucursal lo captura
         en el próximo pull incremental.
         """
+        from datetime import timedelta
+
         from django.utils import timezone
         from urllib.parse import quote
 
-        antes = timezone.now()
+        # `antes` se retrasa unos ms a proposito. El filtro del cursor es
+        # `fecha_modificacion__gt` (estrictamente mayor) y en Windows
+        # `timezone.now()` tiene una resolucion de 15.6 ms: si el PATCH ocurre
+        # dentro del mismo tick, `fecha_modificacion == antes` y el registro
+        # queda fuera del rango, haciendo fallar el test sin que haya bug.
+        antes = timezone.now() - timedelta(milliseconds=100)
         self.api(user=self.admin).patch(
             f'{self.clientes_url}{self.cliente.id}/',
             {'telefono': '000-000-0000'},

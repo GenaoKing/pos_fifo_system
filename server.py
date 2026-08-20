@@ -34,6 +34,25 @@ def main():
     print('=' * 60)
     print()
 
+    # Configuracion ANTES de Django: un valor faltante o truncado debe dar el
+    # nombre exacto de la variable, no un stack trace a mitad del arranque.
+    # settings.py ya cargo deploy/env_cliente.env al importarse.
+    try:
+        from config.settings import POS_ENV_FILE_CARGADO
+        from config.env_check import abortar_si_critico, validar_entorno
+
+        if POS_ENV_FILE_CARGADO:
+            print(f'  [OK] Configuracion leida de {POS_ENV_FILE_CARGADO}')
+        else:
+            print('  [INFO] Sin deploy/env_cliente.env; se usan variables de entorno.')
+
+        if abortar_si_critico(validar_entorno()):
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as e:  # pragma: no cover - no bloquear por el chequeo
+        print(f'  [AVISO] No se pudo validar la configuracion: {e}')
+
     try:
         import django
         django.setup()

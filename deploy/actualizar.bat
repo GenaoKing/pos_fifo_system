@@ -77,7 +77,26 @@ if not exist "%DST_DIR%\venv\Scripts\activate.bat" (
 REM --- Cargar configuracion del cliente (DB, secret, sucursal, sync) ---
 set PGCLIENTENCODING=UTF8
 set PYTHONUTF8=1
-call "%DST_DIR%\deploy\env_cliente.bat"
+REM --- Configuracion: convertir del formato .bat al .env si hace falta ---
+REM Las instalaciones anteriores a la Fase 4 tienen su configuracion real en
+REM env_cliente.bat. Se convierte automaticamente: nadie tiene que reescribirla.
+if not exist "%DST_DIR%\deploy\env_cliente.env" (
+    if exist "%DST_DIR%\deploy\env_cliente.bat" (
+        echo   [INFO] Convirtiendo env_cliente.bat al nuevo formato .env...
+        pushd "%DST_DIR%"
+        call "%DST_DIR%env\Scripts\python.exe" manage.py migrar_env_cliente --settings=config.settings_production
+        popd
+    )
+)
+
+REM Cargar los valores para el resto de este script.
+if exist "%DST_DIR%\deploy\env_cliente.env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%DST_DIR%\deploy\env_cliente.env") do (
+        if not "%%A"=="" set "%%A=%%B"
+    )
+) else (
+    call "%DST_DIR%\deploy\env_cliente.bat"
+)
 
 echo.
 echo  Se va a ACTUALIZAR:
@@ -213,6 +232,12 @@ python manage.py sync_modulos --settings=config.settings_production
 
 echo   Verificando el sistema...
 python manage.py check --settings=config.settings_production
+
+REM --- Diagnostico de la instalacion ---
+REM Atrapa aqui lo que antes se descubria semanas despues: variables truncadas,
+REM migraciones pendientes y modulos vendibles apagados por falta de suscripcion
+REM (esto ultimo puede dejar el POS sin imprimir tickets, en silencio).
+python manage.py verificar_instalacion --settings=config.settings_production
 echo.
 
 REM ============================================================================

@@ -150,3 +150,41 @@ python manage.py test apps.suscripciones --settings=config.settings_development
 Cubre: cierre de dependencias, resolutor (plan + override à la carte + apagado por sucursal,
 core no apagable), `puede_desactivarse` (bloqueo por dependientes), fail-open sin negocio, y
 derivación back-compat desde `ConfiguracionNegocio`.
+
+---
+
+## Deuda: la asimetria fail-open / fail-closed (2026-08-19)
+
+El resolutor de modulos falla ABIERTO en un caso y CERRADO en otro, y los dos
+estados se ven iguales desde afuera. Esa asimetria costo un diagnostico largo
+(ver BUG-D en `docs/BUGS.md`).
+
+```
+modulo_activo(key)
+  sucursal SIN negocio            -> True  (fail-OPEN, lee el flag legacy)
+  negocio SIN aprovisionar        -> False (fail-CLOSED, solo core)
+  negocio CON plan/NegocioModulo  -> segun el entitlement   <- el unico intencional
+```
+
+El segundo caso no es una decision de producto: es un negocio que existe pero al
+que nunca se le asignaron modulos. Tratarlo como "no tiene derecho a nada" apaga
+funciones que el cliente si compro -- incluida la impresion de tickets, que no es
+opcional para un POS.
+
+**Arreglo sugerido (no aplicado):** que un negocio sin suscripcion **y** sin
+filas `NegocioModulo` se trate como *no aprovisionado* y falle ABIERTO, igual que
+una sucursal sin negocio. Un negocio con plan o con overrides sigue resolviendo
+por entitlement, que es lo que el sistema quiere expresar.
+
+```python
+# apps/suscripciones/engine.py :: _resolver_negocio
+# Hoy: sin plan y sin overrides -> solo core.
+# Sugerido: sin plan y sin overrides -> nunca se aprovisiono -> todos los modulos.
+```
+
+Mientras no se aplique, `manage.py verificar_instalacion` lo detecta y explica.
+
+**Por que importa mas de lo que parece:** el sistema de modulos hoy no cobra ni
+bloquea comercialmente nada -- es una fundacion para vender por tiers mas
+adelante. Pero ya tiene poder para apagar funciones en produccion. Una fundacion
+sin uso comercial no deberia poder dejar a un cliente sin imprimir.

@@ -201,6 +201,18 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
     3. refrescar la copia local con la respuesta cloud o disparar un pull inmediato.
   - Si no hay conexión cloud, bloquear la operación administrativa con mensaje claro.
   - Excepción futura no implementada: cliente temporal offline, sin crédito y sin cartera, con reconciliación explícita posterior.
+  - **REVISIÓN 2026-08-19 (Fase 1 de `ROADMAP_SYNC_CONFIABLE.md`).** La excepción
+    de arriba se implementó, forzada por BUG-C: los cajeros SÍ crean clientes
+    localmente (el flujo local nunca se bloqueó), y como el cloud solo sabía
+    resolverlos por `cedula_rnc` —campo opcional y casi siempre vacío— las ventas
+    replicaban sin cliente y **ninguna cuenta por cobrar podía replicar**
+    (RD$240,435 invisibles en Royal Plast).
+    Ahora un cliente puede **nacer en la sucursal y promoverse al cloud**: los
+    eventos de venta/CxC/cotización llevan la identidad `(sucursal, id_local)` y
+    el cloud lo crea si no lo conoce, sellando su origen.
+    Lo que **no** cambia: el cloud sigue siendo la autoridad para **editar**
+    maestros. El upsert solo crea lo que no existe; nunca pisa una edición hecha
+    en el portal (única excepción acotada: rellenar una cédula vacía).
   - Smoke esperado: crear cliente/categoría desde portal cloud → pull sucursal → aparece local. Crear cliente/categoría local con flujo legacy **no** debe considerarse propagación soportada.
 
 ### Frontend

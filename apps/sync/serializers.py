@@ -35,6 +35,32 @@ def _dt(value):
 # VENTAS
 # ============================================================================
 
+def _serializar_cliente(cliente):
+    """Bloque de identidad + datos del cliente para que el cloud pueda hacer upsert.
+
+    Nace de BUG-C (docs/BUGS.md): el cloud resolvia al cliente SOLO por
+    `cedula_rnc`, que es opcional y en la practica viene vacia. Sin identidad
+    resoluble, las ventas llegaban sin cliente y las cuentas por cobrar se
+    rechazaban para siempre.
+
+    `id_local` + la sucursal del evento dan una clave estable que no depende de
+    datos que el negocio puede omitir. Los demas campos permiten que el cloud
+    cree el cliente si todavia no lo conoce.
+    """
+    if cliente is None:
+        return None
+    return {
+        'id_local': cliente.id,
+        'tipo': cliente.tipo,
+        'nombre': cliente.nombre,
+        'cedula_rnc': cliente.cedula_rnc or None,
+        'telefono': cliente.telefono or '',
+        'direccion': cliente.direccion or '',
+        'limite_credito': _d(cliente.limite_credito),
+        'plazo_credito_dias': cliente.plazo_credito_dias,
+    }
+
+
 def serializar_venta(venta):
     """Serializa una Venta con todos sus detalles y pagos."""
     return {
@@ -46,6 +72,7 @@ def serializar_venta(venta):
             venta.cliente.cedula_rnc if venta.cliente_id and venta.cliente.cedula_rnc else None
         ),
         'cliente_nombre': venta.cliente.nombre if venta.cliente_id else None,
+        'cliente': _serializar_cliente(venta.cliente if venta.cliente_id else None),
         'subtotal': _d(venta.subtotal),
         'descuento_total': _d(venta.descuento_total),
         'total': _d(venta.total),
@@ -136,6 +163,7 @@ def serializar_cxc(cuenta):
         'sucursal_codigo': cuenta.sucursal.codigo if cuenta.sucursal_id else None,
         'cliente_cedula_rnc': cuenta.cliente.cedula_rnc or None,
         'cliente_nombre': cuenta.cliente.nombre,
+        'cliente': _serializar_cliente(cuenta.cliente),
         'metodo_plazo': cuenta.metodo_plazo.nombre,
         'modalidad': cuenta.metodo_plazo.tipo,
         'metodo_plazo_tipo': cuenta.metodo_plazo.tipo,
@@ -423,6 +451,7 @@ def serializar_cotizacion(cotizacion):
             if cotizacion.cliente_id and cotizacion.cliente.cedula_rnc else None
         ),
         'cliente_nombre': cotizacion.cliente.nombre if cotizacion.cliente_id else '',
+        'cliente': _serializar_cliente(cotizacion.cliente if cotizacion.cliente_id else None),
         'usuario_username': cotizacion.usuario.username if cotizacion.usuario_id else None,
         'fecha_creacion': _dt(cotizacion.fecha_creacion),
         'subtotal': _d(cotizacion.subtotal),

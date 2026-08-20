@@ -181,20 +181,28 @@ Evidencia local (2026-06-16):
       `tnt_royalplastdryrun`, registrar `Tenant royalplastdryrun`, migrar y
       normalizar con sucursal `01` y `storibio57+dryrun@gmail.com`. Cerrado
       2026-06-18; luego se borro la BD/tenant descartable.
-- [ ] **Cutover real:** recrear `tnt_royalplast` desde dump fresco, registrar
-      `Tenant royalplast`, correr `migrate_tenants` y `normalizar_import_tenant`
-      con sucursal `01` y `storibio57@gmail.com`.
-- [ ] Import de **imágenes** de RP a Blob.
-- [ ] **Validación:** totales/inventario/CxC contra el local; el dueño ve totales
-      desde el teléfono.
-- [ ] Activar sync incremental cuando esté validado.
-- [ ] Rotar `SECRET_KEY` (#9) en el redeploy del cliente.
-- 🚪 **Salida:** RP operando en cloud, sync activo, totales correctos.
+- [x] **Cutover real** — hecho el **2026-06-20**. Tenant `royalplast` →
+      `tnt_royalplast`, sucursal `01`, identity `storibio57@gmail.com`.
+- [ ] Import de **imágenes** de RP a Blob. **Medido 2026-08-20: 74 archivos
+      faltantes** (73 productos + logo); el container tenía solo la prueba de
+      humo. Procedimiento: `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`.
+      Solo requiere copiar la carpeta `media` de la PC del cliente; el resto es
+      remoto.
+- [x] **Validación** — verificado 2026-08-20: 325 productos, 778 ventas
+      (360 importadas + 418 por sync), 527 eventos todos CONFIRMADO.
+- [x] **Sync incremental activo** desde el cutover; sincroniza a diario.
+- [ ] Rotar `SECRET_KEY` (#9) en el redeploy del cliente. Aprovechar la misma
+      ventana del despliegue de la Fase 4 de `ROADMAP_SYNC_CONFIABLE.md`.
+- 🚪 **Salida:** ✅ RP operando en cloud con sync activo. Falta solo la media.
 
-### Fase 5 — SK Performance
+### Fase 5 — SK Performance  ✅ CERRADA
 
-- [ ] Onboarding limpio con `bootstrap_tenant` (modo clean, sin data legacy).
-- [ ] Solo después de RP estable.
+- [x] Onboarding **hecho el 2026-06-23**: tenant `skperformance` →
+      `tnt_skperformance`, sucursal `01`.
+- [x] Verificado 2026-08-20: 21 productos, 417 ventas, 294 eventos todos
+      CONFIRMADO, **sin huecos** en la numeración.
+- [ ] Sus imágenes tampoco están en Blob (0 productos con imagen hoy, así que no
+      hay nada que migrar todavía).
 
 ---
 
@@ -246,12 +254,18 @@ Fase 1 (núcleo) ──────────────► Fase 3 (infra) �
 
 ---
 
-## Próximo paso inmediato
+## Estado real al 2026-08-20
 
-1. Ejecutar el dry-run del dump real de Royal Plast siguiendo
-   `docs/runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md`.
-2. Ejecutar smoke Azure dev de **Fase 2 — Storage** cuando se confirme prender
-   el Storage Account: Terraform plan/apply, upload de demo/demo2 y verificación
-   de URLs públicas.
-3. Diseñar cómo el pipeline prod ejecutará `migrate` + `migrate_tenants` sin tocar
-   Royal Plast todavía.
+**Las Fases 1 a 5 están cerradas.** Ambos clientes viven en el cloud con
+DB-per-tenant y sincronizan a diario. El control plane, el router, el JWT por
+Identity y el pipeline de migraciones tenant-aware funcionan en producción.
+
+Lo único abierto de este roadmap:
+
+1. **Subir las imágenes de Royal Plast** (74 archivos). Ver
+   `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`. Es lo único que el dueño *ve* roto
+   hoy en el portal.
+2. **Rotar el `SECRET_KEY` de RP** (#9), junto con el próximo despliegue.
+
+El trabajo activo del proyecto se movió a `docs/ROADMAP_SYNC_CONFIABLE.md`
+(fiabilidad del sync) — ahí están las fases en curso.

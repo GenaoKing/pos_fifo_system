@@ -53,6 +53,11 @@ secrets.json
 # Cloud credentials (NUNCA commitear)
 deploy/env_*_local.bat
 deploy/env_cloud.local
+# Configuracion real de una instalacion: contrasenas y tokens de sucursal.
+# La plantilla (.env.template) SI se versiona.
+deploy/env_cliente.env
+deploy/*.env
+!deploy/*.env.template
 
 # Logs de debug cloud
 cloud_debug.log

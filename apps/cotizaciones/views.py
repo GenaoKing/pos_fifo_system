@@ -144,7 +144,7 @@ def guardar_cotizacion(request):
             cotizacion.notas = data.get('notas', '').strip() or None
             cotizacion.save()
 
-            transaction.on_commit(lambda c=cotizacion: sync_events.evento_cotizacion_creada(c))
+            sync_events.evento_cotizacion_creada(cotizacion)
 
             return JsonResponse({
                 'success': True,
@@ -256,7 +256,7 @@ def marcar_convertida(request, cotizacion_id):
             cotizacion.venta = Venta.objects.get(id=venta_id)
         cotizacion.save()
 
-        transaction.on_commit(lambda c=cotizacion: sync_events.evento_cotizacion_convertida(c))
+        sync_events.evento_cotizacion_convertida(cotizacion)
 
         return JsonResponse({
             'success': True,

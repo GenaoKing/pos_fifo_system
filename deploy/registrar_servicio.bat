@@ -24,32 +24,15 @@ if %errorlevel% neq 0 (
 
 set "PROJECT_DIR=%~dp0.."
 cd /d "%PROJECT_DIR%"
-call "%PROJECT_DIR%\deploy\env_cliente.bat"
-
-REM --- Defaults seguros para variables opcionales ---
-REM Si NSSM recibe VAR= vacio, Django ve la variable definida y no usa su
-REM default. Esto rompe los int(...) de settings/server.py en versiones ya
-REM instaladas. Por eso rellenamos aqui los opcionales numericos/booleanos.
-if not defined DJANGO_DEBUG set "DJANGO_DEBUG=false"
-if not defined SERVER_IP set "SERVER_IP=127.0.0.1"
-if not defined SERVER_PORT set "SERVER_PORT=8080"
-if not defined SERVER_THREADS set "SERVER_THREADS=4"
-if not defined THERMAL_PRINTER_ENABLED set "THERMAL_PRINTER_ENABLED=true"
-if not defined THERMAL_CHARSET set "THERMAL_CHARSET=CP850"
-if not defined THERMAL_CASH_DRAWER set "THERMAL_CASH_DRAWER=true"
-if not defined THERMAL_CASH_DRAWER_PIN set "THERMAL_CASH_DRAWER_PIN=2"
-if not defined THERMAL_PAPER_WIDTH set "THERMAL_PAPER_WIDTH=48"
-if not defined THERMAL_LOGO_WIDTH set "THERMAL_LOGO_WIDTH=200"
-
-REM --- Normalizar nombres de impresoras ---
-REM Si alguien escribio set THERMAL_PRINTER_NAME="2connect pos", cmd guarda las
-REM comillas como parte del valor. Las quitamos antes de darselo a NSSM.
-if defined PRINTER_TERMICA set "PRINTER_TERMICA=%PRINTER_TERMICA:"=%"
-if defined PRINTER_ZEBRA set "PRINTER_ZEBRA=%PRINTER_ZEBRA:"=%"
-if defined THERMAL_PRINTER_NAME set "THERMAL_PRINTER_NAME=%THERMAL_PRINTER_NAME:"=%"
-if defined ZEBRA_PRINTER_NAME set "ZEBRA_PRINTER_NAME=%ZEBRA_PRINTER_NAME:"=%"
-if not defined THERMAL_PRINTER_NAME if defined PRINTER_TERMICA set "THERMAL_PRINTER_NAME=%PRINTER_TERMICA%"
-if not defined ZEBRA_PRINTER_NAME if defined PRINTER_ZEBRA set "ZEBRA_PRINTER_NAME=%PRINTER_ZEBRA%"
+REM --- Verificar que exista la configuracion ---
+if not exist "%PROJECT_DIR%\deploy\env_cliente.env" (
+    echo [ERROR] Falta deploy\env_cliente.env
+    echo         Copie env_cliente.env.template y complete los valores, o
+    echo         convierta un env_cliente.bat existente con:
+    echo             python manage.py migrar_env_cliente
+    pause
+    exit /b 1
+)
 
 set SERVICE_NAME=POSFifoSystem
 set "NSSM_PATH=%PROJECT_DIR%\deploy\nssm.exe"
@@ -76,46 +59,19 @@ if exist "%NSSM_PATH%" (
     "%NSSM_PATH%" set %SERVICE_NAME% AppRotateBytes 5242880
 
     REM --- Variables de entorno para el servicio ---
-    REM Cada par va ENTRECOMILLADO: protege valores con espacios (ej. nombre de
-    REM impresora "2connect pos") y caracteres especiales de cmd (& ( ) ^) en el
-    REM SECRET_KEY. Sin comillas, un espacio parte el argumento y NSSM rechaza el
-    REM token sin "=" ("environment should comprise strings of the form key=value").
+    REM Solo DOS. La configuracion del negocio vive en deploy\env_cliente.env y
+    REM la lee la aplicacion al arrancar (config/settings.py).
+    REM
+    REM Antes aqui se enumeraban 32 variables a mano. NSSM guarda un SNAPSHOT
+    REM ESTATICO al registrar, asi que cambiar cualquier valor obligaba a
+    REM re-registrar el servicio; y cada valor cruzaba el interprete de cmd dos
+    REM veces, que es donde se truncaban los que llevaban & o parentesis
+    REM (bug #9: un SECRET_KEY quedo en 5 caracteres).
+    REM
+    REM Ahora: editar el .env + reiniciar el servicio. Nada mas.
     "%NSSM_PATH%" set %SERVICE_NAME% AppEnvironmentExtra ^
         "DJANGO_SETTINGS_MODULE=config.settings_production" ^
-        "DJANGO_DEBUG=%DJANGO_DEBUG%" ^
-        "DJANGO_SECRET_KEY=%DJANGO_SECRET_KEY%" ^
-        "DJANGO_ALLOWED_HOSTS=%DJANGO_ALLOWED_HOSTS%" ^
-        "DB_NAME=%DB_NAME%" ^
-        "DB_USER=%DB_USER%" ^
-        "DB_PASSWORD=%DB_PASSWORD%" ^
-        "DB_HOST=%DB_HOST%" ^
-        "DB_PORT=%DB_PORT%" ^
-        "SUCURSAL_CODIGO=%SUCURSAL_CODIGO%" ^
-        "SYNC_ENABLED=%SYNC_ENABLED%" ^
-        "CLOUD_API_URL=%CLOUD_API_URL%" ^
-        "CLOUD_API_TOKEN=%CLOUD_API_TOKEN%" ^
-        "SYNC_INTERVAL=%SYNC_INTERVAL%" ^
-        "SYNC_BATCH_SIZE=%SYNC_BATCH_SIZE%" ^
-        "SYNC_MAX_RETRIES=%SYNC_MAX_RETRIES%" ^
-        "SYNC_HTTP_TIMEOUT=%SYNC_HTTP_TIMEOUT%" ^
-        "SERVER_IP=%SERVER_IP%" ^
-        "SERVER_PORT=%SERVER_PORT%" ^
-        "SERVER_THREADS=%SERVER_THREADS%" ^
-        "EXTRA_HOSTS=%EXTRA_HOSTS%" ^
-        "PRINTER_TERMICA=%PRINTER_TERMICA%" ^
-        "PRINTER_ZEBRA=%PRINTER_ZEBRA%" ^
-        "THERMAL_PRINTER_ENABLED=%THERMAL_PRINTER_ENABLED%" ^
-        "THERMAL_PRINTER_NAME=%THERMAL_PRINTER_NAME%" ^
-        "THERMAL_USB_VENDOR_ID=%THERMAL_USB_VENDOR_ID%" ^
-        "THERMAL_USB_PRODUCT_ID=%THERMAL_USB_PRODUCT_ID%" ^
-        "THERMAL_CHARSET=%THERMAL_CHARSET%" ^
-        "THERMAL_CASH_DRAWER=%THERMAL_CASH_DRAWER%" ^
-        "THERMAL_CASH_DRAWER_PIN=%THERMAL_CASH_DRAWER_PIN%" ^
-        "THERMAL_PAPER_WIDTH=%THERMAL_PAPER_WIDTH%" ^
-        "THERMAL_LOGO_WIDTH=%THERMAL_LOGO_WIDTH%" ^
-        "ZEBRA_PRINTER_NAME=%ZEBRA_PRINTER_NAME%" ^
-        "PGCLIENTENCODING=UTF8" ^
-        "PYTHONUTF8=1"
+        "POS_ENV_FILE=%PROJECT_DIR%\deploy\env_cliente.env"
 
     REM --- Iniciar servicio ---
     "%NSSM_PATH%" start %SERVICE_NAME%

@@ -33,6 +33,11 @@ from apps.sync import events as sync_events
 
 
 def _encolar_compra_y_movimientos(compra):
+    """Encola los hechos de negocio de una compra. Llamar DENTRO del atomic.
+
+    El snapshot de inventario NO va aqui: es una foto de estado y recorre todo
+    el catalogo, asi que se emite aparte con `transaction.on_commit`.
+    """
     sync_events.evento_compra_registrada(compra)
     for detalle in compra.detalles.select_related('lote').all():
         lote = getattr(detalle, 'lote', None)
@@ -40,7 +45,6 @@ def _encolar_compra_y_movimientos(compra):
             continue
         for movimiento in lote.movimientos.filter(referencia_tipo='Compra', referencia_id=compra.id):
             sync_events.evento_inventario_movimiento(movimiento)
-    sync_events.evento_inventario_snapshot(sucursal=compra.sucursal)
 
 # ============================================
 # LISTA DE COMPRAS
@@ -186,7 +190,12 @@ def compra_crear(request):
                 compra.total = total_compra
                 compra.save()
 
-                transaction.on_commit(lambda c=compra: _encolar_compra_y_movimientos(c))
+                # Outbox transaccional: compra + movimientos de lote.
+                _encolar_compra_y_movimientos(compra)
+                # Snapshot (foto de estado, O(N)) fuera de la transaccion.
+                transaction.on_commit(
+                    lambda c=compra: sync_events.evento_inventario_snapshot(sucursal=c.sucursal)
+                )
                 
                 # Respuesta exitosa
                 return JsonResponse({
@@ -562,7 +571,12 @@ def compra_editar(request, compra_id):
                 sucursal=getattr(request, 'sucursal', None),
             )
 
-            transaction.on_commit(lambda c=compra: _encolar_compra_y_movimientos(c))
+            # Outbox transaccional: compra + movimientos de lote.
+            _encolar_compra_y_movimientos(compra)
+            # Snapshot (foto de estado, O(N)) fuera de la transaccion.
+            transaction.on_commit(
+                lambda c=compra: sync_events.evento_inventario_snapshot(sucursal=c.sucursal)
+            )
 
         return JsonResponse({
             'success': True,
@@ -842,7 +856,9 @@ def api_ajustar_inventario(request):
                 ip_address=get_client_ip(request),
             )
             
-            transaction.on_commit(lambda a=ajuste: sync_events.evento_ajuste_inventario(a))
+            # Outbox transaccional: el ajuste es un hecho de negocio.
+            sync_events.evento_ajuste_inventario(ajuste)
+            # El snapshot es foto de estado y O(N): se queda post-commit.
             transaction.on_commit(lambda s=lote.sucursal: sync_events.evento_inventario_snapshot(sucursal=s))
 
  

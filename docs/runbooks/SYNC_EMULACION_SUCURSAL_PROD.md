@@ -113,26 +113,47 @@ Observar:
 
 ---
 
-## 5. Reproducir la inconsistencia del cursor (controlado)
+## 5. Verificar la corrección del cursor (BUG-B, Fase 2)
 
-`tnt_demo` arranca **vacío** en cloud, así que un pull plano no trae nada. Para
-reproducir el bug high-water-mark hay que crear el escenario:
+> Esta sección describía cómo **reproducir** el bug del cursor. Desde el
+> 2026-08-19 el bug está corregido (cursor keyset + marca de agua contigua), así
+> que ahora describe cómo **verificar la corrección** contra un tenant real.
 
-1. Sembrar `tnt_demo` cloud con **>200 maestros** (supera `LargePagination`=200 →
-   fuerza paginación) vía el portal/API admin del tenant demo.
-2. Correr un pull completo (cursor avanza al máx `fecha_modificacion`).
-3. Editar en el portal un registro **alfabéticamente tardío** (los endpoints
-   ordenan por `nombre`, no por `fecha_modificacion`) y/o cortar la red a media
-   paginación.
-4. Re-pull → confirmar si el registro editado llega o se pierde (cursor con `gt`
-   ya pasó su fecha).
+El escenario que antes perdía datos: los endpoints ordenaban por `nombre`
+mientras el cursor cortaba por `fecha_modificacion`, así que un registro editado
+podía quedar fuera del rango para siempre.
 
-Causa raíz: el cursor `fecha_modificacion__gt` está emparejado con endpoints
-ordenados por `nombre` y el cursor se avanza aun en pull parcial / con item
-fallido. Ver `apps/sync/engine.py` (`_pull_generic`) y
-`apps/api/views/maestros.py` / `apps/api/views/sync.py`.
+`royalplastdemo` sirve bien porque sus **273 productos superan el page size de
+200**, o sea que ejercita paginación de verdad.
 
----
+1. Pull completo para dejar el cursor al día:
+
+   ```
+   python manage.py sincronizar --once --only-pull --settings=config.settings_demo_branch
+   ```
+
+2. En el portal, editar un producto **alfabéticamente tardío** (que caiga en la
+   última página del orden por nombre). Antes era justo el caso que se perdía.
+
+3. Volver a pullear. El producto debe llegar. Confirmar el cursor:
+
+   ```
+   python manage.py verificar_sync --settings=config.settings_demo_branch
+   ```
+
+   La sección `CURSORES DE PULL` muestra `ultima_version` y avisa en rojo si
+   algún cursor quedó **BLOQUEADO** — eso significa que un registro del portal
+   falla al aplicarse localmente y está frenando la marca de agua. Antes ese
+   registro se saltaba en silencio; ahora el cursor se detiene y lo dice.
+
+4. Prueba del empate de timestamps: editar dos productos en el mismo segundo.
+   Ambos deben bajar (antes el segundo se perdía en el borde del cursor).
+
+5. Prueba de resiliencia: cortar la red a media paginación. El siguiente ciclo
+   debe **retomar** donde iba, no empezar de cero.
+
+Código relevante: `apps/sync/engine.py` (`_pull_generic`, doble cursor) y
+`apps/api/views/maestros.py` (`SyncIncrementalMixin._filtrar_keyset`).
 
 ## Notas
 

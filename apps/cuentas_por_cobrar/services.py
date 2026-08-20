@@ -325,7 +325,7 @@ def crear_cuenta_para_venta(
         nivel_importancia=Auditoria.NivelImportancia.ALTA,
     )
 
-    transaction.on_commit(lambda c=cuenta: sync_events.evento_cxc_creada(c))
+    sync_events.evento_cxc_creada(cuenta)
     return cuenta
 
 
@@ -504,7 +504,7 @@ def registrar_pago_cxc_service(
             nivel_importancia=Auditoria.NivelImportancia.ALTA,
         )
 
-        transaction.on_commit(lambda p=pago: sync_events.evento_cxc_pago_registrado(p))
+        sync_events.evento_cxc_pago_registrado(pago)
 
     return pago
 
@@ -625,7 +625,7 @@ def anular_pago_cxc_service(
             nivel_importancia=Auditoria.NivelImportancia.CRITICA,
         )
 
-        transaction.on_commit(lambda p=pago: sync_events.evento_cxc_pago_anulado(p))
+        sync_events.evento_cxc_pago_anulado(pago)
 
     return pago
 
@@ -645,5 +645,5 @@ def anular_cuenta_por_venta(*, venta, usuario=None, ip_address: str | None = Non
         ip_address=ip_address,
         nivel_importancia=Auditoria.NivelImportancia.CRITICA,
     )
-    transaction.on_commit(lambda c=cuenta: sync_events.evento_cxc_anulada(c))
+    sync_events.evento_cxc_anulada(cuenta)
     return cuenta

@@ -20,17 +20,18 @@ bitacoras y exploraciones viven en subcarpetas.
 | Area | Estado | Fuente viva | Siguiente accion |
 | --- | --- | --- | --- |
 | Vision/producto | En progreso | `VISION_PRODUCTO_2026.md` | Elegir la proxima apuesta de producto luego de cerrar deploy dev/staging. |
-| POS local | MVP funcional en produccion local | `ROADMAP_CLOUD.md` | Limpiar usos legacy de settings y hacer smoke operativo final. |
-| Deploy POS local | Update in-place + gate de validacion | `DEPLOY_POS_LOCAL.md` | Bootstrap real de catalogo y encender sync de Royal Plast; rotar SECRET_KEY. |
-| Portal cloud | MVP funcional parcial | `ROADMAP_PORTAL.md` | ASWA dev existe; redeployar workflow con `VITE_API_URL` y hacer smoke de login publicado. |
-| Deploy Azure backend | MVP dev funcional | `ROADMAP_DEPLOY_AZURE.md` | Crear `staging` con remote state propio y roles menos amplios. |
-| Tenancy cloud | Decision tomada | `TENANCY_DB_PER_TENANT.md` | Implementar control plane + DB por tenant; Royal Plast primero, SK bloqueado hasta cerrar contrato. |
-| Terraform/Azure | Dev funcional con state remoto | `ROADMAP_DEPLOY_AZURE.md` + `docs/runbooks/TERRAFORM_*` | Scaffold de `staging`; no crear prod hasta validar staging. |
-| RBAC/permisos | En progreso avanzado | `RBAC_PERMISOS.md` | Completar cutover POS local y enforcement/gating pendiente. |
-| Modulos vendibles | Fundacion implementada | `ARQUITECTURA_MODULOS.md` | Fases 2-4: enforcement, admin/React y hooks de datos bloqueantes. |
+| POS local | En produccion en 2 clientes | `ROADMAP_CLOUD.md` | Desplegar Fases 1-4 de sync (visita RP sabado, SK semana siguiente). |
+| Deploy POS local | Update in-place + `.env` (Fase 4) | `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Desplegar el paquete nuevo; rotar SECRET_KEY (#9) en la misma ventana. |
+| Portal cloud | **En produccion** | `ROADMAP_PORTAL.md` | ASWA prod vivo (`red-bay-07331a710`) apuntando a la API de prod. Falta subir imagenes (74 archivos de RP). |
+| Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
+| Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Solo falta la media de RP. |
+| Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
+| RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
+| Modulos vendibles | Fundacion completa, con una trampa | `ARQUITECTURA_MODULOS.md` | BUG-D: puede apagar la impresion en silencio. Detectado por `verificar_instalacion`; deuda de fondo documentada. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
-| Bugs/hallazgos | Registro liviano | `BUGS.md` | Convertir pendientes repetidos en issues o tareas de roadmap. |
+| Sync confiable | **Fases 0-4 implementadas, sin desplegar** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar: cloud primero, luego RP (sabado) y SK (semana siguiente). |
+| Bugs/hallazgos | 4 bugs con causa raiz identificada | `BUGS.md` | BUG-A/B/C corregidos en codigo (sin desplegar); BUG-D detectado, conducta sin cambiar. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -138,6 +139,7 @@ Siguiente foco:
 - `TESTING.md`
 - `BUGS.md`
 - `TENANCY_DB_PER_TENANT.md`
+- `ROADMAP_SYNC_CONFIABLE.md`
 
 ### Runbooks operativos
 
@@ -150,6 +152,9 @@ Siguiente foco:
 - `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`
 - `docs/runbooks/AZURE_DEV_RESOURCES.md`
 - `docs/runbooks/D0_SECRET_ROTATION.md`
+- `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
+- `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md`
+- `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`
 
 ### Handoffs y deuda
 
@@ -167,6 +172,30 @@ Siguiente foco:
 ### Exploracion
 
 - `docs/exploracion/OPORTUNIDADES_INNOVACION.md`
+
+## Nota de actualizacion 2026-08-20
+
+Estado **verificado contra Azure y las BDs de produccion**, no contra los docs.
+Lo que sigue reemplaza lo que digan las secciones de abajo:
+
+- **Royal Plast y SK Performance estan EN PRODUCCION cloud y sincronizando a
+  diario** (tenants `royalplast` desde 2026-06-20 y `skperformance` desde
+  2026-06-23). Las Fases 4 y 5 de `ROADMAP_TENANCY_DBPERTENANT.md` estan
+  cerradas de hecho.
+- Se detectaron 2 bugs de sync (BUG-A perdida silenciosa de eventos, BUG-B
+  cursor de pull) documentados en `BUGS.md` y planificados en
+  `ROADMAP_SYNC_CONFIABLE.md`.
+- Prod NO se auto-deploya: requiere `workflow_dispatch` manual + job de
+  migraciones aparte (`PROD_RUN_MIGRATIONS_ON_DEPLOY=false`).
+- **Deuda de despliegue:** prod corre una imagen del 19 de junio. Sin desplegar
+  hay 5 commits de junio + las Fases 0-4 de sync. Mientras tanto: BUG-A sigue
+  perdiendo eventos, y **RD$240,435 de cuentas por cobrar de Royal Plast siguen
+  invisibles** en el portal.
+- **Portal de produccion vivo:** `red-bay-07331a710.7.azurestaticapps.net`,
+  apuntando a la API de prod. Pero **73 imagenes de productos de RP salen rotas**:
+  los archivos nunca se subieron a Blob (ver
+  `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`).
+- Suite de tests: **407, todos verdes**.
 
 ## Proximo orden recomendado
 
