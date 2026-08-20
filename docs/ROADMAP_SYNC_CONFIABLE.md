@@ -784,6 +784,44 @@ Datos de prueba limpiados de staging y del rig.
 a `requirements.txt`. Cinco tests fallaron con `ModuleNotFoundError`. Mismo
 patrón que el bug #6. Los requirements están repartidos en 4 archivos.
 
-**Pendiente:** promover a `main` + `workflow_dispatch` a prod + job
-`posfifo-prod-migrate`. Ese job sí toca las 5 BDs de tenant, incluidas las de los
-dos clientes reales.
+### 2026-08-20 — PRODUCCIÓN desplegada y validada
+
+`main` quedó en `e1cd524` — **el mismo commit validado en staging**, no el último
+de `develop`. Se despliega lo que se probó.
+
+- Deploy por `workflow_dispatch` (prod no se auto-deploya), imagen `e1cd524`,
+  revisión `posfifo-prod-api--0000004`.
+- **Migraciones aplicadas a los 4 tenants + control plane** (81 → 89 cada uno):
+  `royalplast`, `skperformance`, `royalplastdemo`, `demo`. El job cerró con
+  `migrados: 4. cloud completadas.`
+- Datos de los clientes intactos y creciendo durante el día: Royal Plast
+  795 ventas / 547 eventos; SK 427 / 306.
+
+**Canario contra `royalplastdemo` en producción:**
+
+| Prueba | Resultado |
+|---|---|
+| Heartbeat | ✅ |
+| Pull con keyset | ✅ **273 productos exactos** — contra el prod viejo daban 431 |
+| Degradación de compatibilidad | ✅ **no se disparó**: prod honra el contrato |
+| Cliente sin cédula + venta a crédito | ✅ cliente creado con origen sellado, venta con `cliente_id` no nulo, CxC con titular correcto y su cuota |
+
+Datos del canario limpiados; los tenants reales nunca se tocaron.
+
+**Un 500 investigado y descartado como regresión.** Aparecieron dos
+`Internal Server Error: /login/` con `TenantContextError` tras el deploy. El
+código que lo lanza (`apps/tenancy/router.py`, `media.py`) **ya estaba en la
+imagen anterior** y el despliegue no tocó `apps/tenancy/`. Es el router fallando
+ruidoso ante una URL de template del POS pedida en el cloud sin contexto de
+tenant — por diseño. Lo nuevo es que algo empezó a probar `/reportes/`: en 7 días
+no se había pedido nunca. **Endurecimiento futuro:** esas rutas no deberían ser
+alcanzables en el cloud.
+
+**Lo que aún NO está probado:** que las sucursales reales sincronicen contra la
+imagen nueva. Cerraron a las ~19:00 locales (último sync exitoso 22:33 UTC,
+42 minutos ANTES del deploy), así que su silencio es horario y no consecuencia
+del despliegue. La confirmación llega cuando abran.
+
+**Siguiente:** desplegar el paquete local — Royal Plast el sábado, SK la semana
+siguiente — y correr en cada uno `verificar_instalacion`, `verificar_sync` y la
+reparación (`--backfill --reintentar-descartados --ejecutar`).
