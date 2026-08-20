@@ -97,7 +97,7 @@ echo [FASE 2/10] Configuracion del cliente...
 
 if not exist "%PROJECT_DIR%\deploy\env_cliente.bat" (
     echo   Creando env_cliente.bat desde template...
-    copy "%PROJECT_DIR%\deploy\env_cliente.bat.template" "%PROJECT_DIR%\deploy\env_cliente.bat" >nul
+    copy "%PROJECT_DIR%\deploy\env_cliente.env.template" "%PROJECT_DIR%\deploy\env_cliente.env" >nul
     echo.
     echo  *** IMPORTANTE ***
     echo  Se abrira el archivo de configuracion.
@@ -113,7 +113,11 @@ if not exist "%PROJECT_DIR%\deploy\env_cliente.bat" (
     pause
 )
 
-call "%PROJECT_DIR%\deploy\env_cliente.bat"
+REM El .env lo lee la aplicacion, pero este script tambien necesita los
+REM valores (crear BD, usuario, etc.), asi que los carga a variables de cmd.
+for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%PROJECT_DIR%\deploy\env_cliente.env") do (
+    if not "%%A"=="" set "%%A=%%B"
+)
 
 if "%DB_PASSWORD%"=="CAMBIAR-CONTRASENA-BD" (
     echo   [ERROR] Debe configurar DB_PASSWORD en deploy\env_cliente.bat
@@ -189,7 +193,7 @@ if exist "%PROJECT_DIR%\requirements.txt" (
 )
 
 REM --- Dependencias de produccion (por si no estan en requirements.txt) ---
-pip install waitress whitenoise >nul 2>&1
+pip install waitress whitenoise python-dotenv >nul 2>&1
 
 echo   [OK] Dependencias instaladas
 echo.

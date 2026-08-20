@@ -153,6 +153,7 @@ Siguiente foco:
 - `docs/runbooks/AZURE_DEV_RESOURCES.md`
 - `docs/runbooks/D0_SECRET_ROTATION.md`
 - `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
+- `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md`
 
 ### Handoffs y deuda
 

@@ -252,3 +252,66 @@ re-envian ya con el bloque `cliente`.
 `docs/ROADMAP_PORTAL.md`: un cliente puede nacer en la sucursal y promoverse al
 cloud. El cloud sigue siendo la autoridad para EDITAR maestros; aqui solo se crea
 lo que no existe.
+
+---
+
+### BUG-D — La instalacion documentada deja el POS SIN IMPRIMIR (modulos vendibles apagados)
+
+- Fecha de hallazgo: 2026-08-19, reproducido en una instalacion limpia.
+- Severidad: **alta** (una funcion central del POS queda inutilizada, sin error).
+- **Estado: causa raiz identificada; detectado por `verificar_instalacion`.
+  La conducta del motor de suscripciones NO se cambio (decision explicita).**
+- Sintoma: el POS deja de imprimir tickets. Tambien desaparecen cotizaciones,
+  etiquetas Zebra, financiacion y e-CF. No hay error en pantalla ni en los logs
+  de la aplicacion; el gate simplemente devuelve False.
+
+**Cadena completa.**
+
+```
+utils/impresoras/manager.py:36  _is_printing_enabled()
+  -> configuracion/utils.modulo_activo('impresion_termica')
+      -> la sucursal NO tiene negocio  -> fail-OPEN -> lee el flag legacy -> imprime
+      -> la sucursal SI tiene negocio  -> manda la suscripcion del negocio
+            -> suscripciones/engine._resolver_negocio(negocio)
+                  sin plan y sin filas NegocioModulo -> solo modulos core
+                  -> `impresion_termica` NO es core -> False -> NO IMPRIME
+```
+
+**Causa raiz concreta.** `bootstrap_suscripciones` deriva los modulos con
+`seed.derivar_modulos_de_flags`, que consulta:
+
+```python
+ConfiguracionModel.objects.filter(sucursal__negocio=negocio)
+```
+
+O sea, las `ConfiguracionNegocio` **ligadas a una sucursal del negocio**. Pero
+`deploy/instalar.bat:327` llama `crear_config_inicial` **sin `--sucursal`**, asi
+que la config queda con `sucursal=None`. La consulta no encuentra nada, no hay
+flags de donde derivar, y el negocio se queda sin ningun modulo vendible.
+
+**Firma para reconocerlo:** la tabla `negocio_modulos` contiene **solo
+`cuentas_por_cobrar`** -- el unico que `derivar_modulos_de_flags` agrega
+incondicionalmente. Verificado asi en el dump de Royal Plast (`royal_eval`).
+
+**Reproducido** en una instalacion limpia siguiendo el procedimiento: 9 modulos
+vendibles apagados, `impresion_termica` entre ellos. Correr
+`bootstrap_suscripciones` **no lo arregla** (solo suma `cuentas_por_cobrar`).
+Ligar la config a la sucursal y re-ejecutarlo si lo arregla: quedan todos activos
+menos `ecf`, que esta apagado a proposito.
+
+**Por que no exploto antes.** `instalar.bat` no llama `bootstrap_negocio`, asi
+que una instalacion nueva queda sin negocio -> fail-open -> imprime. La trampa se
+arma en `deploy/actualizar.bat`, que si engancha la sucursal al negocio. Encaja
+con el sintoma de impresion que se vio en SK Performance tras una actualizacion.
+
+**Arreglo del procedimiento (aplicado).** `crear_config_inicial` acepta
+`--sucursal`; el runbook `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` ya lo usa,
+y `actualizar.bat` ahora corre `verificar_instalacion` al terminar, que lo
+reporta en rojo con la causa y el arreglo.
+
+**Deuda pendiente (no se toco a proposito).** La asimetria de fondo sigue ahi:
+`modulo_activo` con `negocio=None` falla ABIERTO, pero un negocio a medio
+aprovisionar falla CERRADO, y los dos estados son indistinguibles desde afuera.
+Lo canonico seria que un negocio **sin aprovisionar** (sin suscripcion y sin
+`NegocioModulo`) tambien falle abierto, como el resto del sistema. Queda anotado
+en `docs/ARQUITECTURA_MODULOS.md`.

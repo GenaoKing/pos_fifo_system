@@ -101,6 +101,32 @@ No se usan eventos (`EventoSync`) para propagar cambios de datos maestros. El me
 
 ---
 
+## Runbooks operativos (leer ANTES de tocar una instalación o el sync)
+
+Procedimientos deterministas, escritos para ejecutarse paso a paso — por una
+persona o por un agente. Cada paso trae su comando exacto y su salida esperada.
+
+| Documento | Cuándo usarlo |
+|---|---|
+| `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Instalar un cliente desde cero. Incluye tabla de fallos conocidos. |
+| `docs/runbooks/PRUEBAS_SYNC_LOCAL.md` | Probar cambios del contrato de sync **sin desplegar**, con código nuevo en ambos lados. |
+| `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` | Emular una sucursal contra el cloud de producción (tenant `demo`/`royalplastdemo`). |
+| `docs/BUGS.md` | Bugs vivos con su causa raíz y firma para reconocerlos. Consultarlo ante cualquier síntoma raro. |
+
+**Diagnósticos, antes de suponer nada:**
+
+```bash
+python manage.py verificar_instalacion   # config, BD, seeds, módulos activos
+python manage.py verificar_sync          # outbox, huecos, cursores de pull
+```
+
+**Configuración de una instalación:** vive en `deploy/env_cliente.env` y la lee
+la aplicación (`config/settings.py`). Cambiar un valor = editar el archivo +
+reiniciar el servicio. **Nunca** hace falta re-registrar el servicio; si alguien
+lo indica, está siguiendo el procedimiento anterior a la Fase 4.
+
+---
+
 ## Datos de acceso de desarrollo
 
 - Portal admin: `Santiago / Prueba123`

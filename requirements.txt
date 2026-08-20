@@ -10,6 +10,10 @@ psycopg[binary]>=3.1.0
 waitress
 whitenoise
 
+# Configuracion de la instalacion (deploy/env_cliente.env).
+# La lee config/settings.py; NSSM ya no enumera variables.
+python-dotenv>=1.0
+
 # Utilidades
 Pillow>=10.2
 reportlab>=4.0

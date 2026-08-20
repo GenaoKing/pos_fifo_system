@@ -36,7 +36,8 @@ anterior en rojo.
 | 1 | Outbox transaccional + upsert de cliente (BUG-A + BUG-C) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
 | 2 | Cursor keyset estable (BUG-B) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
 | 3 | Anti-entropía (reconciliación periódica) | ⬜ pendiente | `features/sync-antientropia` |
-| 4 | Configuración dinámica del servicio (dotenv) | ⬜ pendiente | `features/deploy-dotenv` |
+| 4 | Configuración dinámica del servicio (dotenv) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
+| 5 | Actualización remota del POS local | ⬜ futura (requiere Fase 4) | — |
 
 ---
 
@@ -494,6 +495,20 @@ moviendo el helper por encima del bloque de decoradores.
       **El cloud va primero**: hasta que tenga el keyset, la sucursal corre en
       modo degradado (correcto, pero sin las garantías nuevas).
 
+**La ventana de despliegue es segura (verificado 2026-08-19).** Entre desplegar
+el cloud y actualizar cada sucursal pasan días, y en ese periodo el cloud recibe
+payloads del formato anterior. Se comprobó que:
+
+- Ventas y cuentas **siguen replicando**: desplegar el cloud no corta el sync.
+- Una CxC nacida en la ventana queda a nombre del genérico CLIENTE CONTADO
+  (mejor que perderla), y **el reenvío posterior corrige el titular**.
+
+Lo segundo hubo que implementarlo: el handler saltaba la cuenta por existir y el
+titular equivocado quedaba para siempre. Ahora el reenvío es **correctivo** —
+rellena lo que falta, nunca pisa datos buenos — tanto para el cliente de una
+venta como para el titular de una CxC. Tests en
+`apps/api/tests/test_ventana_despliegue.py`.
+
 ---
 
 ## Fase 3 — Anti-entropía (la capa que falta)
@@ -694,3 +709,35 @@ mientras la escala sea esta.
   el cloud manda; inventario: cada sucursal dueña de su ledger, el cloud agrega)
   con **promoción de registros provisionales** para el caso "el cajero creó un
   cliente", no multi-master con resolución de conflictos.
+
+---
+
+## Fase 5 — Actualización remota del POS local (futura)
+
+**Objetivo.** Dejar de viajar a cada cliente para actualizar.
+
+**Lo que ya existe:**
+
+- El canal: el daemon de sync llama al cloud en cada ciclo.
+- El mecanismo: `deploy/actualizar.bat` hace el update completo y **respalda la
+  BD antes de migrar**.
+- El diagnóstico: `verificar_instalacion` y `verificar_sync` dicen si quedó bien.
+
+**Lo que faltaría.** El cloud publica versión + paquete; el local compara con la
+suya, descarga, verifica integridad, aplica y reporta el resultado.
+
+**Lo delicado no es el mecanismo, es el fallo.** Sin nadie en sitio, una
+actualización mala deja al cliente sin poder vender. Mínimo exigible:
+
+- Health-check después de aplicar, con **rollback automático** al backup.
+- Despliegue escalonado: SK primero, Royal Plast solo tras confirmar.
+- Interruptor de cancelación desde el portal.
+- Firma del paquete: el local no debe ejecutar lo que le mande cualquiera.
+
+**Precondición: la Fase 4.** Automatizar actualizaciones sobre el registro frágil
+de `nssm` multiplica el riesgo — y era justo la parte que fallaba en SK. Con el
+`.env`, actualizar deja de tocar la configuración del servicio.
+
+**Primera versión sugerida: semi-automática.** El cloud avisa que hay
+actualización y la deja lista; una persona confirma. Ahorra el viaje sin apostar
+la operación del cliente a que todo salga bien solo.

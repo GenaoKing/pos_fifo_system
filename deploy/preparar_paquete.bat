@@ -62,7 +62,7 @@ robocopy "%PROJECT_DIR%\config" "%DIST_DIR%\config" /e /xd __pycache__ /xf *.pyc
 robocopy "%PROJECT_DIR%\templates" "%DIST_DIR%\templates" /e >nul
 robocopy "%PROJECT_DIR%\static" "%DIST_DIR%\static" /e >nul
 robocopy "%PROJECT_DIR%\utils" "%DIST_DIR%\utils" /e /xd __pycache__ /xf *.pyc >nul
-robocopy "%PROJECT_DIR%\deploy" "%DIST_DIR%\deploy" /e /xf env_cliente.bat >nul
+robocopy "%PROJECT_DIR%\deploy" "%DIST_DIR%\deploy" /e /xf env_cliente.bat env_cliente.env >nul
 
 REM Archivos raiz (solo produccion, NO: package.json, tailwind.config.js, environment.yml)
 for %%f in (manage.py requirements.txt server.py) do (

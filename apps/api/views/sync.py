@@ -606,8 +606,20 @@ def _handler_venta_creada(sucursal, payload):
     if not numero_venta:
         raise ValueError('Payload sin numero_venta')
 
-    if Venta.objects.filter(numero_venta=numero_venta).exists():
-        logger.info('Venta %s ya existe en cloud, skip', numero_venta)
+    existente = Venta.objects.filter(numero_venta=numero_venta).first()
+    if existente:
+        # Reenvio CORRECTIVO, no un no-op. Una venta replicada por una sucursal
+        # con codigo viejo pudo quedar sin cliente (el payload no traia forma de
+        # identificarlo). Si ahora si viene, se enlaza. Nunca se pisa un cliente
+        # ya asignado.
+        if existente.cliente_id is None:
+            cliente = _resolver_o_crear_cliente(sucursal, payload)
+            if cliente is not None:
+                existente.cliente = cliente
+                existente.save(update_fields=['cliente'])
+                logger.info('Venta %s: cliente enlazado en reenvio', numero_venta)
+        else:
+            logger.info('Venta %s ya existe en cloud, skip', numero_venta)
         return
 
     # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
@@ -1080,7 +1092,24 @@ def _handler_cxc_creada(sucursal, payload):
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
 
-    if CuentaPorCobrar.objects.filter(venta=venta).exists():
+    cuenta_existente = CuentaPorCobrar.objects.filter(venta=venta).first()
+    if cuenta_existente:
+        # Reenvio CORRECTIVO. Si la cuenta se creo a nombre del generico
+        # CLIENTE CONTADO -- porque el payload de entonces no permitia
+        # identificar al titular -- y ahora si se puede resolver, se corrige.
+        # Sin esto, una CxC nacida en la ventana de despliegue quedaba con el
+        # titular equivocado PARA SIEMPRE: el reenvio la saltaba por existir.
+        if cuenta_existente.cliente.tipo == 'CONTADO':
+            mejor = _resolver_o_crear_cliente(sucursal, payload)
+            if mejor is not None and mejor.tipo != 'CONTADO':
+                cuenta_existente.cliente = mejor
+                cuenta_existente.save(update_fields=['cliente'])
+                if venta.cliente_id is None:
+                    venta.cliente = mejor
+                    venta.save(update_fields=['cliente'])
+                logger.info('CxC %s: titular corregido a %s en reenvio',
+                            numero_venta, mejor.nombre)
+                return
         logger.info('CxC para venta %s ya existe en cloud, skip', numero_venta)
         return
 

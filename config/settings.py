@@ -9,6 +9,46 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# ============================================================================
+# Configuracion de la instalacion: archivo .env
+# ============================================================================
+#
+# La configuracion de cada sucursal vive en `deploy/env_cliente.env` y la lee
+# la APLICACION, no el gestor de servicios.
+#
+# Antes las ~46 variables se enumeraban a mano en los .bat y se le pasaban a
+# `nssm` como AppEnvironmentExtra. `nssm` guarda un SNAPSHOT ESTATICO al
+# registrar: no sabe releer un archivo al arrancar. Consecuencias que costaron
+# caro:
+#   - Cambiar cualquier valor obligaba a RE-REGISTRAR el servicio.
+#   - Cada valor cruzaba el interprete de `cmd` dos veces, y ahi se perdian los
+#     caracteres especiales: el DJANGO_SECRET_KEY de un cliente quedo truncado a
+#     5 caracteres por un `&` sin comillas (bug #9 de docs/BUGS.md).
+#
+# Cargarlo aqui cubre de una sola vez server.py, manage.py, el daemon de sync y
+# cualquier comando: todos ven exactamente la misma configuracion.
+#
+# `override=False` es deliberado: **las variables de entorno reales le ganan al
+# archivo**. Eso mantiene funcionando el rig de pruebas, los tests y Azure, donde
+# la configuracion llega por entorno y no por archivo.
+
+def _cargar_env_file():
+    """Carga el .env de la instalacion. Devuelve la ruta usada, o None."""
+    ruta = os.environ.get('POS_ENV_FILE') or (BASE_DIR / 'deploy' / 'env_cliente.env')
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return None
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover - entorno sin la dependencia
+        return None
+    load_dotenv(ruta, override=False, encoding='utf-8')
+    return ruta
+
+
+POS_ENV_FILE_CARGADO = _cargar_env_file()
+
+
 def _env_text(name, default=''):
     value = os.environ.get(name, default)
     return value.strip().strip('"').strip("'")
