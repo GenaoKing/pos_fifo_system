@@ -9,6 +9,11 @@ django-extensions>=4.0
 django-storages[azure]>=1.14.4
 azure-identity>=1.16.0
 
+# Configuracion por archivo (deploy/env_cliente.env). En el cloud la config
+# llega por variables de entorno, pero config/settings.py importa dotenv y los
+# tests lo ejercitan, asi que la dependencia va tambien aqui.
+python-dotenv>=1.0
+
 # PostgreSQL
 psycopg[binary]>=3.1.0
 
