@@ -199,6 +199,29 @@ class VersionMaestro(models.Model):
         verbose_name='Ultima version descargada',
         help_text='Timestamp del registro mas reciente aplicado localmente.'
     )
+    # Mitad `id` del cursor keyset. Junto con `ultima_version` forma la clave
+    # (fecha_modificacion, id) que da un orden TOTAL: dos registros guardados en
+    # el mismo instante ya no pueden perderse en el borde del cursor.
+    ultimo_id = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Ultimo id aplicado',
+        help_text='Desempate del cursor cuando varios registros comparten fecha.'
+    )
+    # Un cursor que deja de avanzar porque un registro falla al aplicarse. Antes
+    # ese registro se saltaba en silencio y se perdia para siempre; ahora el
+    # cursor se congela y esto lo hace visible.
+    bloqueado_desde = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Bloqueado desde',
+        help_text='Cuando el cursor dejo de avanzar por un registro que falla.'
+    )
+    bloqueado_detalle = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Detalle del bloqueo',
+        help_text='Que registro y que error estan frenando el cursor.'
+    )
     ultima_sync_exitosa = models.DateTimeField(
         null=True,
         blank=True,
@@ -223,6 +246,23 @@ class VersionMaestro(models.Model):
         """Helper: garantiza que existe un cursor para la tabla."""
         obj, _ = cls.objects.get_or_create(tabla=tabla)
         return obj
+
+    def marcar_bloqueado(self, detalle):
+        """Registra que el cursor no puede avanzar por un registro problematico."""
+        campos = ['bloqueado_detalle']
+        self.bloqueado_detalle = (detalle or '')[:2000]
+        if self.bloqueado_desde is None:
+            self.bloqueado_desde = timezone.now()
+            campos.append('bloqueado_desde')
+        self.save(update_fields=campos)
+
+    def limpiar_bloqueo(self):
+        """El cursor volvio a avanzar limpio: se olvida el bloqueo."""
+        if self.bloqueado_desde is None and not self.bloqueado_detalle:
+            return
+        self.bloqueado_desde = None
+        self.bloqueado_detalle = ''
+        self.save(update_fields=['bloqueado_desde', 'bloqueado_detalle'])
 
 
 class InventarioMovimientoSync(models.Model):

@@ -37,6 +37,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
@@ -209,6 +210,41 @@ def heartbeat(request):
 # GET /api/v1/sync/roles/  — definiciones de rol del negocio (cloud -> sucursal)
 # ============================================================================
 
+def _filtrar_keyset_sync(qs, request):
+    """
+    Aplica el cursor keyset (?desde= + ?desde_id=) a un queryset de sync.
+
+    Comparte semantica con `SyncIncrementalMixin` de apps/api/views/maestros.py:
+    el corte es sobre la tupla `(fecha_modificacion, id)`, no solo sobre la
+    fecha. Sin el desempate, dos registros guardados en el mismo instante hacen
+    que el segundo se pierda cuando el cursor queda parado en ese valor.
+
+    Estos endpoints NO paginan, asi que la inestabilidad de paginacion no les
+    aplica; el empate de timestamps si.
+    """
+    desde = request.query_params.get('desde')
+    if not desde:
+        return qs
+
+    ts = parse_datetime(desde)
+    if not ts:
+        return qs
+
+    desde_id = request.query_params.get('desde_id')
+    try:
+        desde_id = int(desde_id) if desde_id else None
+    except (TypeError, ValueError):
+        desde_id = None
+
+    if desde_id is None:
+        return qs.filter(fecha_modificacion__gt=ts)
+
+    return qs.filter(
+        Q(fecha_modificacion__gt=ts)
+        | Q(fecha_modificacion=ts, id__gt=desde_id)
+    )
+
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def roles_para_sucursal(request):
@@ -228,12 +264,10 @@ def roles_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
-    qs = Rol.objects.filter(negocio_id=negocio_id).prefetch_related('permisos').order_by('id')
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = (Rol.objects.filter(negocio_id=negocio_id)
+          .prefetch_related('permisos')
+          .order_by('fecha_modificacion', 'id'))
+    qs = _filtrar_keyset_sync(qs, request)
 
     data = [
         {
@@ -242,6 +276,9 @@ def roles_para_sucursal(request):
             'activo': r.activo,
             'permisos': sorted(p.codigo for p in r.permisos.all()),
             'fecha_modificacion': r.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad. La identidad cross-BD de un rol
+            # es su `slug`; esto solo desempata el cursor.
+            'cursor_id': r.id,
         }
         for r in qs
     ]
@@ -277,13 +314,9 @@ def asignaciones_para_sucursal(request):
         .filter(rol__negocio_id=negocio_id)
         .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
         .select_related('usuario', 'rol', 'sucursal')
-        .order_by('id')
+        .order_by('fecha_modificacion', 'id')
     )
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = _filtrar_keyset_sync(qs, request)
 
     data = [
         {
@@ -292,6 +325,10 @@ def asignaciones_para_sucursal(request):
             'sucursal_codigo': a.sucursal.codigo if a.sucursal_id else None,
             'activo': a.activo,
             'fecha_modificacion': a.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad. La identidad cross-BD de una
+            # asignacion son sus claves naturales (usuario_username + rol_slug +
+            # sucursal_codigo); esto solo desempata el cursor.
+            'cursor_id': a.id,
         }
         for a in qs
     ]
@@ -318,13 +355,9 @@ def metodos_credito_para_sucursal(request):
         MetodoPlazoCredito.objects
         .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal))
         .select_related('sucursal')
-        .order_by('id')
+        .order_by('fecha_modificacion', 'id')
     )
-    desde = request.query_params.get('desde')
-    if desde:
-        ts = parse_datetime(desde)
-        if ts:
-            qs = qs.filter(fecha_modificacion__gt=ts)
+    qs = _filtrar_keyset_sync(qs, request)
 
     return Response([
         {
@@ -338,6 +371,8 @@ def metodos_credito_para_sucursal(request):
             'activo': m.activo,
             'sucursal_codigo': m.sucursal.codigo if m.sucursal_id else None,
             'fecha_modificacion': m.fecha_modificacion.isoformat(),
+            # Token de paginacion, NO identidad (la identidad es `nombre`).
+            'cursor_id': m.id,
         }
         for m in qs
     ])

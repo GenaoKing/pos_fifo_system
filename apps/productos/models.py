@@ -54,6 +54,10 @@ class Categoria(models.Model):
         verbose_name_plural = 'Categorías'
         ordering = ['nombre']
         db_table = 'categorias'
+        indexes = [
+            # Cursor de sync: se filtra y ordena por este par en cada pull.
+            models.Index(fields=['fecha_modificacion', 'id']),
+        ]
     
     def __str__(self):
         return self.nombre
@@ -171,6 +175,8 @@ class Producto(models.Model):
             models.Index(fields=['sku']),
             models.Index(fields=['codigo_barras']),
             models.Index(fields=['categoria', 'activo']),
+            # Cursor de sync: se filtra y ordena por este par en cada pull.
+            models.Index(fields=['fecha_modificacion', 'id']),
             GinIndex(fields=['atributos'], name='idx_productos_atributos'),
         ]
     

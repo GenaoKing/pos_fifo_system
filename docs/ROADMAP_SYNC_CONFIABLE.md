@@ -34,7 +34,7 @@ anterior en rojo.
 |---|---|---|---|
 | 0 | Rig de simulación + medición del daño | 🟡 parcial — comando listo, falta ciclo real y correr en clientes | `features/sync-verificacion` |
 | 1 | Outbox transaccional + upsert de cliente (BUG-A + BUG-C) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
-| 2 | Cursor keyset estable (BUG-B) | ⬜ pendiente | `features/sync-cursor-keyset` |
+| 2 | Cursor keyset estable (BUG-B) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
 | 3 | Anti-entropía (reconciliación periódica) | ⬜ pendiente | `features/sync-antientropia` |
 | 4 | Configuración dinámica del servicio (dotenv) | ⬜ pendiente | `features/deploy-dotenv` |
 
@@ -423,7 +423,51 @@ como endurecimiento futuro, no como deuda urgente.
 
 ### Resultado Fase 2
 
-> _(llenar: tests, y confirmación del ciclo editar-en-portal → ver-en-sucursal)_
+**Implementada el 2026-08-19.**
+
+**Tests: 363 en total (eran 343), +20 nuevos, y la suite quedó VERDE COMPLETA
+por primera vez** — cero fallas.
+
+- `apps/sync/tests/test_pull_keyset.py` — 13 tests.
+- `apps/api/tests/test_maestros_keyset.py` — 7 tests.
+
+**Baseline estabilizado primero.** Las 3 fallas que arrastrábamos hacían
+inservible el criterio de aceptación, y dos de ellas probaban justamente el
+mecanismo `?desde=` que esta fase reescribe:
+
+- `test_categoria_viewset` y `test_cliente_viewset` tomaban `antes = now()` y
+  esperaban que un filtro `__gt` incluyera un registro modificado en el mismo
+  tick de 15.6 ms del reloj de Windows. Ahora restan 100 ms.
+- `test_anulacion_pago` tenía la fecha fija `2026-07-15`, ya vencida. Ahora es
+  relativa.
+
+**Qué cambió:**
+
+- `SyncIncrementalMixin` ordena por `('fecha_modificacion', 'id')` **solo** con
+  `?desde=`; hay un test que protege el orden alfabético del portal.
+- Nuevo `?desde_id=` → el corte es sobre la tupla, no sobre la fecha sola.
+- `_pull_generic` con doble cursor (`req` / `commit`) y marca de agua contigua.
+- `VersionMaestro` gana `ultimo_id`, `bloqueado_desde`, `bloqueado_detalle`.
+- Los 3 endpoints de sync no paginados ordenan por la tupla y exponen
+  `cursor_id`, documentado como token de paginación y no identidad.
+- Índice `(fecha_modificacion, id)` en los tres maestros.
+- `verificar_sync` reporta el estado de los cursores y marca los bloqueados.
+
+**Beneficio lateral no planificado:** pedir cada página por su clave en vez de
+seguir el `next` de DRF hace que un corte de red a media paginación **conserve
+lo aplicado** y retome donde iba. Antes se descartaba el avance y el ciclo
+siguiente empezaba de cero. Hay test.
+
+**Error propio que vale registrar:** al insertar el helper `_filtrar_keyset_sync`
+quedó *debajo* de los decoradores `@api_view`, que pasaron a decorar el helper en
+vez del endpoint. La suite lo atrapó con 6 fallas en los tests de sync. Corregido
+moviendo el helper por encima del bloque de decoradores.
+
+**Pendiente de esta fase:**
+
+- [ ] Round-trip contra `royalplastdemo`: editar un producto alfabéticamente
+      tardío en el portal y confirmar que baja. Requiere el cloud desplegado.
+- [ ] Despliegue conjunto con la Fase 1 (una sola visita a cada cliente).
 
 ---
 

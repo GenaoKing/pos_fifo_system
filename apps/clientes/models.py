@@ -135,6 +135,8 @@ class Cliente(models.Model):
             models.Index(fields=['tipo', 'activo']),
             models.Index(fields=['nombre']),
             models.Index(fields=['origen_sucursal', 'origen_id_local']),
+            # Cursor de sync: se filtra y ordena por este par en cada pull.
+            models.Index(fields=['fecha_modificacion', 'id']),
         ]
         constraints = [
             models.UniqueConstraint(

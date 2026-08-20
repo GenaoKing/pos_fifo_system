@@ -368,72 +368,147 @@ class SyncEngine:
 
     def _pull_generic(self, tabla, endpoint, apply_func):
         """
-        Pull generico: GET endpoint?desde=<cursor>, paginando, aplicando
-        apply_func(item) por cada registro y actualizando el cursor.
+        Pull incremental con cursor KEYSET y marca de agua contigua.
+
+        Dos cursores, y esa es la idea central (ver BUG-B en docs/BUGS.md):
+
+          req    -> clave del ultimo item RECIBIDO. Sirve para pedir la pagina
+                    siguiente. Avanza siempre.
+          commit -> clave del ultimo item aplicado con exito EN SECUENCIA
+                    CONTIGUA. Es lo unico que se persiste.
+
+        Antes habia un solo cursor que saltaba al maximo visto aunque un item
+        hubiera fallado, y ese registro no volvia a entrar en ningun pull: se
+        perdia para siempre.
+
+            items:  [ok, ok, FALLA, ok, ok]
+            antes:  cursor = clave del ultimo  -> el fallido se pierde
+            ahora:  commit = clave del 2o      -> el proximo ciclo lo reintenta
+
+        Los items posteriores al fallo SI se aplican (son idempotentes,
+        `update_or_create`), asi que la sucursal no se queda con datos viejos
+        por culpa de un registro problematico. Lo unico que se congela es la
+        marca de agua persistida, y el bloqueo queda visible en el propio
+        cursor (`bloqueado_desde` / `bloqueado_detalle`).
+
+        Pedir cada pagina por su clave -- en vez de seguir el `next` de DRF, que
+        es por offset -- hace ademas que un corte de red a media paginacion
+        retome donde iba en el proximo ciclo en vez de empezar de cero.
         """
         from .models import VersionMaestro
 
         cursor = VersionMaestro.get_o_crear(tabla)
-        params = {}
-        if cursor.ultima_version:
-            params['desde'] = cursor.ultima_version.isoformat()
+
+        # (fecha, id) de la ultima posicion confirmada.
+        commit_fecha = cursor.ultima_version
+        commit_id = cursor.ultimo_id or 0
+        req_fecha, req_id = commit_fecha, commit_id
 
         count = 0
-        max_fecha = cursor.ultima_version
+        contiguo = True          # mientras nadie falle, commit sigue a req
+        bloqueo = None           # primer fallo de esta corrida
         url = self._url(endpoint)
 
-        # Paginacion: DRF devuelve {count, next, previous, results}
-        while url:
+        while True:
+            params = {}
+            if req_fecha:
+                params['desde'] = req_fecha.isoformat()
+                params['desde_id'] = req_id
+
             try:
                 resp = requests.get(
-                    url,
-                    params=params if url == self._url(endpoint) else None,
-                    headers=self.headers,
-                    timeout=self.timeout,
+                    url, params=params, headers=self.headers, timeout=self.timeout,
                 )
             except requests.RequestException as exc:
                 logger.warning('pull %s: error de red: %s', tabla, exc)
-                return count
+                break
 
             if resp.status_code >= 400:
                 logger.error('pull %s: HTTP %s: %s', tabla, resp.status_code, resp.text[:500])
-                return count
+                break
 
             data = resp.json()
-            # Soporta respuesta paginada de DRF o lista directa
-            if isinstance(data, dict) and 'results' in data:
-                items = data['results']
-                url = data.get('next')
-                params = None  # ya van en el next
-            else:
-                items = data
-                url = None
+            # Soporta respuesta paginada de DRF o lista directa.
+            items = data['results'] if isinstance(data, dict) and 'results' in data else data
+            if not items:
+                break
 
             for item in items:
+                clave = self._clave_cursor(item)
+
                 try:
                     apply_func(item)
                     count += 1
-                    # Actualiza cursor con la fecha_modificacion del item
-                    fecha_mod = item.get('fecha_modificacion') or item.get('updated_at')
-                    if fecha_mod:
-                        try:
-                            parsed = datetime.fromisoformat(fecha_mod.replace('Z', '+00:00'))
-                            if max_fecha is None or parsed > max_fecha:
-                                max_fecha = parsed
-                        except (ValueError, AttributeError):
-                            pass
+                    aplicado = True
                 except Exception as exc:
                     logger.exception('pull %s: error aplicando item %s: %s',
-                                     tabla, item.get('id'), exc)
+                                     tabla, item.get('id') or item.get('cursor_id'), exc)
+                    aplicado = False
+                    if bloqueo is None:
+                        bloqueo = f"{tabla}: item {self._ref_item(item)} falla al aplicarse: {exc}"
 
-        # Actualiza cursor si procesamos algo
-        if count > 0:
-            cursor.ultima_version = max_fecha
+                if clave is not None:
+                    req_fecha, req_id = clave
+                    # La marca de agua solo avanza mientras la racha sea limpia.
+                    if aplicado and contiguo:
+                        commit_fecha, commit_id = clave
+
+                if not aplicado:
+                    contiguo = False
+
+            # Sin paginacion (lista plana) se termina en una sola vuelta.
+            if not (isinstance(data, dict) and 'results' in data):
+                break
+            if not data.get('next'):
+                break
+
+        self._guardar_cursor(cursor, commit_fecha, commit_id, count, bloqueo)
+        return count
+
+    @staticmethod
+    def _clave_cursor(item):
+        """(fecha_modificacion, id) de un item, o None si no la trae.
+
+        `cursor_id` es el token de paginacion de los endpoints de sync; `id` el
+        de los maestros. La configuracion es un singleton sin id: cae a 0 y el
+        cursor queda gobernado solo por la fecha.
+        """
+        fecha_raw = item.get('fecha_modificacion') or item.get('updated_at')
+        if not fecha_raw:
+            return None
+        try:
+            fecha = datetime.fromisoformat(str(fecha_raw).replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            return None
+        return fecha, int(item.get('cursor_id') or item.get('id') or 0)
+
+    @staticmethod
+    def _ref_item(item):
+        """Referencia legible de un item para los mensajes de bloqueo."""
+        for campo in ('sku', 'nombre', 'slug', 'cedula_rnc', 'cursor_id', 'id'):
+            valor = item.get(campo)
+            if valor:
+                return f'{campo}={valor}'
+        return '(sin referencia)'
+
+    def _guardar_cursor(self, cursor, fecha, id_, count, bloqueo):
+        """Persiste la marca de agua y el estado de bloqueo."""
+        avanzo = fecha is not None and (
+            fecha != cursor.ultima_version or (id_ or 0) != (cursor.ultimo_id or 0)
+        )
+
+        if avanzo or count:
+            cursor.ultima_version = fecha
+            cursor.ultimo_id = id_ or 0
             cursor.ultima_sync_exitosa = timezone.now()
             cursor.registros_ultima_sync = count
             cursor.save()
 
-        return count
+        if bloqueo:
+            cursor.marcar_bloqueado(bloqueo)
+            logger.warning('pull %s: cursor congelado -> %s', cursor.tabla, bloqueo)
+        else:
+            cursor.limpiar_bloqueo()
 
     def _pull_categorias(self):
         from apps.productos.models import Categoria

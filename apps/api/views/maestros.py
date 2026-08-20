@@ -16,6 +16,7 @@ Sync incremental:
 Todos los modelos ya tienen `fecha_modificacion` con auto_now=True.
 """
 
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 from rest_framework import viewsets, status
 from rest_framework.response import Response
@@ -80,9 +81,44 @@ class SyncIncrementalMixin:
                     )
 
             if timestamp:
-                queryset = queryset.filter(fecha_modificacion__gt=timestamp)
+                queryset = self._filtrar_keyset(queryset, timestamp)
+                # Orden TOTAL alineado con el cursor. Sin esto la paginacion es
+                # inestable: los endpoints ordenan por `nombre` (Meta.ordering)
+                # mientras el corte es temporal, asi que los registros no llegan
+                # en orden de cursor y PostgreSQL no garantiza consistencia
+                # entre paginas. Ver BUG-B en docs/BUGS.md.
+                #
+                # SOLO se reordena en modo sync: sin `?desde=` el portal sigue
+                # viendo su listado alfabetico intacto.
+                queryset = queryset.order_by('fecha_modificacion', 'id')
 
         return queryset
+
+    def _filtrar_keyset(self, queryset, timestamp):
+        """
+        Filtro keyset sobre la tupla (fecha_modificacion, id).
+
+        `?desde=` solo daba `fecha_modificacion__gt`, estrictamente mayor: dos
+        registros guardados en el mismo instante hacian que el segundo se
+        perdiera cuando el cursor quedaba en ese valor. Con `?desde_id=` el
+        corte pasa a ser "posterior en la tupla", que es un orden total.
+
+        `desde_id` es opcional: un cliente viejo que no lo manda obtiene el
+        comportamiento anterior, que sigue siendo correcto.
+        """
+        desde_id = self.request.query_params.get('desde_id')
+        if not desde_id:
+            return queryset.filter(fecha_modificacion__gt=timestamp)
+
+        try:
+            desde_id = int(desde_id)
+        except (TypeError, ValueError):
+            return queryset.filter(fecha_modificacion__gt=timestamp)
+
+        return queryset.filter(
+            Q(fecha_modificacion__gt=timestamp)
+            | Q(fecha_modificacion=timestamp, id__gt=desde_id)
+        )
 
     def list(self, request, *args, **kwargs):
         """Override list para incluir headers de sync."""

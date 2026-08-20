@@ -106,6 +106,9 @@ fila nunca se creo.
 
 - Fecha de hallazgo: documentado en `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` §5;
   confirmado en codigo 2026-08-19.
+- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
+  Cursor keyset `(fecha_modificacion, id)` + marca de agua contigua. Ver Fase 2
+  de `docs/ROADMAP_SYNC_CONFIABLE.md`.
 - Severidad: media (perdida de ACTUALIZACIONES de maestros, no de transacciones).
 - Sintoma: un producto/cliente editado en el portal no se refleja en la sucursal
   aunque el pull corra "sin errores".
@@ -138,6 +141,29 @@ Consecuencias:
 3. No guardar el cursor en pulls incompletos (hoy un corte de red retorna antes
    del `save()`, lo cual esta bien; mantener esa invariante al refactorizar).
 4. Test de regresion con >200 maestros (fuerza paginacion) + un item que falla.
+
+**Correccion aplicada (2026-08-19).**
+
+1. `SyncIncrementalMixin` ordena por `('fecha_modificacion', 'id')` **solo**
+   cuando viene `?desde=`; sin cursor el portal conserva su orden alfabetico.
+2. Nuevo `?desde_id=`: el corte pasa a ser sobre la tupla, no sobre la fecha
+   sola. Con eso el empate de timestamps deja de perder registros.
+3. `_pull_generic` lleva **dos** cursores: `req` (ultimo recibido, para pedir la
+   pagina siguiente) y `commit` (ultimo aplicado con exito en secuencia
+   contigua, lo unico que se persiste). Un item que falla congela la marca de
+   agua en vez de saltarse; los items posteriores igual se aplican, porque son
+   idempotentes.
+4. El bloqueo es visible: `VersionMaestro.bloqueado_desde` / `bloqueado_detalle`,
+   y `verificar_sync` lo reporta.
+5. Los endpoints de sync no paginados (`roles`, `asignaciones`,
+   `metodos-credito`) tambien ordenan por la tupla y exponen `cursor_id`
+   — **token de paginacion, NO identidad**: la identidad cross-BD sigue siendo
+   la clave natural de cada recurso.
+6. Indice `(fecha_modificacion, id)` en `Producto`, `Categoria` y `Cliente`.
+
+**Compatibilidad:** a diferencia de BUG-A/BUG-C, aqui el orden de despliegue no
+importa. Cliente nuevo contra cloud viejo ignora `desde_id`; cliente viejo contra
+cloud nuevo cae al filtro anterior. Ambas combinaciones son correctas.
 
 ---
 

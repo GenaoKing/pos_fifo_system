@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -94,7 +95,12 @@ class AnulacionPagoCxCTestsBase(TestCase):
                 'tipo_ecf': '31',
                 'credito': {
                     'metodo_plazo_id': self.metodo_cuotas.id,
-                    'fecha_primer_vencimiento': '2026-07-15',
+                    # Fecha RELATIVA: con una fija, el test empieza a fallar
+                    # solo por el paso del tiempo (la cuota se vuelve VENCIDA
+                    # y deja de estar PENDIENTE como espera el assert).
+                    'fecha_primer_vencimiento': (
+                        timezone.localdate() + timedelta(days=30)
+                    ).isoformat(),
                     'monto_inicial': '10.00',
                     'metodo_inicial': 'efectivo',
                     'cantidad_cuotas': 3,

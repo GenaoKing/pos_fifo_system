@@ -93,6 +93,7 @@ class Command(BaseCommand):
         reporte['sin_evento'] = self._revisar_hechos_sin_evento()
         reporte['huecos_numeracion'] = self._revisar_huecos_numeracion()
         reporte['cola'] = self._revisar_cola()
+        reporte['cursores'] = self._revisar_cursores()
 
         if opts['json']:
             self.stdout.write(json_lib.dumps(reporte, indent=2, default=str))
@@ -445,6 +446,41 @@ class Command(BaseCommand):
         }
 
     # ------------------------------------------------------------------
+    # 5. Cursores de pull
+    # ------------------------------------------------------------------
+
+    def _revisar_cursores(self):
+        """
+        Estado de los cursores de pull (cloud -> sucursal).
+
+        Un cursor congelado significa que un registro del portal falla al
+        aplicarse localmente y esta frenando la marca de agua. Antes ese
+        registro se saltaba en silencio y se perdia para siempre (BUG-B); ahora
+        el cursor se detiene, y esto lo hace visible.
+        """
+        from apps.sync.models import VersionMaestro
+
+        filas = []
+        for vm in VersionMaestro.objects.all():
+            horas_bloqueado = None
+            if vm.bloqueado_desde:
+                horas_bloqueado = round(
+                    (timezone.now() - vm.bloqueado_desde).total_seconds() / 3600, 1
+                )
+            filas.append({
+                'tabla': vm.tabla,
+                'ultima_version': vm.ultima_version.isoformat() if vm.ultima_version else None,
+                'ultimo_id': vm.ultimo_id,
+                'ultima_sync_exitosa': (
+                    vm.ultima_sync_exitosa.isoformat() if vm.ultima_sync_exitosa else None
+                ),
+                'bloqueado': bool(vm.bloqueado_desde),
+                'horas_bloqueado': horas_bloqueado,
+                'bloqueado_detalle': vm.bloqueado_detalle or None,
+            })
+        return filas
+
+    # ------------------------------------------------------------------
     # Salida legible
     # ------------------------------------------------------------------
 
@@ -527,6 +563,19 @@ class Command(BaseCommand):
         if cola['antiguedad_horas'] is not None:
             linea = f'  Pendiente mas viejo: {cola["antiguedad_horas"]} horas'
             w(warn(linea) if cola['antiguedad_horas'] > 24 else linea)
+
+        # --- cursores de pull
+        w('')
+        w('CURSORES DE PULL (cloud -> sucursal)')
+        if not r['cursores']:
+            w('  (sin cursores todavia)')
+        for c in r['cursores']:
+            base = f'  {c["tabla"]:<16} hasta {c["ultima_version"] or "nunca"}'
+            if c['bloqueado']:
+                w(err(f'{base}  BLOQUEADO hace {c["horas_bloqueado"]} h'))
+                w(err(f'        {c["bloqueado_detalle"]}'))
+            else:
+                w(base)
 
         w('')
         w('=' * 70)
