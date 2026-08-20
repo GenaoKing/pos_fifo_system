@@ -30,6 +30,8 @@ import time
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.sync.engine import clasificar_ciclo
+
 logger = logging.getLogger('sync')
 
 
@@ -142,32 +144,55 @@ class Command(BaseCommand):
             f'[{self._now()}] HEARTBEAT {"ok" if heartbeat_ok else "fallo"}'
         ))
 
+        push = {'procesados': 0, 'confirmados': 0, 'fallidos': 0}
+        pull = {'total': 0, 'ok': True, 'errores': [], 'bloqueos': []}
+
         if not only_pull:
-            m = engine.push_eventos()
-            style = self.style.SUCCESS if m['fallidos'] == 0 else self.style.WARNING
+            push = engine.push_eventos()
+            style = self.style.SUCCESS if push['fallidos'] == 0 else self.style.WARNING
             self.stdout.write(style(
-                f"[{self._now()}] PUSH procesados={m['procesados']} "
-                f"confirmados={m['confirmados']} fallidos={m['fallidos']}"
+                f"[{self._now()}] PUSH procesados={push['procesados']} "
+                f"confirmados={push['confirmados']} fallidos={push['fallidos']}"
             ))
 
         if not only_push:
-            m = engine.pull_maestros()
-            self.stdout.write(self.style.SUCCESS(
-                f"[{self._now()}] PULL categorias={m['categorias']} "
-                f"productos={m['productos']} clientes={m['clientes']} "
-                f"roles={m.get('roles', 0)} asignaciones={m.get('asignaciones', 0)} "
-                f"metodos_credito={m.get('metodos_credito', 0)} "
-                f"configuracion={m.get('configuracion', 0)}"
+            pull = engine.pull_maestros()
+            # El estilo sale del resultado, no de la costumbre: antes el pull se
+            # imprimia SIEMPRE en verde aunque todas las entidades hubieran
+            # fallado con 401.
+            style = self.style.SUCCESS if pull.get('ok', True) else self.style.ERROR
+            self.stdout.write(style(
+                f"[{self._now()}] PULL categorias={pull['categorias']} "
+                f"productos={pull['productos']} clientes={pull['clientes']} "
+                f"roles={pull.get('roles', 0)} asignaciones={pull.get('asignaciones', 0)} "
+                f"metodos_credito={pull.get('metodos_credito', 0)} "
+                f"configuracion={pull.get('configuracion', 0)}"
             ))
+            for error in pull.get('errores', []):
+                self.stdout.write(self.style.ERROR(f'    ! {error}'))
+            for bloqueo in pull.get('bloqueos', []):
+                self.stdout.write(self.style.WARNING(f'    ~ {bloqueo}'))
 
         # Registrar log si pidieron el ciclo completo
         if registrar_log and not (only_push or only_pull):
+            estado, motivos = clasificar_ciclo(
+                heartbeat=heartbeat_ok, push=push, pull=pull,
+            )
+            if estado != 'EXITOSO':
+                self.stdout.write(self.style.WARNING(
+                    f'[{self._now()}] CICLO {estado}: {"; ".join(motivos)}'
+                ))
             try:
                 from apps.sync.models import LogSync
                 from apps.sucursales.models import get_sucursal_actual
                 LogSync.objects.create(
                     tipo='FULL',
-                    resultado='EXITOSO',
+                    resultado=estado,
+                    mensaje='; '.join(motivos)[:2000],
+                    eventos_procesados=push['procesados'],
+                    eventos_exitosos=push['confirmados'],
+                    eventos_fallidos=push['fallidos'],
+                    registros_descargados=pull.get('total', 0),
                     sucursal=get_sucursal_actual(),
                 )
             except Exception as exc:

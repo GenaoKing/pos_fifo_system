@@ -57,12 +57,19 @@ class Command(BaseCommand):
         # Eventos
         self.stdout.write('')
         pendientes = EventoSync.objects.filter(estado='PENDIENTE').count()
+        sin_payload = EventoSync.objects.filter(estado='SIN_PAYLOAD').count()
         errores = EventoSync.objects.filter(estado='ERROR').count()
         confirmados = EventoSync.objects.filter(estado='CONFIRMADO').count()
         descartados = EventoSync.objects.filter(estado='DESCARTADO').count()
 
         self.stdout.write('Eventos:')
         self.stdout.write(f'  Pendientes:   {pendientes}')
+        # SIN_PAYLOAD faltaba en este resumen: eventos encolados cuya
+        # serializacion fallo quedaban invisibles en el estado operativo.
+        if sin_payload:
+            self.stdout.write(self.style.WARNING(f'  Sin payload:  {sin_payload}'))
+        else:
+            self.stdout.write(f'  Sin payload:  {sin_payload}')
         if errores:
             self.stdout.write(self.style.WARNING(f'  Error:        {errores}'))
         else:
@@ -70,6 +77,20 @@ class Command(BaseCommand):
         self.stdout.write(f'  Confirmados:  {confirmados}')
         if descartados:
             self.stdout.write(self.style.ERROR(f'  Descartados:  {descartados}'))
+
+        # Cursores congelados: un pull puede venir aplicando items y aun asi
+        # tener la marca de agua detenida por una dependencia ausente.
+        bloqueados = VersionMaestro.objects.filter(
+            bloqueado_desde__isnull=False
+        ).order_by('tabla')
+        if bloqueados:
+            self.stdout.write('')
+            self.stdout.write(self.style.ERROR('Cursores bloqueados:'))
+            for cursor in bloqueados:
+                self.stdout.write(self.style.ERROR(
+                    f'  {cursor.tabla}: desde {cursor.bloqueado_desde:%Y-%m-%d %H:%M} '
+                    f'-> {cursor.bloqueado_detalle or "(sin detalle)"}'
+                ))
 
         # Ultimo log
         self.stdout.write('')

@@ -75,7 +75,7 @@ class PullKeysetTests(TestCase):
         mock_get.side_effect = [_Resp(_pagina(p1, hay_mas=True)),
                                 _Resp(_pagina(p2)), _Resp(_pagina([]))]
 
-        n = self.engine._pull_categorias()
+        n = self.engine._pull_categorias()['count']
 
         self.assertEqual(n, 5)
         self.assertEqual(Categoria.objects.count(), 5)
@@ -134,14 +134,14 @@ class PullKeysetTests(TestCase):
         ]
         mock_get.side_effect = [_Resp(_pagina(items)), _Resp(_pagina([]))]
 
-        real = Categoria.objects.update_or_create
+        real = Categoria.objects.create
 
         def falla_en_la_mala(*args, **kwargs):
             if kwargs.get('nombre') == 'Cat MALA':
                 raise ValueError('no se puede aplicar')
             return real(*args, **kwargs)
 
-        with mock.patch.object(Categoria.objects, 'update_or_create',
+        with mock.patch.object(Categoria.objects, 'create',
                                side_effect=falla_en_la_mala):
             self.engine._pull_categorias()
 
@@ -164,14 +164,14 @@ class PullKeysetTests(TestCase):
         ]
         mock_get.side_effect = [_Resp(_pagina(items)), _Resp(_pagina([]))]
 
-        real = Categoria.objects.update_or_create
+        real = Categoria.objects.create
 
         def falla_en_la_mala(*args, **kwargs):
             if kwargs.get('nombre') == 'Cat MALA':
                 raise ValueError('no se puede aplicar')
             return real(*args, **kwargs)
 
-        with mock.patch.object(Categoria.objects, 'update_or_create',
+        with mock.patch.object(Categoria.objects, 'create',
                                side_effect=falla_en_la_mala):
             self.engine._pull_categorias()
 
@@ -187,14 +187,14 @@ class PullKeysetTests(TestCase):
         ]
         mock_get.side_effect = [_Resp(_pagina(items)), _Resp(_pagina([]))]
 
-        real = Categoria.objects.update_or_create
+        real = Categoria.objects.create
 
         def falla(*args, **kwargs):
             if kwargs.get('nombre') == 'Cat MALA':
                 raise ValueError('boom')
             return real(*args, **kwargs)
 
-        with mock.patch.object(Categoria.objects, 'update_or_create', side_effect=falla):
+        with mock.patch.object(Categoria.objects, 'create', side_effect=falla):
             self.engine._pull_categorias()
 
         self.assertEqual(self._cursor().ultimo_id, 1)
@@ -227,7 +227,7 @@ class PullKeysetTests(TestCase):
             rq.RequestException('se cayo la red'),
         ]
 
-        n = self.engine._pull_categorias()
+        n = self.engine._pull_categorias()['count']
 
         self.assertEqual(n, 2)
         cursor = self._cursor()
@@ -237,7 +237,7 @@ class PullKeysetTests(TestCase):
     def test_http_error_no_avanza_el_cursor(self, mock_get):
         mock_get.side_effect = [_Resp({'detail': 'boom'}, status_code=500)]
 
-        n = self.engine._pull_categorias()
+        n = self.engine._pull_categorias()['count']
 
         self.assertEqual(n, 0)
         self.assertEqual(self._cursor().ultimo_id, 0)
@@ -342,7 +342,7 @@ class CompatibilidadConCloudViejoTests(TestCase):
             _Resp(_pagina(p2)),                 # legacy: pagina 2 via next
         ]
 
-        n = SyncEngine()._pull_categorias()
+        n = SyncEngine()._pull_categorias()['count']
 
         self.assertEqual(n, 3)
         self.assertEqual(Categoria.objects.count(), 3)

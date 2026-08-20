@@ -60,10 +60,19 @@ class EventoSyncAdmin(admin.ModelAdmin):
         )
     estado_badge.short_description = 'Estado'
 
-    @admin.action(description='Reintentar eventos seleccionados (vuelve a PENDIENTE)')
+    @admin.action(description='Reintentar eventos seleccionados (vuelve a la cola)')
     def reintentar_eventos(self, request, queryset):
-        count = queryset.filter(estado__in=['ERROR', 'DESCARTADO']).update(
-            estado='PENDIENTE', ultimo_error=''
+        """
+        Delega en `reactivar_eventos`, que ademas reinicia el contador.
+
+        Poner el estado en PENDIENTE no alcanza: el push excluye las filas con
+        `intentos >= SYNC_MAX_RETRIES`, asi que un evento DESCARTADO seguia
+        invisible para el daemon mientras el Admin informaba que estaba en cola.
+        """
+        from .models import reactivar_eventos
+
+        count = reactivar_eventos(
+            queryset.filter(estado__in=['ERROR', 'DESCARTADO'])
         )
         self.message_user(request, f'{count} eventos puestos en cola de reintento.')
 

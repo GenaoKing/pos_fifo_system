@@ -139,6 +139,7 @@ class Command(BaseCommand):
 
         # El orden importa: categorias antes que productos (FK obligatoria).
         self._cat_map = {}  # nombre -> id en cloud
+        self._errores_totales = 0
         if 'categorias' in entidades:
             self._reconciliar_categorias()
         if 'productos' in entidades:
@@ -147,11 +148,22 @@ class Command(BaseCommand):
             self._reconciliar_clientes()
 
         self.stdout.write('')
-        self.stdout.write(self.style.SUCCESS('Reconciliacion finalizada.'))
         if self.dry_run:
             self.stdout.write(
                 'Fue DRY-RUN: no se escribio nada. Quita --dry-run para aplicar.'
             )
+
+        # Terminar siempre con "Reconciliacion finalizada" obligaba a revisar
+        # todo el scroll para saber si algo fallo. Con errores, el comando sale
+        # distinto de cero para que un script que lo invoque se entere.
+        if self._errores_totales:
+            raise CommandError(
+                f'Reconciliacion terminada con {self._errores_totales} error(es). '
+                f'Revisa el detalle de arriba; los objetos afectados NO se '
+                f'escribieron en cloud.'
+            )
+
+        self.stdout.write(self.style.SUCCESS('Reconciliacion finalizada sin errores.'))
 
     # ------------------------------------------------------------------
     # HTTP helpers
@@ -246,18 +258,22 @@ class Command(BaseCommand):
             raise CommandError(f'Cloud respondio HTTP {r.status_code}: {r.text[:300]}')
 
     def _buscar(self, endpoint, search, match):
-        """GET endpoint?search=... y devuelve el primer item para el que
-        match(item) sea True, o None. `match` recibe el dict del item."""
-        try:
-            r = self._request('GET', self._url(endpoint), params={'search': search})
-        except _CloudError as exc:
-            self.stderr.write(self.style.WARNING(f'  busqueda fallo ({search}): {exc}'))
-            return None
+        """
+        GET endpoint?search=... y devuelve el primer item para el que
+        match(item) sea True, o None si no hay coincidencia.
+
+        Un fallo de LECTURA levanta `_CloudError`; no devuelve None. La
+        diferencia importa: quien llama interpreta None como "no existe en
+        cloud" y procede a crearlo. Devolver None ante un timeout o un 500
+        convertia un problema transitorio en un POST de creacion — es decir,
+        en un duplicado — justo para los clientes sin cedula, cuya busqueda es
+        por nombre/tipo y no tiene una restriccion unica que lo impida.
+        """
+        r = self._request('GET', self._url(endpoint), params={'search': search})
         if r.status_code >= 400:
-            self.stderr.write(self.style.WARNING(
-                f'  busqueda HTTP {r.status_code} ({search}): {r.text[:200]}'
-            ))
-            return None
+            raise _CloudError(
+                f'busqueda HTTP {r.status_code} ({search}): {r.text[:200]}'
+            )
         data = r.json()
         items = data['results'] if isinstance(data, dict) and 'results' in data else data
         for item in items:
@@ -301,10 +317,6 @@ class Command(BaseCommand):
             nombre = (cat.nombre or '').strip()
             if not nombre:
                 continue
-            remoto = self._buscar(
-                endpoint, nombre,
-                lambda it: (it.get('nombre') or '').strip().lower() == nombre.lower(),
-            )
             body = {
                 'nombre': nombre,
                 'descripcion': cat.descripcion or '',
@@ -313,6 +325,12 @@ class Command(BaseCommand):
                 'atributos_configurados': getattr(cat, 'atributos_configurados', {}) or {},
             }
             try:
+                # La busqueda va DENTRO del try: si falla la lectura no se
+                # escribe nada para este objeto (fail-closed).
+                remoto = self._buscar(
+                    endpoint, nombre,
+                    lambda it: (it.get('nombre') or '').strip().lower() == nombre.lower(),
+                )
                 if remoto:
                     self._cat_map[nombre] = remoto.get('id')
                     if self.actualizar:
@@ -359,32 +377,35 @@ class Command(BaseCommand):
                 self._line('o', f'{sku} (precio<=0, omitido)')
                 continue
 
-            # Resolver la categoria en el cloud (FK obligatoria)
             cat_nombre = (prod.categoria.nombre or '').strip() if prod.categoria_id else ''
-            cat_id = self._cat_id_cloud(cat_nombre)
-            if cat_id is None:
-                omitidos += 1
-                self._line('o', f'{sku} (categoria "{cat_nombre}" no esta en cloud)')
-                continue
 
-            remoto = self._buscar(
-                endpoint, sku,
-                lambda it: (it.get('sku') or '').strip().lower() == sku.lower(),
-            )
-            body = {
-                'sku': sku,
-                'nombre': prod.nombre or '',
-                'descripcion': prod.descripcion or '',
-                'precio_venta': str(precio),
-                'codigo_barras': prod.codigo_barras or '',
-                'categoria': cat_id,
-                'activo': prod.activo,
-                'estado': prod.estado or 'nuevo',
-                'marca': prod.marca or '',
-                'stock_minimo': prod.stock_minimo if prod.stock_minimo is not None else 5,
-                'atributos': getattr(prod, 'atributos', {}) or {},
-            }
             try:
+                # Resolver la categoria en el cloud (FK obligatoria). Va dentro
+                # del try igual que la busqueda: un fallo de lectura no debe
+                # terminar en escritura.
+                cat_id = self._cat_id_cloud(cat_nombre)
+                if cat_id is None:
+                    omitidos += 1
+                    self._line('o', f'{sku} (categoria "{cat_nombre}" no esta en cloud)')
+                    continue
+
+                remoto = self._buscar(
+                    endpoint, sku,
+                    lambda it: (it.get('sku') or '').strip().lower() == sku.lower(),
+                )
+                body = {
+                    'sku': sku,
+                    'nombre': prod.nombre or '',
+                    'descripcion': prod.descripcion or '',
+                    'precio_venta': str(precio),
+                    'codigo_barras': prod.codigo_barras or '',
+                    'categoria': cat_id,
+                    'activo': prod.activo,
+                    'estado': prod.estado or 'nuevo',
+                    'marca': prod.marca or '',
+                    'stock_minimo': prod.stock_minimo if prod.stock_minimo is not None else 5,
+                    'atributos': getattr(prod, 'atributos', {}) or {},
+                }
                 if remoto:
                     if self.actualizar:
                         # sku no se cambia en update; el cloud lo ignora igual.
@@ -443,18 +464,6 @@ class Command(BaseCommand):
                 omitidos += 1
                 continue
 
-            if cedula:
-                remoto = self._buscar(
-                    endpoint, cedula,
-                    lambda it: (it.get('cedula_rnc') or '').strip() == cedula,
-                )
-            else:
-                remoto = self._buscar(
-                    endpoint, nombre,
-                    lambda it: (it.get('nombre') or '').strip().lower() == nombre.lower()
-                    and (it.get('tipo') or '') == (cli.tipo or ''),
-                )
-
             body = {
                 'tipo': cli.tipo or 'PERSONAL',
                 'nombre': nombre,
@@ -468,6 +477,21 @@ class Command(BaseCommand):
                 'activo': cli.activo,
             }
             try:
+                # Fail-closed: la busqueda va dentro del try. Un cliente sin
+                # cedula se busca por nombre/tipo, sin restriccion unica que
+                # frene un duplicado si la lectura fallo.
+                if cedula:
+                    remoto = self._buscar(
+                        endpoint, cedula,
+                        lambda it: (it.get('cedula_rnc') or '').strip() == cedula,
+                    )
+                else:
+                    remoto = self._buscar(
+                        endpoint, nombre,
+                        lambda it: (it.get('nombre') or '').strip().lower() == nombre.lower()
+                        and (it.get('tipo') or '') == (cli.tipo or ''),
+                    )
+
                 if remoto:
                     if self.actualizar:
                         self._actualizar_remoto(endpoint, remoto['id'], body)
@@ -493,10 +517,12 @@ class Command(BaseCommand):
             self.stdout.write(f'  {simbolo} {texto}')
 
     def _resumen(self, titulo, creados, actualizados, existentes, omitidos, errores):
-        self.stdout.write(
+        self._errores_totales = getattr(self, '_errores_totales', 0) + errores
+        linea = (
             f'  {titulo}: creados={creados} actualizados={actualizados} '
             f'ya_existian={existentes} omitidos={omitidos} errores={errores}'
         )
+        self.stdout.write(self.style.ERROR(linea) if errores else linea)
         self.stdout.write('')
 
 

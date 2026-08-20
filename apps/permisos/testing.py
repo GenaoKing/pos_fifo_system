@@ -11,6 +11,9 @@ from apps.negocios.models import Negocio
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso, Rol
 
+# Minimo para cerrar una venta desde el service.
+PERMISOS_VENTA = ('ventas.crear', 'ventas.aplicar_descuento')
+
 
 def crear_negocio(nombre):
     """Crea un Negocio con slug derivado del nombre."""
@@ -26,6 +29,32 @@ def crear_rol(negocio, nombre, permisos_codigos=()):
         sembrar_catalogo(Permiso)
         rol.permisos.set(Permiso.objects.filter(codigo__in=permisos_codigos))
     return rol
+
+
+def habilitar_cajero(usuario, *, negocio=None, permisos=None, sucursal=None):
+    """
+    Da a `usuario` un rol de cajero con los permisos operativos por defecto.
+
+    Atajo para tests que ejercitan flujos del POS: `procesar_venta_service`
+    exige `ventas.crear` server-side (y `ventas.aplicar_descuento` si el
+    carrito trae descuentos), igual que en una instalacion real, donde el
+    bootstrap RBAC ya deja al cajero con PERMISOS_CAJERO_DEFAULT.
+
+    Por defecto otorga SOLO los permisos de venta, no el set completo del
+    cajero: asi un test que verifica el gate de otro permiso (ej. CxC) sigue
+    viendo a este usuario sin ese permiso. Pasa `permisos=` para ampliarlo.
+
+    Cada llamada crea su propio Negocio salvo que se pase uno, para que dos
+    fixtures del mismo modulo no choquen por el slug del rol.
+    """
+    negocio = negocio or crear_negocio(f'Negocio {usuario.username}')
+    rol = crear_rol(
+        negocio,
+        f'Cajero {usuario.username}',
+        permisos if permisos is not None else PERMISOS_VENTA,
+    )
+    return asignar(usuario, rol, sucursal=sucursal)
+
 
 
 def asignar(usuario, rol, sucursal=None, set_negocio=True):

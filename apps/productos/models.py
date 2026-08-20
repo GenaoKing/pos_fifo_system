@@ -49,6 +49,24 @@ class Categoria(models.Model):
     fecha_creacion = models.DateTimeField('Fecha de creación', default=timezone.now)
     fecha_modificacion = models.DateTimeField('Fecha de modificación', auto_now=True)
     
+    # Identidad cloud estable. Ver apps/sync/engine.py::_pull_categorias.
+    #
+    # El pull identificaba por clave natural (nombre), asi que renombrar una
+    # categoria en el portal creaba OTRA en la sucursal y dejaba los productos
+    # historicos colgando de la vieja. Con este campo la fila se reconoce
+    # aunque cambie cualquier atributo visible.
+    #
+    # Null = fila de origen local todavia no reconciliada con el cloud. La
+    # clave natural sigue sirviendo para adoptarla la primera vez.
+    origen_cloud_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        verbose_name='ID en cloud',
+        help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
+    )
+
     class Meta:
         verbose_name = 'Categoría'
         verbose_name_plural = 'Categorías'

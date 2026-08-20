@@ -34,22 +34,35 @@ historico en vez de perderlo.
 
 Unica excepcion: `INVENTARIO_SNAPSHOT` (ver su docstring).
 
-## Nunca tumban la operacion que las origina
+## Fallo de SERIALIZACION vs fallo de PERSISTENCIA
 
-Un POS no puede perder una venta porque falle un serializador. Por eso:
+Son dos cosas distintas y se tratan distinto. La regla: un POS no puede perder
+una venta porque falle un serializador, pero tampoco puede confirmar una venta
+que el cloud nunca va a ver.
 
-- La serializacion se intenta dentro de la transaccion; si lanza, el evento se
-  encola igual con `payload=NULL` y estado `SIN_PAYLOAD`, y el push lo
-  re-serializa desde la BD via `apps/sync/registry.py`.
-- El INSERT del evento va en un savepoint propio: si falla a nivel BD, se
-  registra el error y la transaccion de negocio sigue viva y consistente.
+- **Serializacion**: si el serializador lanza, el evento se encola igual con
+  `payload=NULL` y estado `SIN_PAYLOAD`. El push lo re-serializa desde la BD
+  via `apps/sync/registry.py`. La venta sigue.
+- **Persistencia**: si el INSERT del evento falla, se reintenta una vez como
+  `SIN_PAYLOAD` (por si el problema era el payload en si). Si tampoco entra, la
+  excepcion se PROPAGA y la transaccion de negocio revierte.
+
+Ese segundo punto cambio en 2026-08-20. Antes cualquier fallo del INSERT se
+capturaba y se devolvia `None`, con lo cual la operacion confirmaba sin nada
+que reintentar: precisamente la perdida silenciosa que el patron outbox existe
+para impedir. Un fallo de persistencia significa que la cola esta rota (tabla
+ausente, esquema desfasado, disco), y en ese estado es preferible que la caja
+pare a que facture contra un cloud que no se va a enterar.
+
+Corolario operativo: si el POS empieza a rechazar ventas con un error de
+`EventoSync`, correr `manage.py migrate` y `manage.py verificar_sync`.
 """
 import hashlib
 import json
 import logging
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from . import serializers
 
@@ -103,29 +116,87 @@ def _crear_evento(tipo, serializar, referencia='', objeto_id_local=None,
         hash_payload = ''
         estado = 'SIN_PAYLOAD'
 
+    campos = dict(
+        sucursal=sucursal,
+        tipo_evento=tipo,
+        objeto_referencia=referencia or '',
+        objeto_id_local=objeto_id_local,
+    )
+
+    # Escalera de degradacion. Ver el bloque de docstring del modulo:
+    #
+    #   1) INSERT normal, con payload.
+    #   2) Si el INSERT falla POR EL PAYLOAD (un tipo que el serializador
+    #      resolvio pero JSONField no sabe guardar), reintenta como
+    #      SIN_PAYLOAD. El push lo re-serializa desde la BD via registry.
+    #   3) Si tampoco entra sin payload, el problema es de persistencia
+    #      (tabla ausente, esquema desfasado, disco, permisos) y ahi SI se
+    #      propaga: tragarselo rompia la unica garantia que justifica el
+    #      outbox — que no exista el hecho de negocio sin su evento.
     try:
-        # Savepoint propio: un fallo del INSERT no debe dejar abortada la
-        # transaccion de negocio (en Postgres cualquier sentencia fallida la
-        # invalida hasta el rollback).
-        with transaction.atomic():
-            evento = EventoSync.objects.create(
-                sucursal=sucursal,
-                tipo_evento=tipo,
-                objeto_referencia=referencia or '',
-                objeto_id_local=objeto_id_local,
-                payload=payload,
-                hash_payload=hash_payload,
-                estado=estado,
+        evento = _insertar(EventoSync, campos, payload, hash_payload, estado)
+    except IntegrityError as exc:
+        # Hash repetido: el mismo hecho ya esta en la cola. No es un fallo,
+        # es la constraint haciendo su trabajo (ver sync/migrations/0008).
+        existente = EventoSync.objects.filter(hash_payload=hash_payload).first()
+        if hash_payload and existente is not None:
+            logger.info(
+                'Evento sync %s %s ya estaba encolado (id=%s); no se duplica.',
+                tipo, referencia, existente.id,
             )
+            return existente
+        logger.exception(
+            'Error de integridad encolando %s %s: %s', tipo, referencia, exc,
+        )
+        raise
     except Exception as exc:
-        logger.exception('Error encolando evento sync %s %s: %s', tipo, referencia, exc)
-        return None
+        if payload is None:
+            # Ya estabamos en el intento degradado: es persistencia.
+            logger.exception(
+                'No se pudo persistir el evento sync %s %s: %s', tipo, referencia, exc,
+            )
+            raise
+
+        logger.exception(
+            'Fallo el INSERT de %s %s con payload (%s). Reintentando como '
+            'SIN_PAYLOAD para no perder el hecho.',
+            tipo, referencia, exc,
+        )
+        try:
+            evento = _insertar(EventoSync, campos, None, '', 'SIN_PAYLOAD')
+        except Exception as exc_degradado:
+            # Segundo fallo: el problema no era el payload. Se propaga para
+            # que la transaccion de negocio no confirme un hecho sin evento.
+            logger.exception(
+                'No se pudo persistir el evento sync %s %s ni siquiera sin '
+                'payload: %s', tipo, referencia, exc_degradado,
+            )
+            raise
+        estado = 'SIN_PAYLOAD'
 
     logger.info(
         'Evento sync encolado: %s %s (id=%s, estado=%s)',
         tipo, referencia, evento.id, estado,
     )
     return evento
+
+
+def _insertar(EventoSync, campos, payload, hash_payload, estado):
+    """
+    INSERT del evento en su propio savepoint.
+
+    El savepoint existe para que un INSERT fallido no deje abortada la
+    transaccion de negocio (en Postgres cualquier sentencia fallida la invalida
+    hasta el rollback), y asi poder reintentar degradado. NO es un "traga
+    errores": quien llama decide que hacer con la excepcion.
+    """
+    with transaction.atomic():
+        return EventoSync.objects.create(
+            payload=payload,
+            hash_payload=hash_payload,
+            estado=estado,
+            **campos,
+        )
 
 
 # ============================================================================

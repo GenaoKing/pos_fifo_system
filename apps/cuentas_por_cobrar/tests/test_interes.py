@@ -9,6 +9,7 @@ from apps.cuentas_por_cobrar.services import registrar_pago_cxc_service
 from apps.inventario.models import Compra, DetalleCompra
 from apps.productos.models import Categoria, Producto
 from apps.sync.serializers import serializar_cxc
+from apps.permisos.testing import habilitar_cajero
 from apps.ventas.models import Pago
 from apps.ventas.services import (
     LimiteCreditoExcedidoError,
@@ -34,6 +35,8 @@ class InteresFinanciamientoTests(TestCase):
             rol='CAJERA',
             activo=True,
         )
+        # La venta exige `ventas.crear` server-side (RBAC del catalogo).
+        habilitar_cajero(self.cajera)
         self.categoria = Categoria.objects.create(nombre='Interes Test')
         self.producto = Producto.objects.create(
             sku='INT-PROD-001',

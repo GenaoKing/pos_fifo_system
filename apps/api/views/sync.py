@@ -36,7 +36,7 @@ import logging
 from datetime import date
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -84,7 +84,10 @@ def recibir_eventos(request):
         tipo_evento = evento_data['tipo_evento']
         payload = evento_data['payload']
 
-        # Idempotencia: si ya procesamos este hash, responder DUPLICADO
+        # Idempotencia, primer filtro: barato y cubre el caso normal (reenvio
+        # posterior). NO es suficiente por si solo — dos requests concurrentes
+        # pasan los dos por aca. El respaldo real es la constraint unica sobre
+        # `hash_payload`, que se ejerce en el INSERT de mas abajo.
         if EventoSync.objects.filter(hash_payload=hash_payload).exists():
             duplicados += 1
             resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
@@ -103,6 +106,11 @@ def recibir_eventos(request):
         try:
             with transaction.atomic():
                 handler(sucursal, payload)
+                # Este INSERT es la RESERVA del hecho, no solo su bitacora:
+                # corre en la misma transaccion que el handler, asi que si otro
+                # request concurrente ya reservo el hash, falla aca y revierte
+                # tambien el efecto del handler. Sin esto, dos daemons
+                # solapados duplicaban pagos CxC y movimientos de caja.
                 EventoSync.objects.create(
                     sucursal=sucursal,
                     tipo_evento=tipo_evento,
@@ -120,6 +128,16 @@ def recibir_eventos(request):
                 tipo_evento,
                 _extraer_referencia(tipo_evento, payload),
                 hash_payload[:12],
+            )
+        except IntegrityError:
+            # Perdio la carrera contra otro request con el mismo hash. El otro
+            # aplico el efecto y esta transaccion ya revirtio la duplicada:
+            # para la sucursal el hecho esta entregado.
+            duplicados += 1
+            resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+            logger.info(
+                '[SYNC] %s hash=%s aplicado por otra request concurrente',
+                tipo_evento, hash_payload[:12],
             )
         except Exception as exc:
             errores += 1
@@ -608,19 +626,28 @@ def _handler_venta_creada(sucursal, payload):
 
     existente = Venta.objects.filter(numero_venta=numero_venta).first()
     if existente:
-        # Reenvio CORRECTIVO, no un no-op. Una venta replicada por una sucursal
-        # con codigo viejo pudo quedar sin cliente (el payload no traia forma de
-        # identificarlo). Si ahora si viene, se enlaza. Nunca se pisa un cliente
-        # ya asignado.
+        # Reenvio CORRECTIVO, no un no-op. Una venta replicada antes pudo quedar
+        # sin cliente (el payload no traia forma de identificarlo) o con lineas
+        # omitidas (un SKU que todavia no existia en cloud). Si ahora se puede
+        # completar, se completa. Nunca se pisa un cliente ya asignado.
         if existente.cliente_id is None:
             cliente = _resolver_o_crear_cliente(sucursal, payload)
             if cliente is not None:
                 existente.cliente = cliente
                 existente.save(update_fields=['cliente'])
                 logger.info('Venta %s: cliente enlazado en reenvio', numero_venta)
-        else:
-            logger.info('Venta %s ya existe en cloud, skip', numero_venta)
+
+        _reparar_lineas_venta(existente, payload, numero_venta)
         return
+
+    # Todas las dependencias ANTES de crear nada. Antes, un SKU que todavia no
+    # existia en cloud solo generaba un warning y esa linea se omitia: la venta
+    # quedaba con cabecera y pagos completos pero detalles incompletos, y el
+    # evento se confirmaba, asi que ese reenvio ya no podia repararla nunca.
+    # Fallar el evento entero lo deja reintentable: cuando el producto llegue,
+    # el mismo evento se aplica completo. Es el criterio que ya usaba el
+    # handler de cotizaciones.
+    productos_por_sku = _resolver_productos_venta(payload, numero_venta)
 
     # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
     # resuelto), caer al usuario de servicio de la sucursal en vez de reventar
@@ -647,14 +674,7 @@ def _handler_venta_creada(sucursal, payload):
         Venta.objects.filter(pk=venta.pk).update(fecha_venta=fecha)
 
     for d in payload.get('detalles', []):
-        sku = d.get('producto_sku')
-        producto = Producto.objects.filter(sku=sku).first() if sku else None
-        if not producto:
-            logger.warning(
-                'Producto SKU %s no existe en cloud para venta %s; linea omitida',
-                sku, numero_venta,
-            )
-            continue
+        producto = productos_por_sku[d.get('producto_sku')]
         DetalleVenta.objects.create(
             venta=venta,
             producto=producto,
@@ -673,6 +693,79 @@ def _handler_venta_creada(sucursal, payload):
             metodo=p.get('metodo', 'EFECTIVO'),
             monto=Decimal(p.get('monto', '0')),
             referencia=p.get('referencia', '') or '',
+        )
+
+
+def _resolver_productos_venta(payload, numero_venta):
+    """
+    Mapa {sku: Producto} con TODOS los productos que la venta necesita.
+
+    Levanta si falta alguno: una venta a medias no es una venta. El evento
+    queda reintentable y se aplica completo cuando el producto llegue al cloud.
+    """
+    from apps.productos.models import Producto
+
+    skus = [d.get('producto_sku') for d in payload.get('detalles', [])]
+    encontrados = {
+        p.sku: p
+        for p in Producto.objects.filter(sku__in=[s for s in skus if s])
+    }
+
+    faltantes = sorted({s for s in skus if s not in encontrados})
+    if faltantes:
+        raise ValueError(
+            f'Venta {numero_venta}: los productos {faltantes} no existen en '
+            f'cloud todavia. El evento se reintenta cuando lleguen.'
+        )
+
+    return encontrados
+
+
+def _reparar_lineas_venta(venta, payload, numero_venta):
+    """
+    Completa detalles y pagos de una venta replicada de forma incompleta.
+
+    Solo actua cuando lo persistido no cuadra con el payload; si cuadra, no
+    toca nada. Repara las ventas que quedaron partidas ANTES de que el handler
+    validara dependencias por adelantado.
+    """
+    from apps.ventas.models import DetalleVenta, Pago
+
+    detalles_payload = payload.get('detalles', [])
+    pagos_payload = payload.get('pagos', [])
+
+    if venta.detalles.count() != len(detalles_payload):
+        productos_por_sku = _resolver_productos_venta(payload, numero_venta)
+        venta.detalles.all().delete()
+        for d in detalles_payload:
+            DetalleVenta.objects.create(
+                venta=venta,
+                producto=productos_por_sku[d.get('producto_sku')],
+                cantidad=Decimal(d.get('cantidad', '0')),
+                precio_unitario=Decimal(d.get('precio_unitario', '0')),
+                subtotal=Decimal(d.get('subtotal', '0')),
+                descuento_monto=Decimal(d.get('descuento_monto', '0')),
+                descuento_porcentaje=Decimal(d.get('descuento_porcentaje', '0')),
+                total_linea=Decimal(d.get('total_linea', '0')),
+                costo_fifo=Decimal(d.get('costo_fifo', '0')),
+            )
+        logger.info(
+            'Venta %s: %d linea(s) reconstruidas en reenvio correctivo',
+            numero_venta, len(detalles_payload),
+        )
+
+    if venta.pagos.count() != len(pagos_payload):
+        venta.pagos.all().delete()
+        for p in pagos_payload:
+            Pago.objects.create(
+                venta=venta,
+                metodo=p.get('metodo', 'EFECTIVO'),
+                monto=Decimal(p.get('monto', '0')),
+                referencia=p.get('referencia', '') or '',
+            )
+        logger.info(
+            'Venta %s: %d pago(s) reconstruidos en reenvio correctivo',
+            numero_venta, len(pagos_payload),
         )
 
 
@@ -906,14 +999,42 @@ def _handler_movimiento_inventario(sucursal, payload):
 
 
 def _handler_inventario_snapshot(sucursal, payload):
-    """Upsert del stock actual por producto para una sucursal."""
+    """
+    Upsert del stock actual por producto para una sucursal.
+
+    El snapshot es last-write-wins, pero "last" se decide por el timestamp que
+    trae el payload, NO por el orden de llegada. Un reintento o una corrida
+    manual pueden entregar un snapshot viejo despues de uno nuevo; aplicarlo
+    incondicionalmente hacia retroceder existencias y valuacion en el portal
+    hasta que llegara otro snapshot.
+    """
     from apps.sync.models import InventarioSucursalSnapshot
 
     timestamp = parse_datetime(payload['timestamp']) if payload.get('timestamp') else timezone.now()
+
+    vigentes = {
+        fila.producto_sku: fila.timestamp
+        for fila in InventarioSucursalSnapshot.objects.filter(
+            sucursal=sucursal,
+            producto_sku__in=[
+                item.get('producto_sku')
+                for item in payload.get('items', [])
+                if item.get('producto_sku')
+            ],
+        ).only('producto_sku', 'timestamp')
+    }
+
+    obsoletos = 0
     for item in payload.get('items', []):
         sku = item.get('producto_sku')
         if not sku:
             continue
+
+        vigente = vigentes.get(sku)
+        if vigente is not None and timestamp < vigente:
+            obsoletos += 1
+            continue
+
         InventarioSucursalSnapshot.objects.update_or_create(
             sucursal=sucursal,
             producto_sku=sku,
@@ -926,6 +1047,13 @@ def _handler_inventario_snapshot(sucursal, payload):
                 'timestamp': timestamp,
                 'payload': item,
             },
+        )
+
+    if obsoletos:
+        logger.info(
+            'Snapshot de %s con timestamp %s: %d SKU(s) omitidos por tener una '
+            'foto mas reciente aplicada.',
+            getattr(sucursal, 'codigo', None), timestamp, obsoletos,
         )
 
 

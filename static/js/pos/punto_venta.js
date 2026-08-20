@@ -974,19 +974,13 @@ function posData() {
                     // ✅ VENTA EXITOSA
                     console.log('✅ Venta procesada:', data.venta);
 
-                    // Si viene de una cotizacion, marcarla como convertida
-                    if (data.success && this.cotizacionId) {
-                        try {
-                            await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
-                                method: 'POST',
-                                headers: jsonHeaders(),
-                                body: JSON.stringify({ venta_id: data.venta.id }),
-                            });
-                        } catch (e) {
-                            console.warn('No se pudo marcar cotizacion como convertida:', e);
-                        }
-                    }
-                    
+                    // NOTA: la cotizacion de origen ya quedo marcada como
+                    // CONVERTIDA y vinculada a la venta DENTRO de la misma
+                    // transaccion del servidor (se envia `cotizacion_id` en el
+                    // payload). Antes esto era un segundo request desde aca: si
+                    // se perdia, la cotizacion seguia PENDIENTE y se podia
+                    // vender dos veces.
+
                     // Mostrar confirmación
                     showToast('success',
                         '🎉 ¡VENTA EXITOSA!\n\n' +
@@ -999,19 +993,6 @@ function posData() {
                     // Limpiar carrito
                     this.limpiarCarrito();
 
-                    // Si viene de cotizacion, marcarla como convertida
-                    if (this.cotizacionId) {
-                        try {
-                            await fetch(`/cotizaciones/api/${this.cotizacionId}/convertida/`, {
-                                method: 'POST',
-                                headers: jsonHeaders(),
-                                body: JSON.stringify({ venta_id: data.venta.id }),
-                            });
-                        } catch (e) {
-                            console.warn('No se pudo marcar cotizacion como convertida:', e);
-                        }
-                    }
-                    
                     // Opcional: Redirigir a página de confirmación
                     // window.location.href = `/pos/venta/${data.venta.id}/exito/`;
                     

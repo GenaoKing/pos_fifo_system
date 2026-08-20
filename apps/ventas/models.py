@@ -1,10 +1,15 @@
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.core.validators import MinValueValidator
 from django.conf import settings
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 import pytz
 import django.utils.timezone as django_timezone
+
+# Reintentos de asignacion de numero_venta ante colision con otra caja.
+# Ver Venta.save(): la carrera es corta (dos INSERT del mismo prefijo en el
+# mismo instante), por lo que un puñado de reintentos la cubre de sobra.
+MAX_INTENTOS_NUMERO_VENTA = 5
 
 class Venta(models.Model):
     """
@@ -142,33 +147,90 @@ class Venta(models.Model):
             santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
             self.fecha_venta = django_timezone.now().astimezone(santo_domingo_tz)
             print(f"Fecha de venta establecida a {self.fecha_venta} (Santo Domingo)")
-        # SEGUNDO: Generar número de venta basado en fecha_venta
-        if not self.numero_venta:
-            fecha_str = self.fecha_venta.strftime('%Y%m%d')
 
-            # Fase 2: prefijo de sucursal si existe
-            if self.sucursal:
-                prefijo = f'{self.sucursal.codigo}-V{fecha_str}'
-            else:
-                prefijo = f'V-{fecha_str}'
+        # SEGUNDO: Generar número de venta basado en fecha_venta.
+        # Si ya viene asignado (replicación cloud, correcciones), no se toca.
+        if self.numero_venta:
+            return super().save(*args, **kwargs)
 
-            ultimo = Venta.objects.filter(
-                numero_venta__startswith=prefijo
-            ).count()
-            self.numero_venta = f'{prefijo}-{str(ultimo + 1).zfill(4)}'
-        
-        super().save(*args, **kwargs)
-    
+        prefijo = self._prefijo_numero_venta()
+
+        # `numero_venta` es unique y la secuencia se calcula leyendo la tabla,
+        # asi que dos cajas cerrando a la vez pueden proponer el mismo numero.
+        # En vez de reventar con un 500 despues de que el cajero ya cobro,
+        # reintentamos dentro de un savepoint: el INSERT fallido no aborta la
+        # transaccion de negocio y la siguiente vuelta lee el numero ya tomado.
+        for intento in range(MAX_INTENTOS_NUMERO_VENTA):
+            self.numero_venta = self._siguiente_numero_venta(prefijo)
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                if intento == MAX_INTENTOS_NUMERO_VENTA - 1:
+                    raise
+                self.numero_venta = ''
+
+    def _prefijo_numero_venta(self):
+        """
+        Prefijo del numero de venta. Con sucursal asignada incluye su codigo,
+        lo que hace el numero unico entre sucursales del mismo negocio (el
+        cloud deduplica por `numero_venta`). Sin sucursal cae al formato
+        legacy `V-<fecha>`.
+        """
+        fecha_str = self.fecha_venta.strftime('%Y%m%d')
+        if self.sucursal_id:
+            return f'{self.sucursal.codigo}-V{fecha_str}'
+        return f'V-{fecha_str}'
+
+    @staticmethod
+    def _siguiente_numero_venta(prefijo):
+        """
+        Siguiente correlativo del prefijo.
+
+        Usa el MAXIMO sufijo existente, no `count()`: contar filas reutiliza un
+        numero ya emitido en cuanto la secuencia tiene un hueco (una venta
+        borrada o corregida a mano), y ahi la colision es permanente en vez de
+        transitoria.
+        """
+        numeros = Venta.objects.filter(
+            numero_venta__startswith=prefijo
+        ).values_list('numero_venta', flat=True)
+
+        ultimo = 0
+        for numero in numeros:
+            sufijo = numero.rsplit('-', 1)[-1]
+            if sufijo.isdigit():
+                ultimo = max(ultimo, int(sufijo))
+
+        return f'{prefijo}-{str(ultimo + 1).zfill(4)}'
+
     def puede_anularse(self):
-        """Verifica si puede anularse (dentro de 15 días)"""
+        """
+        Verifica si la venta esta dentro del plazo de anulacion configurado.
+
+        El plazo sale de `ConfiguracionNegocio.dias_anulacion` — la misma
+        fuente que muestra la UI y que cita el mensaje de error del service.
+        La comparacion es entre datetimes *aware*: mezclar `datetime.now()`
+        naive con la fecha de venta corre el vencimiento tantas horas como
+        offset tenga el host (en un host UTC, 4 horas respecto a Santo Domingo).
+        """
         if self.estado == 'ANULADA':
             return False
-        
-        dias_permitidos = getattr(settings, 'ANULACION_DIAS_PERMITIDOS', 15)
+
+        from apps.configuracion.utils import get_config
+
+        try:
+            dias_permitidos = get_config().dias_anulacion
+        except Exception:
+            # Sin configuracion cargable (instalacion a medio migrar) caemos al
+            # default historico en vez de bloquear la anulacion.
+            dias_permitidos = getattr(settings, 'ANULACION_DIAS_PERMITIDOS', 15)
+
         fecha_limite = self.fecha_venta + timedelta(days=dias_permitidos)
-        
-        return datetime.now() <= fecha_limite.replace(tzinfo=None)
-    
+
+        return django_timezone.now() <= fecha_limite
+
+
     def calcular_totales(self):
         """Recalcula totales basado en detalles"""
         detalles = self.detalles.all()

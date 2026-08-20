@@ -144,6 +144,30 @@ class EventoSync(models.Model):
             models.Index(fields=['sucursal', 'estado']),
             models.Index(fields=['tipo_evento', 'estado']),
         ]
+        constraints = [
+            # Idempotencia con respaldo de BD, no solo de aplicacion.
+            #
+            # En el cloud, `recibir_eventos` consultaba el hash y DESPUES abria
+            # la transaccion del handler: dos requests con el mismo hash podian
+            # pasar los dos por el `exists()` y aplicar el pago dos veces. Con
+            # esta constraint, el `EventoSync.objects.create()` que corre DENTRO
+            # de la misma transaccion que el handler hace de reserva: el segundo
+            # INSERT falla, la transaccion revierte y el efecto no se duplica.
+            #
+            # El hash identifica un hecho, no un envio: todos los payloads
+            # llevan una PK local (`pago_id_local`, `movimiento_id_local`, ...)
+            # o un timestamp propio, asi que dos hechos distintos no pueden
+            # colisionar. Reenviar el mismo hecho SI colisiona, que es
+            # exactamente lo que se quiere.
+            #
+            # Se excluye el hash vacio: los eventos SIN_PAYLOAD todavia no lo
+            # tienen y son varios legitimamente.
+            models.UniqueConstraint(
+                fields=['hash_payload'],
+                condition=~models.Q(hash_payload=''),
+                name='uniq_eventosync_hash_no_vacio',
+            ),
+        ]
 
     def __str__(self):
         ref = self.objeto_referencia or f'#{self.pk}'
@@ -158,14 +182,76 @@ class EventoSync(models.Model):
         self.save(update_fields=['estado', 'confirmed_at', 'sent_at'])
 
     def marcar_error(self, mensaje, max_retries=10):
-        """Marca error; si supera max_retries, pasa a DESCARTADO."""
-        self.intentos += 1
-        self.ultimo_error = (mensaje or '')[:2000]
-        if self.intentos >= max_retries:
-            self.estado = 'DESCARTADO'
-        else:
-            self.estado = 'ERROR'
-        self.save(update_fields=['estado', 'intentos', 'ultimo_error'])
+        """
+        Marca error; si supera max_retries, pasa a DESCARTADO.
+
+        La transicion es CONDICIONAL: nunca degrada un evento ya CONFIRMADO.
+        Dos workers pueden empujar el mismo evento a la vez; si la respuesta
+        lenta de uno llega despues de que el otro lo confirmo, aplicar el error
+        sobre una instancia obsoleta reabria un evento ya entregado y lo hacia
+        rebotar contra el cloud hasta agotar intentos.
+        """
+        aplicado = type(self).objects.filter(
+            pk=self.pk,
+            estado__in=self.ESTADOS_ENVIABLES,
+        ).update(
+            intentos=models.F('intentos') + 1,
+            ultimo_error=(mensaje or '')[:2000],
+            estado=models.Case(
+                models.When(
+                    intentos__gte=max_retries - 1,
+                    then=models.Value('DESCARTADO'),
+                ),
+                default=models.Value('ERROR'),
+                output_field=models.CharField(),
+            ),
+        )
+        if aplicado:
+            self.refresh_from_db(fields=['estado', 'intentos', 'ultimo_error'])
+        return bool(aplicado)
+
+    def reactivar(self):
+        """
+        Devuelve el evento a la cola de envio de forma efectiva.
+
+        Reinicia `intentos`: el push excluye por `intentos >= SYNC_MAX_RETRIES`,
+        asi que poner el estado en PENDIENTE sin tocar el contador dejaba el
+        evento invisible para el daemon aunque el Admin dijera lo contrario.
+        Unica funcion de dominio para reintentar, usada por el Admin y por
+        `verificar_sync --reintentar-descartados`.
+        """
+        self.estado = 'SIN_PAYLOAD' if not self.payload else 'PENDIENTE'
+        self.intentos = 0
+        self.ultimo_error = ''
+        self.sent_at = None
+        self.save(update_fields=['estado', 'intentos', 'ultimo_error', 'sent_at'])
+        return self
+
+
+def reactivar_eventos(queryset):
+    """
+    Devuelve a la cola de envio todos los eventos de `queryset`. Retorna cuantos.
+
+    Unica implementacion de "reintentar", compartida por el Admin y por
+    `verificar_sync --reintentar-descartados`. Antes cada uno hacia lo suyo: el
+    Admin ponia PENDIENTE sin tocar `intentos`, y como el push excluye por
+    `intentos >= SYNC_MAX_RETRIES`, el daemon nunca volvia a mirarlos. El
+    operador veia "N eventos puestos en cola" y no pasaba nada.
+
+    El estado destino depende del payload: un evento sin payload vuelve como
+    SIN_PAYLOAD para que el push lo re-serialice desde la BD.
+    """
+    ids = list(queryset.values_list('id', flat=True))
+    if not ids:
+        return 0
+
+    base = EventoSync.objects.filter(id__in=ids)
+    comun = {'intentos': 0, 'ultimo_error': '', 'sent_at': None}
+
+    return (
+        base.filter(payload__isnull=True).update(estado='SIN_PAYLOAD', **comun)
+        + base.filter(payload__isnull=False).update(estado='PENDIENTE', **comun)
+    )
 
 
 class VersionMaestro(models.Model):

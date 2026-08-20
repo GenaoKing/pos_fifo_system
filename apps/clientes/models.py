@@ -125,6 +125,25 @@ class Cliente(models.Model):
         help_text='PK que tiene el cliente en la BD de su sucursal de origen.'
     )
 
+    # Identidad cloud estable. Ver apps/sync/engine.py::_pull_clientes.
+    #
+    # El pull identificaba por clave natural (cedula_rnc, o nombre+tipo cuando
+    # no hay cedula), asi que renombrar un cliente -- o corregirle la cedula --
+    # creaba OTRO en la sucursal y dejaba sus ventas y su cartera colgando del
+    # viejo. Con este campo la fila se reconoce aunque cambie cualquier
+    # atributo visible.
+    #
+    # Null = fila de origen local todavia no reconciliada con el cloud. La
+    # clave natural sigue sirviendo para adoptarla la primera vez.
+    origen_cloud_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        verbose_name='ID en cloud',
+        help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
+    )
+
     class Meta:
         verbose_name = 'Cliente'
         verbose_name_plural = 'Clientes'

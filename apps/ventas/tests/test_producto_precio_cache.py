@@ -78,7 +78,8 @@ class PrecioProductoCacheTests(TestCase):
         engine = SyncEngine(cloud_url='https://cloud.example', token='token')
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            return engine._pull_productos()
+            # `_pull_*` devuelve metricas estructuradas; aca solo interesa el conteo.
+            return engine._pull_productos()['count']
 
     def test_pos_lee_precio_actualizado_despues_del_pull_con_config_cacheada(self):
         get_config()

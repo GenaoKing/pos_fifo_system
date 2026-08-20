@@ -274,10 +274,14 @@ class ConfiguracionNegocio(models.Model):
             )
             return obj
         else:
-            # Backward compatible: cargar la primera config o crear una con pk=1
+            # Backward compatible: cargar la primera config o crear una con pk=1.
+            # El leer-y-crear tiene carrera: en una instalacion recien montada,
+            # dos requests simultaneos veian None los dos y el segundo moria con
+            # IntegrityError sobre la pk. `get_or_create` reintenta la lectura
+            # dentro de su propio savepoint.
             obj = cls.objects.first()
             if obj is None:
-                obj = cls.objects.create(pk=1)
+                obj, _ = cls.objects.get_or_create(pk=1)
             return obj
 
     def get_metodos_pago_activos(self):

@@ -7,6 +7,7 @@ from apps.clientes.models import Cliente
 from apps.cuentas_por_cobrar.models import MetodoPlazoCredito
 from apps.inventario.models import Compra, DetalleCompra
 from apps.productos.models import Categoria, Producto
+from apps.permisos.testing import habilitar_cajero
 from apps.ventas.services import procesar_venta_service
 
 
@@ -27,6 +28,8 @@ class ExportEstadoCuentaTests(TestCase):
             rol='CAJERA',
             activo=True,
         )
+        # La venta exige `ventas.crear` server-side (RBAC del catalogo).
+        habilitar_cajero(self.cajera)
         categoria = Categoria.objects.create(nombre='Export Test')
         self.producto = Producto.objects.create(
             sku='EXP-PROD-001',

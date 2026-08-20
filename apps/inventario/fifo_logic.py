@@ -29,14 +29,19 @@ def obtener_stock_disponible(producto_id):
     return total or 0
 
 
-def obtener_lotes_fifo(producto_id, cantidad_necesaria):
+def obtener_lotes_fifo(producto_id, cantidad_necesaria, bloquear=False):
     """
     Obtiene los lotes que se deben consumir siguiendo FIFO
-    
+
     Args:
         producto_id: ID del producto
         cantidad_necesaria: Cantidad a consumir
-        
+        bloquear: si True, toma un lock de fila (SELECT ... FOR UPDATE) sobre
+            los lotes candidatos. Obligatorio cuando el resultado se va a usar
+            para descontar stock: sin el lock, dos ventas simultaneas leen la
+            misma `cantidad_actual` y la segunda pisa el descuento de la
+            primera (lost update / sobreventa). Requiere transaccion activa.
+
     Returns:
         list: Lista con info de consumo por lote
     """
@@ -46,7 +51,12 @@ def obtener_lotes_fifo(producto_id, cantidad_necesaria):
         cantidad_actual__gt=0,
         activo=True
     ).order_by('fecha_compra', 'id')
-    
+
+    if bloquear:
+        # El orden del lock es siempre el mismo (fecha_compra, id) para todas
+        # las ventas del mismo producto, asi que no hay deadlock entre cajas.
+        lotes = lotes.select_for_update()
+
     resultado = []
     cantidad_pendiente = cantidad_necesaria
     
@@ -83,9 +93,11 @@ def procesar_venta_fifo(producto_id, cantidad_solicitada, venta_id, usuario):
     Returns:
         dict: Información del procesamiento
     """
-    # Obtener lotes a consumir
-    lotes_consumo = obtener_lotes_fifo(producto_id, cantidad_solicitada)
-    
+    # Obtener lotes a consumir. `bloquear=True` serializa el consumo del mismo
+    # producto entre cajas: el resto de la funcion es un read-modify-write sobre
+    # `cantidad_actual`, que sin lock se pierde bajo concurrencia.
+    lotes_consumo = obtener_lotes_fifo(producto_id, cantidad_solicitada, bloquear=True)
+
     cantidad_disponible = sum(item['cantidad'] for item in lotes_consumo)
     
     movimientos_creados = []
@@ -141,34 +153,74 @@ def anular_venta_devolver_stock(venta_id, usuario):
         usuario: Usuario que anula
         
     Returns:
-        dict: Resultado de la operación
+        dict: Resultado de la operación. Claves relevantes:
+            success           -> la reversa quedo aplicada (o ya lo estaba)
+            sin_movimientos   -> la venta nunca consumio lotes (venta con
+                                 inventario negativo); no hay nada que devolver
+            ya_revertida      -> ya existia la reversa; esta llamada no repitio
+                                 la devolucion
     """
     # Obtener movimientos de la venta
-    movimientos = MovimientoLote.objects.filter(
-        referencia_tipo='Venta',
-        referencia_id=venta_id,
-        tipo='VENTA'
+    movimientos = list(
+        MovimientoLote.objects.filter(
+            referencia_tipo='Venta',
+            referencia_id=venta_id,
+            tipo='VENTA'
+        ).select_related('lote')
     )
-    
-    if not movimientos.exists():
+
+    if not movimientos:
+        # No es un error: con inventario negativo habilitado una venta puede
+        # cerrarse sin ningun lote que consumir. Devolver `success=False` aqui
+        # hacia imposible anular esa venta (el service abortaba toda la
+        # anulacion), dejandola sin reversa de CxC ni nota de credito.
         return {
-            'success': False,
-            'error': 'No se encontraron movimientos'
+            'success': True,
+            'sin_movimientos': True,
+            'lotes_actualizados': 0,
+            'cantidad_devuelta': 0,
         }
-    
+
+    # Idempotencia: si ya hay movimientos de anulacion para esta venta, la
+    # reversa se aplico antes. Repetirla infla el stock. Dos anulaciones
+    # concurrentes se serializan por el lock de lotes de abajo, y la segunda
+    # entra aca y no hace nada.
+    lote_ids = sorted({m.lote_id for m in movimientos})
+
+    # Lock de los lotes involucrados, en orden estable de id para no cruzar
+    # deadlocks con otra anulacion que toque los mismos lotes.
+    lotes_bloqueados = {
+        lote.id: lote
+        for lote in Lote.objects.select_for_update().filter(id__in=lote_ids).order_by('id')
+    }
+
+    if MovimientoLote.objects.filter(
+        referencia_tipo='AnulacionVenta',
+        referencia_id=venta_id,
+        tipo='ANULACION',
+    ).exists():
+        return {
+            'success': True,
+            'ya_revertida': True,
+            'lotes_actualizados': 0,
+            'cantidad_devuelta': 0,
+        }
+
     lotes_actualizados = []
-    
+
     # Devolver stock a cada lote
     for movimiento in movimientos:
-        lote = movimiento.lote
+        # Usar la instancia bloqueada: `movimiento.lote` traeria una copia
+        # leida antes del lock y volveria a abrir la ventana de lost update.
+        lote = lotes_bloqueados[movimiento.lote_id]
         cantidad_devolver = abs(movimiento.cantidad)
-        
+
         cantidad_anterior = lote.cantidad_actual
-        
+
         # Devolver stock
         lote.cantidad_actual += cantidad_devolver
         lote.save()
-        
+
         # Crear movimiento de anulación
         MovimientoLote.objects.create(
             lote=lote,
@@ -181,9 +233,9 @@ def anular_venta_devolver_stock(venta_id, usuario):
             usuario=usuario,
             notas=f'Anulación de venta #{venta_id}'
         )
-        
+
         lotes_actualizados.append(lote)
-    
+
     return {
         'success': True,
         'lotes_actualizados': len(lotes_actualizados),

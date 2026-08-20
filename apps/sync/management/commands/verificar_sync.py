@@ -173,7 +173,7 @@ class Command(BaseCommand):
         por no poder identificar al cliente quedaron en DESCARTADO. Con el
         resolutor nuevo desplegado, reintentarlas las aplica.
         """
-        from apps.sync.models import EventoSync
+        from apps.sync.models import EventoSync, reactivar_eventos
 
         w = self.stdout.write
         w('')
@@ -199,8 +199,8 @@ class Command(BaseCommand):
             w(f'  {tipo}: {n}')
 
         if self.ejecutar:
-            actualizados = qs.update(estado='PENDIENTE', intentos=0, ultimo_error='')
-            w(self.style.SUCCESS(f'  Devueltos a PENDIENTE: {actualizados}'))
+            actualizados = reactivar_eventos(qs)
+            w(self.style.SUCCESS(f'  Devueltos a la cola: {actualizados}'))
         self._aviso_dry_run()
 
     def _purgar_confirmados(self, dias):
@@ -340,7 +340,10 @@ class Command(BaseCommand):
         # Guardamos las PKs para que --backfill sepa exactamente que re-encolar.
         self._pks_faltantes = {}
 
-        for clave, hecho in registry.HECHOS.items():
+        # Solo los hechos primarios: para un derivado (VENTA_ANULADA, CXC_*)
+        # "existe el objeto y no existe su evento" no implica que falte
+        # encolarlo. Ver el docstring de apps/sync/registry.py.
+        for clave, hecho in registry.hechos_backfilleables().items():
             if hecho.modelo() is None:
                 resultado[clave] = {'estado': 'modelo no disponible'}
                 continue

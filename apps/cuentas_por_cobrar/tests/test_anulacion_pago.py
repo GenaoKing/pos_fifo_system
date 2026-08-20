@@ -13,6 +13,7 @@ from apps.inventario.models import Compra, DetalleCompra
 from apps.productos.models import Categoria, Producto
 from apps.sync.models import EventoSync
 from apps.sync.serializers import serializar_anulacion_pago_cxc
+from apps.permisos.testing import habilitar_cajero
 from apps.ventas.services import MetodoPlazoCreditoInvalidoError, procesar_venta_service
 
 
@@ -33,6 +34,8 @@ class AnulacionPagoCxCTestsBase(TestCase):
             rol='CAJERA',
             activo=True,
         )
+        # La venta exige `ventas.crear` server-side (RBAC del catalogo).
+        habilitar_cajero(self.cajera)
         self.categoria = Categoria.objects.create(nombre='Anulacion Test')
         self.producto = Producto.objects.create(
             sku='ANUL-PROD-001',
@@ -209,12 +212,15 @@ class AnulacionPagoCxCServiceTests(AnulacionPagoCxCTestsBase):
         self.assertEqual(esperado_con_pago['efectivo_cxc'] - esperado_sin_pago['efectivo_cxc'], Decimal('40.00'))
         self.assertEqual(esperado_con_pago['esperado'] - esperado_sin_pago['esperado'], Decimal('40.00'))
 
-    @override_settings(SYNC_ENABLED=True)
     def test_encola_evento_sync_cxc_pago_anulado(self):
         cuenta = self._crear_cuenta()
         pago = self._abonar(cuenta, '30.00')
 
-        with self.captureOnCommitCallbacks(execute=True):
+        # SYNC_ENABLED se activa SOLO para la operacion bajo prueba. Con el
+        # override sobre todo el test, la venta del fixture cae en el guard de
+        # `_resolver_sucursal`: una instalacion que replica al cloud y no puede
+        # resolver su sucursal no debe facturar (VENTAS-001).
+        with override_settings(SYNC_ENABLED=True), self.captureOnCommitCallbacks(execute=True):
             anular_pago_cxc_service(pago_id=pago.id, usuario=self.admin, motivo='sync')
 
         evento = EventoSync.objects.filter(tipo_evento='CXC_PAGO_ANULADO').first()

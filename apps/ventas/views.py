@@ -51,6 +51,7 @@ from apps.ventas.services import (
     anular_venta_service,
     ErrorVentaBase,
 )
+from apps.permisos.decorators import requiere_permiso_json
 
 # ============================================
 # VISTA PRINCIPAL DEL POS
@@ -381,6 +382,7 @@ def verificar_stock(request, producto_id):
     
 
 @login_required
+@requiere_permiso_json('ventas.crear')
 @require_http_methods(["POST"])
 def procesar_venta(request):
     """
@@ -390,6 +392,10 @@ def procesar_venta(request):
     procesar_venta_service la lógica de negocio (validaciones,
     transacciones, hooks de sync/print/e-CF), y traduce el resultado
     o las excepciones tipadas a JsonResponse.
+
+    El gate de `ventas.crear` está acá para cortar temprano y con un 403
+    limpio; el service repite la comprobación porque es la frontera real
+    (cualquier otro llamador queda igual de cubierto).
 
     POST Body (JSON):
     {
@@ -405,12 +411,14 @@ def procesar_venta(request):
         "referencia_tarjeta": "...",      // opcional
         "total": 95.00,
         "cliente_id": 5,                  // opcional, null = CONTADO
+        "cotizacion_id": 12,              // opcional, cotización de origen
         "tipo_ecf": "32"                  // opcional, "31" o "32" (default "32")
     }
 
     Returns:
         200: {"success": true, "venta": {...}, "mensaje": "..."}
         400: {"success": false, "error": "..."}    # validación de negocio
+        403: {"success": false, "error": "..."}    # sin permiso de venta/descuento
         404: {"success": false, "error": "..."}    # producto inexistente
         500: {"success": false, "error": "..."}    # excepción no manejada
     """

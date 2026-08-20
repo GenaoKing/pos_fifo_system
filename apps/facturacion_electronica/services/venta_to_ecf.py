@@ -333,29 +333,14 @@ def _build_comprador(venta: 'Venta', tipo_ecf: str) -> dict | None:
 
     - Tipo 34 (nota de crédito): replica el comprador del ECF original.
     """
-    cliente = venta.cliente if hasattr(venta, 'cliente') else None
-
-    # El Cliente CONTADO genérico (Cliente.tipo == 'CONTADO') es un
-    # placeholder del sistema, no una identidad fiscal. Se trata
-    # como ausencia para fines de e-CF.
-    if cliente is not None and cliente.tipo == 'CONTADO':
-        cliente = None
+    cliente = comprador_fiscal(venta.cliente if hasattr(venta, 'cliente') else None)
 
     if tipo_ecf == '31':
-        if cliente is None:
-            raise ValueError(
-                'e-CF tipo 31 requiere cliente con RNC. '
-                'La venta no tiene cliente real asignado '
-                '(o el asignado es CONTADO genérico).'
-            )
-        rnc = _normalizar_rnc(cliente.cedula_rnc)
-        if not rnc:
-            raise ValueError(
-                f'Cliente "{cliente.nombre}" no tiene cédula/RNC válido. '
-                f'No se puede emitir tipo 31.'
-            )
+        motivo = motivo_tipo_31_no_emitible(cliente)
+        if motivo:
+            raise ValueError(motivo)
         return {
-            'rnc_o_cedula': rnc,
+            'rnc_o_cedula': _normalizar_rnc(cliente.cedula_rnc),
             'razon_social': cliente.nombre,
             'direccion': (cliente.direccion or '').strip(),
         }
@@ -370,6 +355,48 @@ def _build_comprador(venta: 'Venta', tipo_ecf: str) -> dict | None:
         'razon_social': cliente.nombre,
         'direccion': (cliente.direccion or '').strip(),
     }
+
+
+# -----------------------------------------------------------------------------
+# Precondiciones de tipo fiscal, reutilizables ANTES de crear la venta
+# -----------------------------------------------------------------------------
+# El POS necesita rechazar un tipo 31 sin comprador fiscal *antes* de commitear
+# la venta: el encolado del e-CF corre post-commit y su fallo dejaba una venta
+# cerrada e inemitible. Estas dos funciones son la regla de dominio compartida
+# entre `_build_comprador` (mapper, post-commit) y `procesar_venta_service`
+# (pre-commit), para que no puedan divergir.
+
+def comprador_fiscal(cliente):
+    """
+    Normaliza el cliente de una venta a "comprador fiscal o nada".
+
+    El Cliente CONTADO genérico (`Cliente.tipo == 'CONTADO'`) es un placeholder
+    del sistema, no una identidad fiscal: se trata como ausencia de cliente.
+    """
+    if cliente is not None and cliente.tipo == 'CONTADO':
+        return None
+    return cliente
+
+
+def motivo_tipo_31_no_emitible(cliente):
+    """
+    Retorna el motivo por el que NO se podría emitir un e-CF tipo 31 para este
+    comprador, o None si sí se puede.
+
+    `cliente` debe venir ya pasado por `comprador_fiscal()`.
+    """
+    if cliente is None:
+        return (
+            'e-CF tipo 31 requiere cliente con RNC. '
+            'La venta no tiene cliente real asignado '
+            '(o el asignado es CONTADO genérico).'
+        )
+    if not _normalizar_rnc(cliente.cedula_rnc):
+        return (
+            f'Cliente "{cliente.nombre}" no tiene cédula/RNC válido. '
+            f'No se puede emitir tipo 31.'
+        )
+    return None
 
 
 def _normalizar_rnc(valor: str | None) -> str:

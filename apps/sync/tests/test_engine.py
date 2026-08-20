@@ -85,7 +85,7 @@ class SyncEnginePullProductosTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_productos()
+            count = make_engine()._pull_productos()['count']
 
         self.assertEqual(count, 2)
 
@@ -138,7 +138,7 @@ class SyncEnginePullCategoriasTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_categorias()
+            count = make_engine()._pull_categorias()['count']
 
         self.assertEqual(count, 1)
         cat = Categoria.objects.get(nombre='Envases')
@@ -162,7 +162,7 @@ class SyncEnginePullCategoriasTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_categorias()
+            count = make_engine()._pull_categorias()['count']
 
         self.assertEqual(count, 1)
         self.assertTrue(Categoria.objects.filter(nombre='Autopartes').exists())
@@ -224,7 +224,7 @@ class SyncEnginePullClientesTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_clientes()
+            count = make_engine()._pull_clientes()['count']
 
         self.assertEqual(count, 1)
         c = Cliente.objects.get(cedula_rnc='130123456')
@@ -264,7 +264,7 @@ class SyncEnginePullClientesTests(TestCase):
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
             with patch('apps.cuentas_por_cobrar.services.reprogramar_cxc_por_plazo_cliente') as reprogramar:
-                count = make_engine()._pull_clientes()
+                count = make_engine()._pull_clientes()['count']
 
         cliente.refresh_from_db()
         self.assertEqual(count, 1)
@@ -292,7 +292,7 @@ class SyncEnginePullClientesTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_clientes()
+            count = make_engine()._pull_clientes()['count']
 
         self.assertEqual(count, 1)
         self.assertTrue(Cliente.objects.filter(cedula_rnc='40212345678').exists())
@@ -319,7 +319,7 @@ class SyncEnginePullClientesTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_clientes()
+            count = make_engine()._pull_clientes()['count']
 
         self.assertEqual(count, 1)
         self.assertTrue(Cliente.objects.filter(nombre='Sin Cédula', tipo='PERSONAL').exists())
@@ -345,7 +345,7 @@ class SyncEnginePullClientesTests(TestCase):
         ])
 
         with patch('apps.sync.engine.requests.get', return_value=DummyResponse(payload)):
-            count = make_engine()._pull_clientes()
+            count = make_engine()._pull_clientes()['count']
 
         self.assertEqual(count, 1)
 

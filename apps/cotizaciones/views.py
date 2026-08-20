@@ -236,7 +236,16 @@ def obtener_datos_cotizacion(request, cotizacion_id):
 def marcar_convertida(request, cotizacion_id):
     """
     Marca una cotizacion como convertida y la vincula a la venta.
-    Se llama despues de que el POS procesa la venta.
+
+    OJO: el POS ya NO usa este endpoint. La conversion ocurre dentro de la
+    transaccion de la venta (`procesar_venta_service` recibe `cotizacion_id`,
+    bloquea la cotizacion y la marca en el mismo atomic). Antes era un segundo
+    request desde el navegador: si se perdia, la cotizacion quedaba PENDIENTE y
+    podia venderse otra vez, duplicando inventario consumido.
+
+    Se conserva para clientes externos y para conversiones manuales; sigue
+    validando `puede_convertirse`, asi que una cotizacion ya convertida no se
+    puede re-vincular.
     """
     try:
         data = json.loads(request.body)

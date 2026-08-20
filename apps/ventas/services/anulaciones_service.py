@@ -35,7 +35,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.db import transaction
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
@@ -48,6 +47,7 @@ from .exceptions import (
     FIFORollbackError,
     MotivoAnulacionInvalidoError,
     PermisoDenegadoError,
+    VentaNoEncontradaError,
 )
 
 if TYPE_CHECKING:
@@ -84,6 +84,7 @@ def anular_venta_service(
     Raises:
         PermisoDenegadoError: rol del usuario no autorizado.
         MotivoAnulacionInvalidoError: motivo vacío o muy corto.
+        VentaNoEncontradaError: no existe una venta con ese id (404).
         AnulacionNoPermitidaError: venta ya anulada o fuera de plazo.
         FIFORollbackError: la devolución FIFO falló (rollback automático).
         Cualquier otra excepción propaga.
@@ -107,8 +108,19 @@ def anular_venta_service(
         )
 
     with transaction.atomic():
-        venta = get_object_or_404(Venta, id=venta_id)
+        # `select_for_update()` serializa dos anulaciones simultáneas de la
+        # misma venta: sin el lock ambas leían COMPLETADA antes de que alguna
+        # commiteara, y las dos generaban reversa de stock, evento, auditoría
+        # y nota de crédito.
+        try:
+            venta = Venta.objects.select_for_update().get(id=venta_id)
+        except (Venta.DoesNotExist, ValueError, TypeError):
+            raise VentaNoEncontradaError(
+                f'No existe una venta con id={venta_id}.'
+            )
 
+        # Bajo el lock, el estado leído ya es el definitivo: la segunda
+        # anulación entra acá y ve ANULADA.
         if not venta.puede_anularse():
             if venta.estado == 'ANULADA':
                 raise AnulacionNoPermitidaError('Esta venta ya fue anulada.')
@@ -187,6 +199,11 @@ def _devolver_stock_fifo(*, venta: Venta, usuario: 'AbstractUser') -> None:
     parciales antes de retornar success=False; transaction.atomic()
     de la capa superior se encarga del rollback al levantar la
     excepción.
+
+    Una venta SIN movimientos FIFO no es un fallo: con inventario negativo
+    habilitado se puede vender un producto sin lotes, y esa venta no consumió
+    nada que devolver. Antes ese caso abortaba toda la anulación y dejaba la
+    venta imposible de anular (sin reversa de CxC ni nota de crédito).
     """
     from apps.inventario.fifo_logic import anular_venta_devolver_stock
 
@@ -198,6 +215,18 @@ def _devolver_stock_fifo(*, venta: Venta, usuario: 'AbstractUser') -> None:
         raise FIFORollbackError(
             f'Error al devolver stock: '
             f'{resultado.get("error", "Error desconocido")}'
+        )
+
+    if resultado.get('sin_movimientos'):
+        logger.warning(
+            'Venta %s se anula sin devolución de stock: no consumió lotes '
+            '(venta con inventario negativo).',
+            venta.numero_venta,
+        )
+    elif resultado.get('ya_revertida'):
+        logger.warning(
+            'Venta %s ya tenía la reversa de stock aplicada; no se repitió.',
+            venta.numero_venta,
         )
 
 

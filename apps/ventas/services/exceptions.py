@@ -38,6 +38,45 @@ class CarritoVacioError(ErrorVentaBase):
     status_code = 400
 
 
+class ItemCarritoInvalidoError(ErrorVentaBase):
+    """
+    Una linea del carrito no tiene forma valida: falta el id, la cantidad
+    no es un entero positivo, el precio no es positivo o el descuento cae
+    fuera de [0, subtotal de la linea].
+    """
+    status_code = 400
+
+
+class PrecioNoAutorizadoError(ErrorVentaBase):
+    """
+    El precio enviado por el cliente no coincide con ninguna fuente
+    autorizada (precio vigente del producto o precio de la cotizacion
+    que origina la venta).
+    """
+    status_code = 400
+
+
+class MetodoPagoInvalidoError(ErrorVentaBase):
+    """
+    El metodo de pago no esta en el allowlist del sistema o esta
+    deshabilitado en la configuracion del negocio.
+    """
+    status_code = 400
+
+
+class PagosInconsistentesError(ErrorVentaBase):
+    """
+    Postcondicion de caja: los pagos registrados no suman el total de la
+    venta. Señala un bug de armado de pagos, no un error del cajero.
+    """
+    status_code = 400
+
+
+class CotizacionInvalidaError(ErrorVentaBase):
+    """La cotizacion referida no existe, esta vencida o ya fue convertida."""
+    status_code = 400
+
+
 class TotalInconsistenteError(ErrorVentaBase):
     """
     El total enviado por el frontend no coincide con la suma calculada
@@ -94,6 +133,17 @@ class LimiteCreditoExcedidoError(ErrorVentaBase):
 # Errores de anular_venta
 # =============================================================================
 
+class VentaNoEncontradaError(ErrorVentaBase):
+    """
+    No existe una Venta con el id solicitado.
+
+    Existe para que el service no dependa de `Http404` (que el view trata
+    como excepción no anticipada y reporta como 500): un id inexistente es
+    un resultado de negocio esperable, no una falla interna.
+    """
+    status_code = 404
+
+
 class AnulacionNoPermitidaError(ErrorVentaBase):
     """La venta no puede anularse: ya está anulada, fuera de plazo, etc."""
     status_code = 400
@@ -119,6 +169,17 @@ class FIFORollbackError(ErrorVentaBase):
 class PermisoDenegadoError(ErrorVentaBase):
     """El usuario no tiene rol para la operación solicitada."""
     status_code = 403
+
+
+class SucursalNoResueltaError(ErrorVentaBase):
+    """
+    La instalacion declara `SUCURSAL_CODIGO` pero no existe esa Sucursal en BD.
+
+    Es un error de configuracion, no del cajero: seguir adelante crearia una
+    venta sin sucursal, con numeracion legacy que puede chocar con la de otra
+    sucursal al replicarse al cloud.
+    """
+    status_code = 500
 
 
 class ModuloInactivoError(ErrorVentaBase):

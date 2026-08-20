@@ -13,6 +13,7 @@ from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso
 from apps.sucursales.models import Sucursal
 from apps.sync.engine import SyncEngine
+from apps.sync.models import VersionMaestro
 
 User = get_user_model()
 
@@ -57,7 +58,7 @@ class PullRolesTests(TestCase):
         mock_get.return_value = _Resp(payload)
 
         engine = SyncEngine(cloud_url='https://cloud.example', token='t')
-        n = engine._pull_roles()
+        n = engine._pull_roles()['count']
 
         self.assertEqual(n, 1)
         # La signal m2m invalido el cache → el cajero ahora SI puede.
@@ -71,7 +72,7 @@ class PullRolesTests(TestCase):
         cache.clear()  # limpia el cache de get_sucursal_actual
 
         engine = SyncEngine(cloud_url='https://cloud.example', token='t')
-        self.assertEqual(engine._pull_roles(), 0)
+        self.assertEqual(engine._pull_roles()['count'], 0)
         mock_get.assert_not_called()
 
 
@@ -102,7 +103,7 @@ class PullAsignacionesTests(TestCase):
         mock_get.return_value = _Resp(payload)
 
         engine = SyncEngine(cloud_url='https://cloud.example', token='t')
-        n = engine._pull_asignaciones()
+        n = engine._pull_asignaciones()['count']
 
         self.assertEqual(n, 1)
         self.assertTrue(
@@ -111,7 +112,13 @@ class PullAsignacionesTests(TestCase):
         self.assertTrue(self.cajero.tiene_permiso('compras.registrar'))
 
     @patch('apps.sync.engine.requests.get')
-    def test_pull_omite_usuario_inexistente(self, mock_get):
+    def test_pull_difiere_usuario_inexistente_sin_darlo_por_aplicado(self, mock_get):
+        """
+        SYNC-006. Antes esto contaba como aplicado (`count == 1`) y el cursor
+        avanzaba: la asignacion no volvia a bajar nunca, porque en el cloud esa
+        fila no cambiaba y el `?desde=` ya la habia dejado atras. El usuario
+        quedaba sin sus permisos de forma permanente.
+        """
         payload = [{
             'usuario_username': 'no_existe',
             'rol_slug': 'compras',
@@ -122,5 +129,52 @@ class PullAsignacionesTests(TestCase):
         mock_get.return_value = _Resp(payload)
 
         engine = SyncEngine(cloud_url='https://cloud.example', token='t')
-        self.assertEqual(engine._pull_asignaciones(), 1)
+        resultado = engine._pull_asignaciones()
+
+        self.assertEqual(resultado['count'], 0)
         self.assertEqual(AsignacionRol.objects.count(), 0)
+        self.assertIsNotNone(resultado['bloqueo'])
+
+        cursor = VersionMaestro.objects.get(tabla='asignaciones')
+        self.assertIsNone(cursor.ultima_version)
+        self.assertIsNotNone(cursor.bloqueado_desde)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_asignacion_diferida_se_aplica_cuando_llega_la_dependencia(self, mock_get):
+        """Convergencia: el mismo payload, sin cambiar en cloud, se aplica en un
+        ciclo posterior una vez que el usuario existe localmente."""
+        User = get_user_model()
+        payload = [{
+            'usuario_username': 'cajero_tardio',
+            'rol_slug': 'compras',
+            'sucursal_codigo': None,
+            'activo': True,
+            'fecha_modificacion': timezone.now().isoformat(),
+        }]
+        mock_get.return_value = _Resp(payload)
+        engine = SyncEngine(cloud_url='https://cloud.example', token='t')
+
+        # Ciclo 1: el usuario todavia no existe.
+        self.assertEqual(engine._pull_asignaciones()['count'], 0)
+        self.assertEqual(AsignacionRol.objects.count(), 0)
+
+        # El usuario aparece (alta local, provision, lo que sea).
+        usuario = User.objects.create_user(
+            username='cajero_tardio',
+            email='cajero_tardio@test.local',
+            password='pass',
+            rol='CAJERA',
+            activo=True,
+        )
+        usuario.negocio = self.negocio
+        usuario.save(update_fields=['negocio'])
+
+        # Ciclo 2: el cursor no avanzo, asi que la fila vuelve a bajar.
+        mock_get.return_value = _Resp(payload)
+        self.assertEqual(engine._pull_asignaciones()['count'], 1)
+        self.assertTrue(
+            AsignacionRol.objects.filter(usuario=usuario, rol=self.rol).exists()
+        )
+
+        cursor = VersionMaestro.objects.get(tabla='asignaciones')
+        self.assertIsNone(cursor.bloqueado_desde)

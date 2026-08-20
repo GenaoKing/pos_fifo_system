@@ -40,6 +40,82 @@ logger = logging.getLogger('sync')
 # use el orden del cursor y no el alfabetico.
 _EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 
+# Tope de paginas por entidad y por ciclo. No es una regla de negocio: es un
+# freno para que un endpoint que pagina mal no consuma el ciclo entero. Lo que
+# queda pendiente se baja en el ciclo siguiente, desde el cursor commiteado.
+MAX_PAGINAS_PULL = 200
+
+
+class _Diferido:
+    """Sentinela que un `apply` devuelve cuando NO pudo aplicar el item.
+
+    Se usa para dependencias ausentes (el rol todavia no bajo, la categoria no
+    existe local): no es un error -- no hay nada roto -- pero tampoco es un
+    exito, y sobre todo NO debe avanzar la marca de agua. Si el cursor avanza,
+    la fila no vuelve a bajar cuando la dependencia aparece, porque en el cloud
+    esa fila no cambio y el `?desde=` ya la dejo atras.
+    """
+
+    def __repr__(self):
+        return '<DIFERIDO>'
+
+
+DIFERIDO = _Diferido()
+
+
+def _resultado_pull(count=0, ok=True, error=None, bloqueo=None, paginas=0):
+    """Resultado estructurado de un pull por entidad.
+
+    `pull_maestros` devolvia solo conteos, asi que un 401 en todos los
+    endpoints era indistinguible de "no habia nada que bajar": el ciclo
+    imprimia ceros y se registraba EXITOSO.
+    """
+    return {
+        'count': count,
+        'ok': ok,
+        'error': error,
+        'bloqueo': bloqueo,
+        'paginas': paginas,
+    }
+
+
+def clasificar_ciclo(*, heartbeat, push, pull):
+    """
+    Veredicto de un ciclo de sync: ('EXITOSO'|'PARCIAL'|'FALLO', motivos).
+
+    Unica politica, compartida por `SyncEngine.ciclo_completo` y por el comando
+    `sincronizar`. Antes cada uno decidia por su cuenta: el comando escribia
+    siempre `LogSync(resultado='EXITOSO')` y `ciclo_completo` solo miraba
+    `push['fallidos']`. Ninguno de los dos miraba el heartbeat ni los errores
+    de pull, asi que un cloud que rechazaba todos los endpoints autenticados
+    quedaba registrado como una corrida exitosa y `sync_status` lo mostraba
+    como salud verde.
+
+    - FALLO   -> nada de lo que se intento funciono (heartbeat caido y ningun
+                 avance): el cloud no esta respondiendo de forma util.
+    - PARCIAL -> algo funciono y algo no.
+    - EXITOSO -> heartbeat ok, sin eventos fallidos y sin errores de pull.
+    """
+    motivos = []
+
+    if not heartbeat:
+        motivos.append('heartbeat fallido')
+    if push.get('fallidos'):
+        motivos.append(f"{push['fallidos']} evento(s) no confirmados")
+    for error in pull.get('errores', []):
+        motivos.append(f'pull {error}')
+    for bloqueo in pull.get('bloqueos', []):
+        motivos.append(f'cursor bloqueado -> {bloqueo}')
+
+    if not motivos:
+        return 'EXITOSO', motivos
+
+    hubo_avance = bool(push.get('confirmados')) or bool(pull.get('total'))
+    if not heartbeat and not hubo_avance:
+        return 'FALLO', motivos
+
+    return 'PARCIAL', motivos
+
 
 class SyncConfigError(Exception):
     """Levantado si faltan settings criticos (URL o token)."""
@@ -56,6 +132,7 @@ class SyncEngine:
         self.timeout = timeout or getattr(settings, 'SYNC_HTTP_TIMEOUT', 10)
         self.batch_size = batch_size or getattr(settings, 'SYNC_BATCH_SIZE', 50)
         self.max_retries = max_retries or getattr(settings, 'SYNC_MAX_RETRIES', 10)
+        self.max_paginas_pull = getattr(settings, 'SYNC_MAX_PAGINAS_PULL', MAX_PAGINAS_PULL)
 
     # ------------------------------------------------------------------
     # Helpers internos
@@ -276,16 +353,39 @@ class SyncEngine:
         # }
         # CONFIRMADO y DUPLICADO cuentan como exito (el cloud tiene el evento);
         # solo ERROR se reintenta.
-        estado_por_hash = {
-            item.get('hash'): item
-            for item in data.get('detalle', [])
-        }
+        # El ACK tiene que ser un objeto con `detalle` como lista. Un proxy, una
+        # version incompatible o un bug cloud pueden responder 200 con otra
+        # cosa; sin validar, `.get()` sobre una lista revienta y `detalle=[]`
+        # dejaba todos los eventos sin veredicto.
+        if not isinstance(data, dict) or not isinstance(data.get('detalle'), list):
+            mensaje = (
+                f'ACK con formato invalido (se esperaba objeto con "detalle" '
+                f'como lista, llego {type(data).__name__})'
+            )
+            logger.error('push_eventos: %s', mensaje)
+            for e in eventos:
+                e.marcar_error(mensaje, max_retries=self.max_retries)
+            metricas['fallidos'] = len(eventos)
+            return metricas
+
+        estado_por_hash = {}
+        for item in data['detalle']:
+            if isinstance(item, dict) and item.get('hash'):
+                estado_por_hash[item['hash']] = item
 
         for e in eventos:
             item = estado_por_hash.get(e.hash_payload)
             if item is None:
-                # El cloud no respondio por este evento: queda como PENDIENTE
-                # para reintentar en la proxima corrida
+                # Se envio y el cloud no dijo nada de este evento. ANTES esto
+                # solo sumaba a `fallidos`: el evento quedaba enviable con el
+                # contador intacto, asi que volvia en cada batch para siempre,
+                # sin causa registrada y sin llegar nunca a DESCARTADO. Ahora
+                # consume un intento como cualquier otro fallo.
+                e.marcar_error(
+                    'El cloud no incluyo este evento en el ACK '
+                    '(hash ausente en "detalle")',
+                    max_retries=self.max_retries,
+                )
                 metricas['fallidos'] += 1
                 continue
 
@@ -295,7 +395,7 @@ class SyncEngine:
                 metricas['confirmados'] += 1
             else:
                 # ERROR u otro: reintentar
-                error_msg = item.get('error', f'Estado cloud: {estado_cloud}')
+                error_msg = item.get('error') or f'Estado cloud: {estado_cloud}'
                 e.marcar_error(error_msg, max_retries=self.max_retries)
                 metricas['fallidos'] += 1
 
@@ -312,63 +412,59 @@ class SyncEngine:
     def pull_maestros(self):
         """
         Descarga cambios en datos maestros desde el cloud.
+
         Orden: categorias -> productos -> clientes (respeta FK).
-        Retorna dict con metricas: {categorias, productos, clientes, total}.
+
+        Retorna un dict con los conteos por entidad (compatibilidad) MAS el
+        veredicto real del pull:
+
+            {
+              'categorias': 3, ..., 'total': 12,
+              'ok': False,                       # alguna entidad fallo
+              'entidades': {'roles': {'count':0,'ok':False,'error':'HTTP 401'}},
+              'errores': ['roles: HTTP 401: ...'],
+              'bloqueos': ['asignaciones: item ... diferido'],
+            }
+
+        Antes solo devolvia conteos. Con todos los endpoints respondiendo 401
+        el resultado era `{...: 0, 'total': 0}` -- exactamente igual que "no
+        habia nada que bajar" -- y el ciclo se registraba EXITOSO.
         """
         self._require_config()
 
-        metricas = {
-            'categorias': 0,
-            'productos': 0,
-            'clientes': 0,
-            'roles': 0,
-            'asignaciones': 0,
-            'metodos_credito': 0,
-            'configuracion': 0,
-            'total': 0,
-        }
-
-        try:
-            metricas['categorias'] = self._pull_categorias()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en categorias: %s', exc)
-
-        try:
-            metricas['productos'] = self._pull_productos()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en productos: %s', exc)
-
-        try:
-            metricas['clientes'] = self._pull_clientes()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en clientes: %s', exc)
-
-        try:
-            metricas['roles'] = self._pull_roles()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en roles: %s', exc)
-
-        try:
-            metricas['asignaciones'] = self._pull_asignaciones()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en asignaciones: %s', exc)
-
-        try:
-            metricas['metodos_credito'] = self._pull_metodos_credito()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en metodos_credito: %s', exc)
-
-        try:
-            metricas['configuracion'] = self._pull_configuracion()
-        except Exception as exc:
-            logger.exception('pull_maestros: error en configuracion: %s', exc)
-
-        metricas['total'] = (
-            metricas['categorias'] + metricas['productos']
-            + metricas['clientes'] + metricas['roles'] + metricas['asignaciones']
-            + metricas['metodos_credito'] + metricas['configuracion']
+        entidades = (
+            ('categorias', self._pull_categorias),
+            ('productos', self._pull_productos),
+            ('clientes', self._pull_clientes),
+            ('roles', self._pull_roles),
+            ('asignaciones', self._pull_asignaciones),
+            ('metodos_credito', self._pull_metodos_credito),
+            ('configuracion', self._pull_configuracion),
         )
-        logger.info('pull_maestros: %s', metricas)
+
+        metricas = {'total': 0, 'ok': True, 'entidades': {}, 'errores': [], 'bloqueos': []}
+
+        for nombre, funcion in entidades:
+            try:
+                resultado = funcion()
+            except Exception as exc:
+                logger.exception('pull_maestros: error en %s: %s', nombre, exc)
+                resultado = _resultado_pull(ok=False, error=f'{type(exc).__name__}: {exc}')
+
+            metricas['entidades'][nombre] = resultado
+            metricas[nombre] = resultado['count']
+            metricas['total'] += resultado['count']
+
+            if not resultado['ok']:
+                metricas['ok'] = False
+                metricas['errores'].append(f"{nombre}: {resultado['error']}")
+            if resultado['bloqueo']:
+                metricas['bloqueos'].append(resultado['bloqueo'])
+
+        logger.info(
+            'pull_maestros: total=%s ok=%s errores=%s',
+            metricas['total'], metricas['ok'], metricas['errores'],
+        )
         return metricas
 
     def _pull_generic(self, tabla, endpoint, apply_func):
@@ -412,6 +508,8 @@ class SyncEngine:
         count = 0
         contiguo = True          # mientras nadie falle, commit sigue a req
         bloqueo = None           # primer fallo de esta corrida
+        error = None             # fallo de transporte/HTTP de esta corrida
+        paginas = 0
         url = self._url(endpoint)
 
         while True:
@@ -432,10 +530,12 @@ class SyncEngine:
                 )
             except requests.RequestException as exc:
                 logger.warning('pull %s: error de red: %s', tabla, exc)
+                error = f'red: {exc}'
                 break
 
             if resp.status_code >= 400:
                 logger.error('pull %s: HTTP %s: %s', tabla, resp.status_code, resp.text[:500])
+                error = f'HTTP {resp.status_code}: {resp.text[:200]}'
                 break
 
             data = resp.json()
@@ -460,15 +560,35 @@ class SyncEngine:
                     'pull %s: el cloud no respeta el orden del cursor (version '
                     'anterior a Fase 2). Degradando a paginacion legacy.', tabla,
                 )
-                return self._pull_legacy(tabla, endpoint, apply_func, cursor)
+                return _resultado_pull(
+                    count=self._pull_legacy(tabla, endpoint, apply_func, cursor),
+                )
+
+            frontera_antes = (req_fecha, req_id)
 
             for item in items:
                 clave = self._clave_cursor(item)
 
                 try:
-                    apply_func(item)
-                    count += 1
-                    aplicado = True
+                    # Savepoint por item: si `apply` falla con un error de BD
+                    # (constraint, tipo), en Postgres la transaccion queda
+                    # abortada y ni siquiera se podria guardar el cursor. Con
+                    # el savepoint el fallo se aisla y el recorrido sigue.
+                    with transaction.atomic():
+                        resultado = apply_func(item)
+                    aplicado = resultado is not DIFERIDO
+                    if aplicado:
+                        count += 1
+                    elif bloqueo is None:
+                        # Dependencia ausente: no es un error, pero TAMPOCO es
+                        # "aplicado". Antes cualquier retorno sin excepcion
+                        # contaba como exito y el cursor avanzaba, asi que la
+                        # fila no volvia a bajar cuando la dependencia llegaba
+                        # (el registro cloud no cambio, el `?desde=` ya paso).
+                        bloqueo = (
+                            f'{tabla}: item {self._ref_item(item)} diferido '
+                            f'(dependencia ausente)'
+                        )
                 except Exception as exc:
                     logger.exception('pull %s: error aplicando item %s: %s',
                                      tabla, item.get('id') or item.get('cursor_id'), exc)
@@ -491,8 +611,37 @@ class SyncEngine:
             if not data.get('next'):
                 break
 
+            # Guardarrail de progreso. El paseo keyset pide la pagina siguiente
+            # por la clave del ultimo item; si ninguno de esta pagina trajo una
+            # clave valida, la frontera no se movio y el proximo request seria
+            # identico. Con `next` presente, eso es un bucle infinito que cuelga
+            # el ciclo entero del daemon.
+            if (req_fecha, req_id) == frontera_antes:
+                bloqueo = bloqueo or (
+                    f'{tabla}: la pagina no hizo avanzar el cursor '
+                    f'(items sin fecha_modificacion/id) y el cloud dice que hay '
+                    f'mas. Recorrido abortado para no ciclar.'
+                )
+                logger.error('pull %s: %s', tabla, bloqueo)
+                break
+
+            paginas += 1
+            if paginas >= self.max_paginas_pull:
+                bloqueo = bloqueo or (
+                    f'{tabla}: se alcanzo el limite de {self.max_paginas_pull} '
+                    f'paginas por ciclo. El resto continua en el proximo.'
+                )
+                logger.warning('pull %s: %s', tabla, bloqueo)
+                break
+
         self._guardar_cursor(cursor, commit_fecha, commit_id, count, bloqueo)
-        return count
+        return _resultado_pull(
+            count=count,
+            ok=error is None,
+            error=error,
+            bloqueo=bloqueo,
+            paginas=paginas,
+        )
 
     @classmethod
     def _pagina_ordenada(cls, items):
@@ -610,19 +759,73 @@ class SyncEngine:
         else:
             cursor.limpiar_bloqueo()
 
+    @staticmethod
+    def _adoptar_por_identidad_cloud(modelo, cloud_id, lookup_natural):
+        """
+        Localiza la fila local que corresponde a un registro cloud.
+
+        Prioridad:
+          1. `origen_cloud_id` -> identidad estable. Sobrevive a renombres.
+          2. Clave natural, PERO solo si esa fila todavia no esta sellada con
+             otro `origen_cloud_id`. Esto es el bootstrap/reconciliacion: la
+             primera vez que baja un registro, adopta la fila local que ya
+             existia y le graba la identidad.
+
+        Retorna (instancia_o_None, hay_que_sellar), o DIFERIDO si hay colision.
+        """
+        if cloud_id:
+            existente = modelo.objects.filter(origen_cloud_id=cloud_id).first()
+            if existente is not None:
+                return existente, False
+
+        candidato = modelo.objects.filter(**lookup_natural).first()
+        if candidato is None:
+            return None, bool(cloud_id)
+
+        if candidato.origen_cloud_id and candidato.origen_cloud_id != cloud_id:
+            # La fila local ya pertenece a OTRO registro cloud y su clave
+            # natural suele ser unica, asi que crear una segunda con el mismo
+            # nombre/cedula fallaria igual. Es una colision real: dos registros
+            # cloud distintos reclaman la misma clave natural local. Quien la
+            # resuelve es el operador (renombrar, fusionar), no el sync. Se
+            # difiere para que quede visible en el cursor bloqueado.
+            logger.warning(
+                '%s: la fila local %s ya esta sellada con origen_cloud_id=%s; '
+                'el registro cloud %s no puede adoptarla. Resolver manualmente.',
+                modelo.__name__, lookup_natural, candidato.origen_cloud_id, cloud_id,
+            )
+            return DIFERIDO, False
+
+        return candidato, bool(cloud_id)
+
     def _pull_categorias(self):
         from apps.productos.models import Categoria
 
         def apply(item):
-            Categoria.objects.update_or_create(
-                nombre=item['nombre'],
-                defaults={
-                    'descripcion': item.get('descripcion', '') or '',
-                    'tipo_negocio': item.get('tipo_negocio', '') or '',
-                    'atributos_configurados': item.get('atributos_configurados') or {},
-                    'activa': item.get('activa', True),
-                }
+            cloud_id = item.get('id')
+            existente, sellar = self._adoptar_por_identidad_cloud(
+                Categoria, cloud_id, {'nombre': item['nombre']},
             )
+            if existente is DIFERIDO:
+                return DIFERIDO
+
+            campos = {
+                'nombre': item['nombre'],
+                'descripcion': item.get('descripcion', '') or '',
+                'tipo_negocio': item.get('tipo_negocio', '') or '',
+                'atributos_configurados': item.get('atributos_configurados') or {},
+                'activa': item.get('activa', True),
+            }
+            if sellar:
+                campos['origen_cloud_id'] = cloud_id
+
+            if existente is None:
+                Categoria.objects.create(**campos)
+                return
+
+            for campo, valor in campos.items():
+                setattr(existente, campo, valor)
+            existente.save()
 
         return self._pull_generic('categorias', '/api/v1/maestros/categorias/', apply)
 
@@ -634,11 +837,15 @@ class SyncEngine:
             categoria = None
             cat_nombre = item.get('categoria_nombre')
             if cat_nombre:
-                try:
-                    categoria = Categoria.objects.get(nombre=cat_nombre)
-                except Categoria.DoesNotExist:
-                    logger.warning('Producto %s: categoria %s no existe local',
+                categoria = Categoria.objects.filter(nombre=cat_nombre).first()
+                if categoria is None:
+                    # Antes esto solo avisaba y guardaba el producto con su
+                    # categoria vieja, avanzando el cursor: cuando la categoria
+                    # llegaba, el producto ya no volvia a bajar y quedaba mal
+                    # clasificado para siempre.
+                    logger.warning('Producto %s: categoria %s no existe local; diferido',
                                    item.get('sku'), cat_nombre)
+                    return DIFERIDO
 
             defaults = {
                 'nombre': item.get('nombre', ''),
@@ -666,14 +873,24 @@ class SyncEngine:
         from apps.cuentas_por_cobrar.services import reprogramar_cxc_por_plazo_cliente
 
         def apply(item):
-            # Identificador natural: cedula_rnc cuando existe, sino nombre+tipo
+            # Identidad: `origen_cloud_id` primero; la clave natural (cedula, o
+            # nombre+tipo cuando no hay) solo sirve para adoptar la fila la
+            # primera vez. Antes la clave natural ERA la identidad, asi que
+            # corregir una cedula o renombrar un cliente en el portal creaba un
+            # cliente nuevo y partia su cartera en dos.
+            cloud_id = item.get('id')
             cedula = item.get('cedula_rnc')
             if cedula:
                 lookup = {'cedula_rnc': cedula}
             else:
                 lookup = {'nombre': item['nombre'], 'tipo': item.get('tipo', 'PERSONAL')}
 
-            existente = Cliente.objects.filter(**lookup).first()
+            existente, sellar = self._adoptar_por_identidad_cloud(
+                Cliente, cloud_id, lookup,
+            )
+            if existente is DIFERIDO:
+                return DIFERIDO
+
             plazo_anterior = existente.plazo_credito_dias if existente else None
             try:
                 plazo_credito_dias = int(item.get('plazo_credito_dias') or 30)
@@ -682,20 +899,30 @@ class SyncEngine:
             if plazo_credito_dias < 1 or plazo_credito_dias > 365:
                 plazo_credito_dias = 30
 
-            cliente, created = Cliente.objects.update_or_create(
-                **lookup,
-                defaults={
-                    'nombre': item.get('nombre', ''),
-                    'tipo': item.get('tipo', 'PERSONAL'),
-                    'telefono': item.get('telefono'),
-                    'direccion': item.get('direccion'),
-                    'limite_credito': item.get('limite_credito', '0.00') or '0.00',
-                    'plazo_credito_dias': plazo_credito_dias,
-                    'condiciones_pago': item.get('condiciones_pago'),
-                    'notas': item.get('notas'),
-                    'activo': item.get('activo', True),
-                },
-            )
+            campos = {
+                'nombre': item.get('nombre', ''),
+                'tipo': item.get('tipo', 'PERSONAL'),
+                'cedula_rnc': cedula or None,
+                'telefono': item.get('telefono'),
+                'direccion': item.get('direccion'),
+                'limite_credito': item.get('limite_credito', '0.00') or '0.00',
+                'plazo_credito_dias': plazo_credito_dias,
+                'condiciones_pago': item.get('condiciones_pago'),
+                'notas': item.get('notas'),
+                'activo': item.get('activo', True),
+            }
+            if sellar:
+                campos['origen_cloud_id'] = cloud_id
+
+            created = existente is None
+            if created:
+                cliente = Cliente.objects.create(**campos)
+            else:
+                cliente = existente
+                for campo, valor in campos.items():
+                    setattr(cliente, campo, valor)
+                cliente.save()
+
             if (
                 not created
                 and plazo_anterior is not None
@@ -722,12 +949,29 @@ class SyncEngine:
         sucursal = get_sucursal_actual()
         negocio = getattr(sucursal, 'negocio', None) if sucursal else None
         if negocio is None:
-            return 0
+            return _resultado_pull()
 
         # Asegura el catalogo local para poder resolver los codigos de permiso.
         sembrar_catalogo(Permiso)
 
         def apply(item):
+            codigos = list(item.get('permisos', []))
+            permisos = list(Permiso.objects.filter(codigo__in=codigos))
+
+            # Un codigo que el catalogo local no conoce = desfase de version
+            # entre cloud y sucursal. Antes `filter(codigo__in=...)` lo omitia
+            # en silencio y `set()` guardaba un rol PARCIAL: usuarios sin los
+            # permisos que el portal dice que tienen, sin error en ningun lado.
+            desconocidos = sorted(set(codigos) - {p.codigo for p in permisos})
+            if desconocidos:
+                logger.warning(
+                    'pull roles: el rol %s referencia permisos desconocidos %s; '
+                    'diferido para no guardar un rol incompleto. Actualiza la '
+                    'sucursal o corre sync_permisos.',
+                    item.get('slug'), desconocidos,
+                )
+                return DIFERIDO
+
             rol, _ = Rol.objects.update_or_create(
                 negocio=negocio,
                 slug=item['slug'],
@@ -736,9 +980,7 @@ class SyncEngine:
                     'activo': item.get('activo', True),
                 },
             )
-            rol.permisos.set(
-                Permiso.objects.filter(codigo__in=item.get('permisos', []))
-            )
+            rol.permisos.set(permisos)
 
         return self._pull_generic('roles', '/api/v1/sync/roles/', apply)
 
@@ -757,7 +999,7 @@ class SyncEngine:
         sucursal_actual = get_sucursal_actual()
         negocio = getattr(sucursal_actual, 'negocio', None) if sucursal_actual else None
         if negocio is None:
-            return 0
+            return _resultado_pull()
 
         User = get_user_model()
 
@@ -769,11 +1011,14 @@ class SyncEngine:
 
             usuario = User.objects.filter(username=username).first()
             if usuario is None:
+                # Diferido, no omitido: el usuario puede aparecer en un ciclo
+                # posterior y la asignacion tiene que seguir pendiente hasta
+                # entonces.
                 logger.warning(
-                    'pull asignaciones: usuario %s no existe localmente; omitido',
+                    'pull asignaciones: usuario %s no existe localmente; diferido',
                     username,
                 )
-                return
+                return DIFERIDO
             if getattr(usuario, 'negocio_id', None) not in (None, negocio.id):
                 logger.warning(
                     'pull asignaciones: usuario %s pertenece a otro negocio; omitido',
@@ -786,11 +1031,14 @@ class SyncEngine:
 
             rol = Rol.objects.filter(negocio=negocio, slug=rol_slug).first()
             if rol is None:
+                # Caso tipico: el pull de roles fallo o difirio este rol. Si la
+                # asignacion se diera por aplicada, su cursor avanzaria y ya no
+                # volveria a bajar cuando el rol llegue.
                 logger.warning(
-                    'pull asignaciones: rol %s no existe localmente; omitido',
+                    'pull asignaciones: rol %s no existe localmente; diferido',
                     rol_slug,
                 )
-                return
+                return DIFERIDO
 
             sucursal = None
             sucursal_codigo = item.get('sucursal_codigo')
@@ -915,12 +1163,15 @@ class SyncEngine:
         # Configuracion devuelve una lista pequena, pero usamos el cursor comun.
         # _pull_generic gestiona el cursor (VersionMaestro) con la
         # fecha_modificacion que devuelve el endpoint.
-        downloaded = self._pull_generic(
+        resultado = self._pull_generic(
             cursor_tabla,
             '/api/v1/sync/configuracion/',
             apply,
         )
-        return downloaded or count
+        # `apply` cuenta los campos efectivamente escritos; si _pull_generic no
+        # conto items (respuesta singleton) se usa ese conteo.
+        resultado['count'] = resultado['count'] or count
+        return resultado
 
     # ------------------------------------------------------------------
     # Ciclo completo (lo que usa el command)
@@ -961,16 +1212,25 @@ class SyncEngine:
             resultado['push'] = self.push_eventos()
             resultado['pull'] = self.pull_maestros()
 
-            # Determina resultado final
-            hubo_fallos = resultado['push']['fallidos'] > 0
+            estado, motivos = clasificar_ciclo(
+                heartbeat=resultado['heartbeat'],
+                push=resultado['push'],
+                pull=resultado['pull'],
+            )
+            resultado['estado'] = estado
+            resultado['motivos'] = motivos
+
             if log:
                 log.eventos_procesados = resultado['push']['procesados']
                 log.eventos_exitosos = resultado['push']['confirmados']
                 log.eventos_fallidos = resultado['push']['fallidos']
                 log.registros_descargados = resultado['pull']['total']
                 log.finalizar(
-                    'PARCIAL' if hubo_fallos else 'EXITOSO',
-                    mensaje=f"push={resultado['push']} pull={resultado['pull']}",
+                    estado,
+                    mensaje=(
+                        '; '.join(motivos) if motivos
+                        else f"push={resultado['push']} pull={resultado['pull']}"
+                    ),
                 )
             return resultado
 

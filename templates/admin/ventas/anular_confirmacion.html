@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+Página intermedia de la acción `VentaAdmin.anular_ventas`.
+
+Existe porque la anulación necesita un motivo auditable: el admin no puede
+mutar `estado` a mano (eso saltaba FIFO, CxC, e-CF y auditoría), así que la
+única vía es esta acción, que delega en `anular_venta_service`.
+{% endcomment %}
+
+{% block content %}
+<h1>Anular ventas</h1>
+
+<p>
+  Se van a anular las siguientes ventas. La anulación devuelve el stock a sus
+  lotes, revierte la cuenta por cobrar si la hubiera, registra auditoría y
+  encola la nota de crédito cuando corresponde. <strong>No se puede deshacer.</strong>
+</p>
+
+<ul>
+  {% for venta in ventas %}
+    <li>
+      <strong>{{ venta.numero_venta }}</strong> &mdash; {{ venta.fecha_venta }}
+      &mdash; ${{ venta.total }} &mdash; {{ venta.get_estado_display }}
+    </li>
+  {% endfor %}
+</ul>
+
+<form method="post">
+  {% csrf_token %}
+  {% for venta in ventas %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ venta.pk }}">
+  {% endfor %}
+  <input type="hidden" name="action" value="anular_ventas">
+
+  <p>
+    <label for="id_motivo">Motivo de la anulación (mínimo 10 caracteres):</label><br>
+    <textarea id="id_motivo" name="motivo" rows="4" cols="60" required minlength="10"></textarea>
+  </p>
+
+  <input type="submit" name="aplicar" value="Confirmar anulación" class="default">
+  <a href="{{ request.path }}" class="button cancel-link">Cancelar</a>
+</form>
+{% endblock %}
