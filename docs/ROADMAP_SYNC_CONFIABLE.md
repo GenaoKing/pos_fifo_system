@@ -745,3 +745,45 @@ de `nssm` multiplica el riesgo — y era justo la parte que fallaba en SK. Con e
 **Primera versión sugerida: semi-automática.** El cloud avisa que hay
 actualización y la deja lista; una persona confirma. Ahorra el viaje sin apostar
 la operación del cliente a que todo salga bien solo.
+
+---
+
+## Bitácora de despliegue
+
+### 2026-08-20 — dev y staging desplegados y validados
+
+**dev** (`posfifo-dev-api`, revisión `0000031`, imagen `44cf6fa`): CI automático
+desde `develop`. Verde.
+
+**staging** (`posfifo-staging-api`, revisión `0000010`, imagen `e1cd524`):
+
+- Migraciones: job `posfifo-staging-migrate` a mano (no corre solo). Control
+  plane `pos_fifo_staging` y su tenant `tnt_staging_royalplast` pasaron de **81 a
+  89 migraciones** — las 8 nuevas.
+- **Radio de daño verificado ANTES de lanzarlo:** el control plane de staging
+  registra un solo tenant (`staging_royalplast`), así que el job no podía tocar
+  los de producción. Confirmado después: `tnt_royalplast` y `tnt_skperformance`
+  siguen sin `sync.0007`.
+
+**Validación end-to-end contra staging desplegado**, con código nuevo en ambos
+lados:
+
+| Prueba | Resultado |
+|---|---|
+| Heartbeat (Fase 1) | ✅ responde |
+| Pull con cursor keyset (Fase 2) | ✅ **sin degradar** — el servidor honra el contrato |
+| Cliente sin cédula + venta a crédito (Fase 1 / BUG-C) | ✅ cliente creado con `origen_sucursal=1`, `origen_id_local=5`; venta con `cliente_id` **no nulo**; CxC de RD$8,500 con titular correcto y su cuota |
+
+Que el fallback de compatibilidad **no** se disparara es la prueba de que la
+Fase 2 está viva del lado servidor: contra el prod viejo sí se dispara.
+
+Datos de prueba limpiados de staging y del rig.
+
+**Error que atrapó CI y no la suite local:** `requirements_ci.txt` hereda de
+`requirements_cloud.txt`, donde faltaba `python-dotenv` — solo se había agregado
+a `requirements.txt`. Cinco tests fallaron con `ModuleNotFoundError`. Mismo
+patrón que el bug #6. Los requirements están repartidos en 4 archivos.
+
+**Pendiente:** promover a `main` + `workflow_dispatch` a prod + job
+`posfifo-prod-migrate`. Ese job sí toca las 5 BDs de tenant, incluidas las de los
+dos clientes reales.
