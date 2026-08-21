@@ -315,3 +315,43 @@ aprovisionar falla CERRADO, y los dos estados son indistinguibles desde afuera.
 Lo canonico seria que un negocio **sin aprovisionar** (sin suscripcion y sin
 `NegocioModulo`) tambien falle abierto, como el resto del sistema. Queda anotado
 en `docs/ARQUITECTURA_MODULOS.md`.
+
+---
+
+### BUG-E — `/api/v1/auth/refresh/` devuelve 500 en vez de 401 cuando el usuario no resuelve
+
+- Fecha de hallazgo: 2026-08-21 (revisando logs de prod tras un despliegue).
+- Severidad: **baja** (raro: 2 veces en 30 dias), pero rompe la sesion del portal.
+- **Preexistente**, NO es regresion del despliegue del 2026-08-20: el mismo error
+  ocurrio el 2026-08-06 sobre la imagen anterior, y ese despliegue no toco
+  `apps/api/views/auth.py`, `apps/tenancy/` ni `apps/usuarios/`.
+
+**Sintoma:** el usuario esta trabajando en el portal, su token vence, el frontend
+llama a `/auth/refresh/` y recibe un **500**. La sesion se cae sin explicacion.
+
+**Causa raiz.** `rest_framework_simplejwt/serializers.py:116` resuelve el usuario
+del refresh token con `get_user_model().objects.get(...)`. Si no lo encuentra,
+`Usuario.DoesNotExist` sube sin capturar y DRF lo convierte en 500:
+
+```
+File "rest_framework_simplejwt/serializers.py", line 116, in validate
+    user := get_user_model().objects.get(
+apps.usuarios.models.Usuario.DoesNotExist: Usuario matching query does not exist.
+```
+
+**Por que no encuentra al usuario.** Bajo DB-per-tenant, `usuarios` es una
+DUAL_HOME_APP: resuelve al tenant activo o a `default`. Si el refresh llega **sin
+contexto de tenant**, la consulta va al control plane, donde el usuario del
+tenant no existe. Un token emitido dentro de un tenant no se puede validar fuera
+de el.
+
+**Correccion sugerida (no aplicada).** Envolver la resolucion en el endpoint de
+refresh y devolver **401** cuando el usuario no resuelva -- que es lo que el
+frontend espera para mandar al login-- en vez de un 500. Y revisar por que el
+refresh pierde el contexto de tenant: si el token lleva `tenant_id`, deberia
+establecerse antes de resolver el usuario.
+
+**Relacionado.** Misma familia que los 500 de `/login/` y `/reportes/`: el cloud
+sirve rutas que bajo tenancy fallan ruidoso sin contexto. Endurecimiento
+pendiente: esas rutas de template del POS local no deberian ser alcanzables en
+el cloud.

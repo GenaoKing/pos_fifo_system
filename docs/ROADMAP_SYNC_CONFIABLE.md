@@ -817,10 +817,33 @@ tenant — por diseño. Lo nuevo es que algo empezó a probar `/reportes/`: en 7
 no se había pedido nunca. **Endurecimiento futuro:** esas rutas no deberían ser
 alcanzables en el cloud.
 
-**Lo que aún NO está probado:** que las sucursales reales sincronicen contra la
-imagen nueva. Cerraron a las ~19:00 locales (último sync exitoso 22:33 UTC,
-42 minutos ANTES del deploy), así que su silencio es horario y no consecuencia
-del despliegue. La confirmación llega cuando abran.
+### 2026-08-21 — primer día completo de los clientes contra la imagen nueva ✅
+
+**445 llamadas de sync, todas 200.** Ningún error de transporte.
+
+| | Royal Plast | SK Performance |
+|---|---|---|
+| Ventas del día | 4 | 4 |
+| Total de ventas | 795 → **799** | 427 → **432** |
+| Eventos | 547 → **554** | 306 → **313** |
+| **CuentaPorCobrar en cloud** | 0 → **2** | 0 |
+
+**BUG-C corregido y funcionando en producción.** Las dos CxC que llegaron hoy
+tienen `id=1` y `id=2`: son **las primeras que existen en el cloud desde que
+Royal Plast está en línea**. Antes de este despliegue, la tabla estaba vacía
+pese a 16 ventas a crédito.
+
+**Se observó el error de orden que la Fase 1 elimina, y se auto-recuperó.** Dos
+`CXC_CREADA` fallaron con `Venta ... no existe en cloud todavia`: la sucursal
+todavía corre el código viejo, que registra el `on_commit` de la CxC **antes**
+que el de la venta. El reintento del ciclo siguiente las aplicó. Con el paquete
+local desplegado, el orden queda correcto por construcción y el error desaparece.
+
+**La ventana de despliegue se comportó exactamente como se probó.** Ambas CxC
+quedaron a nombre de `CLIENTE CONTADO`, porque el payload viejo no lleva el
+bloque `cliente`. **Se corrigen solas** al desplegar el paquete local y reenviar:
+el handler es correctivo (ver `apps/api/tests/test_ventana_despliegue.py`).
+Anotar como paso explícito de la visita.
 
 **Siguiente:** desplegar el paquete local — Royal Plast el sábado, SK la semana
 siguiente — y correr en cada uno `verificar_instalacion`, `verificar_sync` y la
