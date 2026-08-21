@@ -86,6 +86,34 @@ function posData() {
             auth_validando: false,
         },
         
+        // Gate de descuentos. `config` llega del servidor; `token` es la
+        // autorizacion de un solo uso que devuelve /caja/api/validar-admin/.
+        modalDescuentoAuthAbierto: false,
+        descuentoAuth: {
+            config: {
+                requiere_autorizacion: false,
+                tolerancia_monto: 0,
+                tolerancia_porcentaje: 0,
+                motivo_modo: 'NINGUNO',
+                usuario_autoriza: false,
+            },
+            token: null,
+            autorizado_por: '',
+            // Descuento que cubre el token vigente. Si el cajero sube el
+            // descuento despues de autorizado, el token deja de servir: el
+            // servidor lo rechazaria igual por monto_maximo, pero es mejor
+            // pedirlo de nuevo que fallar recien al cobrar, con el cliente
+            // esperando.
+            monto_cubierto: 0,
+            credencial: '',
+            usuario: '',
+            password: '',
+            motivo: '',
+            modo: 'credencial',
+            error: '',
+            validando: false,
+        },
+
         procesandoVenta: false,
         
         // ============================================
@@ -103,6 +131,9 @@ function posData() {
             this.permiteMixto = posConfig.permite_mixto;
             this.permitirInvNegativo = posConfig.permitir_inventario_negativo;
             this.moduloEcfActivo = posConfig.modulo_ecf;
+            if (posConfig.descuento) {
+                this.descuentoAuth.config = posConfig.descuento;
+            }
             if (this.metodosCreditoConfig.length > 0) {
                 const metodo = this.metodoCreditoUnico() || this.metodosCreditoConfig[0];
                 this.aplicarMetodoCredito(metodo);
@@ -392,6 +423,7 @@ function posData() {
             this.focusScanner();
             this.referenciaTarjeta = '';
             this.resetCredito();
+            this.resetDescuentoAuth();
             this.procesandoVenta = false;
         },
         
@@ -736,6 +768,153 @@ function posData() {
         },
 
         // ============================================
+        // AUTORIZACION DE DESCUENTOS
+        // ============================================
+
+        /**
+         * Espejo EXACTO de ventas_service._descuento_requiere_autorizacion.
+         * Si esta funcion y el servidor discrepan, el cajero ve un modal que
+         * no hacia falta o cierra una venta que el servidor rechaza al cobrar.
+         * La regla canonica vive en ConfiguracionNegocio.descuento_requiere_token.
+         */
+        descuentoRequiereAutorizacion() {
+            const cfg = this.descuentoAuth.config;
+            if (!cfg.requiere_autorizacion) return false;
+            // A quien puede autorizar no se le pide autorizacion.
+            if (cfg.usuario_autoriza) return false;
+
+            const descuento = this.calcularDescuentoTotal();
+            if (descuento <= 0) return false;
+
+            const subtotal = this.calcularSubtotal();
+            const porcentaje = subtotal > 0 ? (descuento / subtotal) * 100 : 100;
+
+            // `or`: alcanza con caer dentro de UNA de las dos tolerancias.
+            const dentroDelMargen = (
+                descuento <= cfg.tolerancia_monto
+                || porcentaje <= cfg.tolerancia_porcentaje
+            );
+            return !dentroDelMargen;
+        },
+
+        /** True si hay un token vigente que cubre el descuento actual. */
+        descuentoAutorizado() {
+            if (!this.descuentoAuth.token) return false;
+            // Bajar el descuento no invalida el token (el servidor compara
+            // contra monto_maximo); subirlo si.
+            return this.calcularDescuentoTotal() <= this.descuentoAuth.monto_cubierto + 0.001;
+        },
+
+        descuentoBloqueaVenta() {
+            return this.descuentoRequiereAutorizacion() && !this.descuentoAutorizado();
+        },
+
+        descuentoPideMotivo() {
+            return this.descuentoAuth.config.motivo_modo !== 'NINGUNO';
+        },
+
+        descuentoMotivoObligatorio() {
+            return this.descuentoAuth.config.motivo_modo === 'OBLIGATORIO';
+        },
+
+        resetDescuentoAuth() {
+            this.descuentoAuth.token = null;
+            this.descuentoAuth.autorizado_por = '';
+            this.descuentoAuth.monto_cubierto = 0;
+            this.descuentoAuth.credencial = '';
+            this.descuentoAuth.usuario = '';
+            this.descuentoAuth.password = '';
+            this.descuentoAuth.motivo = '';
+            this.descuentoAuth.modo = 'credencial';
+            this.descuentoAuth.error = '';
+            this.descuentoAuth.validando = false;
+        },
+
+        abrirModalDescuentoAuth() {
+            this.descuentoAuth.error = '';
+            this.descuentoAuth.credencial = '';
+            this.descuentoAuth.password = '';
+            this.modalDescuentoAuthAbierto = true;
+            this.$nextTick(() => {
+                const campo = this.$refs.descuentoCredencialInput;
+                if (campo) campo.focus();
+            });
+        },
+
+        cerrarModalDescuentoAuth() {
+            this.modalDescuentoAuthAbierto = false;
+        },
+
+        /**
+         * Pide la autorizacion. Dos formas de credencial, ambas contra el
+         * mismo endpoint: pasar el carnet por el lector (por defecto) o
+         * teclear usuario y contrasena.
+         */
+        async validarAutorizacionDescuento() {
+            this.descuentoAuth.error = '';
+
+            const motivo = (this.descuentoAuth.motivo || '').trim();
+            if (this.descuentoMotivoObligatorio() && motivo.length < 5) {
+                this.descuentoAuth.error = 'Indica el motivo del descuento.';
+                return;
+            }
+
+            const porCredencial = this.descuentoAuth.modo === 'credencial';
+            const credencial = (this.descuentoAuth.credencial || '').trim();
+            if (porCredencial && !credencial) {
+                this.descuentoAuth.error = 'Pasa el carnet por el lector.';
+                return;
+            }
+            if (!porCredencial && (!this.descuentoAuth.usuario || !this.descuentoAuth.password)) {
+                this.descuentoAuth.error = 'Usuario y contrasena requeridos.';
+                return;
+            }
+
+            // Se fija ANTES del await: si el carrito cambia mientras responde
+            // el servidor, el token quedaria atado a un monto que ya no es.
+            const montoSolicitado = this.calcularDescuentoTotal();
+
+            this.descuentoAuth.validando = true;
+            try {
+                const res = await fetch('/caja/api/validar-admin/', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        credencial: porCredencial ? credencial : '',
+                        username: porCredencial ? '' : this.descuentoAuth.usuario,
+                        password: porCredencial ? '' : this.descuentoAuth.password,
+                        operacion: 'ventas.descuento',
+                        motivo: motivo,
+                        monto: montoSolicitado,
+                    }),
+                });
+                const data = await res.json();
+                if (!data.valido) {
+                    this.descuentoAuth.error = data.error || 'No autorizado';
+                    this.descuentoAuth.credencial = '';
+                    this.descuentoAuth.password = '';
+                    return;
+                }
+
+                this.descuentoAuth.token = data.token;
+                this.descuentoAuth.autorizado_por = data.admin_nombre;
+                this.descuentoAuth.monto_cubierto = montoSolicitado;
+                this.descuentoAuth.credencial = '';
+                this.descuentoAuth.password = '';
+                this.modalDescuentoAuthAbierto = false;
+                showToast(
+                    'success',
+                    `Descuento autorizado por ${data.admin_nombre}. ` +
+                    `La autorizacion vence en ${data.expira_en_minutos} min.`
+                );
+            } catch (e) {
+                this.descuentoAuth.error = 'Error de conexion. Intenta de nuevo.';
+            } finally {
+                this.descuentoAuth.validando = false;
+            }
+        },
+
+        // ============================================
         // CARGA DE COTIZACION
         // ============================================
 
@@ -871,7 +1050,11 @@ function posData() {
          */
         validarPago() {
             const total = this.calcularTotal();
-            
+
+            // Vale para cualquier metodo de pago: el descuento se autoriza
+            // aparte de como se cobre.
+            if (this.descuentoBloqueaVenta()) return false;
+
             if (this.metodoPago === 'efectivo') {
                 return this.montoPagado >= total;
             } else if (this.metodoPago === 'transferencia') {
@@ -897,7 +1080,11 @@ function posData() {
          */
         obtenerMensajeValidacion() {
             const total = this.calcularTotal();
-            
+
+            if (this.descuentoBloqueaVenta()) {
+                return 'El descuento requiere autorizacion de un supervisor';
+            }
+
             if (this.metodoPago === 'efectivo') {
                 if (this.montoPagado < total) {
                     const falta = total - this.montoPagado;
@@ -958,6 +1145,9 @@ function posData() {
                 cotizacion_id: this.cotizacionId || null,
                 total: this.calcularTotal(),
                 tipo_ecf: this.tipoEcf || '32',
+                // Vacio si el descuento no lo necesitaba: el servidor decide,
+                // no el cliente.
+                descuento_override_token: this.descuentoAuth.token || '',
             };
 
             if (this.metodoPago === 'credito') {

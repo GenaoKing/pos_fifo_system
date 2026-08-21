@@ -72,6 +72,7 @@ class Auditoria(models.Model):
         VENTA_ANULADA = 'VENTA_CANCEL', 'Venta anulada'
         TICKET_IMPRESO = 'TICKET_PRINT', 'Ticket impreso'
         TICKET_REIMPRESO = 'TICKET_REPRINT', 'Ticket reimpreso'
+        DESCUENTO_AUTORIZADO = 'DESC_AUTH', 'Descuento autorizado'
         RECIBO_CXC_IMPRESO = 'RECIBO_CXC_PRINT', 'Recibo CxC impreso'
         TEST_IMPRESORA = 'PRINTER_TEST', 'Prueba de impresora'
         
@@ -88,6 +89,7 @@ class Auditoria(models.Model):
         BACKUP_RESTAURADO = 'BACKUP_RESTORE', 'Backup restaurado'
         CONFIGURACION = 'CONFIG', 'Configuración modificada'
         ERROR_SISTEMA = 'ERROR', 'Error del sistema'
+        CIERRE_DIARIO = 'CIERRE_DIARIO', 'Resumen diario generado'
     
     # === QUIÉN realizó la acción ===
     usuario = models.ForeignKey(

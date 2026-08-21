@@ -4,6 +4,13 @@ Fecha: 2026-08-20
 Revisión de cierre: `3f22385`  
 Modo: lectura, pruebas y documentación; no se aplicaron correcciones funcionales.
 
+> **Estado (2026-08-21): MITIGADO.** Los 16 hallazgos se verificaron contra el
+> código y los 16 resultaron reales. Todos están corregidos, con pruebas de
+> regresión. Ver [Estado de mitigación](#estado-de-mitigación) al final.
+> **Incluye 1 migración con deduplicación previa**, un permiso nuevo
+> (`reportes.sucursal.ver`), un cambio de ubicación de los PDFs financieros y
+> un cambio de contrato del endpoint de inventario valorizado.
+
 ## Resumen ejecutivo
 
 `apps/reportes` concentra información de ventas, pagos, CxC, inventario y caja,
@@ -630,10 +637,125 @@ Hashes SHA-256 al cierre:
 | `apps/reportes/management/commands/generar_cierre_diario.py` | `D5043E2F8B040E181A6F2346C01E6CC57FD0FA0950D0F910929644ECDA2B21DD` |
 | `config/urls.py` | `A9F27D8912E834E9B68F53DB4AF75C9B23D9AF8461703EF00D902E3B19520442` |
 
-## Cierre
+---
 
-La prioridad no debería ser añadir más gráficos. Primero hay que garantizar que
-cada cifra responde tres preguntas: de qué sucursal/tenant proviene, a qué
-instante real corresponde y qué documento autorizado la respalda. Después de
-cerrar esos límites, el módulo puede conservar buena parte de sus consultas y
-componentes visuales actuales, pero sobre contratos financieros verificables.
+# Estado de mitigación
+
+Fecha: 2026-08-21. Verificación previa: se releyó cada hallazgo contra el código
+citado. **Los 16 son reales** — ninguno resultó falso positivo ni obsoleto.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| RPT-001 | Sí | Corregido | `apps/reportes/almacenamiento.py`: los PDFs viven fuera de `MEDIA_ROOT`, bajo prefijo de tenant, con nombre no enumerable (id + `secrets.token_hex`). `raiz_privada()` **rechaza** una configuración que apunte dentro de media. `config/urls.py` además bloquea `/media/reportes/…` para cubrir los PDFs viejos que ya estén en disco. |
+| RPT-002 | Sí | Corregido | Contrato explícito: fecha futura → 400; fecha pasada → **reconstrucción desde `MovimientoLote`**; hoy → stock actual. La respuesta declara `snapshot_id`, `momento_corte` e `historico`. Vista y snapshot son la misma verdad: la vista ya no calcula por su cuenta. |
+| RPT-003 | Sí | Corregido | Permiso nuevo `reportes.sucursal.ver` + `sucursales_con_permiso()` en el motor RBAC + `apps/reportes/scope.py`. Consolidar es una facultad **global**: el mismo `reportes.consolidado.ver` asignado solo a A vale por A. Un único `AlcanceReportes` filtra ventas, snapshots, lista de usuarios y descargas. |
+| RPT-004 | Sí | Corregido | `estado` (BORRADOR/FINAL) + `version` + `fecha_calculo`. Un borrador se **recalcula** en cada generación; solo `finalizar()` congela. `forzar=True` recalcula lo final versionando. |
+| RPT-005 | Sí | Corregido | El comando hereda `TenantCommandMixin` (`--tenant`, `--todos-los-tenants`), audita con `Auditoria.registrar` y campos válidos, y el fallo del PDF se declara sin abortar el resumen ya calculado. Acción nueva `CIERRE_DIARIO` en el catálogo de auditoría. |
+| RPT-006 | Sí | Corregido | `_atomic()` resuelve el alias con `router.db_for_write` y abre `transaction.atomic(using=alias)`. Hay un test que verifica que **se pase** `using`, no el valor concreto. |
+| RPT-007 | Sí | Corregido | El nombre incorpora prefijo de tenant, id del cierre y sufijo aleatorio: dos tenants que cierran el mismo día ya no escriben el mismo path. |
+| RPT-008 | Sí | Corregido | El modelo se llama **Resumen Diario de Ventas y Cobros**, y el PDF y la pantalla lo titulan así. Además incorpora los indicadores del arqueo real (`turnos_cerrados`, `turnos_abiertos`, `diferencia_arqueo`, `conciliado`) leídos de `apps.caja`, en su **propia sección**, sin mezclarlos con la facturación. |
+| RPT-009 | Sí | Corregido | `Sum('total_linea')` (el campo que existe) y margen **ponderado real** desde `costo_fifo`, con `costo_total` persistido. El snapshot es la única fuente de la respuesta: si falla, el endpoint falla — ya no se silencia. |
+| RPT-010 | Sí | Corregido | `{{ cajeros|json_script:"reportes-cajeros" }}` + `JSON.parse(textContent)`. |
+| RPT-011 | Sí | Corregido | `serializar_cierre()` es el serializer único; la pantalla muestra tarjeta, cobros CxC, descuentos, anulaciones, flujo total y estado/versión. |
+| RPT-012 | Sí | Corregido | Stock bajo con una sola agregación filtrada (`Sum(filter=…)` + `filter(stock_actual__lte=F('stock_minimo'))`). El snapshot arma el inventario en una pasada ordenada, sin consulta por producto. El endpoint corta a 500 productos y **declara** `productos_ocultos`. |
+| RPT-013 | Sí | Corregido | Índices únicos parciales sobre `CierreCaja`, `InventarioValorizado` y `TopProducto`, más `select_for_update` en el resumen diario. |
+| RPT-014 | Sí | Corregido | `dashboard` y `api_metricas_hoy` exigen `reportes.ver`. El permiso se agregó a `PERMISOS_CAJERO_DEFAULT` para no dejar sin pantalla de inicio a una instalación existente. |
+| RPT-015 | Sí | Corregido | El resumen por cajero se arma con un `values().annotate()` cuya clave es el **username**, y el PDF imprime `data['nombre']`. |
+| RPT-016 | Sí | Corregido | `_error(mensaje, status, codigo)` da contrato estable; los 500 usan `logger.exception` y no exponen `str(exc)`. El PDF fallido se reporta con `estado_generacion: 'parcial'` y `advertencias`. |
+
+## Decisiones de contrato que se tomaron (y por qué)
+
+La auditoría dejaba dos bifurcaciones abiertas. Ambas tenían una respuesta
+técnicamente correcta, así que se eligió en vez de dejarlas pendientes:
+
+**RPT-002 — ¿inventario actual o inventario histórico?** Se implementó
+**histórico real**. El ledger ya existía: `MovimientoLote` guarda
+`cantidad_nueva` en cada mutación y **toda** vía que toca stock —compra, venta,
+ajuste, anulación, merma, daño— escribe uno. La alternativa (quitar la fecha
+elegible) hubiera borrado una funcionalidad que el negocio usa para contabilidad
+y seguros; reconstruir era posible y es lo que el usuario creía tener.
+
+**RPT-004 — ¿borrador o final?** Se implementó **BORRADOR por defecto**, con
+`--finalizar` explícito en el comando. Congelar automáticamente es lo que
+causaba el bug; congelar nunca dejaría el cierre contable sin punto fijo. La
+decisión de cuándo un día queda cerrado es del negocio, y ahora es un acto
+explícito en vez de un efecto secundario del primer cálculo.
+
+## Cambios de conducta observables
+
+1. **`/media/reportes/…` devuelve 404.** Los PDFs de cierre ya no son
+   descargables sin autenticación, ni siquiera los generados por la versión
+   anterior. La única vía es `/reportes/pdf/cierre/<id>/`.
+2. **Un supervisor de A ya no ve datos de B** en ningún endpoint, ni en la lista
+   de cajeros del selector.
+3. **Un corte con fecha pasada devuelve el pasado.** Si el negocio venía
+   usándolo como "inventario actual con etiqueta", las cifras van a cambiar —
+   correctamente.
+4. **Una fecha futura devuelve 400** (`codigo: fecha_futura`) en vez de
+   persistir un snapshot imposible.
+5. **Regenerar el cierre del día lo actualiza** en vez de devolver el primero.
+6. **El top de productos ahora existe.** Antes la tabla quedaba vacía siempre; y
+   el margen ya no es un 25% inventado.
+7. **El dashboard exige `reportes.ver`.**
+8. **Los errores traen `codigo`** y los 500 ya no incluyen el texto de la
+   excepción.
+
+## Despliegue: 1 migración
+
+**`reportes.0003_reportes_alcance_y_ciclo_de_vida`** — agrega `sucursal`,
+`estado`, `version`, `fecha_calculo`, indicadores de arqueo, `momento_corte` y
+`costo_total`; elimina `cerrado`; y crea 6 índices únicos parciales.
+
+Incluye un `RunPython` de **deduplicación previa**, porque `InventarioValorizado`
+y `TopProducto` no tenían ninguna unicidad y el manager hacía "buscar y luego
+crear" sin lock: hay instalaciones con filas duplicadas que harían fallar el
+ALTER. Se deduplica —al revés que en `sync.0008`, que aborta— porque un snapshot
+es dato **derivado y regenerable**, no un hecho: se conserva el más reciente de
+cada grupo, que es el que ya venía ganando en la práctica.
+
+Ninguna otra transformación de datos. Los cierres existentes quedan como
+consolidados (`sucursal = NULL`) en estado BORRADOR.
+
+## Pendiente (no bloqueante)
+
+- **`instalar_cierre.ps1` sigue roto.** Apunta a
+  `scripts/ejecutar_servicio_cierre.bat`, que no está en el repositorio;
+  configura un servicio de autoarranque (NSSM) para una tarea one-shot; y su
+  descripción dice 7 PM mientras el modelo documenta 10 PM. El comando ya es
+  correcto y reintentable, pero **versionar un launcher real y pasarlo a Task
+  Scheduler es trabajo de despliegue**, no de código, y conviene hacerlo con la
+  hora y la zona acordadas con el negocio.
+- **Backfill de `sucursal` en cierres históricos.** Quedaron como consolidados,
+  que es lo correcto: nacieron sin filtro de sucursal. Reasignarlos requeriría
+  recalcularlos.
+- **Chart.js sigue viniendo de CDN** sin integridad ni fallback local
+  (`on_demand.html`). En una instalación POS sin Internet estable los gráficos
+  fallan aunque los datos estén. Servirlo localmente es un cambio de assets.
+- **Paginación real del inventario.** Hoy el corte a 500 se declara; una
+  paginación con navegación sigue siendo lo correcto para catálogos grandes.
+
+## Pruebas
+
+Suite completa, serial: **664 tests, OK.**
+
+Módulo de regresión nuevo: `apps/reportes/tests/test_auditoria_reportes.py`
+(43 tests). La app tenía tres pruebas propias.
+
+**Verificación por mutación.** Se revirtieron los dos hallazgos centrales:
+
+- Devolviendo el cierre existente sin recalcular (RPT-004),
+  `test_una_venta_posterior_se_incorpora_al_borrador` falla con
+  `Decimal('100.00') != Decimal('150.00')` — la reproducción literal de la
+  auditoría.
+- Forzando `historico=False` (RPT-002),
+  `test_una_venta_posterior_no_modifica_el_corte` falla con
+  `Decimal('4.00') != Decimal('10.00')`: exactamente el escenario documentado —
+  "después de bajar el lote de 10 a 4, una segunda petición para la misma fecha
+  devolvió 4".
+
+**Nota de método.** La primera pasada de mutación de RPT-002 no falló ningún
+test, y la conclusión correcta no era "el test es débil": el `str.replace` no
+había encontrado su patrón y el código seguía intacto. Las mutaciones posteriores
+llevan `assert` sobre el conteo de coincidencias antes de escribir.

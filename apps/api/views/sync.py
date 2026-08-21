@@ -702,6 +702,11 @@ def _handler_venta_creada(sucursal, payload):
         estado=payload.get('estado', 'COMPLETADA'),
         condicion_pago=payload.get('condicion_pago', 'CONTADO'),
         notas=payload.get('notas', '') or '',
+        # Sucursal con codigo viejo no manda estas claves: quedan en None/''.
+        descuento_autorizado_por=_resolver_usuario(
+            payload.get('descuento_autorizado_por')
+        ),
+        descuento_autorizacion_motivo=payload.get('descuento_autorizacion_motivo', '') or '',
     )
 
     fecha = parse_datetime(payload['fecha_venta']) if payload.get('fecha_venta') else None

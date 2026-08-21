@@ -204,6 +204,21 @@ def procesar_venta_service(
     # ahora sólo los aplicaba la UI, así que un POST directo los saltaba.
     _autorizar(usuario=usuario, items=items, sucursal=sucursal)
 
+    # Gate opcional de descuentos (lo activa el negocio en su configuración).
+    # Se evalúa ANTES de la transacción para no tocar inventario ni FIFO cuando
+    # falta la autorización; el token se consume adentro, ya con numero_venta.
+    descuento_token = (datos.get('descuento_override_token') or '').strip()
+    exige_autorizacion_descuento = _descuento_requiere_autorizacion(
+        config=config,
+        usuario=usuario,
+        items=items,
+        sucursal=sucursal,
+    )
+    if exige_autorizacion_descuento and not descuento_token:
+        raise PermisoDenegadoError(
+            'Este descuento requiere la autorización de un supervisor.'
+        )
+
     _validar_metodo_pago(
         metodo_pago,
         config=config,
@@ -293,6 +308,17 @@ def procesar_venta_service(
             total_esperado=total_esperado,
             condicion_pago='CREDITO' if es_credito else 'CONTADO',
         )
+
+        # El consumo va DENTRO de la transacción: si la venta falla más
+        # adelante, la autorización del supervisor se libera con el rollback en
+        # vez de quedar quemada por una venta que nunca existió.
+        if exige_autorizacion_descuento:
+            _consumir_autorizacion_descuento(
+                venta=venta,
+                token=descuento_token,
+                usuario=usuario,
+                ip_address=ip_address,
+            )
 
         _crear_detalles_y_consumir_fifo(
             venta=venta,
@@ -496,6 +522,85 @@ def _autorizar(*, usuario: 'AbstractUser', items: list[dict], sucursal) -> None:
                 'No tienes permisos para aplicar descuentos '
                 '(ventas.aplicar_descuento).'
             )
+
+
+def _descuento_requiere_autorizacion(*, config, usuario, items, sucursal) -> bool:
+    """
+    True si el descuento de este carrito necesita el visto bueno de un supervisor.
+
+    Quien ya tiene `ventas.autorizar_descuento` queda FUERA del gate. Dos
+    razones: pedirle que se autorice a sí mismo no agrega ningún control, y
+    trabaría al dueño que atiende caja un sábado. El efecto secundario es el
+    que importa: la autoautorización se vuelve imposible por construcción, en
+    vez de ser una regla que alguien tiene que acordarse de revisar.
+
+    El umbral lo decide `ConfiguracionNegocio.descuento_requiere_token`, que es
+    la única implementación de la regla — el POS llama a la misma para saber si
+    abre el modal, así que la UI y el servidor no pueden divergir.
+    """
+    if not any(item['descuento'] > 0 for item in items):
+        return False
+
+    subtotal = sum(
+        (item['precio'] * item['cantidad'] for item in items),
+        Decimal('0.00'),
+    )
+    descuento_total = sum((item['descuento'] for item in items), Decimal('0.00'))
+
+    if not config.descuento_requiere_token(
+        subtotal=subtotal, descuento_total=descuento_total
+    ):
+        return False
+
+    return not _tiene_permiso(usuario, 'ventas.autorizar_descuento', sucursal)
+
+
+def _consumir_autorizacion_descuento(*, venta, token, usuario, ip_address) -> None:
+    """
+    Consume la autorización del supervisor y la deja escrita en la venta.
+
+    El resultado se denormaliza en `Venta` a propósito: la prueba de aprobación
+    vive en `AutorizacionOverride`, pero esa tabla no sincroniza al cloud y
+    `Venta` sí. Sin esto, el dueño no vería en el portal quién autorizó qué.
+    """
+    from apps.permisos.models import AutorizacionInvalida, AutorizacionOverride
+
+    try:
+        autorizacion = AutorizacionOverride.consumir(
+            token=token,
+            operacion=AutorizacionOverride.OP_VENTA_DESCUENTO,
+            solicitado_por=usuario,
+            monto=venta.descuento_total,
+            referencia=venta.numero_venta,
+        )
+    except AutorizacionInvalida as exc:
+        raise PermisoDenegadoError(str(exc))
+
+    venta.descuento_autorizado_por = autorizacion.autorizado_por
+    venta.descuento_autorizacion_motivo = autorizacion.motivo
+    venta.save(update_fields=[
+        'descuento_autorizado_por', 'descuento_autorizacion_motivo',
+    ])
+
+    Auditoria.registrar(
+        accion=Auditoria.TipoAccion.DESCUENTO_AUTORIZADO,
+        descripcion=(
+            f'Descuento de ${venta.descuento_total} en venta '
+            f'#{venta.numero_venta} autorizado por '
+            f'{autorizacion.autorizado_por.get_short_name() or autorizacion.autorizado_por.username}'
+        ),
+        usuario=usuario,
+        content_object=venta,
+        ip_address=ip_address,
+        nivel_importancia='ALTA',
+        metadata={
+            'autorizado_por': autorizacion.autorizado_por.username,
+            'solicitado_por': getattr(usuario, 'username', ''),
+            'descuento_total': str(venta.descuento_total),
+            'subtotal': str(venta.subtotal),
+            'motivo': autorizacion.motivo,
+        },
+    )
 
 
 def _tiene_permiso(usuario, codigo: str, sucursal) -> bool:

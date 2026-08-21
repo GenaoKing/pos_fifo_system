@@ -76,6 +76,29 @@ class Venta(models.Model):
         default=Decimal('0.00'),
         verbose_name='Descuento Total'
     )
+
+    # --- Trazabilidad del descuento autorizado -------------------------------
+    # Se denormaliza aca a proposito. La prueba de aprobacion vive en
+    # `permisos.AutorizacionOverride`, pero esa tabla NO sincroniza al cloud
+    # (ver apps/sync/registry.py) y `Venta` si. Con estos dos campos el dueno
+    # ve en el portal quien autorizo cada descuento sin sync nuevo.
+    descuento_autorizado_por = models.ForeignKey(
+        'usuarios.Usuario',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='descuentos_autorizados',
+        verbose_name='Descuento autorizado por',
+        help_text='Supervisor que autorizo el descuento. Null si el descuento '
+                  'no requirio autorizacion.'
+    )
+    descuento_autorizacion_motivo = models.CharField(
+        max_length=300,
+        blank=True,
+        default='',
+        verbose_name='Motivo del descuento',
+        help_text='Vacio si la configuracion no lo pide.'
+    )
     
     total = models.DecimalField(
         max_digits=12,

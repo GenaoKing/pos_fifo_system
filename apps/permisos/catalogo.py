@@ -57,6 +57,10 @@ CATALOGO = [
     ('ventas.crear', 'Registrar ventas', 'ventas', 'Procesar ventas en el POS.'),
     ('ventas.anular', 'Anular ventas', 'ventas', 'Anular ventas dentro del plazo permitido.'),
     ('ventas.aplicar_descuento', 'Aplicar descuentos', 'ventas', 'Aplicar descuentos en ventas.'),
+    ('ventas.autorizar_descuento', 'Autorizar descuentos', 'ventas',
+     'Emitir la autorizacion que habilita un descuento por encima de la '
+     'tolerancia configurada. Quien lo tiene tambien descuenta sin pedir '
+     'autorizacion a nadie: el gate solo aplica a quien NO lo tiene.'),
     ('ventas.reimprimir', 'Reimprimir tickets', 'ventas', 'Reimprimir tickets de venta.'),
 
     # --- Cuentas por cobrar -------------------------------------------------
@@ -73,8 +77,12 @@ CATALOGO = [
 
     # --- Reportes -----------------------------------------------------------
     ('reportes.ver', 'Ver reportes', 'reportes', 'Acceder a reportes y dashboard.'),
+    ('reportes.sucursal.ver', 'Ver reportes de su sucursal', 'reportes',
+     'Ver reportes on-demand acotados a las sucursales asignadas.'),
     ('reportes.consolidado.ver', 'Ver reporte consolidado', 'reportes',
-     'Ver reportes consolidados multi-sucursal.'),
+     'Consolidar reportes de TODAS las sucursales. Solo consolida si la '
+     'asignacion del rol es global (sin sucursal); acotada a una, vale por '
+     'esa sucursal unicamente.'),
 
     # --- Sucursales ---------------------------------------------------------
     ('sucursales.ver', 'Ver sucursales', 'sucursales', 'Listar sucursales del negocio.'),
@@ -107,6 +115,10 @@ PERMISOS_CAJERO_DEFAULT = [
     'ventas.reimprimir',
     'cuentas_por_cobrar.ver',
     'cuentas_por_cobrar.cobrar',
+    # El dashboard personal del cajero (sus ventas del dia) ahora se gatea con
+    # este permiso en vez de con el flag legacy `es_cajera`. Va en el default
+    # para que una instalacion existente no pierda la pantalla de inicio.
+    'reportes.ver',
 ]
 
 

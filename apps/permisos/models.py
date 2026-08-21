@@ -161,10 +161,33 @@ class AutorizacionOverride(models.Model):
     # no pueda inventar una y saltarse la validacion por un typo.
     OP_CREDITO_EXCEDER_LIMITE = 'credito.exceder_limite'
     OP_CAJA_RETIRO = 'caja.retiro'
+    OP_VENTA_DESCUENTO = 'ventas.descuento'
     OPERACIONES = [
         (OP_CREDITO_EXCEDER_LIMITE, 'Exceder limite de credito'),
         (OP_CAJA_RETIRO, 'Retiro de caja'),
+        (OP_VENTA_DESCUENTO, 'Aplicar descuento en venta'),
     ]
+
+    # Operaciones donde el motivo puede quedar vacio si la configuracion del
+    # negocio asi lo define.
+    #
+    # El motivo es obligatorio por diseno: sin el, la traza dice QUIEN aprobo
+    # pero no POR QUE. Se afloja SOLO para descuentos, y solo porque en un
+    # negocio donde se regatea casi toda venta termina con descuento: exigir
+    # texto libre en cada una produce 400 filas que dicen "descuento", que es
+    # peor que no pedirlo — da la ilusion de control sin aportar informacion.
+    # `caja.retiro` y `credito.exceder_limite` son excepciones puntuales y
+    # conservan el motivo obligatorio.
+    OPERACIONES_MOTIVO_OPCIONAL = {OP_VENTA_DESCUENTO}
+
+    # Permiso que debe tener quien AUTORIZA cada operacion. Vive aca, junto a
+    # la declaracion de la operacion, para que agregar una operacion sin decidir
+    # quien puede aprobarla sea imposible de pasar por alto.
+    PERMISO_REQUERIDO = {
+        OP_CREDITO_EXCEDER_LIMITE: 'cuentas_por_cobrar.autorizar_exceso_credito',
+        OP_CAJA_RETIRO: 'caja.administrar',
+        OP_VENTA_DESCUENTO: 'ventas.autorizar_descuento',
+    }
 
     VIGENCIA_MINUTOS = 5
 
@@ -202,7 +225,7 @@ class AutorizacionOverride(models.Model):
         help_text='Binding adicional, ej. {"cliente_id": 5}. El consumidor '
                   'exige que coincida.',
     )
-    motivo = models.CharField(max_length=300)
+    motivo = models.CharField(max_length=300, blank=True, default='')
 
     creado = models.DateTimeField(default=timezone.now)
     expira = models.DateTimeField(db_index=True)
@@ -243,7 +266,7 @@ class AutorizacionOverride(models.Model):
         El token plano se devuelve UNA vez: no queda almacenado.
         """
         motivo = (motivo or '').strip()
-        if not motivo:
+        if not motivo and operacion not in cls.OPERACIONES_MOTIVO_OPCIONAL:
             raise ValueError('Una autorizacion de override requiere motivo.')
 
         token = secrets.token_urlsafe(32)
@@ -319,3 +342,121 @@ class AutorizacionOverride(models.Model):
 
 class AutorizacionInvalida(Exception):
     """El token de override no existe, ya se uso, vencio o no aplica."""
+
+
+class CredencialFisica(models.Model):
+    """
+    Credencial fisica (carnet, tarjeta, llavero) que identifica a un usuario
+    ante el lector de codigo de barras del POS.
+
+    Sirve para autorizar en el mostrador sin teclear usuario y contrasena
+    delante del cliente y de la cola. Es una forma alternativa de credencial
+    para emitir un `AutorizacionOverride`, no un metodo de login: pasar el
+    carnet NO abre sesion ni cambia el usuario del turno.
+
+    Del codigo solo se guarda el SHA-256, igual que `AutorizacionOverride` y
+    `SyncToken`. Un dump de la BD no permite fabricar carnets.
+
+    LIMITE CONOCIDO: es una credencial *portadora* — quien la tiene, autoriza.
+    Un codigo de barras 1D se copia con una foto y una impresora, y una tarjeta
+    se puede prestar o dejar en la gaveta. El control real no es la tarjeta:
+    es que cada uso queda nominalmente registrado (quien autorizo, cuanto y
+    cuando) y que ese registro viaja al portal. Si hace falta un factor mas
+    fuerte, la credencial se combina con contrasena (el endpoint acepta ambas
+    formas).
+    """
+
+    LONGITUD_MINIMA = 6
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='credenciales_fisicas',
+        verbose_name='Usuario',
+    )
+    codigo_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    etiqueta = models.CharField(
+        'Etiqueta',
+        max_length=60,
+        blank=True,
+        default='',
+        help_text='Como reconocerla fisicamente. Ej: "Carnet supervisor - Ana".',
+    )
+    activa = models.BooleanField('Activa', default=True)
+    fecha_alta = models.DateTimeField('Fecha de alta', default=timezone.now)
+    fecha_baja = models.DateTimeField('Fecha de baja', null=True, blank=True)
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='credenciales_emitidas',
+        verbose_name='Dada de alta por',
+    )
+
+    class Meta:
+        verbose_name = 'Credencial fisica'
+        verbose_name_plural = 'Credenciales fisicas'
+        db_table = 'permisos_credenciales_fisicas'
+        ordering = ['usuario', '-fecha_alta']
+
+    def __str__(self):
+        estado = 'activa' if self.activa else 'dada de baja'
+        return f'{self.etiqueta or "Credencial"} de {self.usuario} ({estado})'
+
+    @staticmethod
+    def normalizar(codigo):
+        """El lector es un keyboard wedge: puede traer CR/LF o espacios."""
+        return (codigo or '').strip()
+
+    @classmethod
+    def hash_codigo(cls, codigo):
+        return hashlib.sha256(cls.normalizar(codigo).encode('utf-8')).hexdigest()
+
+    @classmethod
+    def registrar(cls, *, usuario, codigo, etiqueta='', creada_por=None):
+        """Da de alta una credencial. El codigo crudo no se persiste."""
+        codigo = cls.normalizar(codigo)
+        if len(codigo) < cls.LONGITUD_MINIMA:
+            raise ValueError(
+                f'El codigo de la credencial debe tener al menos '
+                f'{cls.LONGITUD_MINIMA} caracteres.'
+            )
+        return cls.objects.create(
+            usuario=usuario,
+            codigo_hash=cls.hash_codigo(codigo),
+            etiqueta=(etiqueta or '')[:60],
+            creada_por=creada_por,
+        )
+
+    @classmethod
+    def resolver(cls, codigo):
+        """
+        Usuario detras de un codigo escaneado, o None.
+
+        Devuelve None tambien si la credencial esta de baja o el usuario
+        inactivo: una tarjeta reportada como perdida deja de servir sin
+        tener que tocar el usuario, y un usuario desactivado no autoriza
+        aunque su carnet siga circulando.
+        """
+        codigo = cls.normalizar(codigo)
+        if len(codigo) < cls.LONGITUD_MINIMA:
+            return None
+
+        credencial = (
+            cls.objects.select_related('usuario')
+            .filter(codigo_hash=cls.hash_codigo(codigo), activa=True)
+            .first()
+        )
+        if credencial is None:
+            return None
+
+        usuario = credencial.usuario
+        if not usuario.is_active or not getattr(usuario, 'activo', True):
+            return None
+        return usuario
+
+    def dar_de_baja(self):
+        self.activa = False
+        self.fecha_baja = timezone.now()
+        self.save(update_fields=['activa', 'fecha_baja'])

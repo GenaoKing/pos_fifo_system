@@ -1035,6 +1035,23 @@
                     <span x-text="obtenerMensajeValidacion()"></span>
                 </div>
             </template>
+
+            <!-- Gate de descuentos: pedir la autorizacion del supervisor -->
+            <template x-if="descuentoBloqueaVenta()">
+                <button
+                    type="button"
+                    @click="abrirModalDescuentoAuth()"
+                    class="btn-outline w-full mb-3 text-sm"
+                >
+                    Solicitar autorizacion de descuento
+                </button>
+            </template>
+
+            <template x-if="descuentoRequiereAutorizacion() && descuentoAutorizado()">
+                <div class="mb-3 p-2 bg-success-50 border-l-2 border-success-500 rounded text-xs text-success-800">
+                    <span x-text="'Descuento autorizado por ' + descuentoAuth.autorizado_por"></span>
+                </div>
+            </template>
             
             <div class="flex space-x-2">
                 <button 
@@ -1058,6 +1075,92 @@
                     </template>
                     <span x-text="procesandoVenta ? 'Procesando...' : 'Confirmar'"></span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de autorizacion de descuento -->
+    <div
+        x-show="modalDescuentoAuthAbierto"
+        x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @keydown.escape.window="cerrarModalDescuentoAuth()"
+    >
+        <div class="absolute inset-0 bg-black bg-opacity-50" @click="cerrarModalDescuentoAuth()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div class="border-b border-gray-200 px-6 py-4">
+                <h3 class="text-lg font-semibold text-gray-900">Autorizacion de descuento</h3>
+                <p class="text-sm text-gray-500 mt-1">
+                    Descuento de
+                    <span class="font-medium" x-text="'$' + calcularDescuentoTotal().toFixed(2)"></span>
+                    sobre
+                    <span x-text="'$' + calcularSubtotal().toFixed(2)"></span>
+                </p>
+            </div>
+
+            <div class="px-6 py-4 space-y-3">
+                <!-- Forma A: carnet por el lector (default) -->
+                <template x-if="descuentoAuth.modo === 'credencial'">
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">
+                            Pasa el carnet del supervisor por el lector
+                        </label>
+                        <input
+                            type="password"
+                            x-ref="descuentoCredencialInput"
+                            x-model="descuentoAuth.credencial"
+                            @keydown.enter.prevent="validarAutorizacionDescuento()"
+                            autocomplete="off"
+                            class="form-input w-full text-sm"
+                            placeholder="Esperando lectura..."
+                        >
+                        <button
+                            type="button"
+                            class="text-xs text-gray-500 underline"
+                            @click="descuentoAuth.modo = 'password'; descuentoAuth.error = ''"
+                        >
+                            No tengo el carnet: usar usuario y contrasena
+                        </button>
+                    </div>
+                </template>
+
+                <!-- Forma B: usuario y contrasena -->
+                <template x-if="descuentoAuth.modo === 'password'">
+                    <div class="space-y-2">
+                        <input type="text" x-model="descuentoAuth.usuario" class="form-input w-full text-sm" placeholder="Usuario del supervisor" autocomplete="off">
+                        <input type="password" x-model="descuentoAuth.password" @keydown.enter.prevent="validarAutorizacionDescuento()" class="form-input w-full text-sm" placeholder="Contrasena" autocomplete="off">
+                        <button
+                            type="button"
+                            class="text-xs text-gray-500 underline"
+                            @click="descuentoAuth.modo = 'credencial'; descuentoAuth.error = ''"
+                        >
+                            Volver a usar el carnet
+                        </button>
+                    </div>
+                </template>
+
+                <!-- Motivo: solo si la configuracion del negocio lo pide -->
+                <template x-if="descuentoPideMotivo()">
+                    <input
+                        type="text"
+                        x-model="descuentoAuth.motivo"
+                        class="form-input w-full text-sm"
+                        :placeholder="descuentoMotivoObligatorio() ? 'Motivo (obligatorio)' : 'Motivo (opcional)'"
+                    >
+                </template>
+
+                <p class="text-xs text-danger-700" x-show="descuentoAuth.error" x-text="descuentoAuth.error"></p>
+            </div>
+
+            <div class="border-t border-gray-200 px-6 py-4 flex justify-end space-x-2">
+                <button type="button" class="btn-outline" @click="cerrarModalDescuentoAuth()">Cancelar</button>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    @click="validarAutorizacionDescuento()"
+                    :disabled="descuentoAuth.validando"
+                    x-text="descuentoAuth.validando ? 'Verificando...' : 'Autorizar'"
+                ></button>
             </div>
         </div>
     </div>

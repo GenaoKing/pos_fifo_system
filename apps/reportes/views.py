@@ -1,35 +1,111 @@
-from django.shortcuts import render
-
-# Create your views here.
 """
 apps/reportes/views.py
 Dashboard y vistas de reportes
 """
 
 import json
+import logging
+import os
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, FileResponse
-from django.db.models import Sum, Count, F, Q, Avg, DecimalField
-from django.db.models.functions import Coalesce
-from django.utils import timezone
-from decimal import Decimal
-from datetime import timedelta
+from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce, TruncDate
+from django.http import FileResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
-from .models import CierreCaja, TopProducto, InventarioValorizado
-from apps.ventas.models import Venta, DetalleVenta, Pago
 from apps.cuentas_por_cobrar.models import PagoCxC
-from apps.productos.models import Producto, Categoria
-from apps.inventario.models import Lote, Compra
+from apps.inventario.models import Compra, Lote
+from apps.productos.models import Categoria, Producto
 from apps.usuarios.models import Usuario
+from apps.ventas.models import DetalleVenta, Pago, Venta
 
-
+from .almacenamiento import es_ruta_privada
+from .models import CierreCaja, InventarioValorizado, TopProducto
 from .pdf_generator import PDFGenerator
-from .report_manager import ReporteManager
+from .report_manager import CierreFinalizadoError, FechaFuturaError, ReporteManager
+from .scope import PERM_VER, alcance_de
+
+logger = logging.getLogger('reportes')
+
+# Tope de filas que devuelve el inventario en una sola respuesta. Sin el, el
+# endpoint serializaba TODOS los lotes activos con todos sus detalles en una
+# respuesta sincrona: un catalogo grande agota el timeout o la memoria del
+# worker (RPT-012).
+MAX_PRODUCTOS_INVENTARIO = 500
+
+
+def _error(mensaje, status=400, codigo=None, **extra):
+    """
+    Respuesta de error con contrato estable.
+
+    Los handlers genericos devolvian `str(e)` con 500: el cliente recibia el
+    texto de una excepcion interna —nombres de campo, rutas, SQL— y no tenia
+    ningun codigo con el que decidir que hacer.
+    """
+    cuerpo = {'success': False, 'error': mensaje}
+    if codigo:
+        cuerpo['codigo'] = codigo
+    cuerpo.update(extra)
+    return JsonResponse(cuerpo, status=status)
+
+
+def _error_interno(contexto):
+    """500 sin filtrar el interior; el detalle va al log."""
+    logger.exception('Error inesperado en reportes: %s', contexto)
+    return _error(
+        'Error inesperado generando el reporte.',
+        status=500,
+        codigo='error_interno',
+    )
+
+
+def _leer_json(request):
+    """Body JSON o `None` si viene mal formado."""
+    try:
+        return json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def _periodo(data):
+    """(fecha_inicio, fecha_fin) validadas; lanza ValueError con mensaje util."""
+    inicio = date.fromisoformat(data.get('fecha_inicio', ''))
+    fin = date.fromisoformat(data.get('fecha_fin', ''))
+    if inicio > fin:
+        raise ValueError('La fecha de inicio debe ser anterior a la fecha fin.')
+    if inicio > timezone.localdate():
+        raise ValueError('El periodo no puede empezar en el futuro.')
+    return inicio, fin
+
+
+def _sucursal_del_alcance(alcance, pedida=None):
+    """
+    Sucursal sobre la que se generan los snapshots persistidos.
+
+    `None` significa consolidado y solo lo puede pedir un alcance global. Un
+    usuario acotado a una sola sucursal genera el snapshot de ESA sucursal;
+    acotado a varias, debe elegir cual.
+    """
+    from apps.sucursales.models import Sucursal
+
+    if pedida is not None:
+        if not alcance.es_global and int(pedida) not in alcance.sucursal_ids:
+            raise PermissionError('Sucursal fuera de alcance.')
+        return Sucursal.objects.filter(pk=pedida).first()
+
+    if alcance.es_global:
+        return None
+    if len(alcance.sucursal_ids) == 1:
+        return Sucursal.objects.filter(
+            pk=next(iter(alcance.sucursal_ids))
+        ).first()
+    raise ValueError(
+        'Tu alcance cubre varias sucursales: indica `sucursal_id` para generar '
+        'el reporte.'
+    )
 
 # ============================================================================
 # DASHBOARD PRINCIPAL
@@ -38,8 +114,16 @@ from .report_manager import ReporteManager
 @login_required
 def dashboard(request):
     """
-    Dashboard principal - muestra version Admin o Cajera segun el rol
+    Dashboard principal - muestra version Admin o Cajera segun el rol.
+
+    `reportes.ver` existia en el catalogo pero no lo aplicaba nadie: revocarlo
+    no revocaba nada y el permiso declarado no describia el enforcement real
+    (RPT-014). Ahora se exige. Va incluido en `PERMISOS_CAJERO_DEFAULT`, asi que
+    una instalacion existente no pierde su pantalla de inicio.
     """
+    if not request.user.tiene_permiso(PERM_VER):
+        return redirect('pos:punto_venta')
+
     hoy = timezone.localdate()
     ahora = timezone.localtime()
     inicio_semana = hoy - timedelta(days=hoy.weekday())
@@ -148,24 +232,32 @@ def dashboard(request):
             total_monto=Sum('total_linea'),
         ).order_by('-total_vendido')[:5]
 
-        # Productos con stock bajo
-        productos_bajo_stock = []
-        productos_activos = Producto.objects.filter(activo=True, stock_minimo__gt=0)
-        for prod in productos_activos:
-            stock_actual = Lote.objects.filter(
-                producto=prod,
-                cantidad_actual__gt=0,
-                activo=True
-            ).aggregate(
-                total=Coalesce(Sum('cantidad_actual'), 0)
-            )['total']
-            if stock_actual <= prod.stock_minimo:
-                productos_bajo_stock.append({
-                    'producto': prod,
-                    'stock_actual': stock_actual,
-                    'stock_minimo': prod.stock_minimo,
-                    'porcentaje': int((stock_actual / prod.stock_minimo) * 100) if prod.stock_minimo > 0 else 0,
-                })
+        # Productos con stock bajo.
+        #
+        # Antes esto era un SUM por producto dentro de un for: el numero de
+        # queries del dashboard crecia linealmente con el catalogo. Ahora es
+        # una sola agregacion filtrada.
+        productos_activos = Producto.objects.filter(
+            activo=True, stock_minimo__gt=0,
+        ).annotate(
+            stock_actual=Coalesce(
+                Sum(
+                    'lotes__cantidad_actual',
+                    filter=Q(lotes__activo=True, lotes__cantidad_actual__gt=0),
+                ),
+                0,
+            ),
+        ).filter(stock_actual__lte=F('stock_minimo'))
+
+        productos_bajo_stock = [{
+            'producto': prod,
+            'stock_actual': prod.stock_actual,
+            'stock_minimo': prod.stock_minimo,
+            'porcentaje': (
+                int((prod.stock_actual / prod.stock_minimo) * 100)
+                if prod.stock_minimo > 0 else 0
+            ),
+        } for prod in productos_activos]
         productos_bajo_stock.sort(key=lambda x: x['porcentaje'])
 
         # Inventario valorizado total
@@ -247,7 +339,7 @@ def dashboard(request):
         **context_admin,
     }
 
-    
+
     # Hidratación segura para Alpine
     metricas_init = {
         'total_ventas': float(resumen_hoy['total']),
@@ -258,7 +350,7 @@ def dashboard(request):
         'credito_facturado': float(credito_facturado_hoy),
         'cobros_cxc': float(cobros_cxc_hoy),
     }
-    context['metricas_init_json'] = json.dumps(metricas_init)    
+    context['metricas_init_json'] = json.dumps(metricas_init)
 
 
     if request.user.es_cajera:
@@ -277,6 +369,9 @@ def api_metricas_hoy(request):
     """
     Endpoint JSON para actualizar metricas en tiempo real via Alpine.js
     """
+    if not request.user.tiene_permiso(PERM_VER):
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
+
     hoy = timezone.localdate()
 
     ventas_qs = Venta.objects.filter(
@@ -323,10 +418,17 @@ def api_metricas_hoy(request):
 
 
 def es_admin(user):
-    # Gatea los reportes de nivel admin por 'reportes.consolidado.ver'
-    # (ADMIN/SYSADMIN lo tienen por acceso total). El dashboard del cajero
-    # (scoping por es_cajera) NO pasa por aqui.
-    return user.is_authenticated and user.tiene_permiso('reportes.consolidado.ver')
+    """
+    Compat: "¿puede entrar a los reportes on-demand?".
+
+    Se conserva el nombre porque lo usan las plantillas y las pruebas, pero ya
+    NO decide el alcance de los datos: para eso esta `alcance_de(user)`. La
+    version anterior preguntaba `tiene_permiso('reportes.consolidado.ver')` sin
+    sucursal, y el motor RBAC sin sucursal mira todas las asignaciones del
+    usuario — asi que un rol concedido solo en A abria reportes consolidados de
+    todo el negocio.
+    """
+    return alcance_de(user).permitido
 
 
 # ============================================================================
@@ -339,20 +441,75 @@ def reportes_on_demand(request):
     Pagina principal de reportes on-demand.
     Solo ADMIN puede acceder.
     """
-    if not es_admin(request.user):
-        from django.shortcuts import redirect
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
         return redirect('reportes:dashboard')
 
-    # Lista de cajeros para el select
-    cajeros = Usuario.objects.filter(
-        activo=True,
+    # Solo los usuarios del alcance: la version anterior listaba TODOS los
+    # activos de la instalacion, que en una BD compartida es la nomina de las
+    # otras sucursales.
+    cajeros = alcance.filtrar_usuarios(
+        Usuario.objects.filter(activo=True)
     ).values('id', 'username', 'first_name', 'last_name', 'rol')
 
     context = {
+        # Se entrega por `json_script`, no interpolado dentro de <script>.
+        # La plantilla hacia `cajeros: {{ cajeros|safe }}`: un username con
+        # `</script><script>...` cerraba el bloque y ejecutaba JavaScript en la
+        # sesion del administrador que abriera la pagina (RPT-010).
         'cajeros': list(cajeros),
         'fecha_hoy': timezone.localdate().isoformat(),
+        'alcance_global': alcance.es_global,
     }
     return render(request, 'reportes/on_demand.html', context)
+
+
+# ============================================================================
+# SERIALIZER UNICO DEL RESUMEN DIARIO
+# ============================================================================
+
+def serializar_cierre(cierre):
+    """
+    Representacion unica del resumen diario (RPT-011).
+
+    Pantalla, API y PDF mostraban cierres distintos: la API omitia tarjeta,
+    descuentos y anulaciones; la pantalla tampoco mostraba tarjeta ni cobros de
+    cartera; el PDF si los incluia. Dos representaciones del mismo dia no se
+    podian reconciliar. Ahora las tres consumen esta funcion.
+    """
+    flujo = (
+        cierre.total_efectivo
+        + cierre.total_transferencia
+        + cierre.total_tarjeta
+        + cierre.total_cobros_cxc
+    )
+    return {
+        'id': cierre.id,
+        'fecha': cierre.fecha.isoformat(),
+        'sucursal': cierre.sucursal.nombre if cierre.sucursal_id else None,
+        'estado': cierre.estado,
+        'version': cierre.version,
+        'fecha_calculo': cierre.fecha_calculo.isoformat() if cierre.fecha_calculo else None,
+        'cantidad_ventas': cierre.cantidad_ventas,
+        'total_ventas': str(cierre.total_ventas),
+        'total_descuentos': str(cierre.total_descuentos),
+        'total_efectivo': str(cierre.total_efectivo),
+        'total_transferencia': str(cierre.total_transferencia),
+        'total_tarjeta': str(cierre.total_tarjeta),
+        'total_cobros_cxc': str(cierre.total_cobros_cxc),
+        'total_flujo': str(flujo),
+        'cantidad_anulaciones': cierre.cantidad_anulaciones,
+        'total_anulaciones': str(cierre.total_anulaciones),
+        'resumen_cajeros': cierre.resumen_cajeros or {},
+        'arqueo': {
+            'turnos_cerrados': cierre.turnos_cerrados,
+            'turnos_abiertos': cierre.turnos_abiertos,
+            'diferencia': str(cierre.diferencia_arqueo),
+            'conciliado': cierre.conciliado,
+        },
+        'generado_automaticamente': cierre.generado_automaticamente,
+        'tiene_pdf': bool(cierre.archivo_pdf),
+    }
 
 
 # ============================================================================
@@ -362,66 +519,64 @@ def reportes_on_demand(request):
 @login_required
 def api_cierre_manual(request):
     """
-    POST: Genera cierre de caja para una fecha especifica
+    POST: Genera (o recalcula) el resumen diario de una fecha.
     """
-    if not es_admin(request.user):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
     if request.method != 'POST':
-        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+        return _error('Metodo no permitido', status=405, codigo='metodo')
+
+    data = _leer_json(request)
+    if data is None:
+        return _error('JSON invalido en el request.', codigo='json_invalido')
 
     try:
-        data = json.loads(request.body)
         fecha_str = data.get('fecha')
-
         if not fecha_str:
-            return JsonResponse({'error': 'Fecha requerida'}, status=400)
+            return _error('Fecha requerida', codigo='fecha_requerida')
 
         fecha = date.fromisoformat(fecha_str)
-
-        # No permitir fechas futuras
-        if fecha > timezone.localdate():
-            return JsonResponse({'error': 'No se puede generar cierre para fechas futuras'}, status=400)
+        sucursal = _sucursal_del_alcance(alcance, data.get('sucursal_id'))
 
         cierre = ReporteManager.generar_cierre_diario(
             fecha=fecha,
             generado_automaticamente=False,
-            usuario=request.user
+            usuario=request.user,
+            sucursal=sucursal,
+            forzar=bool(data.get('forzar')),
         )
+    except FechaFuturaError as exc:
+        return _error(str(exc), codigo='fecha_futura')
+    except PermissionError as exc:
+        return _error(str(exc), status=403, codigo='fuera_de_alcance')
+    except CierreFinalizadoError as exc:
+        return _error(str(exc), status=409, codigo='cierre_final')
+    except ValueError as exc:
+        return _error(f'Datos invalidos: {exc}', codigo='datos_invalidos')
+    except Exception:
+        return _error_interno('api_cierre_manual')
 
-        # Generar PDF
-        pdf_path = None
-        try:
-            pdf_path = PDFGenerator.generar_cierre_caja(cierre.id)
-            if pdf_path and not cierre.archivo_pdf:
-                cierre.archivo_pdf = pdf_path
-                cierre.save()
-        except Exception:
-            pass  # PDF es opcional, no bloquear
+    # El PDF es accesorio: que falle no invalida el resumen, pero el cliente
+    # tiene que enterarse. Antes se silenciaba con `except Exception: pass` y
+    # la UI declaraba exito sin documento (RPT-016).
+    pdf_ok = True
+    try:
+        ruta = PDFGenerator.generar_cierre_caja(cierre.id)
+        if ruta:
+            cierre.archivo_pdf = ruta
+            cierre.save(update_fields=['archivo_pdf', 'fecha_calculo'])
+    except Exception:
+        pdf_ok = False
+        logger.exception('No se pudo generar el PDF del cierre %s', cierre.id)
 
-        # Construir respuesta
-        response_data = {
-            'success': True,
-            'cierre': {
-                'id': cierre.id,
-                'fecha': cierre.fecha.isoformat(),
-                'cantidad_ventas': cierre.cantidad_ventas,
-                'total_ventas': str(cierre.total_ventas or Decimal('0.00')),
-                'total_efectivo': str(cierre.total_efectivo or Decimal('0.00')),
-                'total_transferencia': str(cierre.total_transferencia or Decimal('0.00')),
-                'total_cobros_cxc': str(cierre.total_cobros_cxc or Decimal('0.00')),
-                'resumen_cajeros': cierre.resumen_cajeros or {},
-                'generado_automaticamente': cierre.generado_automaticamente,
-                'tiene_pdf': bool(cierre.archivo_pdf),
-            }
-        }
-
-        return JsonResponse(response_data)
-
-    except ValueError as e:
-        return JsonResponse({'error': f'Fecha invalida: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({
+        'success': True,
+        'estado_generacion': 'completo' if pdf_ok else 'parcial',
+        'advertencias': [] if pdf_ok else ['No se pudo generar el PDF.'],
+        'cierre': serializar_cierre(cierre),
+    })
 
 
 # ============================================================================
@@ -433,27 +588,27 @@ def api_ventas_periodo(request):
     """
     POST: Consulta ventas filtradas por periodo y cajero opcional
     """
-    if not es_admin(request.user):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
     if request.method != 'POST':
-        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+        return _error('Metodo no permitido', status=405, codigo='metodo')
+
+    data = _leer_json(request)
+    if data is None:
+        return _error('JSON invalido en el request.', codigo='json_invalido')
 
     try:
-        data = json.loads(request.body)
-        fecha_inicio = date.fromisoformat(data.get('fecha_inicio', ''))
-        fecha_fin = date.fromisoformat(data.get('fecha_fin', ''))
+        fecha_inicio, fecha_fin = _periodo(data)
         cajero_id = data.get('cajero_id')
 
-        if fecha_inicio > fecha_fin:
-            return JsonResponse({'error': 'Fecha inicio debe ser menor a fecha fin'}, status=400)
-
-        # Query base
-        ventas_qs = Venta.objects.filter(
+        # Query base, acotada al alcance del usuario.
+        ventas_qs = alcance.filtrar(Venta.objects.filter(
             fecha_venta__date__gte=fecha_inicio,
             fecha_venta__date__lte=fecha_fin,
             estado='COMPLETADA'
-        )
+        ))
 
         if cajero_id:
             ventas_qs = ventas_qs.filter(usuario_id=cajero_id)
@@ -513,10 +668,10 @@ def api_ventas_periodo(request):
             'ventas': ventas_lista,
         })
 
-    except ValueError as e:
-        return JsonResponse({'error': f'Datos invalidos: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    except ValueError as exc:
+        return _error(f'Datos invalidos: {exc}', codigo='datos_invalidos')
+    except Exception:
+        return _error_interno('api_ventas_periodo')
 
 
 # ============================================================================
@@ -528,57 +683,46 @@ def api_top_productos(request):
     """
     POST: Genera ranking de productos mas vendidos
     """
-    if not es_admin(request.user):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
     if request.method != 'POST':
-        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+        return _error('Metodo no permitido', status=405, codigo='metodo')
+
+    data = _leer_json(request)
+    if data is None:
+        return _error('JSON invalido en el request.', codigo='json_invalido')
 
     try:
-        data = json.loads(request.body)
-        fecha_inicio = date.fromisoformat(data.get('fecha_inicio', ''))
-        fecha_fin = date.fromisoformat(data.get('fecha_fin', ''))
+        fecha_inicio, fecha_fin = _periodo(data)
         limite = int(data.get('limite', 10))
-
-        if fecha_inicio > fecha_fin:
-            return JsonResponse({'error': 'Fecha inicio debe ser menor a fecha fin'}, status=400)
-
         if limite not in [5, 10, 20]:
             limite = 10
 
-        # Query directa para ranking
-        ranking = DetalleVenta.objects.filter(
-            venta__fecha_venta__date__gte=fecha_inicio,
-            venta__fecha_venta__date__lte=fecha_fin,
-            venta__estado='COMPLETADA'
-        ).values(
-            'producto__id',
-            'producto__nombre',
-            'producto__sku',
-        ).annotate(
-            cantidad_vendida=Sum('cantidad'),
-            total_vendido=Sum('total_linea'),
-            transacciones=Count('venta', distinct=True),
-        ).order_by('-cantidad_vendida')[:limite]
+        sucursal = _sucursal_del_alcance(alcance, data.get('sucursal_id'))
+
+        # El snapshot es la UNICA fuente de verdad de la respuesta (RPT-009).
+        # Antes la vista calculaba su propio ranking, llamaba al manager y
+        # silenciaba su excepcion: el manager fallaba SIEMPRE por un campo
+        # inexistente, la tabla quedaba vacia y la respuesta decia success.
+        top = ReporteManager.generar_top_productos(
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            limite=limite,
+            sucursal=sucursal,
+        )
 
         productos = [{
             'posicion': idx + 1,
-            'nombre': p['producto__nombre'],
-            'sku': p['producto__sku'],
-            'cantidad': str(p['cantidad_vendida']),
-            'total': str(p['total_vendido']),
-            'transacciones': p['transacciones'],
-        } for idx, p in enumerate(ranking)]
-
-        # Guardar en modelo si se desea
-        try:
-            ReporteManager.generar_top_productos(
-                fecha_inicio=fecha_inicio,
-                fecha_fin=fecha_fin,
-                limite=limite
-            )
-        except Exception:
-            pass  # No critico
+            'nombre': t.producto.nombre,
+            'sku': t.producto.sku,
+            'cantidad': str(t.cantidad_vendida),
+            'total': str(t.total_ventas),
+            'costo': str(t.costo_total),
+            'margen': str(t.margen_promedio),
+            'transacciones': t.numero_transacciones,
+        } for idx, t in enumerate(top)]
 
         return JsonResponse({
             'success': True,
@@ -587,13 +731,16 @@ def api_top_productos(request):
                 'fecha_fin': fecha_fin.isoformat(),
                 'limite': limite,
             },
+            'sucursal': sucursal.nombre if sucursal else None,
             'productos': productos,
         })
 
-    except ValueError as e:
-        return JsonResponse({'error': f'Datos invalidos: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    except PermissionError as exc:
+        return _error(str(exc), status=403, codigo='fuera_de_alcance')
+    except ValueError as exc:
+        return _error(f'Datos invalidos: {exc}', codigo='datos_invalidos')
+    except Exception:
+        return _error_interno('api_top_productos')
 
 
 # ============================================================================
@@ -603,90 +750,82 @@ def api_top_productos(request):
 @login_required
 def api_inventario_valorizado(request):
     """
-    POST: Genera snapshot del inventario valorizado
+    POST: Inventario valorizado a una fecha de corte.
+
+    El contrato cambio (RPT-002). Antes el endpoint aceptaba cualquier fecha
+    —pasada o futura— y respondia con el stock de AHORA rotulado con esa fecha:
+    un corte etiquetado 2020-01-01 mostraba lotes creados esta semana, y
+    2099-12-31 se aceptaba y se persistia. Ademas la vista calculaba por su
+    cuenta y ADEMAS llamaba al manager, asi que la respuesta y la fila guardada
+    para la misma fecha podian decir cosas distintas.
+
+    Ahora hay una sola verdad: el snapshot. Una fecha pasada se reconstruye
+    desde el ledger de movimientos; una futura se rechaza.
     """
-    if not es_admin(request.user):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
     if request.method != 'POST':
-        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+        return _error('Metodo no permitido', status=405, codigo='metodo')
+
+    data = _leer_json(request)
+    if data is None:
+        return _error('JSON invalido en el request.', codigo='json_invalido')
 
     try:
-        data = json.loads(request.body)
         fecha_str = data.get('fecha')
         fecha = date.fromisoformat(fecha_str) if fecha_str else timezone.localdate()
+        sucursal = _sucursal_del_alcance(alcance, data.get('sucursal_id'))
 
-        # Consultar lotes activos con stock
-        lotes = Lote.objects.filter(
-            cantidad_actual__gt=0,
-            activo=True,
-        ).select_related('producto').order_by(
-            'producto__nombre', 'fecha_compra'
+        snapshot = ReporteManager.generar_inventario_valorizado(
+            fecha=fecha,
+            sucursal=sucursal,
+            # Un corte de hoy se recalcula: el inventario "actual" cambia todo
+            # el dia y devolver el de la manana seria otra etiqueta mentirosa.
+            # Un corte pasado es inmutable por definicion.
+            recalcular=(fecha >= timezone.localdate()),
         )
+    except FechaFuturaError as exc:
+        return _error(str(exc), codigo='fecha_futura')
+    except PermissionError as exc:
+        return _error(str(exc), status=403, codigo='fuera_de_alcance')
+    except ValueError as exc:
+        return _error(f'Datos invalidos: {exc}', codigo='datos_invalidos')
+    except Exception:
+        return _error_interno('api_inventario_valorizado')
 
-        # Agrupar por producto
-        productos_dict = {}
-        for lote in lotes:
-            pid = lote.producto_id
-            if pid not in productos_dict:
-                productos_dict[pid] = {
-                    'nombre': lote.producto.nombre,
-                    'sku': lote.producto.sku,
-                    'cantidad_total': Decimal('0'),
-                    'valor_total': Decimal('0'),
-                    'lotes': [],
-                }
+    productos = snapshot.datos_inventario or []
+    total = len(productos)
+    mostrados = productos[:MAX_PRODUCTOS_INVENTARIO]
 
-            valor_lote = lote.cantidad_actual * lote.costo_unitario
-            productos_dict[pid]['cantidad_total'] += lote.cantidad_actual
-            productos_dict[pid]['valor_total'] += valor_lote
-            productos_dict[pid]['lotes'].append({
-                'numero': lote.numero_lote,
-                'fecha_compra': lote.fecha_compra.strftime('%d/%m/%Y') if lote.fecha_compra else 'N/A',
-                'cantidad': str(lote.cantidad_actual),
-                'costo_unitario': str(lote.costo_unitario),
-                'valor': str(valor_lote),
-            })
-
-        # Convertir a lista
-        productos_lista = []
-        total_unidades = Decimal('0')
-        total_valor = Decimal('0')
-
-        for pid, p in productos_dict.items():
-            costo_promedio = (p['valor_total'] / p['cantidad_total']) if p['cantidad_total'] > 0 else Decimal('0')
-            productos_lista.append({
-                'nombre': p['nombre'],
-                'sku': p['sku'],
-                'cantidad_total': str(p['cantidad_total']),
-                'costo_promedio': str(costo_promedio.quantize(Decimal('0.01'))),
-                'valor_total': str(p['valor_total']),
-                'lotes': p['lotes'],
-            })
-            total_unidades += p['cantidad_total']
-            total_valor += p['valor_total']
-
-        # Guardar snapshot via ReporteManager
-        try:
-            ReporteManager.generar_inventario_valorizado(fecha=fecha)
-        except Exception:
-            pass
-
-        return JsonResponse({
-            'success': True,
-            'fecha': fecha.isoformat(),
-            'resumen': {
-                'total_productos': len(productos_lista),
-                'total_unidades': str(total_unidades),
-                'valor_total': str(total_valor),
-            },
-            'productos': productos_lista,
-        })
-
-    except ValueError as e:
-        return JsonResponse({'error': f'Datos invalidos: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({
+        'success': True,
+        'fecha': snapshot.fecha.isoformat(),
+        # Que sustenta la respuesta: id del snapshot y el instante REAL que
+        # representa. Dos consultas del mismo snapshot dan lo mismo.
+        'snapshot_id': snapshot.id,
+        'momento_corte': (
+            snapshot.momento_corte.isoformat() if snapshot.momento_corte else None
+        ),
+        'historico': snapshot.fecha < timezone.localdate(),
+        'sucursal': snapshot.sucursal.nombre if snapshot.sucursal_id else None,
+        'resumen': {
+            'total_productos': snapshot.total_productos,
+            'total_unidades': str(snapshot.total_unidades),
+            'valor_total': str(snapshot.valor_total_inventario),
+        },
+        'productos': [{
+            'nombre': p['nombre'],
+            'sku': p['sku'],
+            'cantidad_total': p['cantidad_total'],
+            'costo_promedio': p['costo_promedio_fifo'],
+            'valor_total': p['valor_total'],
+            'lotes': p['lotes'],
+        } for p in mostrados],
+        # El corte se declara en vez de aplicarse en silencio.
+        'productos_ocultos': max(0, total - len(mostrados)),
+    })
 
 
 # ============================================================================
@@ -698,25 +837,25 @@ def api_ventas_cajero(request):
     """
     POST: Comparativa de ventas entre cajeros
     """
-    if not es_admin(request.user):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
     if request.method != 'POST':
-        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+        return _error('Metodo no permitido', status=405, codigo='metodo')
+
+    data = _leer_json(request)
+    if data is None:
+        return _error('JSON invalido en el request.', codigo='json_invalido')
 
     try:
-        data = json.loads(request.body)
-        fecha_inicio = date.fromisoformat(data.get('fecha_inicio', ''))
-        fecha_fin = date.fromisoformat(data.get('fecha_fin', ''))
+        fecha_inicio, fecha_fin = _periodo(data)
 
-        if fecha_inicio > fecha_fin:
-            return JsonResponse({'error': 'Fecha inicio debe ser menor a fecha fin'}, status=400)
-
-        ventas_qs = Venta.objects.filter(
+        ventas_qs = alcance.filtrar(Venta.objects.filter(
             fecha_venta__date__gte=fecha_inicio,
             fecha_venta__date__lte=fecha_fin,
             estado='COMPLETADA'
-        )
+        ))
 
         # Agrupar por cajero
         por_cajero = ventas_qs.values(
@@ -785,10 +924,10 @@ def api_ventas_cajero(request):
             'pagos_desglose': pagos_desglose,
         })
 
-    except ValueError as e:
-        return JsonResponse({'error': f'Datos invalidos: {str(e)}'}, status=400)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    except ValueError as exc:
+        return _error(f'Datos invalidos: {exc}', codigo='datos_invalidos')
+    except Exception:
+        return _error_interno('api_ventas_cajero')
 
 
 # ============================================================================
@@ -798,39 +937,46 @@ def api_ventas_cajero(request):
 @login_required
 def descargar_pdf_cierre(request, cierre_id):
     """
-    Descarga PDF de un cierre de caja
+    Descarga el PDF de un resumen diario.
+
+    Esta es la UNICA via para obtener el documento. Los archivos viven fuera de
+    `MEDIA_ROOT` (`apps/reportes/almacenamiento`), de modo que el control de
+    permiso de aca no se puede rodear pidiendo `/media/...` con una fecha
+    adivinada (RPT-001).
     """
-    if not es_admin(request.user):
-        from django.http import HttpResponseForbidden
-        return HttpResponseForbidden()
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return _error('Sin permisos', status=403, codigo='sin_permiso')
 
-    from django.shortcuts import get_object_or_404
-    cierre = get_object_or_404(CierreCaja, id=cierre_id)
+    cierre = get_object_or_404(
+        alcance.filtrar(CierreCaja.objects.all()), id=cierre_id,
+    )
 
-    # Generar PDF si no existe
-    if not cierre.archivo_pdf:
+    # Un resumen consolidado solo lo baja quien consolida.
+    if cierre.sucursal_id is None and not alcance.es_global:
+        return _error(
+            'El resumen consolidado requiere alcance global.',
+            status=403, codigo='fuera_de_alcance',
+        )
+
+    ruta = str(cierre.archivo_pdf or '')
+
+    # Un PDF viejo, guardado bajo MEDIA_ROOT por la version anterior, se
+    # regenera en la ubicacion privada en vez de servirse desde la publica.
+    if not ruta or not es_ruta_privada(ruta) or not os.path.exists(ruta):
         try:
-            pdf_path = PDFGenerator.generar_cierre_caja(cierre.id)
-            cierre.archivo_pdf = pdf_path
-            cierre.save()
-        except Exception as e:
-            return JsonResponse({'error': f'Error generando PDF: {str(e)}'}, status=500)
+            ruta = PDFGenerator.generar_cierre_caja(cierre.id)
+            cierre.archivo_pdf = ruta
+            cierre.save(update_fields=['archivo_pdf', 'fecha_calculo'])
+        except Exception:
+            return _error_interno(f'PDF del cierre {cierre.id}')
 
-    import os
-    from django.conf import settings
-
-    # Determinar ruta absoluta
-    if os.path.isabs(str(cierre.archivo_pdf)):
-        filepath = str(cierre.archivo_pdf)
-    else:
-        filepath = os.path.join(settings.MEDIA_ROOT, str(cierre.archivo_pdf))
-
-    if not os.path.exists(filepath):
-        return JsonResponse({'error': 'Archivo PDF no encontrado'}, status=404)
+    if not os.path.exists(ruta):
+        return _error('Archivo PDF no encontrado', status=404, codigo='sin_archivo')
 
     return FileResponse(
-        open(filepath, 'rb'),
+        open(ruta, 'rb'),
         content_type='application/pdf',
         as_attachment=True,
-        filename=f"cierre_caja_{cierre.fecha}.pdf"
+        filename=f"resumen_diario_{cierre.fecha}.pdf"
     )

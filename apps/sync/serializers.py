@@ -75,6 +75,14 @@ def serializar_venta(venta):
         'cliente': _serializar_cliente(venta.cliente if venta.cliente_id else None),
         'subtotal': _d(venta.subtotal),
         'descuento_total': _d(venta.descuento_total),
+        # Quien autorizo el descuento. Va en el payload de la venta porque
+        # `permisos.AutorizacionOverride` no sincroniza: sin esto el dueno no
+        # ve en el portal quien aprobo que.
+        'descuento_autorizado_por': (
+            venta.descuento_autorizado_por.username
+            if venta.descuento_autorizado_por_id else None
+        ),
+        'descuento_autorizacion_motivo': venta.descuento_autorizacion_motivo or '',
         'total': _d(venta.total),
         'estado': venta.estado,
         'condicion_pago': getattr(venta, 'condicion_pago', 'CONTADO'),

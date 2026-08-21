@@ -131,3 +131,39 @@ def tiene_permiso(usuario, codigo, sucursal=None):
     if es_acceso_total(usuario):
         return True
     return codigo in permisos_de_usuario(usuario, sucursal)
+
+
+def sucursales_con_permiso(usuario, codigo):
+    """
+    Sucursales donde `usuario` tiene el permiso `codigo`.
+
+    Devuelve `None` cuando el alcance es GLOBAL —acceso total, o una asignacion
+    sin sucursal— y un `set` de ids cuando esta acotado. `set()` vacio significa
+    que no lo tiene en ninguna parte.
+
+    `tiene_permiso(codigo)` sin sucursal responde "si, en alguna", que es lo que
+    se necesita para un gate. Pero un reporte necesita ademas saber *donde*: sin
+    esta distincion, un rol asignado solo a la sucursal A habilitaba consultas
+    consolidadas que incluian las ventas de B.
+    """
+    if not usuario or not getattr(usuario, 'is_authenticated', False):
+        return set()
+    if es_acceso_total(usuario):
+        return None
+
+    from .models import AsignacionRol
+
+    asignaciones = AsignacionRol.objects.filter(
+        usuario=usuario,
+        activo=True,
+        rol__activo=True,
+        rol__permisos__codigo=codigo,
+    ).values_list('sucursal_id', flat=True).distinct()
+
+    ids = set(asignaciones)
+    if not ids:
+        return set()
+    if None in ids:
+        # Una asignacion sin sucursal es deliberadamente global.
+        return None
+    return ids

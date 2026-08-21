@@ -16,6 +16,10 @@ db.sqlite3-journal
 media/
 staticfiles/
 
+# Documentos financieros privados (cierres en PDF). NO son media: se sirven solo
+# por la vista autorizada y nunca deben viajar en el repositorio.
+private/
+
 # Environments
 .env
 .venv

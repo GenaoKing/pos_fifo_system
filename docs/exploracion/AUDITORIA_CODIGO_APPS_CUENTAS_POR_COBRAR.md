@@ -728,14 +728,13 @@ Ninguna transforma datos existentes.
 
 ## Pendiente (no bloqueante)
 
-- **Actualizar el POS al flujo de token.** Es el único punto donde una
-  funcionalidad queda temporalmente inaccesible (el override de límite). El
-  cambio en `static/js/pos/punto_venta.js` es acotado: pedir `motivo`, mandar
-  `operacion`/`monto`/`cliente_id` a `validar-admin` y guardar el `token`
-  devuelto en vez del `admin_id`.
-- **`caja.retiro` sigue usando `admin_id` crudo.** El modelo
-  `AutorizacionOverride` ya contempla esa operación (`OP_CAJA_RETIRO`), pero
-  migrar el flujo de retiros pertenece a la auditoría de `apps/caja`.
+- ~~**Actualizar el POS al flujo de token.**~~ **HECHO (2026-08-21).**
+  `static/js/pos/punto_venta.js` y `templates/pos/punto_venta.html` piden motivo
+  (mínimo 5 caracteres), mandan `operacion`/`monto`/`cliente_id` a
+  `validar-admin` y guardan el `token`. Cubierto por 4 tests e2e.
+- ~~**`caja.retiro` sigue usando `admin_id` crudo.**~~ **HECHO (2026-08-21)**,
+  en la mitigación de CAJA-001. `templates/caja/index.html` migró al mismo flujo
+  de token, con motivo obligatorio; un `admin_id` crudo ahora se rechaza con 403.
 - **Idempotencia concurrente del cobro.** La constraint única garantiza un solo
   pago por clave; el chequeo previo evita el trabajo. Falta el test de N
   reintentos concurrentes con la misma clave.

@@ -25,6 +25,25 @@ from django.conf.urls.static import static  # ← AGREGAR
 from django.views.static import serve
 
 
+# Prefijos de MEDIA_ROOT que NUNCA se sirven sin autenticacion.
+#
+# `serve` publica todo MEDIA_ROOT sin login y sin condicionarlo a DEBUG. Eso
+# esta bien para imagenes de producto; no para documentos financieros. Los
+# cierres nuevos ya se escriben fuera de media (`apps/reportes/almacenamiento`),
+# pero una instalacion existente tiene PDFs viejos ahi, con nombre predecible
+# por fecha. Este guard los cubre sin depender de que alguien limpie el disco.
+MEDIA_PRIVADO = ('reportes/',)
+
+
+def serve_media(request, path):
+    """`serve`, salvo para los prefijos privados."""
+    from django.http import Http404
+
+    normalizado = str(path or '').replace('\\', '/').lstrip('/')
+    if any(normalizado.startswith(pref) for pref in MEDIA_PRIVADO):
+        raise Http404('No disponible.')
+    return serve(request, path, document_root=settings.MEDIA_ROOT)
+
 
 urlpatterns = [
     path("api/v1/health/live/", health_live, name="api-health-live"),
@@ -52,5 +71,5 @@ urlpatterns = [
 ]
 
 urlpatterns += [
-    path('media/<path:path>', serve, {'document_root': settings.MEDIA_ROOT}),
+    path('media/<path:path>', serve_media),
 ]

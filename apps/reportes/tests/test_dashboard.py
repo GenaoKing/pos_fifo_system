@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.test import RequestFactory, TestCase, override_settings
 
+from apps.permisos import testing as permisos_testing
 from apps.reportes.views import api_metricas_hoy, dashboard
 from apps.usuarios.models import Usuario
 from apps.ventas.models import Pago, Venta
@@ -36,6 +37,14 @@ class DashboardReportesTests(TestCase):
             rol='CAJERA',
             activo=True,
         )
+        # El dashboard ahora exige `reportes.ver` (RPT-014). En una instalacion
+        # real llega por `PERMISOS_CAJERO_DEFAULT`; aca hay que darlo explicito
+        # porque el fixture arma los usuarios a mano.
+        for usuario in (self.cajera, self.otra_cajera):
+            permisos_testing.habilitar_cajero(
+                usuario, permisos=['ventas.crear', 'reportes.ver'],
+            )
+
         self.local_night = datetime(
             2026, 5, 16, 23, 5, tzinfo=ZoneInfo('America/Santo_Domingo')
         )

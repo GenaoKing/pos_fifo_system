@@ -71,7 +71,8 @@ def turnos_en_alcance(request):
 @login_required
 def api_validar_admin(request):
     """
-    POST: valida credenciales de un admin y EMITE una autorizacion puntual.
+    POST: valida las credenciales de un autorizador y EMITE una autorizacion
+    puntual.
 
     Antes devolvia el `admin_id` crudo y el cliente lo reenviaba con la
     operacion. Ese ID no probaba nada: cualquiera que conociera (o adivinara,
@@ -82,17 +83,27 @@ def api_validar_admin(request):
     operacion, al operador que lo pide, a la sucursal, al monto y al alcance.
     Ver `apps.permisos.models.AutorizacionOverride`.
 
+    Dos formas de credencial, ambas equivalentes:
+
+      - `username` + `password`: teclear las credenciales.
+      - `credencial`: pasar un carnet por el lector del POS. Evita teclear una
+        contrasena delante del cliente y de la cola, que es la razon por la que
+        en la practica esas contrasenas terminan siendo "1234" o compartidas.
+
     Body: {
-        "username": "admin", "password": "...",
-        "operacion": "credito.exceder_limite" | "caja.retiro",
-        "motivo": "...",              # obligatorio
+        "username": "admin", "password": "...",   # forma A
+        "credencial": "<codigo escaneado>",       # forma B
+        "operacion": "credito.exceder_limite" | "caja.retiro" | "ventas.descuento",
+        "motivo": "...",              # obligatorio salvo config (ver abajo)
         "monto": "1500.00",           # opcional, acota el token
         "cliente_id": 5               # opcional, acota el token
     }
     Returns: { "valido": true, "token": "...", "expira_en_minutos": 5,
                "admin_nombre": "Admin" }
     """
-    from apps.permisos.models import AutorizacionOverride
+    from apps.configuracion.utils import get_config
+    from apps.permisos import throttling
+    from apps.permisos.models import AutorizacionOverride, CredencialFisica
 
     if request.method != 'POST':
         return JsonResponse({'error': 'Metodo no permitido'}, status=405)
@@ -104,38 +115,63 @@ def api_validar_admin(request):
 
     username = data.get('username', '')
     password = data.get('password', '')
+    credencial = (data.get('credencial') or '').strip()
     operacion = (data.get('operacion') or AutorizacionOverride.OP_CAJA_RETIRO).strip()
     motivo = (data.get('motivo') or '').strip()
-
-    if not username or not password:
-        return JsonResponse({'valido': False, 'error': 'Credenciales requeridas'})
 
     operaciones_validas = dict(AutorizacionOverride.OPERACIONES)
     if operacion not in operaciones_validas:
         return JsonResponse({'valido': False, 'error': 'Operacion no autorizable.'})
 
-    if not motivo:
-        # Sin motivo no hay autorizacion: era opcional y quedaba vacio, con lo
-        # cual la traza no decia POR QUE se aprobo la excepcion.
+    # -------- Motivo: obligatorio por defecto, configurable para descuentos
+    # Sin motivo la traza dice QUIEN aprobo pero no POR QUE, asi que la regla
+    # general es exigirlo. La excepcion son los descuentos: donde se regatea,
+    # casi toda venta lleva descuento y el texto libre degenera en 400 filas
+    # que dicen "descuento". Lo decide el negocio en su configuracion.
+    vigencia_minutos = None
+    if operacion == AutorizacionOverride.OP_VENTA_DESCUENTO:
+        config = get_config()
+        motivo_obligatorio = config.descuento_motivo_obligatorio
+        vigencia_minutos = config.descuento_vigencia_minutos
+    else:
+        motivo_obligatorio = True
+
+    if motivo_obligatorio and not motivo:
         return JsonResponse({
             'valido': False,
             'error': 'El motivo de la autorizacion es obligatorio.',
         })
 
-    # Autenticar sin tocar la sesion
-    user = authenticate(request, username=username, password=password)
+    # -------- Freno de fuerza bruta, para las dos formas de credencial
+    if throttling.excedido(request):
+        return JsonResponse({
+            'valido': False,
+            'error': 'Demasiados intentos fallidos. Espera unos minutos.',
+        }, status=429)
+
+    if credencial:
+        user = CredencialFisica.resolver(credencial)
+        error_credencial = 'Credencial no reconocida'
+    elif username and password:
+        # Autenticar sin tocar la sesion
+        user = authenticate(request, username=username, password=password)
+        error_credencial = 'Credenciales incorrectas'
+    else:
+        return JsonResponse({'valido': False, 'error': 'Credenciales requeridas'})
 
     if user is None:
-        return JsonResponse({'valido': False, 'error': 'Credenciales incorrectas'})
+        throttling.registrar_fallo(request)
+        return JsonResponse({'valido': False, 'error': error_credencial})
 
+    # `CredencialFisica.resolver` ya descarta usuarios inactivos; para la forma
+    # con contrasena el chequeo sigue haciendo falta.
     if not user.is_active or not getattr(user, 'activo', True):
+        throttling.registrar_fallo(request)
         return JsonResponse({'valido': False, 'error': 'Usuario inactivo'})
 
-    permiso = (
-        'cuentas_por_cobrar.autorizar_exceso_credito'
-        if operacion == AutorizacionOverride.OP_CREDITO_EXCEDER_LIMITE
-        else 'caja.administrar'
-    )
+    throttling.limpiar(request)
+
+    permiso = AutorizacionOverride.PERMISO_REQUERIDO[operacion]
     if not user.tiene_permiso(permiso, sucursal=getattr(request, 'sucursal', None)):
         return JsonResponse({
             'valido': False,
@@ -155,12 +191,13 @@ def api_validar_admin(request):
         monto_maximo=Decimal(str(monto)) if monto not in (None, '') else None,
         alcance=alcance,
         motivo=motivo,
+        minutos=vigencia_minutos,
     )
 
     return JsonResponse({
         'valido': True,
         'token': token,
-        'expira_en_minutos': AutorizacionOverride.VIGENCIA_MINUTOS,
+        'expira_en_minutos': vigencia_minutos or AutorizacionOverride.VIGENCIA_MINUTOS,
         'admin_nombre': user.get_short_name() or user.username,
     })
 

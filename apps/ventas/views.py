@@ -114,6 +114,20 @@ def punto_venta(request):
             'permite_mixto': len(metodos_pago) > 1,
             'permitir_inventario_negativo': config.permitir_inventario_negativo,
             'modulo_ecf': config.modulo_ecf,
+            # Gate de descuentos. `usuario_autoriza` refleja la MISMA excepcion
+            # que aplica el servidor (ventas_service._descuento_requiere_autorizacion):
+            # a quien puede autorizar no se le pide autorizacion. Si la UI no lo
+            # supiera, le abriria un modal que el servidor no necesita.
+            'descuento': {
+                'requiere_autorizacion': config.descuento_requiere_autorizacion,
+                'tolerancia_monto': float(config.descuento_tolerancia_monto),
+                'tolerancia_porcentaje': float(config.descuento_tolerancia_porcentaje),
+                'motivo_modo': config.descuento_motivo_modo,
+                'usuario_autoriza': request.user.tiene_permiso(
+                    'ventas.autorizar_descuento',
+                    sucursal=getattr(request, 'sucursal', None),
+                ),
+            },
         },
     }
  

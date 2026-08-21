@@ -6,6 +6,13 @@
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
+{# Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
+   nombre de usuario con `</script>` viaja como texto y no cierra el bloque.
+   Antes se interpolaba con `|safe` dentro de <script>, y un username guardado
+   con `</script><script>...` ejecutaba JavaScript en la sesion de cualquier
+   administrador que abriera esta pagina. #}
+{{ cajeros|json_script:"reportes-cajeros" }}
+
 <script>
 function reportesApp() {
     return {
@@ -14,7 +21,10 @@ function reportesApp() {
         cargando: false,
         error: null,
         fechaHoy: '{{ fecha_hoy }}',
-        cajeros: {{ cajeros|safe }},
+        cajeros: JSON.parse(
+            document.getElementById('reportes-cajeros').textContent
+        ),
+        alcanceGlobal: {{ alcance_global|yesno:"true,false" }},
         lotesAbiertos: [],
         chartInstances: {},
 
@@ -527,9 +537,13 @@ function reportesApp() {
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                {# Los mismos componentes que el PDF: la pantalla omitia
+                   tarjeta, cobros de cartera, descuentos y anulaciones, asi que
+                   un dia dominado por tarjeta parecia incompleto aqui aunque el
+                   documento tuviera la cifra. #}
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
                     <div class="bg-gray-50 rounded-lg p-4 text-center">
-                        <p class="text-xs text-gray-500 uppercase tracking-wider">Total Ventas</p>
+                        <p class="text-xs text-gray-500 uppercase tracking-wider">Ventas facturadas</p>
                         <p class="text-xl font-bold text-gray-900 mt-1">$<span x-text="formatMonto(resultado.cierre.total_ventas)"></span></p>
                     </div>
                     <div class="bg-green-50 rounded-lg p-4 text-center">
@@ -540,9 +554,70 @@ function reportesApp() {
                         <p class="text-xs text-blue-600 uppercase tracking-wider">Transferencia</p>
                         <p class="text-xl font-bold text-blue-700 mt-1">$<span x-text="formatMonto(resultado.cierre.total_transferencia)"></span></p>
                     </div>
+                    <div class="bg-purple-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-purple-600 uppercase tracking-wider">Tarjeta</p>
+                        <p class="text-xl font-bold text-purple-700 mt-1">$<span x-text="formatMonto(resultado.cierre.total_tarjeta)"></span></p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-amber-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-amber-600 uppercase tracking-wider">Cobros CxC</p>
+                        <p class="text-xl font-bold text-amber-700 mt-1">$<span x-text="formatMonto(resultado.cierre.total_cobros_cxc)"></span></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-gray-500 uppercase tracking-wider">Flujo total</p>
+                        <p class="text-xl font-bold text-gray-900 mt-1">$<span x-text="formatMonto(resultado.cierre.total_flujo)"></span></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-gray-500 uppercase tracking-wider">Descuentos</p>
+                        <p class="text-xl font-bold text-gray-900 mt-1">$<span x-text="formatMonto(resultado.cierre.total_descuentos)"></span></p>
+                    </div>
+                    <div class="bg-red-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-red-600 uppercase tracking-wider">Anulaciones</p>
+                        <p class="text-xl font-bold text-red-700 mt-1">$<span x-text="formatMonto(resultado.cierre.total_anulaciones)"></span></p>
+                        <p class="text-xs text-red-500 mt-1"><span x-text="resultado.cierre.cantidad_anulaciones"></span> ventas</p>
+                    </div>
+                </div>
+
+                {# Arqueo fisico: viene de apps/caja y se muestra APARTE de la
+                   facturacion, para que no se lea como una conciliacion de
+                   efectivo que este resumen no hace. #}
+                <div class="border border-gray-200 rounded-lg p-4 mb-6">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-sm font-semibold text-gray-700">Arqueo de caja del dia</h4>
+                        <span x-show="resultado.cierre.arqueo.conciliado" class="badge-success text-xs">Conciliado</span>
+                        <span x-show="!resultado.cierre.arqueo.conciliado" class="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded-full font-medium">
+                            Turnos abiertos: <span x-text="resultado.cierre.arqueo.turnos_abiertos"></span>
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase tracking-wider">Turnos cerrados</p>
+                            <p class="text-lg font-bold text-gray-900 mt-1" x-text="resultado.cierre.arqueo.turnos_cerrados"></p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase tracking-wider">Turnos abiertos</p>
+                            <p class="text-lg font-bold text-gray-900 mt-1" x-text="resultado.cierre.arqueo.turnos_abiertos"></p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase tracking-wider">Diferencia</p>
+                            <p class="text-lg font-bold text-gray-900 mt-1">$<span x-text="formatMonto(resultado.cierre.arqueo.diferencia)"></span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <div class="bg-gray-50 rounded-lg p-4 text-center">
                         <p class="text-xs text-gray-500 uppercase tracking-wider">Transacciones</p>
                         <p class="text-xl font-bold text-gray-900 mt-1" x-text="resultado.cierre.cantidad_ventas"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <p class="text-xs text-gray-500 uppercase tracking-wider">Estado</p>
+                        <p class="text-xl font-bold text-gray-900 mt-1">
+                            <span x-text="resultado.cierre.estado"></span>
+                            <span class="text-sm text-gray-500">v<span x-text="resultado.cierre.version"></span></span>
+                        </p>
                     </div>
                 </div>
 

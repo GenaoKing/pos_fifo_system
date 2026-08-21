@@ -1,6 +1,3 @@
-import os
-
-from django.conf import settings
 from reportlab.platypus import Spacer
 
 from apps.common.pdf.standard import (
@@ -17,6 +14,7 @@ from apps.common.pdf.standard import (
 )
 from apps.configuracion.utils import get_config
 
+from .almacenamiento import ruta_cierre
 from .models import CierreCaja
 
 
@@ -25,10 +23,15 @@ class PDFGenerator:
 
     @staticmethod
     def _build_path(cierre):
-        pdf_dir = os.path.join(settings.MEDIA_ROOT, 'reportes', 'cierres')
-        os.makedirs(pdf_dir, exist_ok=True)
-        filename = f"cierre_{cierre.fecha.strftime('%Y%m%d')}.pdf"
-        return os.path.join(pdf_dir, filename)
+        """
+        Ruta del PDF: privada, con prefijo de tenant y nombre no enumerable.
+
+        Antes componia `MEDIA_ROOT/reportes/cierres/cierre_YYYYMMDD.pdf`: una
+        ruta publica (RPT-001) y ademas identica para todos los tenants que
+        cerraran el mismo dia, con lo que el segundo pisaba al primero
+        (RPT-007).
+        """
+        return ruta_cierre(cierre)
 
     @staticmethod
     def _porcentaje(monto, total):
@@ -50,14 +53,23 @@ class PDFGenerator:
             + getattr(cierre, 'total_cobros_cxc', 0)
         )
 
+        ambito = cierre.sucursal.nombre if cierre.sucursal_id else 'Consolidado'
+        sello = f'{cierre.estado} v{cierre.version}'
+
         elements = []
         elements.extend(business_header(config))
-        elements.extend(document_title('Cierre de caja', date(cierre.fecha)))
+        # El titulo dice lo que el documento ES (RPT-008). "Cierre de caja"
+        # invitaba a leerlo como una conciliacion de efectivo fisico que este
+        # resumen nunca hizo: el arqueo real vive en apps/caja.
+        elements.extend(document_title(
+            'Resumen diario de ventas y cobros', date(cierre.fecha),
+        ))
 
         elements.extend([
             section_title('Resumen de ventas'),
             info_grid([
-                [('Fecha', date(cierre.fecha)), ('Ventas', cierre.cantidad_ventas)],
+                [('Fecha', date(cierre.fecha)), ('Ambito', ambito)],
+                [('Ventas', cierre.cantidad_ventas), ('Estado', sello)],
                 [('Ventas facturadas', money(cierre.total_ventas)), ('Descuentos', money(cierre.total_descuentos))],
                 [('Anulaciones', cierre.cantidad_anulaciones), ('Total anulaciones', money(cierre.total_anulaciones))],
             ]),
@@ -84,12 +96,28 @@ class PDFGenerator:
             Spacer(1, 10),
         ])
 
+        # Conciliacion de caja fisica: separada de la facturacion de arriba,
+        # para que se lea como lo que es (RPT-008).
+        elements.extend([
+            section_title('Arqueo de caja del dia'),
+            info_grid([
+                [('Turnos cerrados', cierre.turnos_cerrados),
+                 ('Turnos abiertos', cierre.turnos_abiertos)],
+                [('Diferencia de arqueo', money(cierre.diferencia_arqueo)),
+                 ('Dia conciliado', 'Si' if cierre.conciliado else 'NO')],
+            ]),
+            Spacer(1, 10),
+        ])
+
         cajeros = cierre.resumen_cajeros or {}
         if cajeros:
             rows = []
-            for username, data in cajeros.items():
+            for clave, data in cajeros.items():
+                # `data['nombre']` primero: la clave del dict era el ID interno
+                # del usuario y el PDF lo imprimia como "Cajero", asi que el
+                # lector veia numeros donde espera nombres (RPT-015).
                 rows.append([
-                    username,
+                    data.get('nombre') or clave,
                     data.get('cantidad_ventas', data.get('cantidad', data.get('ventas', 0))),
                     money(data.get('total_ventas', data.get('total', 0))),
                 ])
@@ -103,10 +131,11 @@ class PDFGenerator:
                 ),
             ])
 
+        etiqueta = 'Resumen diario'
         doc = document(filepath)
         doc.build(
             elements,
-            onFirstPage=lambda canvas, doc_obj: footer_canvas(canvas, doc_obj, label='Cierre de caja'),
-            onLaterPages=lambda canvas, doc_obj: footer_canvas(canvas, doc_obj, label='Cierre de caja'),
+            onFirstPage=lambda canvas, doc_obj: footer_canvas(canvas, doc_obj, label=etiqueta),
+            onLaterPages=lambda canvas, doc_obj: footer_canvas(canvas, doc_obj, label=etiqueta),
         )
         return filepath

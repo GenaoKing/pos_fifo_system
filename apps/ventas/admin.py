@@ -96,6 +96,8 @@ class VentaAdmin(admin.ModelAdmin):
         'estado',
         'subtotal',
         'descuento_total',
+        'descuento_autorizado_por',
+        'descuento_autorizacion_motivo',
         'total',
         'total_pagado',
         'notas',
@@ -114,6 +116,10 @@ class VentaAdmin(admin.ModelAdmin):
         }),
         ('Totales', {
             'fields': ('subtotal', 'descuento_total', 'total', 'total_pagado')
+        }),
+        ('Autorizacion del descuento', {
+            'fields': ('descuento_autorizado_por', 'descuento_autorizacion_motivo'),
+            'classes': ('collapse',)
         }),
         ('Notas', {
             'fields': ('notas',),

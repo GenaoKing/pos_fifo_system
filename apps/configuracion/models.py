@@ -162,6 +162,66 @@ class ConfiguracionNegocio(models.Model):
         help_text='Total de tickets a imprimir por venta. Use 2 para cliente + archivo interno.'
     )
 
+    # =========================================================================
+    # CONTROL DE DESCUENTOS
+    # =========================================================================
+    # Gate opcional. Con `descuento_requiere_autorizacion` activo, un descuento
+    # que supere la tolerancia exige una autorizacion puntual emitida por
+    # alguien con el permiso `ventas.autorizar_descuento` — tipicamente pasando
+    # su carnet por el lector del POS.
+    # Ver apps.permisos.models.AutorizacionOverride.OP_VENTA_DESCUENTO.
+    #
+    # Apagado por defecto: una instalacion existente se comporta igual que antes.
+    MOTIVO_NINGUNO = 'NINGUNO'
+    MOTIVO_OPCIONAL = 'OPCIONAL'
+    MOTIVO_OBLIGATORIO = 'OBLIGATORIO'
+    MOTIVO_DESCUENTO_CHOICES = (
+        (MOTIVO_NINGUNO, 'No pedir motivo'),
+        (MOTIVO_OPCIONAL, 'Pedir motivo, permitir dejarlo vacio'),
+        (MOTIVO_OBLIGATORIO, 'Exigir motivo'),
+    )
+
+    descuento_requiere_autorizacion = models.BooleanField(
+        'Descuentos requieren autorizacion',
+        default=False,
+        help_text='Si True, un descuento que supere la tolerancia no se puede '
+                  'cerrar sin la autorizacion de un supervisor.'
+    )
+    descuento_tolerancia_monto = models.DecimalField(
+        'Tolerancia de descuento (monto)',
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text='Descuento en pesos que el cajero puede aplicar sin pedir '
+                  'autorizacion. 0 = ninguno.'
+    )
+    descuento_tolerancia_porcentaje = models.DecimalField(
+        'Tolerancia de descuento (%)',
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))],
+        help_text='Descuento como % del subtotal que el cajero puede aplicar '
+                  'sin pedir autorizacion. 0 = ninguno.'
+    )
+    descuento_motivo_modo = models.CharField(
+        'Motivo del descuento',
+        max_length=12,
+        choices=MOTIVO_DESCUENTO_CHOICES,
+        default=MOTIVO_NINGUNO,
+        help_text='Cuanto se le exige al supervisor al autorizar. En un negocio '
+                  'donde se regatea casi toda venta, pedir texto libre cada vez '
+                  'termina en 400 filas que dicen "descuento": por eso el default '
+                  'es no pedirlo.'
+    )
+    descuento_vigencia_minutos = models.PositiveSmallIntegerField(
+        'Vigencia de la autorizacion de descuento (minutos)',
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(60)],
+        help_text='Cuanto vive el token de autorizacion antes de vencer.'
+    )
+
 
      # =========================================================================
     # FACTURACION ELECTRONICA (e-CF)
@@ -307,6 +367,54 @@ class ConfiguracionNegocio(models.Model):
             'ecf': self.modulo_ecf,
             'dashboard': self.modulo_dashboard,
         }
+
+    # =========================================================================
+    # CONTROL DE DESCUENTOS
+    # =========================================================================
+    def descuento_requiere_token(self, *, subtotal, descuento_total):
+        """
+        True si este descuento necesita la autorizacion de un supervisor.
+
+        UNA sola implementacion de la regla, consumida por el POS (para decidir
+        si abre el modal) y por ventas_service (para exigirla). Si viviera dos
+        veces, la UI y el servidor terminarian discrepando.
+
+        El descuento pasa libre si cae dentro de CUALQUIERA de las dos
+        tolerancias. El `or` es deliberado:
+
+            monto=100, pct=0   -> libre hasta RD$100 (margen solo en pesos)
+            monto=0,   pct=5   -> libre hasta 5% (margen solo porcentual)
+            monto=100, pct=5   -> libre si cumple una de las dos
+            monto=0,   pct=0   -> cualquier descuento pide autorizacion
+
+        Con un `and`, dejar una tolerancia en 0 anularia la otra.
+        """
+        if not self.descuento_requiere_autorizacion:
+            return False
+
+        descuento_total = Decimal(str(descuento_total or 0))
+        if descuento_total <= 0:
+            return False
+
+        subtotal = Decimal(str(subtotal or 0))
+        porcentaje = (
+            (descuento_total / subtotal) * Decimal('100')
+            if subtotal > 0 else Decimal('100')
+        )
+
+        dentro_del_margen = (
+            descuento_total <= self.descuento_tolerancia_monto
+            or porcentaje <= self.descuento_tolerancia_porcentaje
+        )
+        return not dentro_del_margen
+
+    @property
+    def descuento_motivo_obligatorio(self):
+        return self.descuento_motivo_modo == self.MOTIVO_OBLIGATORIO
+
+    @property
+    def descuento_pide_motivo(self):
+        return self.descuento_motivo_modo != self.MOTIVO_NINGUNO
 
 
 class AccesoRapidoPOS(models.Model):

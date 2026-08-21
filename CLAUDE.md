@@ -113,6 +113,7 @@ persona o por un agente. Cada paso trae su comando exacto y su salida esperada.
 | `docs/runbooks/PRUEBAS_SYNC_LOCAL.md` | Probar cambios del contrato de sync **sin desplegar**, con código nuevo en ambos lados. |
 | `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` | Emular una sucursal contra el cloud de producción (tenant `demo`/`royalplastdemo`). |
 | `docs/BUGS.md` | Bugs vivos con su causa raíz y firma para reconocerlos. Consultarlo ante cualquier síntoma raro. |
+| `docs/ESTADO_AUDITORIAS.md` | **Punto único** del estado de las auditorías: migraciones pendientes de desplegar, permisos nuevos, cambios de contrato, decisiones abiertas y lo que quedó fuera de alcance. |
 
 **Diagnósticos, antes de suponer nada:**
 
