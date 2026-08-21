@@ -29,14 +29,37 @@ def _autoancho(ws):
         ws.column_dimensions[columna[0].column_letter].width = min(ancho + 3, 40)
 
 
+# Caracteres con los que Excel interpreta una celda como FORMULA.
+_PREFIJOS_FORMULA = ('=', '+', '-', '@', chr(9), chr(13))
+
+
+def texto_seguro(valor):
+    """
+    Neutraliza un texto que viene de datos de usuario antes de escribirlo.
+
+    `openpyxl` guarda una cadena que empieza con `=` como formula: un cliente
+    llamado `=1+1` o una referencia de pago `=...` se exportaban con
+    `data_type='f'` y Excel los EVALUABA al abrir el archivo. Formulas mas
+    agresivas pueden inducir enlaces externos o engano visual segun la
+    configuracion de Office.
+
+    Se antepone un apostrofo, que Excel trata como "esto es texto literal" y no
+    muestra en la celda.
+    """
+    texto = '' if valor is None else str(valor)
+    if texto.startswith(_PREFIJOS_FORMULA):
+        return f"'{texto}"
+    return texto
+
+
 def generar_estado_cuenta_xlsx(cliente, cuentas, resumen) -> BytesIO:
     cuentas = list(cuentas)
     wb = Workbook()
 
     ws = wb.active
     ws.title = 'Resumen'
-    ws.append(['Estado de cuenta', cliente.nombre])
-    ws.append(['Cedula/RNC', cliente.cedula_rnc or '-'])
+    ws.append(['Estado de cuenta', texto_seguro(cliente.nombre)])
+    ws.append(['Cedula/RNC', texto_seguro(cliente.cedula_rnc or '-')])
     ws.append(['Generado', timezone.localtime().strftime('%d/%m/%Y %H:%M')])
     ws.append([])
     ws.append(['Limite de credito', float(resumen['limite_credito'])])
@@ -101,10 +124,10 @@ def generar_estado_cuenta_xlsx(cliente, cuentas, resumen) -> BytesIO:
             timezone.localtime(pago.fecha_pago).strftime('%d/%m/%Y %H:%M'),
             cuenta.venta.numero_venta,
             pago.metodo,
-            pago.referencia or '-',
+            texto_seguro(pago.referencia or '-'),
             float(pago.monto),
             pago.estado,
-            pago.motivo_anulacion or '',
+            texto_seguro(pago.motivo_anulacion or ''),
         ])
     for fila in ws.iter_rows(min_row=2):
         fila[4].number_format = MONEDA

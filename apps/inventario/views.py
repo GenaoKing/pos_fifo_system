@@ -9,8 +9,10 @@ Este módulo maneja:
 """
 
 import json
+import logging
 
 from apps.configuracion.decorators import requiere_modulo
+from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -18,7 +20,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 
 from apps.inventario.models import AjusteInventario, Compra, DetalleCompra, Lote, MovimientoLote
@@ -30,6 +32,10 @@ from utils.impresoras.zebra import imprimir_etiquetas_compra
 
 from django.db import transaction
 from apps.sync import events as sync_events
+
+from apps.inventario.services import ErrorInventarioBase, registrar_ajuste_service
+
+logger = logging.getLogger('inventario')
 
 
 def _encolar_compra_y_movimientos(compra):
@@ -51,10 +57,14 @@ def _encolar_compra_y_movimientos(compra):
 # ============================================
 
 @login_required
+@requiere_permiso_local('compras.ver', redirect_to='pos:punto_venta')
 def compras_lista(request):
     """
     Muestra historial de compras realizadas.
-    Solo Admin puede ver esta vista.
+
+    Requiere `compras.ver`: el listado expone proveedores, numeros de factura,
+    costos unitarios y totales. El chequeo estaba comentado y la plantilla solo
+    ocultaba el enlace, asi que cualquier autenticado llegaba por URL.
     """
     # Verificar que sea Admin
     #if not request.user.es_admin:
@@ -75,6 +85,7 @@ def compras_lista(request):
 # ============================================
 
 @login_required
+@requiere_permiso_local('compras.registrar', redirect_to='pos:punto_venta')
 def compra_crear(request):
     """
     Formulario para crear una nueva compra.
@@ -162,10 +173,23 @@ def compra_crear(request):
                     producto_id = item.get('producto_id')
                     cantidad = int(item.get('cantidad', 0))
                     costo_unitario = Decimal(str(item.get('costo_unitario', 0)))
-                    
-                    # Validar que exista el producto
-                    producto = Producto.objects.get(id=producto_id)
-                    
+
+                    # MISMA validacion que la edicion. Crear no validaba nada:
+                    # una cantidad negativa creaba compra, detalle, lote y
+                    # movimiento en negativo, y los validators declarados en el
+                    # modelo no corren con `objects.create()`.
+                    _validar_linea(cantidad, costo_unitario)
+
+                    # Producto activo: comprar contra un producto dado de baja
+                    # crea stock que el POS no puede vender.
+                    producto = Producto.objects.filter(
+                        id=producto_id, activo=True,
+                    ).first()
+                    if producto is None:
+                        raise ValueError(
+                            f'El producto id={producto_id} no existe o esta inactivo.'
+                        )
+
                     # Calcular subtotal de esta línea
                     subtotal = cantidad * costo_unitario
                     total_compra += subtotal
@@ -212,12 +236,21 @@ def compra_crear(request):
                 'success': False,
                 'error': 'Uno de los productos seleccionados no existe'
             }, status=400)
-        
-        except Exception as e:
-            # Si algo sale mal, devolver error
+
+        except (ValueError, TypeError, InvalidOperation) as exc:
+            # Validacion de negocio (cantidad/costo/producto inactivo, o un
+            # numero mal formado). Es 400, no 500: el rollback del atomic ya
+            # deshizo la compra parcial.
             return JsonResponse({
                 'success': False,
-                'error': f'Error al procesar la compra: {str(e)}'
+                'error': str(exc),
+            }, status=400)
+
+        except Exception:
+            logger.exception('Error inesperado registrando una compra')
+            return JsonResponse({
+                'success': False,
+                'error': 'Error inesperado al procesar la compra.',
             }, status=500)
 
 
@@ -226,6 +259,7 @@ def compra_crear(request):
 # ============================================
 
 @login_required
+@requiere_permiso_json('compras.registrar')
 @require_http_methods(["GET"])
 def productos_buscar(request):
     """
@@ -279,6 +313,7 @@ def productos_buscar(request):
 # ============================================
 
 @login_required
+@requiere_permiso_local('compras.ver', redirect_to='pos:punto_venta')
 def compra_detalle(request, compra_id):
     """
     Muestra el detalle completo de una compra específica.
@@ -371,6 +406,51 @@ def _snapshot_compra(compra):
     }
 
 
+def _anular_lote_por_correccion(lote, usuario, compra):
+    """
+    Retira un lote de circulacion SIN borrar su historial.
+
+    Antes esto era `lote.delete()`, y como `MovimientoLote.lote` es CASCADE, la
+    entrada de compra desaparecia del ledger local — aunque ya se hubiera
+    sincronizado al cloud, impreso o usado en una conciliacion. El ledger se
+    documenta como historial completo; borrar filas lo contradice.
+
+    Ahora se escribe un movimiento COMPENSATORIO (la contrapartida contable de
+    la entrada), el lote queda en cero e inactivo, y se desvincula de la linea
+    de compra que se esta eliminando. La secuencia de movimientos sigue
+    cuadrando: entrada +N, correccion -N, saldo 0.
+
+    Solo se llega aca con lotes intactos: `_estado_linea_compra` bloquea la
+    eliminacion de una linea cuyo lote ya fue consumido.
+    """
+    cantidad_anterior = lote.cantidad_actual
+
+    if cantidad_anterior:
+        MovimientoLote.objects.create(
+            lote=lote,
+            tipo='AJUSTE',
+            cantidad=-cantidad_anterior,
+            cantidad_anterior=cantidad_anterior,
+            cantidad_nueva=0,
+            referencia_tipo='CorreccionCompra',
+            referencia_id=compra.id,
+            usuario=usuario,
+            notas=(
+                f'Linea eliminada al corregir la compra {compra.numero_compra}. '
+                f'Lote {lote.numero_lote} anulado.'
+            ),
+        )
+
+    lote.cantidad_actual = 0
+    lote.activo = False
+    # Se desvincula para que `detalle.delete()` no choque con el PROTECT y para
+    # que el lote anulado no vuelva a aparecer como linea de la compra.
+    lote.detalle_compra = None
+    lote.save(update_fields=['cantidad_actual', 'activo', 'detalle_compra'])
+
+    return lote
+
+
 def _validar_linea(cantidad, costo_unitario):
     if cantidad <= 0:
         raise ValueError('La cantidad debe ser mayor a 0.')
@@ -379,6 +459,7 @@ def _validar_linea(cantidad, costo_unitario):
 
 
 @login_required
+@requiere_permiso_local('compras.registrar', redirect_to='inventario:compras_lista')
 def compra_editar(request, compra_id):
     """
     Editar una compra existente para corregir errores de captura.
@@ -387,9 +468,6 @@ def compra_editar(request, compra_id):
     POST → aplica los cambios dentro de una transacción, propagando al Lote y
            al MovimientoLote(COMPRA) de cada línea intacta editada.
     """
-    if not request.user.tiene_permiso('compras.registrar'):
-        messages.error(request, 'No tienes permisos para editar compras.')
-        return redirect('inventario:compras_lista')
 
     compra = get_object_or_404(Compra, id=compra_id)
 
@@ -446,6 +524,30 @@ def compra_editar(request, compra_id):
 
     try:
         with transaction.atomic():
+            # LOCKS ANTES DE LEER. La correccion decide si un lote esta intacto
+            # comparando `cantidad_actual` con `cantidad_inicial`, y despues le
+            # escribe `cantidad_actual = cantidad`. Sin lock, entre la lectura y
+            # la escritura una venta puede consumir el lote: la correccion lo
+            # devuelve a su cantidad original y ese stock vendido reaparece.
+            #
+            # El consumo FIFO ya bloquea lotes (`fifo_logic.obtener_lotes_fifo`),
+            # pero el lock era unilateral porque este editor no participaba.
+            # Se toman en el MISMO orden que FIFO (por id de lote) para no
+            # cruzar deadlocks con una venta o una anulacion simultanea.
+            compra = (
+                Compra.objects.select_for_update()
+                .get(id=compra.id)
+            )
+            lote_ids = list(
+                Lote.objects
+                .filter(detalle_compra__compra=compra)
+                .order_by('id')
+                .values_list('id', flat=True)
+            )
+            if lote_ids:
+                # Materializa el lock; las instancias se releen abajo ya frescas.
+                list(Lote.objects.select_for_update().filter(id__in=lote_ids).order_by('id'))
+
             datos_anteriores = _snapshot_compra(compra)
 
             # Cabecera (siempre editable, no toca FIFO)
@@ -494,16 +596,20 @@ def compra_editar(request, compra_id):
                             if costo_unitario <= 0:
                                 raise ValueError('El costo unitario debe ser mayor a 0.')
                             detalle.costo_unitario = costo_unitario
-                            detalle._lote_creado = True  # evita que save() genere un lote nuevo
                             detalle.save()
                             lote.costo_unitario = costo_unitario
-                            lote.save()
+                            # `update_fields`: una correccion de COSTO no debe
+                            # reescribir `cantidad_actual`. Un save() completo
+                            # persiste todos los campos de la instancia, asi
+                            # que arrastraba la cantidad que se leyo al abrir
+                            # el formulario.
+                            lote.save(update_fields=['costo_unitario'])
                         lineas_finales += 1
                         continue
 
                     if eliminar:
                         if lote is not None:
-                            lote.delete()  # CASCADE borra sus MovimientoLote
+                            _anular_lote_por_correccion(lote, request.user, compra)
                         detalle.delete()
                         continue
 
@@ -518,7 +624,6 @@ def compra_editar(request, compra_id):
                     detalle.producto = producto
                     detalle.cantidad = cantidad
                     detalle.costo_unitario = costo_unitario
-                    detalle._lote_creado = True  # evita que save() genere un lote nuevo
                     detalle.save()
 
                     if lote is not None:
@@ -589,11 +694,16 @@ def compra_editar(request, compra_id):
         return JsonResponse({'success': False, 'error': 'Uno de los productos seleccionados no existe'}, status=400)
     except ValueError as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': f'Error al actualizar la compra: {str(e)}'}, status=500)
+    except Exception:
+        logger.exception('Error inesperado actualizando la compra %s', compra_id)
+        return JsonResponse(
+            {'success': False, 'error': 'Error inesperado al actualizar la compra.'},
+            status=500,
+        )
 
 
 @login_required
+@requiere_permiso_json('compras.ver')
 @require_http_methods(["POST"])
 @requiere_modulo('etiquetas_zebra')
 def compra_imprimir_etiquetas(request, compra_id):
@@ -607,9 +717,14 @@ def compra_imprimir_etiquetas(request, compra_id):
       #      'error': 'No tienes permisos para esta acción'
        # }, status=403)
     
+    compra = Compra.objects.filter(id=compra_id).first()
+    if compra is None:
+        return JsonResponse({
+            'success': False,
+            'error': f'No existe la compra id={compra_id}.',
+        }, status=404)
+
     try:
-        compra = get_object_or_404(Compra, id=compra_id)
-        
         # Imprimir etiquetas
         resultado = imprimir_etiquetas_compra(compra)
         
@@ -622,25 +737,23 @@ def compra_imprimir_etiquetas(request, compra_id):
             messages.error(request, f'Error: {resultado.get("error", "Error desconocido")}')
         
         return JsonResponse(resultado)
-        
-    except Exception as e:
+
+    except Exception:
+        logger.exception('Error imprimiendo etiquetas de la compra %s', compra_id)
         return JsonResponse({
             'success': False,
-            'error': str(e)
-        }, status=400)
+            'error': 'Error inesperado al imprimir las etiquetas.',
+        }, status=500)
     
 
 
 
 @login_required
+@requiere_permiso_local('inventario.ajustar', redirect_to='pos:punto_venta')
 def vista_ajustes(request):
     """
     Página para realizar ajustes de inventario.
-    Solo accesible por ADMIN y SYSADMIN.
     """
-    if not request.user.tiene_permiso('inventario.ajustar'):
-        messages.error(request, 'No tienes permisos para acceder a esta sección.')
-        return redirect('pos:punto_venta')
  
     # Historial de últimos 50 ajustes
     ajustes_recientes = AjusteInventario.objects.select_related(
@@ -684,6 +797,7 @@ def vista_ajustes(request):
 # ============================================
  
 @login_required
+@requiere_permiso_json('inventario.ver')
 @require_http_methods(["GET"])
 def api_lotes_producto(request, producto_id):
     """
@@ -694,9 +808,16 @@ def api_lotes_producto(request, producto_id):
     Returns:
         JSON con lista de lotes y datos del producto
     """
+    # `get_object_or_404` FUERA del try: dentro, su Http404 caia en el
+    # `except Exception` y se devolvia 500. Un producto inexistente es 404.
+    producto = Producto.objects.filter(id=producto_id, activo=True).first()
+    if producto is None:
+        return JsonResponse({
+            'success': False,
+            'error': f'No existe un producto activo con id={producto_id}.',
+        }, status=404)
+
     try:
-        producto = get_object_or_404(Producto, id=producto_id, activo=True)
- 
         lotes = Lote.objects.filter(
             producto=producto,
             activo=True,
@@ -724,174 +845,93 @@ def api_lotes_producto(request, producto_id):
             },
             'lotes': lotes_data,
         })
- 
-    except Exception as e:
+
+    except Exception:
+        logger.exception('Error inesperado listando lotes del producto %s', producto_id)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Error inesperado al consultar los lotes.',
         }, status=500)
- 
- 
+
+
 # ============================================
 # API: PROCESAR AJUSTE DE INVENTARIO
 # ============================================
  
 @login_required
+@requiere_permiso_json('inventario.ajustar')
 @require_http_methods(["POST"])
 def api_ajustar_inventario(request):
     """
     Procesa un ajuste de inventario.
- 
+
     POST Body (JSON):
     {
         "lote_id": 123,
         "tipo": "MERMA",       // MERMA|DANO|CONTEO|CORRECCION|DEVOLUCION
-        "cantidad": 5,         // Siempre positivo, se convierte a negativo
+        "cantidad": 5,         // Siempre positivo, el tipo decide el signo
         "motivo": "Texto..."   // Obligatorio, min 10 chars
     }
- 
-    Flujo:
-    1. Valida permisos y datos
-    2. Verifica que el lote tenga stock suficiente (excepto DEVOLUCION)
-    3. Crea AjusteInventario
-    4. Crea MovimientoLote
-    5. Actualiza lote.cantidad_actual
-    6. Registra en Auditoría
+
+    El view es delgado: parsea, delega en `registrar_ajuste_service` (que
+    bloquea el lote, valida bajo el lock y escribe UN movimiento) y traduce las
+    excepciones tipadas a JSON.
+
+    Returns:
+        200: {"success": true, "ajuste": {...}}
+        400: validacion de negocio (tipo, cantidad, motivo, stock)
+        403: sin permiso `inventario.ajustar`
+        404: lote inexistente o inactivo
+        500: error realmente inesperado
     """
-    if not request.user.tiene_permiso('inventario.ajustar'):
-        return JsonResponse({
-            'success': False,
-            'error': 'No tienes permisos para realizar ajustes.'
-        }, status=403)
- 
     try:
         data = json.loads(request.body)
-        lote_id = data.get('lote_id')
-        tipo = data.get('tipo', '')
-        cantidad = int(data.get('cantidad', 0))
-        motivo = data.get('motivo', '').strip()
- 
-        # Validaciones
-        tipos_validos = ['MERMA', 'DANO', 'CONTEO', 'CORRECCION', 'DEVOLUCION']
-        if tipo not in tipos_validos:
-            return JsonResponse({
-                'success': False,
-                'error': f'Tipo de ajuste inválido. Opciones: {", ".join(tipos_validos)}'
-            }, status=400)
- 
-        if cantidad <= 0:
-            return JsonResponse({
-                'success': False,
-                'error': 'La cantidad debe ser mayor a cero.'
-            }, status=400)
- 
-        if not motivo or len(motivo) < 10:
-            return JsonResponse({
-                'success': False,
-                'error': 'El motivo es obligatorio (mínimo 10 caracteres).'
-            }, status=400)
- 
-        lote = get_object_or_404(Lote, id=lote_id, activo=True)
- 
-        # Determinar dirección del ajuste
-        # DEVOLUCION agrega stock, los demás lo quitan
-        es_entrada = tipo == 'DEVOLUCION'
-        cantidad_ajuste = cantidad if es_entrada else -cantidad
- 
-        # Validar stock suficiente para salidas
-        if not es_entrada and lote.cantidad_actual < cantidad:
-            return JsonResponse({
-                'success': False,
-                'error': f'Stock insuficiente. El lote tiene {lote.cantidad_actual} unidades disponibles.'
-            }, status=400)
- 
-        # Mapear tipo ajuste a tipo movimiento
-        tipo_movimiento_map = {
-            'MERMA': 'MERMA',
-            'DANO': 'DANO',
-            'CONTEO': 'AJUSTE',
-            'CORRECCION': 'AJUSTE',
-            'DEVOLUCION': 'AJUSTE',
-        }
- 
-        with transaction.atomic():
-            cantidad_anterior = lote.cantidad_actual
-            cantidad_nueva = lote.cantidad_actual + cantidad_ajuste
- 
-            # 1. Crear AjusteInventario
-            ajuste = AjusteInventario.objects.create(
-                lote=lote,
-                tipo=tipo,
-                cantidad=cantidad_ajuste,
-                motivo=motivo,
-                usuario=request.user,
-            )
- 
-            # 2. Crear MovimientoLote
-            # NOTA(bug preexistente): AjusteInventario.save() YA crea un
-            # MovimientoLote y ajusta el lote, por lo que esta creacion manual
-            # genera un segundo movimiento por cada ajuste (el stock no se
-            # duplica, pero el ledger si). La variable `movimiento` queda sin
-            # uso. Pendiente eliminar esta duplicacion tras validar reportes.
-            movimiento = MovimientoLote.objects.create(
-                lote=lote,
-                tipo=tipo_movimiento_map[tipo],
-                cantidad=cantidad_ajuste,
-                cantidad_anterior=cantidad_anterior,
-                cantidad_nueva=cantidad_nueva,
-                referencia_tipo='AjusteInventario',
-                referencia_id=ajuste.id,
-                usuario=request.user,
-                notas=f'{ajuste.get_tipo_display()}: {motivo}',
-            )
- 
-            # 3. Actualizar lote
-            lote.cantidad_actual = cantidad_nueva
-            lote.save()
- 
-            # 4. Registrar en auditoría
-            Auditoria.registrar_ajuste_inventario(
-                ajuste=ajuste,
-                usuario=request.user,
-                ip_address=get_client_ip(request),
-            )
-            
-            # Outbox transaccional: el ajuste es un hecho de negocio.
-            sync_events.evento_ajuste_inventario(ajuste)
-            # El snapshot es foto de estado y O(N): se queda post-commit.
-            transaction.on_commit(lambda s=lote.sucursal: sync_events.evento_inventario_snapshot(sucursal=s))
-
- 
-        return JsonResponse({
-            'success': True,
-            'message': f'Ajuste registrado: {ajuste.get_tipo_display()} de {cantidad} unidades.',
-            'ajuste': {
-                'id': ajuste.id,
-                'producto': lote.producto.nombre,
-                'lote': lote.numero_lote,
-                'tipo': tipo,
-                'tipo_display': ajuste.get_tipo_display(),
-                'cantidad': cantidad_ajuste,
-                'cantidad_anterior': cantidad_anterior,
-                'cantidad_nueva': cantidad_nueva,
-                'motivo': motivo,
-                'fecha': ajuste.fecha_ajuste.strftime('%d/%m/%Y %H:%M'),
-                'usuario': request.user.get_full_name() or request.user.username,
-            }
-        })
- 
     except json.JSONDecodeError:
-        return JsonResponse({
-            'success': False, 'error': 'Datos inválidos.'
-        }, status=400)
-    except ValueError:
-        return JsonResponse({
-            'success': False, 'error': 'La cantidad debe ser un número entero.'
-        }, status=400)
-    except Exception as e:
-        print(f"❌ ERROR en ajuste de inventario: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({
-            'success': False, 'error': f'Error inesperado: {str(e)}'
-        }, status=500)
+        return JsonResponse(
+            {'success': False, 'error': 'Datos invalidos.'}, status=400,
+        )
+
+    try:
+        ajuste = registrar_ajuste_service(
+            usuario=request.user,
+            lote_id=data.get('lote_id'),
+            tipo=data.get('tipo', ''),
+            cantidad=data.get('cantidad', 0),
+            motivo=data.get('motivo', ''),
+            ip_address=get_client_ip(request),
+        )
+    except ErrorInventarioBase as exc:
+        # Incluye el lote inexistente (404): antes caia en el `except Exception`
+        # y se devolvia como 500.
+        return JsonResponse(
+            {'success': False, 'error': str(exc)}, status=exc.status_code,
+        )
+    except Exception:
+        # `logger.exception`, no `print` con emoji: en la consola Windows del
+        # proyecto stdout puede ser cp1252 y el print reventaba con
+        # UnicodeEncodeError, enmascarando el error real y rompiendo el
+        # contrato JSON.
+        logger.exception('Error inesperado ajustando inventario')
+        return JsonResponse(
+            {'success': False, 'error': 'Error inesperado al registrar el ajuste.'},
+            status=500,
+        )
+
+    lote = ajuste.lote
+    return JsonResponse({
+        'success': True,
+        'message': f'Ajuste registrado: {ajuste.get_tipo_display()} de {abs(ajuste.cantidad)} unidades.',
+        'ajuste': {
+            'id': ajuste.id,
+            'producto': lote.producto.nombre,
+            'lote': lote.numero_lote,
+            'tipo': ajuste.tipo,
+            'tipo_display': ajuste.get_tipo_display(),
+            'cantidad': ajuste.cantidad,
+            'cantidad_anterior': lote.cantidad_actual - ajuste.cantidad,
+            'cantidad_nueva': lote.cantidad_actual,
+            'motivo': ajuste.motivo,
+            'fecha': ajuste.fecha_ajuste.strftime('%d/%m/%Y %H:%M'),
+            'usuario': request.user.get_full_name() or request.user.username,
+        }
+    })

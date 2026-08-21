@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from django.core.files import File
@@ -122,14 +123,71 @@ class Command(TenantCommandMixin, BaseCommand):
                     saved_name = default_storage.save(destination_name, File(source_file))
                 stats['uploaded'] += 1
             else:
-                saved_name = destination_name
-                stats['skipped'] += 1
+                # El destino YA existe. Antes se contaba como `skipped` y aun
+                # asi se repuntaba la BD hacia el: si el blob de destino tenia
+                # otro contenido, el producto terminaba mostrando la imagen de
+                # otro registro — y el comando reportaba exito.
+                #
+                # Ahora se compara por hash. Identico => reutilizar. Distinto =>
+                # no se pisa ni se adopta: se sube con un nombre versionado.
+                if self._mismo_contenido(source_path, destination_name):
+                    saved_name = destination_name
+                    stats['skipped'] += 1
+                else:
+                    versionado = self._nombre_versionado(destination_name, source_path)
+                    with source_path.open('rb') as source_file:
+                        saved_name = default_storage.save(versionado, File(source_file))
+                    stats['conflictos'] = stats.get('conflictos', 0) + 1
+                    stats['uploaded'] += 1
+                    self.stdout.write(self.style.WARNING(
+                        f'CONFLICTO {current_name}: el destino {destination_name} '
+                        f'ya existia con OTRO contenido. Subido como {saved_name}.'
+                    ))
 
             setattr(obj, field_name, saved_name)
             obj.save(update_fields=[field_name])
             stats['updated'] += 1
             self.stdout.write(f'OK {current_name} -> {saved_name}')
 
+    @staticmethod
+    def _sha256_archivo(fileobj):
+        digest = hashlib.sha256()
+        for bloque in iter(lambda: fileobj.read(1024 * 1024), b''):
+            digest.update(bloque)
+        return digest.hexdigest()
+
+    def _mismo_contenido(self, source_path, destination_name):
+        """True si el blob de destino es byte a byte el mismo archivo."""
+        with source_path.open('rb') as origen:
+            hash_origen = self._sha256_archivo(origen)
+        try:
+            with default_storage.open(destination_name, 'rb') as destino:
+                hash_destino = self._sha256_archivo(destino)
+        except Exception:
+            # Si no se puede leer el destino, NO se asume equivalencia.
+            return False
+        return hash_origen == hash_destino
+
+    @staticmethod
+    def _nombre_versionado(destination_name, source_path):
+        """`productos/foto.jpg` -> `productos/foto__<hash8>.jpg`."""
+        with source_path.open('rb') as origen:
+            digest = hashlib.sha256(origen.read()).hexdigest()[:8]
+        base, punto, extension = destination_name.rpartition('.')
+        if punto:
+            return f'{base}__{digest}.{extension}'
+        return f'{destination_name}__{digest}'
+
     def _source_path(self, source_root, relative_name):
         safe_name = normalize_media_name(relative_name)
-        return source_root.joinpath(*safe_name.split('/')).resolve()
+        resuelto = source_root.joinpath(*safe_name.split('/')).resolve()
+        # Confinamiento al root DESPUES de resolver symlinks: sin esto un enlace
+        # dentro del arbol de media podia apuntar fuera y el comando subiria un
+        # archivo arbitrario del disco al storage del tenant.
+        raiz = source_root.resolve()
+        if raiz != resuelto and raiz not in resuelto.parents:
+            raise CommandError(
+                f'La ruta "{relative_name}" resuelve fuera del root de media '
+                f'({resuelto}). Posible symlink; no se migra.'
+            )
+        return resuelto

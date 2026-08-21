@@ -39,7 +39,7 @@ from decimal import Decimal
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
@@ -480,7 +480,7 @@ def _extraer_referencia(tipo_evento, payload):
     return ''
 
 
-def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura):
+def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura, origen_id=None):
     """
     Busca el TurnoCaja ABIERTO correspondiente a una sucursal+caja+apertura.
 
@@ -493,16 +493,23 @@ def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura):
     from apps.caja.models import TurnoCaja
 
     try:
-        caja = _obtener_caja(sucursal, caja_nombre)
+        caja = _obtener_caja(sucursal, caja_nombre, origen_id)
     except Exception:
         return None
 
     fecha = parse_datetime(fecha_apertura) if fecha_apertura else None
 
     if fecha:
+        # `estado='ABIERTO'` TAMBIEN en esta rama. La funcion promete devolver
+        # un turno abierto, pero la busqueda por caja+fecha no filtraba estado:
+        # devolvia un turno YA CERRADO antes de llegar al fallback, y el
+        # movimiento se colgaba de el sin recalcular el cierre. El detalle cloud
+        # terminaba con un gasto que nunca afecto al esperado ni a la
+        # diferencia.
         turno = TurnoCaja.objects.filter(
             caja=caja,
             fecha_apertura=fecha,
+            estado='ABIERTO',
         ).first()
         if turno:
             return turno
@@ -511,14 +518,42 @@ def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura):
     return TurnoCaja.objects.filter(caja=caja, estado='ABIERTO').first()
 
 
-def _obtener_caja(sucursal, caja_nombre):
-    """Obtiene o crea la caja con ese nombre en la sucursal."""
+def _obtener_caja(sucursal, caja_nombre, origen_id=None):
+    """
+    Resuelve la caja de una sucursal.
+
+    Prioridad:
+      1. `origen_id` -> identidad estable, sobrevive a renombres.
+      2. Nombre -> bootstrap y compatibilidad con sucursales que todavia no
+         envian la identidad.
+
+    Antes solo existia (2), y `nombre` es mutable: renombrar una caja entre la
+    apertura y el cierre hacia que el movimiento no encontrara su turno y que
+    el cierre creara otro turno bajo una caja nueva.
+    """
     from apps.caja.models import Caja
-    caja, _ = Caja.objects.get_or_create(
+
+    if origen_id:
+        caja = Caja.objects.filter(origen_id=origen_id, sucursal=sucursal).first()
+        if caja is not None:
+            # El nombre es un atributo mas: se actualiza si cambio en origen.
+            if caja_nombre and caja.nombre != caja_nombre:
+                caja.nombre = caja_nombre
+                caja.save(update_fields=['nombre'])
+            return caja
+
+    caja, creada = Caja.objects.get_or_create(
         nombre=caja_nombre,
         sucursal=sucursal,
         defaults={'activa': True},
     )
+    # Primera vez que llega la identidad: se sella sobre la caja ya existente.
+    if origen_id and not creada:
+        Caja.objects.filter(pk=caja.pk).update(origen_id=origen_id)
+        caja.refresh_from_db(fields=['origen_id'])
+    elif origen_id and creada:
+        Caja.objects.filter(pk=caja.pk).update(origen_id=origen_id)
+        caja.refresh_from_db(fields=['origen_id'])
     return caja
 
 
@@ -806,7 +841,11 @@ def _handler_apertura_caja(sucursal, payload):
     """
     from apps.caja.models import TurnoCaja
 
-    caja = _obtener_caja(sucursal, payload.get('caja_nombre', 'Caja Principal'))
+    caja = _obtener_caja(
+        sucursal,
+        payload.get('caja_nombre', 'Caja Principal'),
+        payload.get('caja_origen_id'),
+    )
     usuario = _resolver_usuario(payload.get('usuario_username'))
     fecha_apertura = parse_datetime(payload['fecha_apertura']) if payload.get('fecha_apertura') else timezone.now()
 
@@ -847,6 +886,7 @@ def _handler_movimiento_caja(sucursal, payload):
         sucursal,
         payload.get('caja_nombre', 'Caja Principal'),
         payload.get('turno_fecha_apertura'),
+        payload.get('caja_origen_id'),
     )
     if not turno:
         raise ValueError(
@@ -897,7 +937,11 @@ def _handler_cierre_caja(sucursal, payload):
     fecha_apertura = parse_datetime(payload['fecha_apertura']) if payload.get('fecha_apertura') else None
     fecha_cierre = parse_datetime(payload['fecha_cierre']) if payload.get('fecha_cierre') else timezone.now()
 
-    caja = _obtener_caja(sucursal, payload.get('caja_nombre', 'Caja Principal'))
+    caja = _obtener_caja(
+        sucursal,
+        payload.get('caja_nombre', 'Caja Principal'),
+        payload.get('caja_origen_id'),
+    )
 
     # Buscar el turno creado por APERTURA_CAJA
     turno = None
@@ -966,31 +1010,33 @@ def _handler_ajuste_inventario(sucursal, payload):
 
 
 def _handler_compra(sucursal, payload):
-    """Registra la compra y sus lineas como ledger auditable de inventario."""
-    compra_id = payload.get('compra_id_local')
-    numero = payload.get('numero_compra') or ''
-    fecha = payload.get('fecha_compra')
-    usuario = payload.get('usuario_username')
+    """
+    Registra la compra. NO escribe el ledger de inventario.
 
-    for idx, detalle in enumerate(payload.get('detalles', []), start=1):
-        movimiento_payload = {
-            'movimiento_id_local': None,
-            'tipo': 'COMPRA',
-            'producto_sku': detalle.get('producto_sku'),
-            'producto_nombre': detalle.get('producto_nombre', ''),
-            'lote_numero': detalle.get('lote_numero', ''),
-            'cantidad': int(Decimal(str(detalle.get('cantidad') or 0))),
-            'cantidad_anterior': None,
-            'cantidad_nueva': None,
-            'costo_unitario': detalle.get('costo_unitario'),
-            'referencia_tipo': 'Compra',
-            'referencia_id': compra_id,
-            'usuario_username': usuario,
-            'notas': f"Compra {numero} linea {idx}",
-            'fecha_movimiento': fecha,
-            'numero_compra': numero,
-        }
-        _registrar_movimiento_inventario_sync(sucursal, movimiento_payload)
+    Una compra viajaba al cloud por DOS caminos y ambos escribian ledger:
+
+      - `COMPRA_REGISTRADA` creaba una fila por linea, con
+        `movimiento_id_local=None` y deduplicacion por clave natural.
+      - `INVENTARIO_MOVIMIENTO_REGISTRADO` creaba otra fila por el mismo hecho,
+        con el ID real del `MovimientoLote`.
+
+    Resultado: cada linea de compra quedaba DUPLICADA en el ledger cloud, y al
+    corregir la compra se actualizaba solo la fila con ID — las dos versiones
+    divergian y ninguna suma cuadraba.
+
+    La autoridad ahora es UNA: los eventos de movimiento. Traen
+    `movimiento_id_local`, que es identidad estable y ya esta protegida por la
+    constraint `unique(sucursal, movimiento_id_local)`; permite update al
+    corregir y no depende de una clave natural que puede cambiar.
+
+    `_encolar_compra_y_movimientos` emite ambos eventos en la misma
+    transaccion, asi que no se pierde nada al dejar de escribir aca.
+    """
+    logger.info(
+        '[SYNC] Compra %s recibida; el ledger lo escriben sus eventos de '
+        'movimiento (autoridad unica).',
+        payload.get('numero_compra') or payload.get('compra_id_local'),
+    )
 
 
 def _handler_movimiento_inventario(sucursal, payload):
@@ -1347,6 +1393,57 @@ def _handler_cxc_pago(sucursal, payload):
     )
     cuenta.saldo = Decimal(payload.get('saldo_cuenta', cuenta.saldo))
     cuenta.recalcular_estado(guardar=True)
+
+    # Aplicar el snapshot de CUOTAS, no solo el saldo de la cabecera.
+    #
+    # Antes solo se movia `cuenta.saldo`: la cuenta cloud quedaba en 50 y sus
+    # cuotas seguian sumando 90, todas pendientes. Aging, proxima cuota y
+    # cualquier reporte por cuota contradecian el saldo de la misma cuenta — y
+    # una anulacion posterior partia de datos ya divergentes.
+    #
+    # Las `aplicaciones` del payload no sirven para esto: referencian IDs de
+    # cuota LOCALES. El snapshot viene identificado por `numero`, que si es
+    # portable.
+    _aplicar_snapshot_cuotas(cuenta, payload.get('cuotas'))
+
+
+def _aplicar_snapshot_cuotas(cuenta, cuotas_payload):
+    """
+    Sincroniza las cuotas de una cuenta con el snapshot recibido.
+
+    Se identifica cada cuota por `numero` (clave portable entre bases). Si el
+    payload no trae cuotas —evento de una sucursal con codigo viejo— no se
+    toca nada: es preferible dejar el estado anterior a borrarlo.
+    """
+    from apps.cuentas_por_cobrar.models import CuotaCxC
+
+    if not cuotas_payload:
+        return
+
+    por_numero = {c.numero: c for c in cuenta.cuotas.all()}
+    for fila in cuotas_payload:
+        numero = fila.get('numero')
+        cuota = por_numero.get(numero)
+        if cuota is None:
+            continue
+        cuota.saldo = Decimal(str(fila.get('saldo', cuota.saldo)))
+        cuota.estado = fila.get('estado', cuota.estado)
+        fecha = fila.get('fecha_vencimiento')
+        if fecha:
+            cuota.fecha_vencimiento = parse_date(fecha) or cuota.fecha_vencimiento
+        cuota.save(update_fields=['saldo', 'estado', 'fecha_vencimiento'])
+
+    # Postcondicion: la suma de las cuotas debe cuadrar con el saldo de la
+    # cuenta. Si no cuadra, el ledger cloud quedo divergente y hay que verlo.
+    suma = sum(
+        (c.saldo for c in cuenta.cuotas.all()), Decimal('0.00')
+    )
+    if abs(suma - cuenta.saldo) > Decimal('0.01'):
+        logger.warning(
+            '[SYNC] CxC %s: la suma de cuotas (%s) no coincide con el saldo '
+            'de la cuenta (%s) despues de aplicar el snapshot.',
+            cuenta.pk, suma, cuenta.saldo,
+        )
 
 
 def _handler_cxc_pago_anulado(sucursal, payload):

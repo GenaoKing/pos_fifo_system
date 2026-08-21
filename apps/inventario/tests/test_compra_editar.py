@@ -244,7 +244,7 @@ class CompraEditarTests(TestCase):
         self.assertTrue(Lote.objects.filter(detalle_compra=nuevo).exists())
         self.assertEqual(self.compra.total, Decimal('60.00'))  # 50 + 10
 
-    def test_eliminar_linea_intacta_borra_lote(self):
+    def test_eliminar_linea_intacta_anula_el_lote_sin_borrar_su_historial(self):
         self.client.force_login(self.admin)
         # Agrega una segunda línea para poder borrar la primera
         d2 = DetalleCompra.objects.create(
@@ -264,10 +264,25 @@ class CompraEditarTests(TestCase):
         })
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertFalse(DetalleCompra.objects.filter(id=self.detalle.id).exists())
-        self.assertFalse(Lote.objects.filter(id=self.lote.id).exists())
         self.assertTrue(Lote.objects.filter(id=lote2_id).exists())
         self.compra.refresh_from_db()
         self.assertEqual(self.compra.total, Decimal('10.00'))
+
+        # INVENTARIO-010: el lote NO se borra. Borrarlo se llevaba por CASCADE
+        # sus MovimientoLote, y el ledger local perdia una entrada que ya pudo
+        # haberse sincronizado o conciliado. Ahora queda anulado, en cero y
+        # desvinculado de la compra, con su historial intacto.
+        self.lote.refresh_from_db()
+        self.assertFalse(self.lote.activo)
+        self.assertEqual(self.lote.cantidad_actual, 0)
+        self.assertIsNone(self.lote.detalle_compra_id)
+
+        movimientos = list(
+            self.lote.movimientos.order_by('id').values_list('tipo', 'cantidad')
+        )
+        # Entrada de compra + contrapartida: la secuencia cuadra en cero.
+        self.assertEqual(movimientos, [('COMPRA', 10), ('AJUSTE', -10)])
+        self.assertEqual(sum(c for _, c in movimientos), 0)
 
     # ----- render del formulario -----
 

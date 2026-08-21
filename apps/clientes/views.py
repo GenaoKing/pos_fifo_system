@@ -3,6 +3,9 @@ Views para Gestion de Clientes
 apps/clientes/views.py
 """
 
+from decimal import Decimal
+
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -10,6 +13,9 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db.models import Q, Sum, Count
 import json
+
+from apps.auditoria.models import Auditoria, get_client_ip
+from apps.permisos.decorators import requiere_permiso_json
 
 from .models import Cliente
 
@@ -69,7 +75,34 @@ def lista_clientes(request):
     return render(request, 'clientes/lista_clientes.html', context)
 
 
+def _limite_credito_autorizado(request, data, *, actual):
+    """
+    Devuelve el limite a persistir.
+
+    Si el payload trae un limite distinto del actual y el usuario NO tiene
+    `clientes.editar_limite_credito`, se conserva el actual en vez de fallar:
+    el formulario de clientes envia el campo siempre, aunque el operador no lo
+    haya tocado. Lo que no puede es CAMBIARLO sin el permiso.
+    """
+    if 'limite_credito' not in data:
+        return actual
+
+    solicitado = Decimal(str(data.get('limite_credito') or 0))
+    if solicitado == Decimal(str(actual or 0)):
+        return actual
+
+    if not request.user.tiene_permiso(
+        'clientes.editar_limite_credito',
+        sucursal=getattr(request, 'sucursal', None),
+    ):
+        raise PermissionDenied(
+            'No tienes permisos para cambiar el limite de credito.'
+        )
+    return solicitado
+
+
 @login_required
+@requiere_permiso_json('clientes.crear')
 @require_http_methods(["POST"])
 def crear_cliente(request):
     """Crear nuevo cliente via AJAX"""
@@ -91,7 +124,7 @@ def crear_cliente(request):
             cedula_rnc=cedula_rnc,
             telefono=data.get('telefono', '').strip() or None,
             direccion=data.get('direccion', '').strip() or None,
-            limite_credito=data.get('limite_credito', 0),
+            limite_credito=_limite_credito_autorizado(request, data, actual=0),
             plazo_credito_dias=_parse_plazo_credito_dias(data.get('plazo_credito_dias', 30)),
             condiciones_pago=data.get('condiciones_pago', '').strip() or None,
             notas=data.get('notas', '').strip() or None,
@@ -111,6 +144,12 @@ def crear_cliente(request):
             }
         })
 
+    except PermissionDenied as exc:
+        # 403, no 400: el `except Exception` de abajo lo devolvia como error de
+        # datos y el cliente no podia distinguir "faltan permisos" de "payload
+        # invalido".
+        return JsonResponse({'success': False, 'message': str(exc)}, status=403)
+
     except Exception as e:
         return JsonResponse({
             'success': False,
@@ -119,9 +158,18 @@ def crear_cliente(request):
 
 
 @login_required
+@requiere_permiso_json('clientes.editar')
 @require_http_methods(["POST"])
 def editar_cliente(request, cliente_id):
-    """Editar cliente existente via AJAX"""
+    """
+    Editar cliente existente via AJAX.
+
+    El limite de credito NO se toca con `clientes.editar`: requiere
+    `clientes.editar_limite_credito`. Antes bastaba con estar autenticado para
+    subirlo a lo que fuera, y con eso se evitaba por completo el flujo de
+    override — primero se elevaba el limite y despues se vendia a credito sin
+    dejar ninguna excepcion crediticia registrada.
+    """
 
     try:
         cliente = get_object_or_404(Cliente, id=cliente_id)
@@ -147,13 +195,34 @@ def editar_cliente(request, cliente_id):
         cliente.cedula_rnc = cedula_rnc
         cliente.telefono = data.get('telefono', '').strip() or None
         cliente.direccion = data.get('direccion', '').strip() or None
-        cliente.limite_credito = data.get('limite_credito', 0)
+        limite_anterior = cliente.limite_credito
+        cliente.limite_credito = _limite_credito_autorizado(
+            request, data, actual=cliente.limite_credito,
+        )
         cliente.plazo_credito_dias = _parse_plazo_credito_dias(data.get('plazo_credito_dias', cliente.plazo_credito_dias))
         cliente.condiciones_pago = data.get('condiciones_pago', '').strip() or None
         cliente.notas = data.get('notas', '').strip() or None
         cliente.activo = data.get('activo', True)
 
         cliente.save()
+
+        if Decimal(str(limite_anterior)) != Decimal(str(cliente.limite_credito)):
+            # Un cambio de limite es una decision financiera: queda auditada con
+            # valor anterior, nuevo y quien lo hizo.
+            Auditoria.registrar(
+                accion=Auditoria.TipoAccion.EDITAR,
+                descripcion=(
+                    f'Limite de credito de {cliente.nombre}: '
+                    f'{limite_anterior} -> {cliente.limite_credito}'
+                ),
+                usuario=request.user,
+                content_object=cliente,
+                datos_anteriores={'limite_credito': str(limite_anterior)},
+                datos_nuevos={'limite_credito': str(cliente.limite_credito)},
+                ip_address=get_client_ip(request),
+                nivel_importancia=Auditoria.NivelImportancia.ALTA,
+            )
+
         if int(plazo_anterior) != int(cliente.plazo_credito_dias):
             from apps.cuentas_por_cobrar.services import reprogramar_cxc_por_plazo_cliente
 
@@ -168,6 +237,12 @@ def editar_cliente(request, cliente_id):
             'success': True,
             'message': f'Cliente "{cliente.nombre}" actualizado exitosamente'
         })
+
+    except PermissionDenied as exc:
+        # 403, no 400: el `except Exception` de abajo lo devolvia como error de
+        # datos y el cliente no podia distinguir "faltan permisos" de "payload
+        # invalido".
+        return JsonResponse({'success': False, 'message': str(exc)}, status=403)
 
     except Exception as e:
         return JsonResponse({

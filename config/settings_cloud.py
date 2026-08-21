@@ -168,7 +168,10 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=_int_env('JWT_ACCESS_MINUTES', 30)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=_int_env('JWT_REFRESH_DAYS', 7)),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': False,
+    # Rotar SIN blacklist no invalidaba nada: el refresh original se podia
+    # canjear las veces que hiciera falta, y "cerrar sesion" en el frontend solo
+    # borraba la copia local. Con blacklist, cada rotacion mata al anterior.
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',

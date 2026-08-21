@@ -183,17 +183,27 @@ def serializar_cxc(cuenta):
             cuenta.override_autorizado_por.username
             if cuenta.override_autorizado_por_id else None
         ),
-        'cuotas': [
-            {
-                'numero': c.numero,
-                'monto': _d(c.monto),
-                'saldo': _d(c.saldo),
-                'fecha_vencimiento': c.fecha_vencimiento.isoformat(),
-                'estado': c.estado,
-            }
-            for c in cuenta.cuotas.all()
-        ],
+        'cuotas': _serializar_cuotas_cxc(cuenta),
     }
+
+
+def _serializar_cuotas_cxc(cuenta):
+    """Snapshot de las cuotas de una cuenta, identificadas por `numero`.
+
+    `numero` es la clave portable entre bases: los IDs de cuota son locales.
+    Lo comparten la creacion de la CxC, el pago y la anulacion de pago, para
+    que los tres apliquen exactamente la misma forma en cloud.
+    """
+    return [
+        {
+            'numero': c.numero,
+            'monto': _d(c.monto),
+            'saldo': _d(c.saldo),
+            'fecha_vencimiento': c.fecha_vencimiento.isoformat(),
+            'estado': c.estado,
+        }
+        for c in cuenta.cuotas.all().order_by('numero')
+    ]
 
 
 def serializar_pago_cxc(pago):
@@ -212,6 +222,16 @@ def serializar_pago_cxc(pago):
         'estado': pago.estado,
         'aplicaciones': pago.aplicaciones or [],
         'saldo_cuenta': _d(cuenta.saldo),
+        'estado_cuenta': cuenta.estado,
+        # Snapshot POSTERIOR de las cuotas, identificado por `numero`.
+        #
+        # El payload solo llevaba `aplicaciones`, y esas referencian IDs de
+        # cuota LOCALES, que no son claves portables entre bases. El handler
+        # cloud terminaba cambiando `cuenta.saldo` sin tocar ninguna cuota: la
+        # cuenta quedaba en 50 y sus cuotas seguian sumando 90, todas
+        # pendientes. Aging, proxima cuota y cualquier reporte por cuota
+        # contradecian el saldo de la misma cuenta.
+        'cuotas': _serializar_cuotas_cxc(cuenta),
     }
 
 
@@ -266,6 +286,10 @@ def serializar_apertura_caja(turno):
             turno.caja.sucursal.codigo if turno.caja.sucursal_id else None
         ),
         'caja_nombre': turno.caja.nombre,
+        # Identidad ESTABLE de la caja. `caja_nombre` viaja todavia como
+        # atributo legible y como fallback para clouds que aun no la usan,
+        # pero es mutable: renombrar una caja partia el turno en dos.
+        'caja_origen_id': str(turno.caja.origen_id),
         'usuario_username': turno.usuario.username if turno.usuario_id else None,
         'fecha_apertura': _dt(turno.fecha_apertura),
         'fondo_apertura': _d(turno.fondo_apertura),
@@ -288,6 +312,10 @@ def serializar_movimiento_caja(movimiento):
             turno.caja.sucursal.codigo if turno.caja.sucursal_id else None
         ),
         'caja_nombre': turno.caja.nombre,
+        # Identidad ESTABLE de la caja. `caja_nombre` viaja todavia como
+        # atributo legible y como fallback para clouds que aun no la usan,
+        # pero es mutable: renombrar una caja partia el turno en dos.
+        'caja_origen_id': str(turno.caja.origen_id),
         'turno_fecha_apertura': _dt(turno.fecha_apertura),
         'tipo': movimiento.tipo,
         'monto': _d(movimiento.monto),
@@ -317,6 +345,10 @@ def serializar_cierre_caja(turno):
             turno.caja.sucursal.codigo if turno.caja.sucursal_id else None
         ),
         'caja_nombre': turno.caja.nombre,
+        # Identidad ESTABLE de la caja. `caja_nombre` viaja todavia como
+        # atributo legible y como fallback para clouds que aun no la usan,
+        # pero es mutable: renombrar una caja partia el turno en dos.
+        'caja_origen_id': str(turno.caja.origen_id),
         'usuario_username': turno.usuario.username if turno.usuario_id else None,
         'fecha_apertura': _dt(turno.fecha_apertura),
         'fecha_cierre': _dt(turno.fecha_cierre),

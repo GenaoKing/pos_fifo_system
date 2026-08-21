@@ -387,6 +387,29 @@ class Pago(models.Model):
         auto_now_add=True,
         verbose_name='Fecha de Pago'
     )
+
+    # Turno de caja que recibio este efectivo.
+    #
+    # No existia: la pertenencia se RECONSTRUIA despues, filtrando por usuario
+    # y rango de fechas en `TurnoCaja.calcular_esperado()`. Eso significa que un
+    # pago se atribuia por coincidencia temporal, no por el hecho operativo: si
+    # el usuario operaba contra otra sucursal en ese rango, el cierre sumaba
+    # efectivo ajeno, y un cobro que competia con el cierre caia de un lado u
+    # otro del corte segun el orden de commit.
+    #
+    # Null para pagos historicos y para los que no pasan por una caja fisica
+    # (replicacion cloud, canales sin turno). `calcular_esperado` prefiere este
+    # vinculo y solo cae a la heuristica para los historicos.
+    turno_caja = models.ForeignKey(
+        'caja.TurnoCaja',
+        on_delete=models.PROTECT,
+        related_name='%(class)s_recibidos',
+        null=True,
+        blank=True,
+        verbose_name='Turno de caja',
+        help_text='Turno que recibio el efectivo. Null si no paso por caja.',
+    )
+
     
     class Meta:
         verbose_name = 'Pago'

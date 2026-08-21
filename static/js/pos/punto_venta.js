@@ -76,7 +76,8 @@ function posData() {
             interes_porcentaje: 0,
             frecuencia: 'MENSUAL',
             fecha_primer_vencimiento: '',
-            admin_override_id: null,
+            // Ver resetCredito(): el override viaja como token de un solo uso.
+            override_token: null,
             admin_override_nombre: '',
             motivo_override: '',
             auth_username: '',
@@ -499,7 +500,11 @@ function posData() {
                 interes_porcentaje: metodo ? (parseFloat(metodo.interes_porcentaje) || 0) : 0,
                 frecuencia: metodo ? (metodo.frecuencia || 'MENSUAL') : 'MENSUAL',
                 fecha_primer_vencimiento: '',
-                admin_override_id: null,
+                // Autorizacion de override: token de un solo uso emitido por
+                // /caja/api/validar-admin/. Antes se guardaba el `admin_id`
+                // crudo y se reenviaba con la venta, lo que permitia atribuirle
+                // una excepcion a un administrador que nunca la aprobo.
+                override_token: null,
                 admin_override_nombre: '',
                 motivo_override: '',
                 auth_username: '',
@@ -511,7 +516,7 @@ function posData() {
         },
 
         resetCreditoAutorizacion() {
-            this.credito.admin_override_id = null;
+            this.credito.override_token = null;
             this.credito.admin_override_nombre = '';
             this.credito.auth_username = '';
             this.credito.auth_password = '';
@@ -673,7 +678,7 @@ function posData() {
         // (limite excedido sin override admin) y no hace nada si esta cerrado.
         aplicarModalCredito() {
             if (!this.modalCreditoAbierto) return;
-            if (this.creditoExcedeLimite() && !this.credito.admin_override_id) return;
+            if (this.creditoExcedeLimite() && !this.credito.override_token) return;
             this.cerrarModalCredito();
         },
 
@@ -687,6 +692,15 @@ function posData() {
 
         async validarAdminCredito() {
             this.credito.auth_error = '';
+
+            // El motivo es obligatorio: el servidor rechaza una autorizacion
+            // sin el, y sin motivo la traza no dice POR QUE se aprobo.
+            const motivo = (this.credito.motivo_override || '').trim();
+            if (motivo.length < 5) {
+                this.credito.auth_error = 'Indica el motivo de la autorizacion.';
+                return;
+            }
+
             this.credito.auth_validando = true;
             try {
                 const res = await fetch('/caja/api/validar-admin/', {
@@ -695,6 +709,12 @@ function posData() {
                     body: JSON.stringify({
                         username: this.credito.auth_username,
                         password: this.credito.auth_password,
+                        // El token queda LIGADO a esta operacion, este monto y
+                        // este cliente: no sirve para otra venta.
+                        operacion: 'credito.exceder_limite',
+                        motivo: motivo,
+                        monto: this.montoFinanciadoNuevo(),
+                        cliente_id: this.clienteSeleccionado ? this.clienteSeleccionado.id : null,
                     }),
                 });
                 const data = await res.json();
@@ -702,10 +722,14 @@ function posData() {
                     this.credito.auth_error = data.error || 'No autorizado';
                     return;
                 }
-                this.credito.admin_override_id = data.admin_id;
+                this.credito.override_token = data.token;
                 this.credito.admin_override_nombre = data.admin_nombre;
                 this.credito.auth_password = '';
-                showToast('success', 'Credito autorizado por admin');
+                showToast(
+                    'success',
+                    `Credito autorizado por ${data.admin_nombre}. ` +
+                    `La autorizacion vence en ${data.expira_en_minutos} min.`
+                );
             } finally {
                 this.credito.auth_validando = false;
             }
@@ -862,7 +886,7 @@ function posData() {
                 if (!this.clienteSeleccionado || !metodo) return false;
                 if (this.credito.monto_inicial < 0 || this.credito.monto_inicial >= total) return false;
                 if (this.esCreditoCuotas() && this.credito.cantidad_cuotas < 1) return false;
-                if (this.creditoExcedeLimite() && !this.credito.admin_override_id) return false;
+                if (this.creditoExcedeLimite() && !this.credito.override_token) return false;
                 return true;
             }
             return false;
@@ -888,7 +912,7 @@ function posData() {
             } else if (this.metodoPago === 'credito') {
                 if (!this.clienteSeleccionado) return 'Selecciona un cliente para venta a credito';
                 if (!this.metodoCreditoSeleccionado()) return 'No hay metodos de credito configurados';
-                if (this.creditoExcedeLimite() && !this.credito.admin_override_id) {
+                if (this.creditoExcedeLimite() && !this.credito.override_token) {
                     return 'Credito excede limite y requiere autorizacion ADMIN';
                 }
             }
@@ -947,7 +971,7 @@ function posData() {
                     interes_porcentaje: String(this.interesPorcentaje()),
                     frecuencia: this.credito.frecuencia,
                     fecha_primer_vencimiento: this.esCreditoCuotas() ? (this.credito.fecha_primer_vencimiento || null) : null,
-                    admin_override_id: this.credito.admin_override_id,
+                    override_token: this.credito.override_token,
                     motivo_override: this.credito.motivo_override || '',
                     monto_efectivo: this.credito.metodo_inicial === 'efectivo' ? (this.credito.monto_inicial || 0) : 0,
                     monto_transferencia: this.credito.metodo_inicial === 'transferencia' ? (this.credito.monto_inicial || 0) : 0,

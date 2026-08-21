@@ -17,7 +17,11 @@ class CompraAdmin(admin.ModelAdmin):
     list_display = ('numero_compra', 'proveedor', 'fecha_compra', 'total', 'usuario', 'fecha_creacion')
     list_filter = ('fecha_compra', 'proveedor')
     search_fields = ('numero_compra', 'proveedor')
-    readonly_fields = ('numero_compra', 'fecha_creacion')
+    # `fecha_compra` es auto_now_add, o sea NO editable: tenerla en un fieldset
+    # sin declararla readonly hacia que Django levantara FieldError al construir
+    # el formulario, y la pantalla de alta/cambio moria antes de renderizar.
+    # `manage.py check` no lo detecta porque el form se arma en el request.
+    readonly_fields = ('numero_compra', 'fecha_compra', 'fecha_creacion')
     inlines = [DetalleCompraInline]
     
     fieldsets = (
@@ -37,10 +41,24 @@ class CompraAdmin(admin.ModelAdmin):
         }),
     )
     
-    def save_model(self, request, obj, form, change):
-        if not obj.pk:
-            obj.usuario = request.user
-        super().save_model(request, obj, form, change)
+    def has_add_permission(self, request):
+        """
+        Las compras se registran por la UI, que si emite el outbox.
+
+        Crear una compra desde el Admin generaria lotes y movimientos pero
+        NINGUN evento de sync: el stock existiria local y el cloud nunca se
+        enteraria. Misma razon por la que el Admin de ventas es de solo lectura.
+        """
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Para corregir una compra: `inventario:compra_editar`, que propaga a
+        lote, movimiento, auditoria y outbox."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Borrar la compra arrastraria sus detalles y lotes por CASCADE."""
+        return False
 
 
 @admin.register(Lote)
@@ -106,8 +124,16 @@ class LoteAdmin(admin.ModelAdmin):
     estado_badge.short_description = 'Estado'
     
     def porcentaje_consumido(self, obj):
-        """Porcentaje consumido"""
-        return f"{obj.get_porcentaje_consumido():.1f}%"
+        """Porcentaje consumido del lote.
+
+        Se calcula aca: `Lote` nunca tuvo `get_porcentaje_consumido()`, asi que
+        este callback levantaba AttributeError y tumbaba la pantalla de detalle.
+        """
+        inicial = obj.cantidad_inicial or 0
+        if inicial <= 0:
+            return 'n/d'
+        consumido = (inicial - obj.cantidad_actual) / inicial * 100
+        return f'{consumido:.1f}%'
     porcentaje_consumido.short_description = '% Consumido'
 
 
@@ -185,7 +211,17 @@ class AjusteInventarioAdmin(admin.ModelAdmin):
     )
     list_filter = ('tipo', 'fecha_ajuste')
     search_fields = ('lote__numero_lote', 'motivo')
-    readonly_fields = ('fecha_ajuste',)
+    # Un ajuste aplicado es un hecho: inmutable desde el Admin.
+    #
+    # Antes lote, tipo, cantidad, motivo y usuario eran editables, y como
+    # `AjusteInventario.save()` reaplicaba la cantidad en cada guardado,
+    # corregir el texto del motivo descontaba el stock otra vez. Ahora el
+    # modelo ya no mueve inventario, pero editar el registro igual mentiria
+    # sobre un movimiento ya escrito. Para corregir stock: registrar otro
+    # ajuste (queda la traza de ambos).
+    readonly_fields = (
+        'lote', 'tipo', 'cantidad', 'motivo', 'usuario', 'fecha_ajuste',
+    )
     
     fieldsets = (
         ('Ajuste', {
@@ -200,9 +236,17 @@ class AjusteInventarioAdmin(admin.ModelAdmin):
         }),
     )
     
-    def save_model(self, request, obj, form, change):
-        if not obj.pk:
-            obj.usuario = request.user
-        super().save_model(request, obj, form, change)
+    def has_add_permission(self, request):
+        """Los ajustes se registran por el endpoint, que aplica el service
+        (lock del lote, revalidacion y UN movimiento)."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Un ajuste aplicado es un hecho. Para corregir: otro ajuste."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Borrarlo dejaria su MovimientoLote sin referencia."""
+        return False
 
 

@@ -8,8 +8,10 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
+from apps.clientes.models import Cliente
 from apps.sync import events as sync_events
 from apps.ventas.services.exceptions import (
+    AnulacionConAbonosError,
     ClienteCreditoInvalidoError,
     LimiteCreditoExcedidoError,
     MetodoPlazoCreditoInvalidoError,
@@ -111,16 +113,37 @@ def _obtener_metodo(metodo_plazo_id, modalidad: str | None = None) -> MetodoPlaz
         raise MetodoPlazoCreditoInvalidoError('Metodo de plazo de credito no encontrado o inactivo.')
 
 
-def _obtener_admin_override(admin_override_id):
-    if not admin_override_id:
+def _consumir_autorizacion_credito(credito_data, *, cliente, monto, solicitante, referencia):
+    """
+    Consume la autorizacion de un solo uso que permite exceder el limite.
+
+    Antes bastaba con enviar `admin_override_id`: un entero secuencial que
+    cualquiera podia adivinar. El servicio comprobaba que ese ID fuera de un
+    ADMIN activo y con eso omitia el limite, atribuyendole la excepcion a esa
+    persona sin ninguna prueba de que la hubiera aprobado.
+
+    Ahora se exige el token emitido por `/caja/api/validar-admin/`, ligado a la
+    operacion, al operador, al cliente y al monto, y se consume atomicamente.
+    """
+    from apps.permisos.models import AutorizacionInvalida, AutorizacionOverride
+
+    token = credito_data.get('override_token')
+    if not token:
         return None
-    from apps.usuarios.models import Usuario
 
     try:
-        admin = Usuario.objects.get(id=admin_override_id, rol__in=('ADMIN', 'SYSADMIN'), activo=True)
-    except Usuario.DoesNotExist:
-        raise PermisoDenegadoError('El administrador de override no existe o esta inactivo.')
-    return admin
+        autorizacion = AutorizacionOverride.consumir(
+            token=token,
+            operacion=AutorizacionOverride.OP_CREDITO_EXCEDER_LIMITE,
+            solicitado_por=solicitante,
+            monto=monto,
+            alcance={'cliente_id': cliente.id},
+            referencia=referencia,
+        )
+    except AutorizacionInvalida as exc:
+        raise PermisoDenegadoError(str(exc))
+
+    return autorizacion
 
 
 def _frecuencia_efectiva(credito_data: dict[str, Any], metodo: MetodoPlazoCredito) -> str:
@@ -193,11 +216,68 @@ def _interes_porcentaje(credito_data: dict[str, Any], metodo: MetodoPlazoCredito
 
 
 def _montos_cuotas(saldo: Decimal, cantidad_cuotas: int) -> list[Decimal]:
-    base = (saldo / Decimal(cantidad_cuotas)).quantize(DOS_DECIMALES, rounding=ROUND_HALF_UP)
-    montos = [base for _ in range(cantidad_cuotas)]
-    diferencia = saldo - sum(montos, Decimal('0.00'))
-    montos[-1] = _q(montos[-1] + diferencia)
+    """
+    Reparte `saldo` en `cantidad_cuotas` sin producir montos negativos.
+
+    Antes se redondeaba cada cuota y la ULTIMA absorbia toda la diferencia:
+    con 1.00 en 200 cuotas daba 199 de 0.01 y una final de **-0.99**. El total
+    cuadraba, pero la deuda contenia una cuota negativa.
+
+    Ahora se reparte en centavos ENTEROS: cociente para todas y el residuo
+    distribuido de a un centavo entre las primeras. Ninguna cuota puede quedar
+    negativa y la suma es exacta por construccion.
+    """
+    centavos_totales = int((saldo * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+    if centavos_totales < cantidad_cuotas:
+        # No alcanza para dar al menos un centavo a cada cuota.
+        raise MetodoPlazoCreditoInvalidoError(
+            f'El saldo a financiar (${saldo}) no alcanza para {cantidad_cuotas} '
+            f'cuotas: cada cuota necesita al menos $0.01.'
+        )
+
+    base, residuo = divmod(centavos_totales, cantidad_cuotas)
+    montos = []
+    for indice in range(cantidad_cuotas):
+        centavos = base + (1 if indice < residuo else 0)
+        montos.append((Decimal(centavos) / Decimal(100)).quantize(DOS_DECIMALES))
     return montos
+
+
+def _desviaciones_del_metodo(*, metodo, interes_efectivo, cuotas_efectivas,
+                             frecuencia_efectiva, credito_data):
+    """
+    Campos donde la venta se aparto del metodo de plazo configurado.
+
+    Devuelve `{campo: {'default': X, 'efectivo': Y}}`. Vacio si la venta uso
+    las condiciones del metodo tal cual.
+    """
+    desviaciones = {}
+
+    if Decimal(str(interes_efectivo)) != Decimal(str(metodo.interes_porcentaje)):
+        desviaciones['interes_porcentaje'] = {
+            'default': str(metodo.interes_porcentaje),
+            'efectivo': str(interes_efectivo),
+        }
+
+    if metodo.tipo == MetodoPlazoCredito.TIPO_CUOTAS:
+        if int(cuotas_efectivas) != int(metodo.cantidad_cuotas):
+            desviaciones['cantidad_cuotas'] = {
+                'default': metodo.cantidad_cuotas,
+                'efectivo': cuotas_efectivas,
+            }
+        if frecuencia_efectiva != metodo.frecuencia:
+            desviaciones['frecuencia'] = {
+                'default': metodo.frecuencia,
+                'efectivo': frecuencia_efectiva,
+            }
+        if credito_data.get('fecha_primer_vencimiento'):
+            desviaciones['fecha_primer_vencimiento'] = {
+                'default': 'derivada del metodo',
+                'efectivo': str(credito_data['fecha_primer_vencimiento']),
+            }
+
+    return desviaciones
 
 
 def crear_cuenta_para_venta(
@@ -232,16 +312,39 @@ def crear_cuenta_para_venta(
     monto_interes = _q(saldo_credito * (interes_porcentaje / Decimal('100')))
     saldo_financiado = _q(saldo_credito + monto_interes)
 
+    # LOCK SOBRE EL CLIENTE ANTES DE DECIDIR.
+    #
+    # `saldo_pendiente_cliente` agregaba sin bloquear nada: dos cajas evaluando
+    # a la vez leian el mismo saldo, las dos pasaban la validacion y el limite
+    # terminaba superado. Reproducido en la auditoria: dos creditos de 60 sobre
+    # un limite de 100 dejaron saldo 120.
+    #
+    # Se bloquea la FILA DEL CLIENTE porque es la unica comun a las dos
+    # decisiones; las cuentas todavia no existen. El lock se sostiene hasta el
+    # commit de la venta, que es la transaccion que envuelve esta llamada.
+    cliente = Cliente.objects.select_for_update().get(pk=cliente.pk)
+
     saldo_actual = saldo_pendiente_cliente(cliente)
     limite = Decimal(str(cliente.limite_credito or 0))
-    admin_override = _obtener_admin_override(credito_data.get('admin_override_id'))
 
-    if saldo_actual + saldo_financiado > limite and admin_override is None:
-        disponible = limite - saldo_actual
-        raise LimiteCreditoExcedidoError(
-            f'Limite de credito excedido. Disponible: ${disponible}, saldo nuevo: ${saldo_financiado}. '
-            'Requiere autorizacion ADMIN/SYSADMIN.'
+    excede = saldo_actual + saldo_financiado > limite
+    autorizacion = None
+    if excede:
+        autorizacion = _consumir_autorizacion_credito(
+            credito_data,
+            cliente=cliente,
+            monto=saldo_financiado,
+            solicitante=usuario,
+            referencia=venta.numero_venta,
         )
+        if autorizacion is None:
+            disponible = limite - saldo_actual
+            raise LimiteCreditoExcedidoError(
+                f'Limite de credito excedido. Disponible: ${disponible}, saldo nuevo: ${saldo_financiado}. '
+                'Requiere autorizacion de un administrador.'
+            )
+
+    admin_override = autorizacion.autorizado_por if autorizacion else None
 
     fecha_emision = timezone.localdate()
     if modalidad == MODALIDAD_VENCIMIENTO_UNICO:
@@ -274,7 +377,9 @@ def crear_cuenta_para_venta(
         fecha_limite=fechas[-1],
         creado_por=usuario,
         override_autorizado_por=admin_override,
-        motivo_override=(credito_data.get('motivo_override') or '').strip(),
+        # El motivo viene de la AUTORIZACION, no del payload: alli es
+        # obligatorio y quedo ligado a quien la aprobo.
+        motivo_override=(autorizacion.motivo if autorizacion else ''),
         sucursal=venta.sucursal,
     )
 
@@ -299,6 +404,8 @@ def crear_cuenta_para_venta(
                 'saldo_nuevo': str(saldo_financiado),
                 'limite_credito': str(limite),
                 'autorizado_por': admin_override.username,
+                'autorizacion_id': autorizacion.pk,
+                'motivo': autorizacion.motivo,
             },
             ip_address=ip_address,
             nivel_importancia=Auditoria.NivelImportancia.CRITICA,
@@ -320,6 +427,20 @@ def crear_cuenta_para_venta(
             'cuotas': cantidad_cuotas,
             'modalidad': modalidad,
             'plazo_credito_dias': _plazo_credito_cliente(cliente),
+            # DESVIACIONES frente al metodo configurado.
+            #
+            # El payload del POS prevalece sobre el metodo para interes,
+            # cantidad de cuotas, frecuencia y primera fecha. La auditoria
+            # guardaba los valores EFECTIVOS, pero no decia cuales se
+            # apartaron del default: no se podia distinguir una politica
+            # permitida de una excepcion puntual del operador.
+            'desviaciones': _desviaciones_del_metodo(
+                metodo=metodo,
+                interes_efectivo=interes_porcentaje,
+                cuotas_efectivas=cantidad_cuotas,
+                frecuencia_efectiva=frecuencia,
+                credito_data=credito_data,
+            ),
         },
         ip_address=ip_address,
         nivel_importancia=Auditoria.NivelImportancia.ALTA,
@@ -433,7 +554,26 @@ def registrar_pago_cxc_service(
     referencia: str = '',
     notas: str = '',
     ip_address: str | None = None,
+    clave_idempotencia: str | None = None,
 ) -> PagoCxC:
+    """
+    Registra un abono. Idempotente si se pasa `clave_idempotencia`.
+
+    Un reintento con la misma clave devuelve el pago ORIGINAL sin volver a
+    mover saldos. Sin clave, la conducta es la de antes (cada llamada crea un
+    abono), para no romper los callers que no la envian todavia.
+    """
+    clave_idempotencia = (clave_idempotencia or '').strip() or None
+
+    if clave_idempotencia:
+        # Chequeo barato antes de tocar nada. La constraint unica es el
+        # respaldo real, mas abajo.
+        existente = PagoCxC.objects.filter(
+            clave_idempotencia=clave_idempotencia,
+        ).first()
+        if existente is not None:
+            return existente
+
     monto = _q(monto)
     if monto <= 0:
         raise MetodoPlazoCreditoInvalidoError('El monto del abono debe ser mayor a cero.')
@@ -478,7 +618,11 @@ def registrar_pago_cxc_service(
         cuenta.saldo = _q(cuenta.saldo - monto)
         cuenta.recalcular_estado(guardar=True)
 
+        # Igual que en la venta: el abono queda atado al turno que lo recibio.
+        from apps.caja.models import turno_abierto_de
+
         pago = PagoCxC.objects.create(
+            turno_caja=turno_abierto_de(usuario, cuenta.sucursal),
             cuenta=cuenta,
             metodo=metodo,
             monto=monto,
@@ -486,6 +630,7 @@ def registrar_pago_cxc_service(
             registrado_por=usuario,
             aplicaciones=aplicaciones,
             notas=(notas or '').strip(),
+            clave_idempotencia=clave_idempotencia,
         )
 
         Auditoria.registrar(
@@ -631,9 +776,46 @@ def anular_pago_cxc_service(
 
 
 def anular_cuenta_por_venta(*, venta, usuario=None, ip_address: str | None = None):
+    """
+    Anula la CxC de una venta anulada.
+
+    POLITICA ANTE ABONOS APLICADOS (CXC-006)
+    ----------------------------------------
+    Si la cuenta tiene abonos aplicados, la anulacion se **bloquea**.
+
+    Antes no: `marcar_anulada()` llevaba cuenta y cuotas a saldo cero y los
+    `PagoCxC` quedaban en estado APLICADO, con su monto y su metodo intactos.
+    El sistema dejaba de mostrar la obligacion pero conservaba dinero aplicado
+    a ella, sin decidir si debia devolverse, acreditarse al cliente o quedarse
+    en caja. Reportes de cobro, caja y estado de cuenta interpretaban el mismo
+    hecho de tres formas distintas.
+
+    De las tres politicas posibles —bloquear, revertir automaticamente en LIFO
+    con egreso de caja, o convertir el saldo en credito a favor— se implementa
+    la primera porque es la unica que NO inventa un asiento contable. El
+    operador revierte los abonos con `anular_pago_cxc_service` (que ya existe,
+    es LIFO, exige motivo y deja auditoria) y despues anula la venta. Cada paso
+    queda trazado y la decision sobre el dinero la toma una persona.
+
+    Si el negocio prefiere la reversa automatica o el saldo a favor, el cambio
+    va aca y en el service de anulacion de venta.
+    """
     cuenta = getattr(venta, 'cuenta_por_cobrar', None)
     if not cuenta or cuenta.estado == CuentaPorCobrar.ESTADO_ANULADA:
         return None
+
+    abonos_aplicados = cuenta.pagos_cxc.filter(estado=PagoCxC.ESTADO_APLICADO)
+    total_aplicado = abonos_aplicados.aggregate(
+        total=models.Sum('monto')
+    )['total'] or Decimal('0.00')
+
+    if total_aplicado > Decimal('0.00'):
+        raise AnulacionConAbonosError(
+            f'La cuenta de la venta {venta.numero_venta} tiene '
+            f'${total_aplicado} en abonos aplicados. Anula primero esos abonos '
+            f'(quedan registrados como reversa) y despues anula la venta; asi '
+            f'el destino del dinero queda decidido y trazado.'
+        )
 
     cuenta.marcar_anulada()
     Auditoria.registrar(

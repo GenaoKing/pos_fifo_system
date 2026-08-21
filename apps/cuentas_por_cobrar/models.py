@@ -69,11 +69,26 @@ class MetodoPlazoCredito(models.Model):
     def __str__(self):
         return self.nombre
 
+    # Tope de negocio. No habia ninguno: financiar 1.00 en 200 cuotas producia
+    # 199 cuotas de 0.01 y una final de -0.99, y un numero extremo consumia
+    # memoria y escrituras dentro de la transaccion de la venta.
+    MAX_CUOTAS = 60
+
     def normalizar_cantidad_cuotas(self, cantidad_solicitada=None) -> int:
         if self.tipo == self.TIPO_VENCIMIENTO_UNICO:
             return 1
         cantidad = cantidad_solicitada or self.cantidad_cuotas
-        return max(int(cantidad), 1)
+        try:
+            cantidad = int(cantidad)
+        except (TypeError, ValueError):
+            raise ValueError('La cantidad de cuotas debe ser un numero entero.')
+        if cantidad < 1:
+            raise ValueError('La cantidad de cuotas debe ser al menos 1.')
+        if cantidad > self.MAX_CUOTAS:
+            raise ValueError(
+                f'La cantidad de cuotas no puede superar {self.MAX_CUOTAS}.'
+            )
+        return cantidad
 
     def dias_entre_cuotas(self) -> int:
         if self.frecuencia == self.FRECUENCIA_SEMANAL:
@@ -91,6 +106,9 @@ class CuentaPorCobrar(models.Model):
     ESTADO_PAGADA = 'PAGADA'
     ESTADO_VENCIDA = 'VENCIDA'
     ESTADO_ANULADA = 'ANULADA'
+
+    # Estados con deuda viva. Lo que la interfaz llama "Estados abiertos".
+    ESTADOS_ABIERTOS = ('ABIERTA', 'PARCIAL', 'VENCIDA')
     ESTADO_CHOICES = (
         (ESTADO_ABIERTA, 'Abierta'),
         (ESTADO_PARCIAL, 'Parcial'),
@@ -292,6 +310,46 @@ class PagoCxC(models.Model):
         related_name='pagos_cxc_registrados',
     )
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=ESTADO_APLICADO)
+
+    # Clave de idempotencia del comando de cobro.
+    #
+    # El endpoint no recibia ningun identificador de operacion: dos POST
+    # identicos (timeout, doble click, reintento de un proxy) creaban DOS
+    # abonos y reducian el saldo dos veces. Deduplicar por fecha+monto no
+    # sirve: dos abonos reales pueden coincidir en ambos.
+    #
+    # Null para los pagos historicos y para los que replica el sync.
+
+    # Turno de caja que recibio este efectivo.
+    #
+    # No existia: la pertenencia se RECONSTRUIA despues, filtrando por usuario
+    # y rango de fechas en `TurnoCaja.calcular_esperado()`. Eso significa que un
+    # pago se atribuia por coincidencia temporal, no por el hecho operativo: si
+    # el usuario operaba contra otra sucursal en ese rango, el cierre sumaba
+    # efectivo ajeno, y un cobro que competia con el cierre caia de un lado u
+    # otro del corte segun el orden de commit.
+    #
+    # Null para pagos historicos y para los que no pasan por una caja fisica
+    # (replicacion cloud, canales sin turno). `calcular_esperado` prefiere este
+    # vinculo y solo cae a la heuristica para los historicos.
+    turno_caja = models.ForeignKey(
+        'caja.TurnoCaja',
+        on_delete=models.PROTECT,
+        related_name='%(class)s_recibidos',
+        null=True,
+        blank=True,
+        verbose_name='Turno de caja',
+        help_text='Turno que recibio el efectivo. Null si no paso por caja.',
+    )
+
+    clave_idempotencia = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        verbose_name='Clave de idempotencia',
+        help_text='UUID de la operacion de cobro. Un reintento con la misma '
+                  'clave devuelve el pago original en vez de crear otro.',
+    )
     aplicaciones = models.JSONField(default=list, blank=True)
     notas = models.TextField(blank=True)
     anulado_por = models.ForeignKey(
@@ -312,6 +370,15 @@ class PagoCxC(models.Model):
             models.Index(fields=['metodo', 'fecha_pago']),
             models.Index(fields=['registrado_por', 'fecha_pago']),
             models.Index(fields=['cuenta', 'estado']),
+        ]
+        constraints = [
+            # Unicidad PARCIAL: solo sobre las claves presentes. Los pagos
+            # historicos y los replicados por sync no tienen clave y conviven.
+            models.UniqueConstraint(
+                fields=['clave_idempotencia'],
+                condition=models.Q(clave_idempotencia__isnull=False),
+                name='uniq_pagocxc_clave_idempotencia',
+            ),
         ]
 
     def __str__(self):

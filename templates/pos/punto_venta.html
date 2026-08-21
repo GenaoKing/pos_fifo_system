@@ -1005,12 +1005,12 @@
                                     </div>
                                 </div>
 
-                                <template x-if="creditoExcedeLimite() && !credito.admin_override_id">
+                                <template x-if="creditoExcedeLimite() && !credito.override_token">
                                     <div class="p-2 bg-danger-50 border border-danger-200 rounded-lg text-xs text-danger-800">
                                         Excede el limite de credito — autoriza desde "Configurar credito".
                                     </div>
                                 </template>
-                                <template x-if="credito.admin_override_id">
+                                <template x-if="credito.override_token">
                                     <div class="p-2 bg-success-50 border border-success-200 rounded-lg text-xs text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></div>
                                 </template>
 
@@ -1193,16 +1193,16 @@
                 <template x-if="creditoExcedeLimite()">
                     <div class="p-3 bg-danger-50 border border-danger-200 rounded-lg space-y-2">
                         <p class="text-sm font-medium text-danger-800">Requiere autorizacion ADMIN</p>
-                        <template x-if="!credito.admin_override_id">
+                        <template x-if="!credito.override_token">
                             <div class="space-y-2">
                                 <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin">
                                 <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena">
-                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo">
+                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo (obligatorio)" required>
                                 <button type="button" class="btn-outline btn-sm w-full" @click="validarAdminCredito()" :disabled="credito.auth_validando">Autorizar</button>
                                 <p class="text-xs text-danger-700" x-show="credito.auth_error" x-text="credito.auth_error"></p>
                             </div>
                         </template>
-                        <template x-if="credito.admin_override_id">
+                        <template x-if="credito.override_token">
                             <p class="text-sm text-success-700" x-text="'Autorizado por ' + credito.admin_override_nombre"></p>
                         </template>
                     </div>
@@ -1211,7 +1211,7 @@
 
             <div class="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end space-x-2">
                 <button type="button" class="btn-outline" @click="cerrarModalCredito()">Cerrar</button>
-                <button type="button" class="btn-primary" @click="aplicarModalCredito()" :disabled="creditoExcedeLimite() && !credito.admin_override_id">Aplicar</button>
+                <button type="button" class="btn-primary" @click="aplicarModalCredito()" :disabled="creditoExcedeLimite() && !credito.override_token">Aplicar</button>
             </div>
         </div>
     </div>

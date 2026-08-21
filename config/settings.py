@@ -119,6 +119,11 @@ INSTALLED_APPS = [
     'apps.sucursales',
     'rest_framework',
     'rest_framework.authtoken',
+    # Blacklist de refresh tokens (TEN-002). Sin ella, `ROTATE_REFRESH_TOKENS`
+    # daba apariencia de reemplazo pero el refresh anterior seguia siendo
+    # valido: una copia robada se podia canjear indefinidamente, y no habia
+    # forma de cerrar sesion del lado del servidor.
+    'rest_framework_simplejwt.token_blacklist',
     'apps.api',
     'apps.sync',
     'apps.facturacion_electronica',
@@ -428,6 +433,16 @@ REST_FRAMEWORK = {
         'sync': '120/min',       # Sucursales sincronizando
         'maestros': '60/min',    # Pull de datos maestros
         'reportes': '30/min',    # Dashboard consultando
+        # Login del portal. No existia ningun scope de auth: quince passwords
+        # incorrectos seguidos devolvian quince 400 y ningun 429, y cada intento
+        # ejecuta un hash de password costoso.
+        #
+        # Dos ventanas: una corta que corta la rafaga y una sostenida que corta
+        # el goteo lento. El scope se aplica por IP Y por email (ver
+        # apps/api/throttling.py), asi que un atacante detras de una IP no
+        # bloquea a un usuario legitimo desde otra.
+        'login': _env_text('THROTTLE_LOGIN', '10/min'),
+        'login_sostenido': _env_text('THROTTLE_LOGIN_SOSTENIDO', '50/hour'),
     },
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S.%f%z',
     'DEFAULT_RENDERER_CLASSES': [

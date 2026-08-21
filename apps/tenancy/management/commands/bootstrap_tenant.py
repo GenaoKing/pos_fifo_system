@@ -1,3 +1,5 @@
+import secrets
+
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -19,7 +21,24 @@ class Command(BaseCommand):
         parser.add_argument('--slug', help='Slug comercial. Default: derivado del nombre.')
         parser.add_argument('--rnc', default='', help='RNC del negocio.')
         parser.add_argument('--admin-email', help='Email de la Identity admin.')
-        parser.add_argument('--admin-password', help='Password inicial de la Identity admin.')
+        parser.add_argument(
+            '--admin-password',
+            help='Password inicial de la Identity admin. Obligatorio al CREAR. '
+                 'Si se omite en un alta, se genera uno aleatorio y se muestra '
+                 'una sola vez.',
+        )
+        parser.add_argument(
+            '--rotar-password',
+            action='store_true',
+            help='Restablece la password del admin aunque ya exista. Sin este '
+                 'flag, un rerun conserva la credencial vigente.',
+        )
+        parser.add_argument(
+            '--mostrar-token',
+            action='store_true',
+            help='Imprime el token sync completo. Por defecto se enmascara: '
+                 'los logs de CI y de jobs lo retienen.',
+        )
         parser.add_argument('--admin-username', default='admin', help='Username operativo.')
         parser.add_argument('--sucursal-codigo', default='SD-001', help='Codigo de sucursal inicial.')
         parser.add_argument('--sucursal-nombre', help='Nombre de sucursal inicial.')
@@ -33,7 +52,18 @@ class Command(BaseCommand):
         explicit_slug = bool(opts.get('slug'))
         raw_slug = (opts.get('slug') or '').strip()
         admin_email = (opts.get('admin_email') or f'admin@{tenant_key}.local').strip().lower()
-        admin_password = opts.get('admin_password') or 'Admin123!'
+
+        # NUNCA una password literal por defecto.
+        #
+        # Antes el default era una credencial conocida y publicada en runbooks, y
+        # cada rerun llamaba `set_password` sobre el usuario operativo Y la
+        # Identity: un bootstrap "idempotente" reemplazaba una password fuerte
+        # por la conocida, bloqueando al dueno y abriendo acceso.
+        admin_password, password_generada = self._resolver_password(
+            opts.get('admin_password'), admin_email, tenant_key,
+        )
+        rotar_password = opts['rotar_password']
+        mostrar_token = opts['mostrar_token']
         sucursal_codigo = opts['sucursal_codigo'].strip().upper()
         sucursal_nombre = opts.get('sucursal_nombre') or f'{nombre} - Principal'
         dry_run = opts['dry_run']
@@ -80,7 +110,17 @@ class Command(BaseCommand):
             self.stdout.write('Migraria la BD tenant y sembraria negocio, admin, sucursal y token.')
             return
 
-        tenant, _ = Tenant.objects.using('default').update_or_create(
+        # EL TENANT SE PUBLICA AL FINAL, no al principio.
+        #
+        # Antes esto escribia `activo=True` y reemplazaba db_name/media_prefix
+        # ANTES de verificar o crear la base. Si algo fallaba despues —crear la
+        # BD, migrar, sembrar— la fila quedaba activa y enrutable apuntando a
+        # una base que no existia o estaba a medio sembrar. Auth y migraciones
+        # veian un tenant "listo" que no lo estaba.
+        #
+        # Ahora: se crea/actualiza INACTIVO, se aprovisiona, y solo si todo
+        # salio bien se activa.
+        tenant, tenant_creado = Tenant.objects.using('default').get_or_create(
             tenant_key=tenant_key,
             defaults={
                 'slug': slug,
@@ -89,15 +129,42 @@ class Command(BaseCommand):
                 'db_name': f'tnt_{tenant_key}',
                 'media_prefix': f'{tenant_key}/',
                 'plan_slug': opts.get('plan') or '',
-                'activo': True,
+                'activo': False,
             },
         )
 
-        self._ensure_database(tenant)
-        configure_tenant_database(tenant)
+        if tenant_creado:
+            activo_previo = False
+        else:
+            activo_previo = tenant.activo
+            # Datos comerciales SI se actualizan; la identidad de routing NO.
+            # Reescribir db_name/media_prefix de un tenant existente cambiaria
+            # a que base apunta y donde viven sus archivos: eso es una
+            # migracion de tenant, no un rerun de bootstrap.
+            tenant.slug = slug
+            tenant.nombre = nombre
+            tenant.rnc = opts.get('rnc', '')
+            tenant.plan_slug = opts.get('plan') or ''
+            tenant.activo = False   # se republica al final
+            tenant.save()
 
-        if not opts['skip_migrate']:
-            call_command('migrate_tenants', tenant=tenant.tenant_key, noinput=True)
+        try:
+            self._ensure_database(tenant)
+            # El tenant esta inactivo a proposito mientras se aprovisiona.
+            configure_tenant_database(tenant, permitir_inactivo=True)
+
+            if not opts['skip_migrate']:
+                call_command(
+                    'migrate_tenants', tenant=tenant.tenant_key,
+                    noinput=True, incluir_inactivos=True,
+                )
+        except Exception:
+            # No se deja publicado lo que no quedo listo. Si ya estaba activo
+            # antes, se restaura su estado previo: el bootstrap no debe dar de
+            # baja un tenant que estaba operando.
+            tenant.activo = activo_previo
+            tenant.save(update_fields=['activo'])
+            raise
 
         with force_tenancy(True):
             with tenant_context(tenant):
@@ -108,6 +175,7 @@ class Command(BaseCommand):
                     rnc=opts.get('rnc', ''),
                     admin_email=admin_email,
                     admin_password=admin_password,
+                    rotar_password=rotar_password,
                     admin_username=opts['admin_username'],
                     sucursal_codigo=sucursal_codigo,
                     sucursal_nombre=sucursal_nombre,
@@ -118,16 +186,69 @@ class Command(BaseCommand):
             tenant=tenant,
             admin_email=admin_email,
             admin_password=admin_password,
+            rotar_password=rotar_password,
             admin_username=opts['admin_username'],
             rol='ADMIN',
             token=result['token'],
             sucursal_codigo=sucursal_codigo,
         )
 
+        # Recien aca el tenant queda enrutable: base creada, migrada y sembrada,
+        # y control plane consistente.
+        tenant.activo = True
+        tenant.save(update_fields=['activo'])
+
         self.stdout.write(self.style.SUCCESS(
-            f'Bootstrap OK: {tenant.tenant_key} ({tenant.db_name}). '
-            f'Token sync: {result["token"]}'
+            f'Bootstrap OK: {tenant.tenant_key} ({tenant.db_name}). Tenant activo.'
         ))
+        self._reportar_secretos(
+            token=result['token'],
+            mostrar_token=mostrar_token,
+            admin_email=admin_email,
+            admin_password=admin_password if password_generada else None,
+        )
+
+    def _resolver_password(self, password_explicita, admin_email, tenant_key):
+        """
+        Devuelve (password, fue_generada).
+
+        Si el admin ya existe y no se pide rotacion, la password devuelta NO se
+        aplica (ver `_seed_control_plane`); igual se resuelve una para el caso
+        de alta.
+        """
+        if password_explicita:
+            return password_explicita, False
+
+        ya_existe = Identity.objects.using('default').filter(
+            email__iexact=admin_email,
+        ).exists()
+        if ya_existe:
+            # No hace falta password: el rerun conserva la vigente.
+            return None, False
+
+        # Alta sin `--admin-password`: secreto aleatorio de un solo uso.
+        return secrets.token_urlsafe(18), True
+
+    def _reportar_secretos(self, *, token, mostrar_token, admin_email, admin_password):
+        if admin_password:
+            self.stdout.write(self.style.WARNING(
+                'Password inicial generada para %s: %s' % (admin_email, admin_password)
+            ))
+            self.stdout.write(
+                '  Guardala en el gestor de secretos AHORA: no se vuelve a mostrar.'
+            )
+
+        if mostrar_token:
+            self.stdout.write(self.style.WARNING(f'Token sync: {token}'))
+            self.stdout.write(
+                '  Se imprimio por --mostrar-token. Si este comando corrio en CI '
+                'o en un job, rota el token: el log lo retiene.'
+            )
+        else:
+            self.stdout.write(
+                f'Token sync: {token[:6]}...{token[-4:]} '
+                f'(usa --mostrar-token para verlo completo)'
+            )
 
     def _ensure_database(self, tenant):
         try:
@@ -154,6 +275,7 @@ class Command(BaseCommand):
         rnc,
         admin_email,
         admin_password,
+        rotar_password,
         admin_username,
         sucursal_codigo,
         sucursal_nombre,
@@ -223,7 +345,15 @@ class Command(BaseCommand):
         admin_user.activo = True
         admin_user.is_staff = True
         admin_user.negocio = negocio
-        admin_user.set_password(admin_password)
+        # La password SOLO se escribe al crear o con rotacion explicita. Un
+        # rerun del bootstrap no debe tocar la credencial vigente del dueno.
+        if created or rotar_password:
+            if not admin_password:
+                raise CommandError(
+                    'Se pidio rotar la password pero no se recibio ninguna. '
+                    'Pasa --admin-password.'
+                )
+            admin_user.set_password(admin_password)
         admin_user.save()
 
         bootstrap_rbac(
@@ -282,17 +412,26 @@ class Command(BaseCommand):
         tenant,
         admin_email,
         admin_password,
+        rotar_password,
         admin_username,
         rol,
         token,
         sucursal_codigo,
     ):
-        identity, _ = Identity.objects.using('default').get_or_create(
+        identity, identity_creada = Identity.objects.using('default').get_or_create(
             email=admin_email,
             defaults={'nombre': admin_email, 'activo': True},
         )
         identity.activo = True
-        identity.set_password(admin_password)
+        # Misma regla que el usuario operativo: no se pisa una credencial ya
+        # establecida salvo rotacion explicita.
+        if identity_creada or rotar_password:
+            if not admin_password:
+                raise CommandError(
+                    'Se pidio rotar la password pero no se recibio ninguna. '
+                    'Pasa --admin-password.'
+                )
+            identity.set_password(admin_password)
         identity.save()
 
         Membership.objects.using('default').update_or_create(

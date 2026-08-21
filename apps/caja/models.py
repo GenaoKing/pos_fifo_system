@@ -10,6 +10,7 @@ Flujo:
 5. Se registra diferencia (sobrante/faltante)
 """
 
+import uuid
 from django.db import models
 from django.core.validators import MinValueValidator
 from django.conf import settings
@@ -47,6 +48,22 @@ class Caja(models.Model):
         blank=True,
         null=True,
         help_text='Sucursal a la que pertenece esta caja. Null para instalaciones legacy.'
+    )
+
+    # Identidad ESTABLE para el sync.
+    #
+    # El cloud resolvia la caja por `(nombre, sucursal)`, y `nombre` es un
+    # CharField mutable sin unicidad. Renombrar una caja entre la apertura y el
+    # cierre partia el turno en dos: el movimiento no encontraba el turno viejo
+    # y el cierre creaba por fallback otro turno bajo la caja nueva. El portal
+    # mostraba una caja eternamente abierta y otra cerrada con el mismo
+    # efectivo. `nombre` queda como atributo mutable; la identidad es esto.
+    origen_id = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        verbose_name='Identidad de sync',
+        help_text='Identidad estable de esta caja entre sucursal y cloud.',
     )
 
     fecha_creacion = models.DateTimeField(
@@ -201,36 +218,58 @@ class TurnoCaja(models.Model):
     def calcular_esperado(self):
         """
         Calcula el efectivo esperado en caja.
-        
+
         Formula:
         fondo_apertura
         + ventas en efectivo del turno
         - retiros
         - gastos
         + ingresos
+
+        ATRIBUCION: se prefiere el vinculo EXACTO (`Pago.turno_caja`). La
+        heuristica por usuario+fechas solo cubre los pagos historicos, que son
+        los anteriores a que existiera ese campo.
+
+        La heuristica no era exacta: atribuia por coincidencia temporal, asi que
+        si el mismo usuario operaba contra otra sucursal durante el rango, este
+        cierre sumaba efectivo ajeno; y un cobro que competia con el cierre
+        caia de un lado u otro del corte segun el orden de commit.
         """
         from apps.ventas.models import Pago
         from apps.cuentas_por_cobrar.models import PagoCxC
 
-        # Ventas en efectivo durante este turno
+        # --- Pagos EXPLICITAMENTE atados a este turno ---
+        efectivo_ventas = Pago.objects.filter(
+            turno_caja=self,
+            metodo='EFECTIVO',
+            venta__estado='COMPLETADA',
+        ).aggregate(total=models.Sum('monto'))['total'] or Decimal('0.00')
+
+        # --- Historicos: sin turno, se reconstruyen por usuario+ventana ---
         filtro_turno = {
+            'turno_caja__isnull': True,
             'venta__fecha_venta__gte': self.fecha_apertura,
             'venta__estado': 'COMPLETADA',
             'metodo': 'EFECTIVO',
+            'venta__usuario': self.usuario,
         }
         if self.fecha_cierre:
             filtro_turno['venta__fecha_venta__lte'] = self.fecha_cierre
 
-        # Filtrar por usuario si queremos turno especifico
-        filtro_turno['venta__usuario'] = self.usuario
-
-        efectivo_ventas = Pago.objects.filter(
+        efectivo_ventas += Pago.objects.filter(
             **filtro_turno
         ).aggregate(
             total=models.Sum('monto')
         )['total'] or Decimal('0.00')
 
+        efectivo_cxc = PagoCxC.objects.filter(
+            turno_caja=self,
+            metodo='EFECTIVO',
+            estado='APLICADO',
+        ).aggregate(total=models.Sum('monto'))['total'] or Decimal('0.00')
+
         filtro_cxc = {
+            'turno_caja__isnull': True,
             'fecha_pago__gte': self.fecha_apertura,
             'estado': 'APLICADO',
             'metodo': 'EFECTIVO',
@@ -239,7 +278,7 @@ class TurnoCaja(models.Model):
         if self.fecha_cierre:
             filtro_cxc['fecha_pago__lte'] = self.fecha_cierre
 
-        efectivo_cxc = PagoCxC.objects.filter(**filtro_cxc).aggregate(
+        efectivo_cxc += PagoCxC.objects.filter(**filtro_cxc).aggregate(
             total=models.Sum('monto')
         )['total'] or Decimal('0.00')
 
@@ -375,3 +414,21 @@ class MovimientoCaja(models.Model):
     def __str__(self):
         signo = '-' if self.tipo in ('RETIRO', 'GASTO') else '+'
         return f"{self.get_tipo_display()} {signo}${self.monto} - {self.descripcion[:30]}"
+
+
+def turno_abierto_de(usuario, sucursal=None):
+    """
+    Turno de caja ABIERTO de un usuario, o None.
+
+    Lo usan los services de venta y de cobro CxC para atar cada pago en
+    efectivo a la sesion de caja que lo recibio, en vez de dejar que el cierre
+    lo adivine despues por usuario y fecha.
+
+    Devuelve None sin fallar: un cobro sin turno abierto sigue siendo posible
+    (canales sin caja fisica, instalaciones que no usan arqueo). Lo que cambia
+    es que ahora se sabe cual es cual.
+    """
+    qs = TurnoCaja.objects.filter(usuario=usuario, estado='ABIERTO')
+    if sucursal is not None:
+        qs = qs.filter(models.Q(caja__sucursal=sucursal) | models.Q(caja__sucursal__isnull=True))
+    return qs.select_related('caja').first()

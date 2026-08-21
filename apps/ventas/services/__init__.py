@@ -11,6 +11,7 @@ API pública del paquete services de ventas. Importar desde acá:
 """
 from .anulaciones_service import anular_venta_service
 from .exceptions import (
+    AnulacionConAbonosError,
     AnulacionNoPermitidaError,
     CarritoVacioError,
     ClienteCreditoInvalidoError,
@@ -40,6 +41,7 @@ __all__ = [
     'anular_venta_service',
     # Excepciones
     'ErrorVentaBase',
+    'AnulacionConAbonosError',
     'AnulacionNoPermitidaError',
     'CarritoVacioError',
     'ClienteCreditoInvalidoError',

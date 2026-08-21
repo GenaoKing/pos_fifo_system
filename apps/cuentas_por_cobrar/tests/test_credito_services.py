@@ -214,25 +214,120 @@ class CreditoServicesTests(TestCase):
         self.detalle_compra.lote.refresh_from_db()
         self.assertEqual(self.detalle_compra.lote.cantidad_actual, 10)
 
-    def test_limite_credito_permite_override_admin_y_deja_auditoria_en_cuenta(self):
+    def _emitir_autorizacion(self, **over):
+        """Autorizacion de un solo uso, como la emite /caja/api/validar-admin/."""
+        from apps.permisos.models import AutorizacionOverride
+
+        datos = {
+            'operacion': AutorizacionOverride.OP_CREDITO_EXCEDER_LIMITE,
+            'autorizado_por': self.admin,
+            'solicitado_por': self.cajera,
+            'monto_maximo': Decimal('200.00'),
+            'alcance': {'cliente_id': self.cliente.id},
+            'motivo': 'Cliente autorizado por gerencia',
+        }
+        datos.update(over)
+        return AutorizacionOverride.emitir(**datos)
+
+    def test_limite_credito_permite_override_con_autorizacion_valida(self):
         self.cliente.limite_credito = Decimal('100.00')
         self.cliente.save(update_fields=['limite_credito'])
+        autorizacion, token = self._emitir_autorizacion()
 
         venta = procesar_venta_service(
             usuario=self.cajera,
             datos=self._payload_credito(
-                credito={
-                    'monto_inicial': '0.00',
-                    'admin_override_id': self.admin.id,
-                    'motivo_override': 'Cliente autorizado por gerencia',
-                },
+                credito={'monto_inicial': '0.00', 'override_token': token},
             ),
         )
 
         cuenta = venta.cuenta_por_cobrar
         self.assertEqual(cuenta.override_autorizado_por, self.admin)
+        # El motivo sale de la AUTORIZACION, no del payload del POS.
         self.assertEqual(cuenta.motivo_override, 'Cliente autorizado por gerencia')
         self.assertEqual(cuenta.saldo, Decimal('200.00'))
+
+        # La autorizacion quedo consumida y ligada a la venta.
+        autorizacion.refresh_from_db()
+        self.assertIsNotNone(autorizacion.consumido_en)
+        self.assertEqual(autorizacion.consumido_referencia, venta.numero_venta)
+
+    def test_el_id_crudo_de_un_admin_ya_no_autoriza_nada(self):
+        """
+        CXC-001. Antes bastaba con enviar `admin_override_id`: un entero
+        secuencial que cualquiera podia adivinar, sin validar credenciales.
+        """
+        self.cliente.limite_credito = Decimal('100.00')
+        self.cliente.save(update_fields=['limite_credito'])
+
+        with self.assertRaises(LimiteCreditoExcedidoError):
+            procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(
+                    credito={
+                        'monto_inicial': '0.00',
+                        'admin_override_id': self.admin.id,
+                        'motivo_override': 'Me autorizo solo',
+                    },
+                ),
+            )
+
+    def test_una_autorizacion_no_se_puede_usar_dos_veces(self):
+        from apps.ventas.services import PermisoDenegadoError
+
+        self.cliente.limite_credito = Decimal('100.00')
+        self.cliente.save(update_fields=['limite_credito'])
+        _, token = self._emitir_autorizacion()
+
+        procesar_venta_service(
+            usuario=self.cajera,
+            datos=self._payload_credito(
+                credito={'monto_inicial': '0.00', 'override_token': token},
+            ),
+        )
+
+        with self.assertRaises(PermisoDenegadoError):
+            procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(
+                    credito={'monto_inicial': '0.00', 'override_token': token},
+                ),
+            )
+
+    def test_una_autorizacion_por_menos_monto_no_cubre_la_venta(self):
+        from apps.ventas.services import PermisoDenegadoError
+
+        self.cliente.limite_credito = Decimal('100.00')
+        self.cliente.save(update_fields=['limite_credito'])
+        _, token = self._emitir_autorizacion(monto_maximo=Decimal('50.00'))
+
+        with self.assertRaises(PermisoDenegadoError):
+            procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(
+                    credito={'monto_inicial': '0.00', 'override_token': token},
+                ),
+            )
+
+    def test_una_autorizacion_de_otro_cliente_no_sirve(self):
+        from apps.clientes.models import Cliente
+        from apps.ventas.services import PermisoDenegadoError
+
+        otro = Cliente.objects.create(
+            tipo='CORPORATIVO', nombre='Otro Cliente', cedula_rnc='131999777',
+            limite_credito=Decimal('9999.00'), plazo_credito_dias=30, activo=True,
+        )
+        self.cliente.limite_credito = Decimal('100.00')
+        self.cliente.save(update_fields=['limite_credito'])
+        _, token = self._emitir_autorizacion(alcance={'cliente_id': otro.id})
+
+        with self.assertRaises(PermisoDenegadoError):
+            procesar_venta_service(
+                usuario=self.cajera,
+                datos=self._payload_credito(
+                    credito={'monto_inicial': '0.00', 'override_token': token},
+                ),
+            )
 
     def test_abono_aplica_a_cuotas_mas_antiguas_y_actualiza_saldos(self):
         venta = procesar_venta_service(

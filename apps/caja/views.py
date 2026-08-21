@@ -4,12 +4,18 @@ Vistas del modulo de Arqueo y Gestion de Caja
 """
 
 import json
-from decimal import Decimal
+import logging
+from decimal import Decimal, InvalidOperation
 
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate
+
+from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
+from apps.permisos.models import AutorizacionInvalida, AutorizacionOverride
+
+logger = logging.getLogger('caja')
 from django.utils import timezone
 from django.db.models import Sum, Count, Q
 from django.db import transaction
@@ -22,11 +28,40 @@ from apps.sync import events as sync_events
 
 
 
-def es_admin(user):
-    # Conserva el nombre, pero ahora gatea por el permiso 'caja.administrar'
-    # (ADMIN/SYSADMIN lo tienen por acceso total). Cubre tanto los gates duros
-    # como la logica de "ver todos los turnos vs solo el propio".
-    return user.is_authenticated and user.tiene_permiso('caja.administrar')
+def es_admin(user, sucursal=None):
+    """
+    True si el usuario administra caja EN ESTA SUCURSAL.
+
+    Se llamaba sin sucursal, y el motor RBAC solo acota las asignaciones cuando
+    recibe una: con `None`, un rol concedido unicamente para la sucursal A
+    habilitaba el gate en la B.
+    """
+    return user.is_authenticated and user.tiene_permiso(
+        'caja.administrar', sucursal=sucursal,
+    )
+
+
+def cajas_en_alcance(request):
+    """
+    Cajas que este usuario puede operar.
+
+    La pagina listaba TODAS las cajas activas y la apertura recuperaba
+    cualquiera por PK: en una BD compartida, un operador podia abrir la caja de
+    otra sucursal.
+
+    Las cajas legacy (`sucursal` nula, anteriores a la Fase 2) quedan visibles:
+    darlas por ajenas las volveria inoperables en instalaciones sin migrar.
+    """
+    base = Caja.objects.filter(activa=True)
+    sucursal = getattr(request, 'sucursal', None)
+    if sucursal is None:
+        return base
+    return base.filter(Q(sucursal=sucursal) | Q(sucursal__isnull=True))
+
+
+def turnos_en_alcance(request):
+    """Turnos de las cajas que el usuario puede ver."""
+    return TurnoCaja.objects.filter(caja__in=cajas_en_alcance(request))
 
 
 # ============================================================================
@@ -36,43 +71,98 @@ def es_admin(user):
 @login_required
 def api_validar_admin(request):
     """
-    POST: Valida credenciales de un admin sin cambiar la sesion activa.
-    Usado para autorizar operaciones sensibles (retiros).
+    POST: valida credenciales de un admin y EMITE una autorizacion puntual.
 
-    Body: { "username": "admin", "password": "..." }
-    Returns: { "valido": true, "admin_id": 1, "admin_nombre": "Admin" }
+    Antes devolvia el `admin_id` crudo y el cliente lo reenviaba con la
+    operacion. Ese ID no probaba nada: cualquiera que conociera (o adivinara,
+    son enteros secuenciales) el id de un administrador podia atribuirle una
+    excepcion que nunca aprobo. La auditoria registraba su nombre igual.
+
+    Ahora devuelve un token de un solo uso, de vida corta y ligado a la
+    operacion, al operador que lo pide, a la sucursal, al monto y al alcance.
+    Ver `apps.permisos.models.AutorizacionOverride`.
+
+    Body: {
+        "username": "admin", "password": "...",
+        "operacion": "credito.exceder_limite" | "caja.retiro",
+        "motivo": "...",              # obligatorio
+        "monto": "1500.00",           # opcional, acota el token
+        "cliente_id": 5               # opcional, acota el token
+    }
+    Returns: { "valido": true, "token": "...", "expira_en_minutos": 5,
+               "admin_nombre": "Admin" }
     """
+    from apps.permisos.models import AutorizacionOverride
+
     if request.method != 'POST':
         return JsonResponse({'error': 'Metodo no permitido'}, status=405)
 
     try:
         data = json.loads(request.body)
-        username = data.get('username', '')
-        password = data.get('password', '')
+    except json.JSONDecodeError:
+        return JsonResponse({'valido': False, 'error': 'Datos invalidos'}, status=400)
 
-        if not username or not password:
-            return JsonResponse({'valido': False, 'error': 'Credenciales requeridas'})
+    username = data.get('username', '')
+    password = data.get('password', '')
+    operacion = (data.get('operacion') or AutorizacionOverride.OP_CAJA_RETIRO).strip()
+    motivo = (data.get('motivo') or '').strip()
 
-        # Autenticar sin tocar la sesion
-        user = authenticate(request, username=username, password=password)
+    if not username or not password:
+        return JsonResponse({'valido': False, 'error': 'Credenciales requeridas'})
 
-        if user is None:
-            return JsonResponse({'valido': False, 'error': 'Credenciales incorrectas'})
+    operaciones_validas = dict(AutorizacionOverride.OPERACIONES)
+    if operacion not in operaciones_validas:
+        return JsonResponse({'valido': False, 'error': 'Operacion no autorizable.'})
 
-        if not user.is_active:
-            return JsonResponse({'valido': False, 'error': 'Usuario inactivo'})
-
-        if not user.tiene_permiso('caja.administrar'):
-            return JsonResponse({'valido': False, 'error': 'El usuario no tiene rol de administrador'})
-
+    if not motivo:
+        # Sin motivo no hay autorizacion: era opcional y quedaba vacio, con lo
+        # cual la traza no decia POR QUE se aprobo la excepcion.
         return JsonResponse({
-            'valido': True,
-            'admin_id': user.id,
-            'admin_nombre': user.get_short_name() or user.username,
+            'valido': False,
+            'error': 'El motivo de la autorizacion es obligatorio.',
         })
 
-    except Exception as e:
-        return JsonResponse({'valido': False, 'error': str(e)})
+    # Autenticar sin tocar la sesion
+    user = authenticate(request, username=username, password=password)
+
+    if user is None:
+        return JsonResponse({'valido': False, 'error': 'Credenciales incorrectas'})
+
+    if not user.is_active or not getattr(user, 'activo', True):
+        return JsonResponse({'valido': False, 'error': 'Usuario inactivo'})
+
+    permiso = (
+        'cuentas_por_cobrar.autorizar_exceso_credito'
+        if operacion == AutorizacionOverride.OP_CREDITO_EXCEDER_LIMITE
+        else 'caja.administrar'
+    )
+    if not user.tiene_permiso(permiso, sucursal=getattr(request, 'sucursal', None)):
+        return JsonResponse({
+            'valido': False,
+            'error': 'El usuario no tiene permiso para autorizar esta operacion.',
+        })
+
+    monto = data.get('monto')
+    alcance = {}
+    if data.get('cliente_id'):
+        alcance['cliente_id'] = data['cliente_id']
+
+    _, token = AutorizacionOverride.emitir(
+        operacion=operacion,
+        autorizado_por=user,
+        solicitado_por=request.user,
+        sucursal=getattr(request, 'sucursal', None),
+        monto_maximo=Decimal(str(monto)) if monto not in (None, '') else None,
+        alcance=alcance,
+        motivo=motivo,
+    )
+
+    return JsonResponse({
+        'valido': True,
+        'token': token,
+        'expira_en_minutos': AutorizacionOverride.VIGENCIA_MINUTOS,
+        'admin_nombre': user.get_short_name() or user.username,
+    })
 
 
 # ============================================================================
@@ -80,6 +170,7 @@ def api_validar_admin(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_local('caja.operar', redirect_to='pos:punto_venta')
 def caja_index(request):
     """
     Pagina principal del modulo de caja.
@@ -90,10 +181,8 @@ def caja_index(request):
         estado='ABIERTO'
     ).select_related('caja').first()
 
-    # Cajas disponibles (sin turno abierto)
-    cajas_disponibles = Caja.objects.filter(
-        activa=True
-    ).exclude(
+    # Cajas disponibles (sin turno abierto), acotadas a la sucursal.
+    cajas_disponibles = cajas_en_alcance(request).exclude(
         turnos__estado='ABIERTO'
     )
 
@@ -103,10 +192,11 @@ def caja_index(request):
         estado='CERRADO'
     ).select_related('caja')[:10]
 
-    # Si es admin, mostrar todos los turnos abiertos
+    # Si es admin, mostrar los turnos abiertos DE SU ALCANCE.
+    puede_administrar = es_admin(request.user, getattr(request, 'sucursal', None))
     turnos_abiertos_otros = None
-    if es_admin(request.user):
-        turnos_abiertos_otros = TurnoCaja.objects.filter(
+    if puede_administrar:
+        turnos_abiertos_otros = turnos_en_alcance(request).filter(
             estado='ABIERTO'
         ).exclude(
             usuario=request.user
@@ -128,6 +218,12 @@ def caja_index(request):
         'turnos_abiertos_otros': turnos_abiertos_otros,
         'desglose': desglose,
         'movimientos': movimientos,
+        # La plantilla decidia con `request.user.rol == 'ADMIN'`, el campo
+        # legacy; el servidor decide con el permiso RBAC acotado a sucursal.
+        # Con RBAC activo eran dos respuestas distintas: la UI le escondia el
+        # boton a un admin por permiso y se lo mostraba a un ADMIN legacy sin
+        # permiso, que despues chocaba contra un 403.
+        'puede_administrar_caja': puede_administrar,
     }
 
     # Datos hidratados para Alpine.js (se renderiza con |json_script en template)
@@ -161,10 +257,11 @@ def caja_index(request):
 
 # ============================================================================
 # ABRIR TURNO
-# ============================================================================sudo su
+# ============================================================================
 
 
 @login_required
+@requiere_permiso_json('caja.operar')
 def api_abrir_turno(request):
     """
     POST: Abre un nuevo turno de caja.
@@ -192,8 +289,16 @@ def api_abrir_turno(request):
                     'error': f'Ya tienes un turno abierto en {turno_existente.caja.nombre}'
                 }, status=400)
 
-            # Validar caja
-            caja = get_object_or_404(Caja, id=caja_id, activa=True)
+            # El fondo de apertura no puede ser negativo: un importe
+            # imposible se arrastra a todo el arqueo del turno.
+            if fondo < Decimal('0'):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'El fondo de apertura no puede ser negativo.',
+                }, status=400)
+
+            # La caja se resuelve CONTRA el alcance: un id de otra sucursal da 404.
+            caja = get_object_or_404(cajas_en_alcance(request), id=caja_id)
 
             # Validar que la caja no tenga turno abierto
             if caja.turno_activo():
@@ -223,8 +328,25 @@ def api_abrir_turno(request):
                 }
             })
 
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Http404:
+        # `get_object_or_404` contra el alcance: el recurso ajeno debe salir
+        # como 404, no ser tragado por el `except Exception` de abajo y
+        # convertirse en un 500 que parece una falla del servidor.
+        raise
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {'success': False, 'error': 'JSON invalido en el request.'}, status=400,
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        # Un importe mal formado es error del cliente, no del servidor: caia en
+        # el `except Exception` y salia como 500 exponiendo la excepcion.
+        return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Error inesperado en una operacion de caja')
+        return JsonResponse(
+            {'success': False, 'error': 'Error inesperado en la operacion de caja.'},
+            status=500,
+        )
 
 
 # ============================================================================
@@ -232,6 +354,7 @@ def api_abrir_turno(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_json('caja.operar')
 def api_cerrar_turno(request):
     """
     POST: Cierra el turno activo.
@@ -250,20 +373,46 @@ def api_cerrar_turno(request):
             notas = data.get('notas', '')
             turno_id = data.get('turno_id')  # Opcional, para admin cerrando turno de otro
 
-            # Determinar cual turno cerrar
-            if turno_id and es_admin(request.user):
-                turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
+            # El conteo final no puede ser negativo: no existe una caja con
+            # menos de cero pesos fisicos, y un valor imposible se propaga a la
+            # diferencia y al arqueo.
+            if monto_contado < Decimal('0'):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'El monto contado no puede ser negativo.',
+                }, status=400)
+
+            # Determinar cual turno cerrar. El turno se toma CON LOCK: sin el,
+            # dos cierres simultaneos leian ambos `ABIERTO`, los dos calculaban
+            # el esperado y los dos cerraban — con arqueos distintos segun el
+            # orden de commit. El lock tambien congela el turno mientras se
+            # calcula lo esperado, para que una venta que entre a mitad quede
+            # inequivocamente antes o despues del corte.
+            base = turnos_en_alcance(request).select_for_update()
+
+            if turno_id and es_admin(request.user, getattr(request, "sucursal", None)):
+                turno = base.filter(id=turno_id, estado='ABIERTO').first()
+                if turno is None:
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Turno no encontrado o ya cerrado.',
+                    }, status=404)
             else:
-                turno = TurnoCaja.objects.filter(
-                    usuario=request.user,
-                    estado='ABIERTO'
-                ).first()
+                turno = base.filter(usuario=request.user, estado='ABIERTO').first()
 
             if not turno:
                 return JsonResponse({
                     'success': False,
                     'error': 'No hay turno abierto para cerrar'
                 }, status=400)
+
+            # Revalidacion BAJO el lock: si otro request lo cerro mientras
+            # esperabamos, aca ya se ve cerrado.
+            if turno.estado != 'ABIERTO':
+                return JsonResponse({
+                    'success': False,
+                    'error': 'El turno ya fue cerrado.',
+                }, status=409)
 
             # Cerrar turno
             calculo = turno.cerrar(
@@ -295,8 +444,25 @@ def api_cerrar_turno(request):
                 }
             })
 
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Http404:
+        # `get_object_or_404` contra el alcance: el recurso ajeno debe salir
+        # como 404, no ser tragado por el `except Exception` de abajo y
+        # convertirse en un 500 que parece una falla del servidor.
+        raise
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {'success': False, 'error': 'JSON invalido en el request.'}, status=400,
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        # Un importe mal formado es error del cliente, no del servidor: caia en
+        # el `except Exception` y salia como 500 exponiendo la excepcion.
+        return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Error inesperado en una operacion de caja')
+        return JsonResponse(
+            {'success': False, 'error': 'Error inesperado en la operacion de caja.'},
+            status=500,
+        )
 
 
 # ============================================================================
@@ -304,6 +470,7 @@ def api_cerrar_turno(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_json('caja.operar')
 def api_registrar_movimiento(request):
     """
     POST: Registra un movimiento de caja (retiro, gasto, ingreso).
@@ -311,7 +478,8 @@ def api_registrar_movimiento(request):
         "tipo": "RETIRO",
         "monto": 5000.00,
         "descripcion": "Retiro para deposito bancario",
-        "admin_id": 1  // Requerido para RETIRO (viene del soft-login)
+        "override_token": "..."  // Requerido para RETIRO/INGRESO si no es admin
+        "turno_id": 3            // Solo admin: operar sobre el turno de otro
     }
     """
     if request.method != 'POST':
@@ -323,7 +491,7 @@ def api_registrar_movimiento(request):
             tipo = data.get('tipo', '').upper()
             monto = Decimal(str(data.get('monto', 0)))
             descripcion = data.get('descripcion', '').strip()
-            admin_id = data.get('admin_id')
+            turno_id = data.get('turno_id')
 
             # Validaciones
             if tipo not in ('RETIRO', 'GASTO', 'INGRESO'):
@@ -335,17 +503,30 @@ def api_registrar_movimiento(request):
             if not descripcion:
                 return JsonResponse({'success': False, 'error': 'Descripcion requerida'}, status=400)
 
-            # Obtener turno activo
-            turno = TurnoCaja.objects.filter(
-                usuario=request.user,
-                estado='ABIERTO'
-            ).first()
-
-            # Si es admin, puede registrar en su turno o indicar turno_id
-            if not turno and es_admin(request.user):
-                turno_id = data.get('turno_id')
-                if turno_id:
-                    turno = get_object_or_404(TurnoCaja, id=turno_id, estado='ABIERTO')
+            # Turno destino.
+            #
+            # ANTES el turno propio ganaba SIEMPRE: `turno_id` solo se miraba
+            # si el usuario no tenia turno abierto. Un admin con su propia caja
+            # abierta que pedia registrar un gasto en el turno de una cajera
+            # veia "listo" y el movimiento aterrizaba en SU turno. Dos arqueos
+            # quedaban mal — uno con un gasto que no le corresponde y otro sin
+            # el que si — y nada en la respuesta delataba el desvio.
+            #
+            # Ahora un `turno_id` explicito manda, y solo lo puede usar quien
+            # administra caja en esta sucursal.
+            if turno_id:
+                if not es_admin(request.user, getattr(request, 'sucursal', None)):
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'No puedes registrar movimientos en el turno de otro.',
+                    }, status=403)
+                turno = get_object_or_404(
+                    turnos_en_alcance(request), id=turno_id, estado='ABIERTO',
+                )
+            else:
+                turno = TurnoCaja.objects.filter(
+                    usuario=request.user, estado='ABIERTO',
+                ).first()
 
             if not turno:
                 return JsonResponse({
@@ -353,28 +534,51 @@ def api_registrar_movimiento(request):
                     'error': 'No hay turno abierto'
                 }, status=400)
 
-            # RETIRO e INGRESO requieren autorizacion admin
+            # RETIRO e INGRESO requieren autorizacion admin.
+            #
+            # ANTES bastaba con enviar `admin_id`: el endpoint comprobaba que
+            # existiera un Usuario activo con rol ADMIN y lo persistia como
+            # `autorizado_por`. Nunca verificaba que ese ID viniera de
+            # `api_validar_admin`, asi que una cajera podia retirar efectivo
+            # atribuyendole la aprobacion a cualquier administrador cuyo ID
+            # conociera o adivinara — y el historial afirmaba una autorizacion
+            # que jamas ocurrio.
+            #
+            # Ahora se exige el token de un solo uso que emite el soft-login,
+            # ligado a operacion, operador, sucursal y monto, y se consume
+            # dentro de esta misma transaccion.
             autorizado_por = None
             if tipo in ('RETIRO', 'INGRESO'):
-                if not admin_id:
-                    # Si el usuario actual es admin, se auto-autoriza
-                    if es_admin(request.user):
-                        autorizado_por = request.user
-                    else:
-                        return JsonResponse({
-                            'success': False,
-                            'error': 'Se requiere autorizacion de un administrador'
-                        }, status=403)
+                if es_admin(request.user, getattr(request, "sucursal", None)):
+                    # Un admin operando su propia caja se auto-autoriza: su
+                    # sesion YA es la prueba de identidad.
+                    autorizado_por = request.user
                 else:
-                    from apps.usuarios.models import Usuario
                     try:
-                        admin = Usuario.objects.get(id=admin_id, rol__in=['ADMIN', 'SYSADMIN'], activo=True)
-                        autorizado_por = admin
-                    except Usuario.DoesNotExist:
+                        autorizacion = AutorizacionOverride.consumir(
+                            token=data.get('override_token'),
+                            operacion=AutorizacionOverride.OP_CAJA_RETIRO,
+                            solicitado_por=request.user,
+                            monto=monto,
+                            referencia=f'MovCaja turno {turno.id}',
+                        )
+                    except AutorizacionInvalida as exc:
+                        return JsonResponse(
+                            {'success': False, 'error': str(exc)}, status=403,
+                        )
+                    autorizado_por = autorizacion.autorizado_por
+                    # El permiso se revalida AL CONSUMIR, no solo al emitir: el
+                    # autorizador pudo perderlo entre una cosa y la otra.
+                    if not autorizado_por.tiene_permiso(
+                        'caja.administrar', sucursal=getattr(request, 'sucursal', None),
+                    ):
                         return JsonResponse({
                             'success': False,
-                            'error': 'Admin no encontrado o inactivo'
-                        }, status=400)
+                            'error': 'El autorizador ya no tiene permiso sobre caja.',
+                        }, status=403)
+                    descripcion = (
+                        f'{descripcion} [Autorizado: {autorizacion.motivo}]'
+                    ).strip()
 
             # Crear movimiento
             movimiento = MovimientoCaja.objects.create(
@@ -412,8 +616,25 @@ def api_registrar_movimiento(request):
                 }
             })
 
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Http404:
+        # `get_object_or_404` contra el alcance: el recurso ajeno debe salir
+        # como 404, no ser tragado por el `except Exception` de abajo y
+        # convertirse en un 500 que parece una falla del servidor.
+        raise
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {'success': False, 'error': 'JSON invalido en el request.'}, status=400,
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        # Un importe mal formado es error del cliente, no del servidor: caia en
+        # el `except Exception` y salia como 500 exponiendo la excepcion.
+        return JsonResponse({'success': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Error inesperado en una operacion de caja')
+        return JsonResponse(
+            {'success': False, 'error': 'Error inesperado en la operacion de caja.'},
+            status=500,
+        )
 
 
 # ============================================================================
@@ -421,6 +642,7 @@ def api_registrar_movimiento(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_json('caja.operar')
 def api_estado_turno(request):
     """
     GET: Retorna el estado actual del turno abierto del usuario.
@@ -474,15 +696,16 @@ def api_estado_turno(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_local('caja.operar', redirect_to='pos:punto_venta')
 def historial_turnos(request):
     """
     Pagina de historial de turnos (solo admin).
     """
-    if not es_admin(request.user):
+    if not es_admin(request.user, getattr(request, "sucursal", None)):
         from django.shortcuts import redirect
         return redirect('caja:index')
 
-    turnos = TurnoCaja.objects.filter(
+    turnos = turnos_en_alcance(request).filter(
         estado='CERRADO'
     ).select_related('caja', 'usuario', 'cerrado_por').order_by('-fecha_cierre')[:50]
 
@@ -498,14 +721,15 @@ def historial_turnos(request):
 # ============================================================================
 
 @login_required
+@requiere_permiso_json('caja.operar')
 def api_detalle_turno(request, turno_id):
     """
     GET: Detalle completo de un turno cerrado.
     """
-    turno = get_object_or_404(TurnoCaja, id=turno_id)
+    turno = get_object_or_404(turnos_en_alcance(request), id=turno_id)
 
     # Solo admin o el propio usuario puede ver el detalle
-    if not es_admin(request.user) and turno.usuario != request.user:
+    if not es_admin(request.user, getattr(request, "sucursal", None)) and turno.usuario != request.user:
         return JsonResponse({'error': 'Sin permisos'}, status=403)
 
     movimientos = turno.movimientos.select_related(
@@ -520,8 +744,16 @@ def api_detalle_turno(request, turno_id):
             'apertura': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
             'cierre': turno.fecha_cierre.strftime('%d/%m/%Y %H:%M') if turno.fecha_cierre else None,
             'fondo_apertura': str(turno.fondo_apertura),
-            'esperado': str(turno.monto_esperado) if turno.monto_esperado else None,
-            'contado': str(turno.monto_contado) if turno.monto_contado else None,
+            # `if turno.monto_esperado` trataba Decimal('0.00') como
+            # ausencia: un turno que cerro en cero — el caso que MAS conviene
+            # revisar — se mostraba como "sin dato", indistinguible de un turno
+            # abierto. La ausencia real es NULL.
+            'esperado': (
+                str(turno.monto_esperado) if turno.monto_esperado is not None else None
+            ),
+            'contado': (
+                str(turno.monto_contado) if turno.monto_contado is not None else None
+            ),
             'diferencia': str(turno.diferencia) if turno.diferencia is not None else None,
             'estado': turno.estado,
             'cerrado_por': (turno.cerrado_por.get_short_name() or turno.cerrado_por.username) if turno.cerrado_por else None,

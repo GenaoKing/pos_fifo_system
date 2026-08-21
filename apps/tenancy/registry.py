@@ -27,16 +27,31 @@ def tenant_db_config(tenant):
     return config
 
 
-def configure_tenant_database(tenant_or_key):
+def configure_tenant_database(tenant_or_key, *, permitir_inactivo=False):
+    """
+    Registra el alias de BD de un tenant y devuelve (tenant, alias).
+
+    `permitir_inactivo` es SOLO para aprovisionamiento: durante el bootstrap el
+    tenant existe inactivo a proposito (no se publica hasta que su base este
+    lista), y aun asi hay que poder conectarse para crearla y migrarla. Ningun
+    camino de request debe usarlo.
+    """
     from .models import Tenant
 
     if isinstance(tenant_or_key, Tenant):
         tenant = tenant_or_key
+        # El chequeo de `activo` vivia solo en la rama que busca por key, asi
+        # que pasar una instancia (lo que hacen varios comandos) saltaba el
+        # control: un tenant dado de baja se configuraba igual.
+        if not tenant.activo and not permitir_inactivo:
+            raise Tenant.DoesNotExist(
+                f'El tenant "{tenant.tenant_key}" esta inactivo.'
+            )
     else:
-        tenant = Tenant.objects.using('default').get(
-            tenant_key=str(tenant_or_key),
-            activo=True,
-        )
+        filtros = {'tenant_key': str(tenant_or_key)}
+        if not permitir_inactivo:
+            filtros['activo'] = True
+        tenant = Tenant.objects.using('default').get(**filtros)
 
     alias = tenant_alias(tenant.tenant_key)
     config = tenant_db_config(tenant)
@@ -44,7 +59,29 @@ def configure_tenant_database(tenant_or_key):
         if settings.DATABASES.get(alias) != config:
             settings.DATABASES[alias] = config
             connections.databases[alias] = config
+            # Reemplazar el diccionario NO reemplaza la conexion: Django cachea
+            # un `DatabaseWrapper` por alias en `connections`, y ese wrapper
+            # conserva el NAME con el que se creo. Sin cerrarlo, un worker que
+            # ya habia tocado el alias seguia escribiendo en la base anterior
+            # mientras los procesos nuevos usaban la nueva: split-brain entre
+            # dos bases del mismo tenant.
+            _descartar_conexion(alias)
     return tenant, alias
+
+
+def _descartar_conexion(alias):
+    """Cierra y descarta el wrapper cacheado de un alias, si existe."""
+    existente = getattr(connections, '_connections', None)
+    if existente is None or not hasattr(existente, alias):
+        return
+    try:
+        connections[alias].close()
+    except Exception:  # pragma: no cover - cerrar es best-effort
+        pass
+    try:
+        delattr(existente, alias)
+    except AttributeError:  # pragma: no cover
+        pass
 
 
 def configure_tenant_databases(silent=False):

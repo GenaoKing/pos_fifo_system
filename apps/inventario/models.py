@@ -1,8 +1,54 @@
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from datetime import datetime
 from django.conf import settings
+
+# Reintentos de asignacion de correlativo ante colision con otra caja/proceso.
+MAX_INTENTOS_CORRELATIVO = 5
+
+
+def _siguiente_correlativo(modelo, campo, prefijo, ancho):
+    """
+    Siguiente correlativo de un prefijo, a partir del MAXIMO sufijo existente.
+
+    NO cuenta filas. `count() + 1` reutiliza un numero ya emitido en cuanto la
+    secuencia tiene un hueco — y la edicion de compras borra lotes, asi que los
+    huecos son normales, no excepcionales. Ahi la colision es permanente: el
+    INSERT falla siempre, sin concurrencia de por medio.
+    """
+    numeros = modelo.objects.filter(
+        **{f'{campo}__startswith': prefijo}
+    ).values_list(campo, flat=True)
+
+    ultimo = 0
+    for numero in numeros:
+        sufijo = numero.rsplit('-', 1)[-1]
+        if sufijo.isdigit():
+            ultimo = max(ultimo, int(sufijo))
+
+    return f'{prefijo}-{str(ultimo + 1).zfill(ancho)}'
+
+
+def _guardar_con_correlativo(instancia, campo, prefijo, modelo, ancho, guardar):
+    """
+    Asigna el correlativo y guarda, reintentando ante colision de unicidad.
+
+    Dos procesos pueden proponer el mismo numero a la vez. En vez de reventar
+    con IntegrityError (500 con la compra ya capturada), se reintenta dentro de
+    un savepoint: el INSERT fallido no aborta la transaccion de negocio y la
+    vuelta siguiente lee el numero que el otro acaba de tomar.
+    """
+    for intento in range(MAX_INTENTOS_CORRELATIVO):
+        setattr(instancia, campo, _siguiente_correlativo(modelo, campo, prefijo, ancho))
+        try:
+            with transaction.atomic():
+                return guardar()
+        except IntegrityError:
+            if intento == MAX_INTENTOS_CORRELATIVO - 1:
+                raise
+            setattr(instancia, campo, '')
+
 
 
 class Compra(models.Model):
@@ -78,14 +124,14 @@ class Compra(models.Model):
         return f"Compra {self.numero_compra} - {self.proveedor}"
     
     def save(self, *args, **kwargs):
-        if not self.numero_compra:
-            # Auto-generar número de compra: COMP-20260201-00001
-            fecha = datetime.now().strftime('%Y%m%d')
-            ultimo = Compra.objects.filter(
-                numero_compra__startswith=f'COMP-{fecha}'
-            ).count()
-            self.numero_compra = f'COMP-{fecha}-{str(ultimo + 1).zfill(5)}'
-        super().save(*args, **kwargs)
+        if self.numero_compra:
+            return super().save(*args, **kwargs)
+
+        prefijo = f'COMP-{datetime.now().strftime("%Y%m%d")}'
+        return _guardar_con_correlativo(
+            self, 'numero_compra', prefijo, Compra, ancho=5,
+            guardar=lambda: super(Compra, self).save(*args, **kwargs),
+        )
 
 
 class DetalleCompra(models.Model):
@@ -136,35 +182,43 @@ class DetalleCompra(models.Model):
         # Calcular subtotal
         self.subtotal = self.cantidad * self.costo_unitario
         super().save(*args, **kwargs)
-        
-        # Auto-crear lote después de guardar
-        if not hasattr(self, '_lote_creado'):
+
+        # Crear el lote SOLO si esta linea todavia no tiene uno.
+        #
+        # La guarda era `not hasattr(self, '_lote_creado')`, un atributo que
+        # solo existia en la instancia en memoria que acababa de crear el lote.
+        # Al recargar el detalle desde la BD el atributo se perdia, asi que un
+        # `save()` sin cambios intentaba crear un SEGUNDO lote y moria con
+        # IntegrityError (`Lote.detalle_compra` es OneToOne). La vista de
+        # edicion lo sorteaba asignando el atributo privado a mano.
+        #
+        # Ahora la guarda es el estado persistente: existe o no existe el lote.
+        if not Lote.objects.filter(detalle_compra=self).exists():
             self._crear_lote()
-    
+
     def _crear_lote(self):
         """
         Crea automáticamente un lote para este detalle
         ⭐ 1 DetalleCompra = 1 Lote + 1 MovimientoLote
         """
-        # Generar número de lote: LOTE-20260201-00001
-        fecha = self.compra.fecha_compra.strftime('%Y%m%d')
-        ultimo = Lote.objects.filter(
-            numero_lote__startswith=f'LOTE-{fecha}'
-        ).count()
-        numero_lote = f'LOTE-{fecha}-{str(ultimo + 1).zfill(5)}'
-        
-        # Crear el lote
-        lote = Lote.objects.create(
+        prefijo = f'LOTE-{self.compra.fecha_compra.strftime("%Y%m%d")}'
+
+        lote = Lote(
             producto=self.producto,
             detalle_compra=self,
-            numero_lote=numero_lote,
             fecha_compra=self.compra.fecha_compra,
             cantidad_inicial=self.cantidad,
             cantidad_actual=self.cantidad,
             costo_unitario=self.costo_unitario,
-            sucursal=self.compra.sucursal
+            sucursal=self.compra.sucursal,
         )
-        
+        # El correlativo de lote tenia el mismo defecto que el de compra, y aca
+        # el hueco es rutina: la edicion de compras borra lotes.
+        _guardar_con_correlativo(
+            lote, 'numero_lote', prefijo, Lote, ancho=5,
+            guardar=lambda: models.Model.save(lote),
+        )
+
         # Crear movimiento inicial
         MovimientoLote.objects.create(
             lote=lote,
@@ -177,8 +231,7 @@ class DetalleCompra(models.Model):
             usuario=self.compra.usuario,
             notas=f'Compra inicial - {self.compra.numero_compra}'
         )
-        
-        self._lote_creado = True
+        return lote
 
 
 
@@ -199,10 +252,13 @@ class Lote(models.Model):
 
     detalle_compra = models.OneToOneField(
         'DetalleCompra',
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='lote',
         verbose_name='Detalle de Compra',
-        help_text='Línea de compra que generó este lote',
+        help_text='Línea de compra que generó este lote. Null si la línea se '
+                  'corrigió y el lote quedó anulado (su historial se conserva).',
     )
 
     numero_lote = models.CharField(
@@ -413,25 +469,19 @@ class AjusteInventario(models.Model):
     def __str__(self):
         return f"{self.get_tipo_display()} - {self.lote.numero_lote} ({self.cantidad})"
     
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        
-        # Guardar cantidad anterior
-        cantidad_anterior = self.lote.cantidad_actual
-        
-        # Actualizar el lote
-        self.lote.cantidad_actual += self.cantidad
-        self.lote.save()
-        
-        # Crear movimiento
-        MovimientoLote.objects.create(
-            lote=self.lote,
-            tipo='AJUSTE',
-            cantidad=self.cantidad,
-            cantidad_anterior=cantidad_anterior,
-            cantidad_nueva=self.lote.cantidad_actual,
-            referencia_tipo='AjusteInventario',
-            referencia_id=self.id,
-            usuario=self.usuario,
-            notas=self.motivo
-        )
+    # NOTA: este modelo es un REGISTRO, no un aplicador.
+    #
+    # `save()` solia mutar el lote y crear un MovimientoLote. Eso tenia dos
+    # consecuencias graves:
+    #
+    #   1. El endpoint de ajuste creaba ADEMAS su propio movimiento con el tipo
+    #      real (MERMA/DANO), asi que un solo ajuste dejaba DOS movimientos en
+    #      el ledger, con tipos distintos.
+    #   2. `save()` no distinguia alta de actualizacion: corregir el motivo de
+    #      un ajuste ya aplicado volvia a descontar la cantidad completa del
+    #      stock y agregaba otro movimiento.
+    #
+    # La aplicacion del ajuste vive ahora en
+    # `apps.inventario.services.registrar_ajuste_service`, que bloquea el lote,
+    # escribe UN movimiento y deja todo en una transaccion. Guardar un
+    # AjusteInventario ya no mueve inventario.

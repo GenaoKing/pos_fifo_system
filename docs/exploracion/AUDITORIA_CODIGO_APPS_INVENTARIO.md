@@ -11,6 +11,12 @@ Exclusiones por prioridad de negocio: `apps/facturacion_electronica` y
 Modo: lectura, ejecucion de checks/pruebas sobre base de test y documentacion de
 hallazgos; no se aplicaron cambios funcionales.
 
+> **Estado (2026-08-20, misma fecha): MITIGADO.** Los 14 hallazgos se
+> verificaron contra el codigo y los 14 resultaron reales. Todos estan
+> corregidos, con pruebas de regresion. Ver
+> [Estado de mitigacion](#estado-de-mitigacion) al final del documento.
+> **Incluye 2 migraciones** (`inventario.0006` y `sync.0009`).
+
 ## Por que esta app sigue en la auditoria
 
 Despues de `apps/api`, `apps/ventas` y `apps/sync`, inventario es la siguiente
@@ -607,14 +613,126 @@ No cubren:
 
 ## Conclusion
 
-`apps/inventario` modela correctamente las entidades centrales, pero hoy no
-garantiza que cada operacion autorizada produzca exactamente un cambio de stock,
-exactamente un movimiento y exactamente una representacion cloud. El mismo lote
-puede mutarse desde compras, ajustes, ventas, anulaciones, modelos y Admin con
-reglas de locking, auditoria y sync diferentes.
+`apps/inventario` modelaba correctamente las entidades centrales, pero no
+garantizaba que cada operacion autorizada produjera exactamente un cambio de
+stock, exactamente un movimiento y exactamente una representacion cloud. El
+mismo lote se mutaba desde compras, ajustes, ventas, anulaciones, modelos y
+Admin con reglas de locking, auditoria y sync distintas.
 
-La prioridad no deberia ser ampliar funciones de inventario, sino establecer una
-frontera transaccional unica para sus mutaciones. Una vez centralizados permisos,
-validacion, locks, movimiento y outbox, las correcciones activas de ventas/FIFO
-podran sostenerse de extremo a extremo sin que compras o ajustes reintroduzcan
-stock, dupliquen ledger o diverjan del cloud.
+Esa frontera ya esta unificada para ajustes y compras (ver abajo).
+
+---
+
+# Estado de mitigacion
+
+Fecha: 2026-08-20. Verificacion previa: se releyo cada hallazgo contra el codigo
+citado. **Los 14 son reales** — ninguno resulto falso positivo ni obsoleto.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Donde quedo la correccion |
+|---|---|---|---|
+| INVENTARIO-001 | Si | Corregido | `requiere_permiso_local` / `requiere_permiso_json` en las 8 vistas: `compras.ver`, `compras.registrar`, `inventario.ver`, `inventario.ajustar`. Se eliminaron los chequeos comentados. |
+| INVENTARIO-002 | Si | Corregido | `compra_crear` reusa `_validar_linea` (la misma que editar) y exige producto ACTIVO. Los errores de validacion son 400, no 500. |
+| INVENTARIO-003 | Si | Corregido | `apps/inventario/services/ajustes_service.py`: UN movimiento, con el tipo real del ajuste. La creacion manual del endpoint desaparecio. |
+| INVENTARIO-004 | Si | Corregido | `AjusteInventario.save()` ya no mueve inventario (es un registro, no un aplicador) y el Admin de ajustes es inmutable. |
+| INVENTARIO-005 | Si | Corregido | El service abre el atomic, toma el lote con `select_for_update()` y revalida la suficiencia BAJO el lock. |
+| INVENTARIO-006 | Si | Corregido | `compra_editar` bloquea compra y lotes (en orden de id, compatible con FIFO) antes del snapshot. La correccion de solo-costo usa `update_fields`. |
+| INVENTARIO-007 | Si | Corregido | `_handler_compra` dejo de escribir ledger: la autoridad son los eventos de movimiento, que traen `movimiento_id_local`. Migracion `sync.0009` colapsa los duplicados historicos. |
+| INVENTARIO-008 | Si | Corregido | `_siguiente_correlativo` usa el MAXIMO sufijo, no `count()`, y `_guardar_con_correlativo` reintenta en savepoint ante colision. Aplica a `Compra` y a `Lote`. |
+| INVENTARIO-009 | Si | Corregido | La guarda de creacion del lote es el estado persistente (`Lote.objects.filter(detalle_compra=self).exists()`), no el atributo efimero `_lote_creado`. |
+| INVENTARIO-010 | Si | Corregido | `_anular_lote_por_correccion`: movimiento compensatorio + lote en cero e inactivo, en vez de `lote.delete()` con CASCADE sobre el ledger. `Lote.detalle_compra` pasa a `SET_NULL` (migracion `inventario.0006`). |
+| INVENTARIO-011 | Si | Corregido | `fecha_compra` declarada readonly (es `auto_now_add`). Ademas `CompraAdmin` queda sin add/change/delete: crear una compra desde el Admin generaba stock sin outbox. |
+| INVENTARIO-012 | Si | Corregido | El porcentaje consumido se calcula en el `ModelAdmin`, con el caso `cantidad_inicial = 0` contemplado. |
+| INVENTARIO-013 | Si | Corregido | `logger.exception` en vez del `print` con emoji que reventaba con `UnicodeEncodeError` en la consola cp1252. Errores tipados por el service. |
+| INVENTARIO-014 | Si | Corregido | `get_object_or_404` fuera del `try` amplio; producto, lote y compra inexistentes devuelven 404 con contrato JSON. Ya no se expone `str(e)`. |
+
+## Hallazgo adicional encontrado al corregir
+
+- **`CompraAdmin` permitia crear compras sin outbox.** No estaba como hallazgo
+  propio, pero es de la misma familia que INVENTARIO-011: alta/edicion desde el
+  Admin generaba `Lote` y `MovimientoLote` (via `DetalleCompra.save()`) y
+  NINGUN evento de sync. El stock existia local y el cloud no se enteraba. Se
+  cerro junto con el FieldError.
+
+## Cambios de conducta observables
+
+1. **RBAC en inventario.** Sin `compras.ver` no se lista ni se ve una compra;
+   sin `compras.registrar` no se crea ni se edita; sin `inventario.ver` no se
+   consultan lotes; sin `inventario.ajustar` no se ajusta. El rol Cajero por
+   defecto NO trae estos permisos: verificar que quien registra compras en cada
+   cliente tenga su rol con `compras.registrar` antes de desplegar.
+2. **Un ajuste deja un solo movimiento.** Los reportes que sumaban movimientos
+   contaban DOS salidas por cada merma; sus cifras historicas van a diferir de
+   las nuevas. Los duplicados historicos NO se limpian automaticamente (ver
+   pendientes).
+3. **Eliminar una linea de compra ya no borra el lote.** Queda inactivo, en
+   cero, desvinculado de la compra y con su historial completo. Consultas que
+   asuman `lote.detalle_compra` no nulo deben tolerar el null.
+4. **Compras con cantidad o costo no positivos se rechazan** con 400. Si algun
+   flujo dependia de cargar una nota de credito como cantidad negativa, ahora
+   falla: eso se modela como ajuste, no como compra.
+5. **Django Admin de compras y ajustes es de solo lectura.**
+
+## Despliegue: 2 migraciones
+
+1. **`inventario.0006_alter_lote_detalle_compra`** — hace nullable la FK. Sin
+   datos que transformar.
+2. **`sync.0009_dedup_ledger_compras`** — elimina del ledger cloud las filas de
+   compra con `movimiento_id_local = NULL` **solo cuando existe su gemela con
+   ID**. Conservadora a proposito: una linea que solo tiene la fila sin ID se
+   CONSERVA y se reporta por WARNING, porque borrarla perderia el unico
+   registro de esa entrada. Revisar ese log al promover.
+
+## Pendiente (no bloqueante)
+
+- **Conciliacion de los movimientos duplicados historicos.** El doble
+  movimiento por ajuste dejo pares en el ledger LOCAL de cada sucursal. No se
+  limpian en esta pasada: identificarlos exige decidir cual de los dos es el
+  bueno (el modelo escribia `AJUSTE`, la vista `MERMA`/`DANO`), y el criterio
+  afecta reportes historicos. Se detectan por `referencia_tipo='AjusteInventario'`
+  + mismo `referencia_id`, lote y cantidad.
+- **`CheckConstraint` de respaldo.** Las cantidades y costos se validan en la
+  vista. Respaldarlos en BD (cantidad > 0, costo > 0, `cantidad_inicial` > 0)
+  sigue siendo deseable para escrituras que no pasen por ahi.
+- **Scope por sucursal en los gates.** `tiene_permiso` se llama sin
+  `request.sucursal`, asi que un permiso acotado a otra sucursal igual habilita.
+  Con una BD local por sucursal el riesgo es teorico; hay que cerrarlo antes de
+  una BD POS compartida, junto con el resto del scope que la auditoria ya
+  documenta en "Supuestos".
+- **Compras no participan del snapshot por sucursal** en consultas de stock.
+  Sigue valiendo el supuesto de una BD por sucursal descrito en la auditoria.
+
+## Pruebas
+
+Suite completa, serial: **529 tests, OK.**
+
+Modulos de regresion nuevos:
+
+| Archivo | Cubre |
+|---|---|
+| `apps/inventario/tests/test_auditoria_inventario.py` (28 tests) | INVENTARIO-001, 002, 003, 004, 008, 009, 011, 012, 013, 014 |
+| `apps/inventario/tests/test_concurrencia_inventario.py` (4 tests) | INVENTARIO-005 y 006 con hilos reales (`TransactionTestCase`) |
+| `apps/api/tests/test_sync_auditoria.py` (+2 tests) | INVENTARIO-007 |
+
+Ademas se actualizo `test_compra_editar.test_eliminar_linea_intacta_borra_lote`,
+que afirmaba la conducta destructiva. Ahora se llama
+`test_eliminar_linea_intacta_anula_el_lote_sin_borrar_su_historial` y verifica
+que la secuencia de movimientos cuadre en cero.
+
+**Verificacion por mutacion.** Quitando el `select_for_update()` del service de
+ajustes, los tres tests de `AjustesConcurrentesTests` fallan:
+
+```
+test_dos_ajustes_simultaneos_no_sobregiran_el_lote
+    AssertionError: 2 != 1  -> los dos retiros de 8 pasan sobre un lote de 10
+test_el_lock_es_lo_que_sostiene_la_invariante
+    AssertionError: ledger=4 vs lote=7
+```
+
+Ese `ledger=4 vs lote=7` es exactamente el lost update descrito en
+INVENTARIO-005: el historial dice que quedan 4 y el lote afirma 7.
+
+La invariante `suma(movimientos) == lote.cantidad_actual` se verifica en los
+tests de ajustes, de concurrencia y de eliminacion de linea. Es la conciliacion
+por lote que la auditoria recomendaba.

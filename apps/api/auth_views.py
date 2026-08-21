@@ -1,15 +1,33 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers, status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.serializers import (
+    TokenObtainPairSerializer,
+    TokenRefreshSerializer,
+)
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.api.throttling import LoginRafagaThrottle, LoginSostenidoThrottle
+from apps.tenancy.authentication import _autorizar_tenant
 from apps.tenancy.context import tenant_context, tenancy_enabled
-from apps.tenancy.models import Identity, Membership, Tenant
+from apps.tenancy.models import (
+    Identity,
+    Membership,
+    SesionImpersonacion,
+    Tenant,
+)
+
+logger = logging.getLogger('tenancy.auth')
 
 
 class LegacyPortalTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -83,6 +101,9 @@ class TenantPortalLoginSerializer(serializers.Serializer):
 class PortalTokenObtainPairView(APIView):
     permission_classes = []
     authentication_classes = []
+    # Rate limit del login (TEN-009). Sin esto el endpoint aceptaba intentos
+    # ilimitados: quince passwords incorrectos daban quince 400 y ningun 429.
+    throttle_classes = [LoginRafagaThrottle, LoginSostenidoThrottle]
 
     def post(self, request, *args, **kwargs):
         serializer_class = (
@@ -104,8 +125,16 @@ def impersonar_tenant(request):
 
     tenant_key = (request.data.get('tenant_key') or request.data.get('tenant') or '').strip()
     username = (request.data.get('username') or '').strip()
+    motivo = (request.data.get('motivo') or '').strip()
     if not tenant_key:
         return Response({'detail': 'tenant_key es requerido.'}, status=400)
+    if not motivo:
+        # Exigir motivo hace la traza util y obliga al operador a declarar por
+        # que entra a la base de un cliente.
+        return Response(
+            {'detail': 'motivo es requerido para impersonar (ticket o razon).'},
+            status=400,
+        )
 
     tenant = Tenant.objects.using('default').filter(tenant_key=tenant_key, activo=True).first()
     if tenant is None:
@@ -120,9 +149,142 @@ def impersonar_tenant(request):
             user = qs.filter(rol__in=('ADMIN', 'SYSADMIN')).order_by('id').first()
         if user is None:
             return Response({'detail': 'No hay usuario operativo activo para impersonar.'}, status=400)
-        payload = _tenant_token_payload(request.user.identity, tenant, user)
+        # `impersonado=True` marca el token para que la autenticacion NO exija
+        # una Membership (el operador global no la tiene): en su lugar revalida
+        # que el Identity siga siendo global. Sin esta distincion, exigir
+        # membership romperia el soporte, y no exigirla nunca dejaba pasar
+        # cualquier token viejo.
+        payload = _tenant_token_payload(
+            request.user.identity, tenant, user, impersonado=True,
+        )
 
+    # Rastro DURABLE en el control plane, no solo un log.
+    sesion = SesionImpersonacion.objects.using('default').create(
+        identity=request.user.identity,
+        tenant=tenant,
+        username_objetivo=user.username,
+        motivo=motivo[:300],
+        ip_address=_ip_cliente(request),
+        expira=timezone.now() + api_settings.REFRESH_TOKEN_LIFETIME,
+    )
+
+    logger.warning(
+        'IMPERSONACION #%s: identity=%s (%s) actuando como %s en tenant %s. Motivo: %s',
+        sesion.pk, request.user.identity.pk, request.user.identity.email,
+        user.username, tenant.tenant_key, motivo,
+    )
+    payload['impersonacion_id'] = sesion.pk
     return Response(payload)
+
+
+def _ip_cliente(request):
+    reenviada = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if reenviada:
+        return reenviada.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR')
+
+
+class TenantTokenRefreshSerializer(TokenRefreshSerializer):
+    """
+    Refresh que revalida el estado ACTUAL, no el del momento del login.
+
+    `TokenRefreshView` generico solo comprobaba la firma y el vencimiento: tras
+    eliminar la membership, el mismo refresh seguia emitiendo access tokens
+    nuevos. Revocar el vinculo con el tenant no detenia la sesion.
+
+    Aplica exactamente la misma regla que la autenticacion
+    (`_autorizar_tenant`), porque de nada sirve cortar el access si el refresh
+    puede fabricar otro.
+    """
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        refresh = RefreshToken(attrs['refresh'])
+        identity_id = refresh.get('identity_id')
+        if not identity_id:
+            # Token legacy (sin tenancy): se comporta como antes.
+            return data
+
+        identity = Identity.objects.using('default').filter(
+            pk=identity_id, activo=True,
+        ).first()
+        if identity is None:
+            raise InvalidToken('La identidad ya no esta activa.')
+
+        tenant_key = refresh.get('tenant_key') or refresh.get('tenant_id')
+        if not tenant_key:
+            if identity.is_global and refresh.get('is_global'):
+                return data
+            raise InvalidToken('Token sin tenant.')
+
+        tenant = Tenant.objects.using('default').filter(
+            tenant_key=tenant_key, activo=True,
+        ).first()
+        if tenant is None:
+            raise InvalidToken('El tenant ya no esta activo.')
+
+        try:
+            _autorizar_tenant(
+                identity=identity,
+                tenant=tenant,
+                username=refresh.get('username'),
+                impersonado=bool(refresh.get('impersonado')),
+            )
+        except AuthenticationFailed as exc:
+            raise InvalidToken(str(exc.detail))
+
+        return data
+
+
+class TenantTokenRefreshView(TokenRefreshView):
+    serializer_class = TenantTokenRefreshSerializer
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    """
+    Logout server-side: invalida el refresh recibido.
+
+    Antes no existia. "Cerrar sesion" solo borraba la copia del navegador; una
+    copia robada seguia viva hasta siete dias y podia canjearse cuantas veces
+    quisiera.
+
+    Idempotente a proposito: un refresh ya invalidado o mal formado devuelve
+    204 igual. El cliente no puede hacer nada distinto con un error, y
+    responder 400 solo filtra si el token era valido.
+    """
+    raw = (request.data.get('refresh') or '').strip()
+    if not raw:
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    try:
+        RefreshToken(raw).blacklist()
+    except AttributeError:
+        # `token_blacklist` no instalada: mejor saberlo que fingir un logout.
+        logger.error(
+            'Logout solicitado pero token_blacklist no esta instalada; '
+            'el refresh sigue siendo valido.'
+        )
+        return Response(
+            {'detail': 'Logout no disponible: blacklist no configurada.'},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    except TokenError:
+        # Ya vencido, ya en blacklist o invalido: el objetivo se cumple igual.
+        pass
+
+    # Si la sesion era impersonada, se cierra su rastro: sin esto la traza
+    # muestra un inicio sin fin y no se sabe cuanto duro el acceso.
+    if getattr(request.user, 'es_impersonado', False):
+        SesionImpersonacion.objects.using('default').filter(
+            identity_id=getattr(request.user, 'identity_id', None),
+            username_objetivo=request.user.username,
+            cierre__isnull=True,
+        ).update(cierre=timezone.now())
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['GET'])
@@ -131,11 +293,11 @@ def perfil_actual(request):
     return Response(_user_payload(request.user))
 
 
-def _tenant_token_payload(identity, tenant, user):
+def _tenant_token_payload(identity, tenant, user, *, impersonado=False):
     user.tenant_key = tenant.tenant_key
     user.identity_id = identity.pk
     refresh = RefreshToken.for_user(user)
-    _add_tenant_claims(refresh, identity, tenant, user)
+    _add_tenant_claims(refresh, identity, tenant, user, impersonado=impersonado)
     return {
         'refresh': str(refresh),
         'access': str(refresh.access_token),
@@ -169,8 +331,9 @@ def _global_token_payload(identity):
     }
 
 
-def _add_tenant_claims(token, identity, tenant, user):
+def _add_tenant_claims(token, identity, tenant, user, *, impersonado=False):
     token['identity_id'] = identity.pk
+    token['impersonado'] = impersonado
     token['tenant_key'] = tenant.tenant_key
     token['tenant_id'] = tenant.tenant_key
     token['username'] = user.username

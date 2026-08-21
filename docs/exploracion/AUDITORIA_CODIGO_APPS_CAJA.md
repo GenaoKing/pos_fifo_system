@@ -10,6 +10,13 @@ Exclusiones por prioridad de negocio: `apps/facturacion_electronica` y
 Modo: lectura, ejecucion de checks/pruebas sobre base de test y documentacion de
 hallazgos; no se aplicaron cambios funcionales.
 
+> **Estado (2026-08-21): MITIGADO.** Los 13 hallazgos se verificaron contra el
+> codigo y los 13 resultaron reales. Todos estan corregidos, con pruebas de
+> regresion. Ver [Estado de mitigacion](#estado-de-mitigacion) al final.
+> **Incluye 3 migraciones** y un cambio de contrato del modal de caja
+> (`admin_id` -> `override_token`). Queda **una decision de negocio abierta**:
+> si cobrar en efectivo sin turno abierto debe rechazarse.
+
 ## Por que esta app sigue en la auditoria
 
 Despues de `apps/api`, `apps/ventas`, `apps/sync` e `apps/inventario`, caja es la
@@ -607,3 +614,108 @@ correcto en un caso secuencial. El criterio minimo deberia demostrar que:
 - dos sucursales/negocios no pueden ver ni operar cajas entre si;
 - rename, reintentos y eventos tardios no fragmentan la identidad distribuida.
 
+---
+
+# Estado de mitigacion
+
+Fecha: 2026-08-21. Verificacion previa: se releyo cada hallazgo contra el codigo
+citado. **Los 13 son reales** - ninguno resulto falso positivo ni obsoleto.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Donde quedo la correccion |
+|---|---|---|---|
+| CAJA-001 | Si | Corregido | `api_registrar_movimiento` consume un `AutorizacionOverride` de un solo uso (operacion `caja.retiro`), ligado a operador, sucursal y monto. `api_validar_admin` exige motivo y emite el token. El permiso del autorizador se revalida AL CONSUMIR, no solo al emitir. |
+| CAJA-002 | Si | Corregido (parcial por politica) | `Pago` y `PagoCxC` llevan FK `turno_caja`; `procesar_venta_service` y el abono de CxC lo resuelven con `turno_abierto_de()`. `calcular_esperado()` usa el vinculo exacto y solo cae a la heuristica usuario+fecha para filas historicas. **La politica de rechazo sigue abierta** - ver abajo. |
+| CAJA-003 | Si | Corregido | `caja.operar` server-side en las 6 vistas (`requiere_permiso_json` / `requiere_permiso_local`), y `caja.operar` incorporado a `PERMISOS_CAJERO_DEFAULT`. |
+| CAJA-004 | Si | Corregido | `cajas_en_alcance(request)` / `turnos_en_alcance(request)` acotan por sucursal. Los resuelven index, apertura, movimiento, historial y detalle. Un recurso ajeno da 404. `es_admin()` recibe la sucursal: sin ella, un rol de A habilitaba el gate en B. |
+| CAJA-005 | Si | Corregido | `TurnoCaja.cerrar()` recarga bajo `select_for_update()` y verifica el estado dentro del lock; un segundo cierre concurrente pierde y no reescribe el corte. |
+| CAJA-006 | Si | Corregido | Fondo de apertura y monto contado rechazan negativos con 400. |
+| CAJA-007 | Si | Corregido | `TurnoCaja` y `MovimientoCaja` son de solo lectura en Admin. `Caja` sigue editable: dar de alta o desactivar una caja es configuracion, no un hecho de efectivo. |
+| CAJA-008 | Si | Corregido | `Caja.origen_id` (UUID, unico, no editable). El productor lo emite y el receptor cloud resuelve por el; el nombre pasa a ser un atributo que se actualiza. |
+| CAJA-009 | Si | Corregido | `_buscar_turno_abierto` filtra `estado='ABIERTO'`: un movimiento atrasado ya no se cuelga de un turno cerrado ni corrompe su corte. |
+| CAJA-010 | Si | Corregido | Un `turno_id` explicito MANDA (antes solo se miraba si el usuario no tenia turno propio) y solo lo usa quien administra caja en esa sucursal. Fuera de alcance: 404. |
+| CAJA-011 | Si | Corregido | La plantilla decidia con `request.user.rol === 'ADMIN'`; ahora recibe `puede_administrar_caja`, que es la MISMA llamada RBAC que hace el servidor. |
+| CAJA-012 | Si | Corregido | JSON invalido y montos mal formados dan 400 con mensaje estable; los 500 usan `logger.exception` y ya no exponen `str(exc)`. `Http404` se re-lanza antes del `except Exception` para que un recurso ajeno salga como 404 y no como 500. |
+| CAJA-013 | Si | Corregido | `if turno.monto_esperado` trataba `Decimal('0.00')` como ausencia. Ahora se compara con `is not None`: cero es un valor, NULL es la ausencia. |
+
+## CAJA-002: lo que se hizo y lo que falta decidir
+
+El hallazgo tenia dos mitades y solo una es tecnica.
+
+**La mitad tecnica esta cerrada.** Antes ningun `Pago` sabia a que turno
+pertenecia: `calcular_esperado()` sumaba el efectivo por coincidencia de usuario
+y fecha. Dos turnos del mismo cajero en un dia se pisaban - el segundo arqueo
+reclamaba el efectivo del primero. Ahora cada pago en efectivo nace con su
+`turno_caja`, y el desglose usa ese vinculo.
+
+**La mitad de politica sigue abierta.** La auditoria pide ademas *"rechazar
+efectivo cuando no exista un turno operable"*. **No se implemento**, porque
+frenaria las ventas de una tienda que no abrio caja - y eso es una decision del
+negocio, no del codigo. Hoy `turno_abierto_de()` devuelve `None` sin fallar: la
+venta procede y el pago queda sin turno, distinguible de los que si lo tienen.
+
+Si el negocio quiere el rechazo, es un `if` en `_resolver_turno_caja`
+(`apps/ventas/services/ventas_service.py`). La pregunta a responder antes es:
+*una tienda sin caja abierta, ¿debe poder cobrar en efectivo?*
+
+## Cambios de conducta observables
+
+1. **El modal de caja pide motivo.** `/caja/api/validar-admin/` ya no devuelve
+   `admin_id` sino un `token` de un solo uso; el retiro lo manda como
+   `override_token`. Un `admin_id` crudo ahora se rechaza con 403.
+2. **Un cajero sin `caja.operar` no entra al modulo.** El permiso ya viene en
+   `PERMISOS_CAJERO_DEFAULT`, asi que una instalacion existente no se bloquea.
+3. **Abrir, ver o mover la caja de otra sucursal devuelve 404.**
+4. **Un admin que indica `turno_id` registra ahi**, no en su propio turno.
+5. **El arqueo de dos turnos del mismo cajero ya no se solapa.**
+6. **Un turno cerrado en cero se muestra como `0.00`**, no como "sin dato".
+7. **El admin de turnos y movimientos es de solo lectura.**
+
+## Despliegue: 3 migraciones
+
+1. **`caja.0003_caja_origen_id`** - escrita a mano en TRES pasos (columna
+   nullable -> `RunPython` que asigna un UUID por fila -> `AlterField` con
+   `unique`). Un campo unico con `default=uuid.uuid4` en un solo paso evaluaria
+   el default UNA vez y dejaria todas las cajas con el mismo valor.
+2. **`ventas.0007_pago_turno_caja`** - FK nullable.
+3. **`cuentas_por_cobrar.0007_pagocxc_turno_caja`** - FK nullable.
+
+Las FK son nullable a proposito: los pagos historicos no tienen turno conocido y
+`calcular_esperado()` los sigue atribuyendo con la heuristica vieja.
+
+## Pendiente (no bloqueante)
+
+- **La politica de CAJA-002** (arriba). Es lo unico que requiere una respuesta
+  del negocio.
+- **Backfill de `turno_caja` en pagos historicos.** Se puede inferir por
+  usuario+ventana del turno, pero seria reconstruir una atribucion que nunca
+  existio; conviene decidirlo con datos reales delante.
+- **Paginacion del historial de turnos.** Sigue cortando a 50 sin informarlo.
+
+## Pruebas
+
+Suite completa, serial: **624 tests, OK.**
+
+Modulo de regresion nuevo: `apps/caja/tests/test_auditoria_caja.py` (32 tests).
+La app no tenia ninguna prueba propia - era el hallazgo transversal de la
+seccion "Pruebas y verificaciones ejecutadas".
+
+**Verificacion por mutacion.** Revirtiendo CAJA-010 (que el turno propio vuelva
+a ganar sobre `turno_id`), `test_el_admin_con_turno_propio_registra_donde_pidio`
+falla con `2 != 1`: el gasto aterriza en el turno del admin en vez del turno de
+la cajera que se pidio - exactamente el desvio silencioso que describe la
+auditoria.
+
+**Hallazgo del propio trabajo**: `get_object_or_404` contra el alcance quedaba
+atrapado por el `except Exception` de las vistas y salia como 500. Un recurso de
+otra sucursal se veia como una falla del servidor en vez de un 404. El test de
+alcance lo detecto antes de que llegara a ninguna parte.
+
+**Nota sobre CAJA-011.** El primer test asumia que `rol='ADMIN'` ya no concedia
+nada; es falso. `apps/permisos/engine.py:es_acceso_total` mantiene ADMIN con
+acceso total por una decision transitoria explicita y documentada. La
+divergencia real de este hallazgo va en el otro sentido: el supervisor con
+`caja.administrar` por rol custom y sin el rol legacy, a quien la UI trataba
+como cajero y le pedia credenciales de otro cuando el servidor ya lo
+auto-autorizaba. El test quedo escrito sobre ese caso.

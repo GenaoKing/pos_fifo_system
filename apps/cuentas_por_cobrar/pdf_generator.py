@@ -109,6 +109,15 @@ class EstadoCuentaPDF:
         if not abonos:
             return []
         abonos.sort(key=lambda par: par[1].fecha_pago, reverse=True)
+
+        # El corte a 50 era SILENCIOSO: un estado de cuenta de un cliente con
+        # mucha actividad parecia completo y no lo era, lo que complica
+        # conciliaciones y disputas. Se conserva el tope (el PDF tiene que
+        # seguir siendo manejable) pero ahora se declara.
+        TOPE_ABONOS = 50
+        mostrados = abonos[:TOPE_ABONOS]
+        omitidos = len(abonos) - len(mostrados)
+
         rows = [
             [
                 date(pago.fecha_pago, include_time=True),
@@ -118,10 +127,18 @@ class EstadoCuentaPDF:
                 money(pago.monto),
                 pago.estado,
             ]
-            for cuenta, pago in abonos[:50]
+            for cuenta, pago in mostrados
         ]
+
+        titulo = 'Abonos'
+        if omitidos:
+            titulo = (
+                f'Abonos (mostrando los {len(mostrados)} mas recientes de '
+                f'{len(abonos)}; {omitidos} no listados)'
+            )
+
         return [
-            section_title('Abonos'),
+            section_title(titulo),
             standard_table(
                 ['Fecha', 'Venta', 'Metodo', 'Referencia', 'Monto', 'Estado'],
                 rows,

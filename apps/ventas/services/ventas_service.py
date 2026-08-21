@@ -302,6 +302,11 @@ def procesar_venta_service(
             permitir_negativo=config.permitir_inventario_negativo,
         )
 
+        # Turno de caja que recibe este cobro. Se resuelve DENTRO de la
+        # transaccion para que el pago quede atado a la sesion real y el cierre
+        # no tenga que adivinarlo despues por usuario y fecha.
+        turno_caja = _resolver_turno_caja(usuario, sucursal)
+
         _registrar_pagos(
             venta=venta,
             metodo_pago=metodo_pago,
@@ -310,6 +315,7 @@ def procesar_venta_service(
             monto_tarjeta=monto_tarjeta,
             referencia_tarjeta=referencia_tarjeta,
             credito_data=credito_data,
+            turno_caja=turno_caja,
         )
         _verificar_pagos(venta)
 
@@ -855,6 +861,7 @@ def _registrar_pagos(
     monto_tarjeta: Decimal,
     referencia_tarjeta: str,
     credito_data: dict[str, Any] | None = None,
+    turno_caja=None,
 ) -> None:
     """
     Persiste los Pago de la venta. Para métodos puros, un solo Pago
@@ -870,6 +877,7 @@ def _registrar_pagos(
 
     if metodo_pago == 'efectivo':
         Pago.objects.create(
+            turno_caja=turno_caja,
             venta=venta,
             metodo='EFECTIVO',
             monto=total,
@@ -877,6 +885,7 @@ def _registrar_pagos(
         )
     elif metodo_pago == 'transferencia':
         Pago.objects.create(
+            turno_caja=turno_caja,
             venta=venta,
             metodo='TRANSFERENCIA',
             monto=total,
@@ -884,6 +893,7 @@ def _registrar_pagos(
         )
     elif metodo_pago == 'tarjeta':
         Pago.objects.create(
+            turno_caja=turno_caja,
             venta=venta,
             metodo='TARJETA',
             monto=total,
@@ -892,6 +902,7 @@ def _registrar_pagos(
     elif metodo_pago == 'mixto':
         if monto_efectivo > 0:
             Pago.objects.create(
+                turno_caja=turno_caja,
                 venta=venta,
                 metodo='EFECTIVO',
                 monto=monto_efectivo,
@@ -899,6 +910,7 @@ def _registrar_pagos(
             )
         if monto_transferencia > 0:
             Pago.objects.create(
+                turno_caja=turno_caja,
                 venta=venta,
                 metodo='TRANSFERENCIA',
                 monto=monto_transferencia,
@@ -906,6 +918,7 @@ def _registrar_pagos(
             )
         if monto_tarjeta > 0:
             Pago.objects.create(
+                turno_caja=turno_caja,
                 venta=venta,
                 metodo='TARJETA',
                 monto=monto_tarjeta,
@@ -944,6 +957,7 @@ def _registrar_pagos(
                 inicial_tarjeta = _decimal(credito_data.get('monto_tarjeta', 0))
                 if inicial_efectivo > 0:
                     Pago.objects.create(
+                        turno_caja=turno_caja,
                         venta=venta,
                         metodo='EFECTIVO',
                         monto=inicial_efectivo,
@@ -951,6 +965,7 @@ def _registrar_pagos(
                     )
                 if inicial_transferencia > 0:
                     Pago.objects.create(
+                        turno_caja=turno_caja,
                         venta=venta,
                         metodo='TRANSFERENCIA',
                         monto=inicial_transferencia,
@@ -958,6 +973,7 @@ def _registrar_pagos(
                     )
                 if inicial_tarjeta > 0:
                     Pago.objects.create(
+                        turno_caja=turno_caja,
                         venta=venta,
                         metodo='TARJETA',
                         monto=inicial_tarjeta,
@@ -966,6 +982,7 @@ def _registrar_pagos(
 
         if saldo_credito > 0:
             Pago.objects.create(
+                turno_caja=turno_caja,
                 venta=venta,
                 metodo='CREDITO',
                 monto=saldo_credito,
@@ -1063,6 +1080,23 @@ def _verificar_pagos(venta: Venta) -> None:
             f'Los pagos registrados (${_dinero(total_pagado)}) no suman el total '
             f'de la venta (${_dinero(venta.total)}).'
         )
+
+
+def _resolver_turno_caja(usuario, sucursal):
+    """
+    Turno de caja abierto del cajero, o None.
+
+    None es legitimo: hay instalaciones que no usan arqueo y canales que cobran
+    sin caja fisica. Lo que se gana es saber CUAL turno recibio cada pago en vez
+    de reconstruirlo por coincidencia de usuario y fecha.
+    """
+    from apps.caja.models import turno_abierto_de
+
+    try:
+        return turno_abierto_de(usuario, sucursal)
+    except Exception:
+        logger.exception('No se pudo resolver el turno de caja para la venta')
+        return None
 
 
 def _hook_imprimir_ticket(venta: Venta, usuario) -> None:

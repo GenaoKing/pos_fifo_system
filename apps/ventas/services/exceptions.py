@@ -154,6 +154,17 @@ class MotivoAnulacionInvalidoError(ErrorVentaBase):
     status_code = 400
 
 
+class AnulacionConAbonosError(ErrorVentaBase):
+    """
+    La venta tiene una CxC con abonos aplicados.
+
+    Anularla dejaria la obligacion en cero y el dinero aplicado sin destino
+    decidido. El operador debe revertir los abonos primero (queda la traza de
+    cada reversa) y despues anular la venta.
+    """
+    status_code = 409
+
+
 class FIFORollbackError(ErrorVentaBase):
     """
     La devolución de stock vía FIFO falló. La transacción se hace

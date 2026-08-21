@@ -26,20 +26,34 @@ def tenant_media_prefix():
             'Ruta de media de tenant solicitada sin tenant activo en contexto.'
         )
 
-    prefix = ''
-    try:
-        from .models import Tenant
+    from .models import Tenant
 
-        tenant = Tenant.objects.using('default').filter(
-            tenant_key=tenant_key,
-            activo=True,
-        ).only('media_prefix').first()
-        prefix = tenant.media_prefix if tenant else ''
-    except Exception:
-        prefix = ''
+    # Sin `try/except Exception`. Antes cualquier fallo al leer el control plane
+    # —BD caida, migracion pendiente, bug— se degradaba en silencio al prefijo
+    # derivado del key. Eso guarda archivos bajo un namespace DISTINTO del
+    # configurado y esconde la causa raiz: el sintoma aparece semanas despues
+    # como "las imagenes no se ven".
+    #
+    # Un error de infraestructura tiene que propagarse; solo la ausencia de
+    # configuracion (tenant sin prefijo) se cubre con el default derivado.
+    tenant = Tenant.objects.using('default').filter(
+        tenant_key=tenant_key,
+        activo=True,
+    ).only('media_prefix').first()
 
-    prefix = normalize_media_name(prefix or f'{tenant_key}/')
-    return f'{prefix}/' if prefix else ''
+    if tenant is None:
+        raise TenantContextError(
+            f'No hay tenant activo "{tenant_key}" en el control plane; '
+            f'no se puede resolver el namespace de media.'
+        )
+
+    prefix = normalize_media_name(tenant.media_prefix or f'{tenant_key}/')
+    if not prefix:
+        raise TenantContextError(
+            f'El tenant "{tenant_key}" tiene un media_prefix vacio o invalido; '
+            f'guardar sin prefijo mezclaria sus archivos con los de otro negocio.'
+        )
+    return f'{prefix}/'
 
 
 def tenant_media_name(directory, filename):

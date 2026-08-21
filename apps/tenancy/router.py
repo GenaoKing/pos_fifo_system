@@ -4,7 +4,10 @@ from .context import TenantContextError, get_current_tenant_alias, tenancy_enabl
 
 
 CONTROL_PLANE_APPS = {'tenancy'}
-DEFAULT_ONLY_APPS = {'admin', 'sessions'}
+# `token_blacklist` va al control plane: la sesion del portal es global a la
+# identidad, no de un tenant. Si viviera por tenant, un logout no invalidaria
+# el refresh y ademas habria que migrar la tabla en cada base.
+DEFAULT_ONLY_APPS = {'admin', 'sessions', 'token_blacklist'}
 DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios'}
 
 

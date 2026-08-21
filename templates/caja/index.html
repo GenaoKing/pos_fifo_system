@@ -397,7 +397,16 @@
                     <div class="form-group">
                         <label class="form-label">Contrasena</label>
                         <input type="password" x-model="adminLogin.password" class="form-input w-full"
-                               placeholder="Contrasena" x-ref="adminPass" @keydown.enter="validarAdmin()">
+                               placeholder="Contrasena" x-ref="adminPass" @keydown.enter="$refs.adminMotivo.focus()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Motivo <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="adminLogin.motivo" class="form-input w-full"
+                               placeholder="Por que se autoriza" x-ref="adminMotivo"
+                               maxlength="200" @keydown.enter="validarAdmin()">
+                        <p class="text-xs text-gray-500 mt-1">
+                            Queda en el historial del movimiento.
+                        </p>
                     </div>
 
                     <p x-show="adminLogin.error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2" x-text="adminLogin.error"></p>
@@ -408,7 +417,7 @@
                     <button @click="cerrarModalAdmin()" class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">
                         Cancelar
                     </button>
-                    <button @click="validarAdmin()" :disabled="!adminLogin.username || !adminLogin.password || adminLogin.validando"
+                    <button @click="validarAdmin()" :disabled="!adminLogin.username || !adminLogin.password || !adminLogin.motivo || adminLogin.validando"
                             class="flex-1 btn-primary disabled:opacity-50">
                         <template x-if="adminLogin.validando">
                             <svg class="animate-spin w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24">
@@ -610,7 +619,9 @@ function cajaApp() {
 
         // Soft-login admin
         mostrarModalAdmin: false,
-        adminLogin: { username: '', password: '', error: '', validando: false },
+        adminLogin: {
+            username: '', password: '', motivo: '', error: '', validando: false,
+        },
         pendienteAdminCallback: null,
 
         init() {
@@ -662,12 +673,16 @@ function cajaApp() {
         async registrarMovimiento() {
             // RETIRO e INGRESO requieren autorizacion admin
             const requiereAdmin = this.formMov.tipo === 'RETIRO' || this.formMov.tipo === 'INGRESO';
-            const esAdmin = '{{ request.user.rol }}' === 'ADMIN';
+            // El servidor decide con el permiso RBAC acotado a sucursal
+            // (`caja.administrar`), no con el campo legacy `rol`. La UI usa
+            // AHORA esa misma respuesta: si difieren, el usuario ve un boton
+            // que despues rebota con 403 — o no ve uno que si le corresponde.
+            const esAdmin = {{ puede_administrar_caja|yesno:"true,false" }};
 
             if (requiereAdmin && !esAdmin) {
                 // Abrir modal soft-login
-                this.pendienteAdminCallback = (adminId) => {
-                    this._enviarMovimiento(adminId);
+                this.pendienteAdminCallback = (token) => {
+                    this._enviarMovimiento(token);
                 };
                 this.mostrarModalAdmin = true;
                 return;
@@ -677,7 +692,7 @@ function cajaApp() {
             await this._enviarMovimiento(null);
         },
 
-        async _enviarMovimiento(adminId) {
+        async _enviarMovimiento(overrideToken) {
             this.cargando = true;
             this.error = null;
             try {
@@ -686,7 +701,11 @@ function cajaApp() {
                     monto: parseFloat(this.formMov.monto),
                     descripcion: this.formMov.descripcion,
                 };
-                if (adminId) payload.admin_id = adminId;
+                // Token de un solo uso emitido por `api_validar_admin`.
+                // Antes viajaba `admin_id`, un entero secuencial que no
+                // probaba nada: bastaba adivinarlo para firmar un retiro a
+                // nombre de un administrador que nunca lo aprobo.
+                if (overrideToken) payload.override_token = overrideToken;
 
                 const res = await fetch('{% url "caja:api_movimiento" %}', {
                     method: 'POST',
@@ -720,13 +739,16 @@ function cajaApp() {
                     body: JSON.stringify({
                         username: this.adminLogin.username,
                         password: this.adminLogin.password,
+                        operacion: 'caja.retiro',
+                        motivo: this.adminLogin.motivo,
+                        monto: this.formMov.monto,
                     }),
                 });
                 const data = await res.json();
                 if (data.valido) {
                     this.cerrarModalAdmin();
                     if (this.pendienteAdminCallback) {
-                        this.pendienteAdminCallback(data.admin_id);
+                        this.pendienteAdminCallback(data.token);
                         this.pendienteAdminCallback = null;
                     }
                 } else {
@@ -741,7 +763,9 @@ function cajaApp() {
 
         cerrarModalAdmin() {
             this.mostrarModalAdmin = false;
-            this.adminLogin = { username: '', password: '', error: '', validando: false };
+            this.adminLogin = {
+                username: '', password: '', motivo: '', error: '', validando: false,
+            };
         },
 
         // ---- Cerrar Turno ----

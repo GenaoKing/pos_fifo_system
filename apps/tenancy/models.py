@@ -3,6 +3,7 @@ import hashlib
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
+from django.db.models.functions import Lower
 from django.utils.text import slugify
 
 
@@ -16,7 +17,10 @@ class Tenant(models.Model):
     nombre = models.CharField(max_length=200)
     rnc = models.CharField(max_length=20, blank=True)
     db_name = models.CharField(max_length=128, unique=True, blank=True)
-    media_prefix = models.CharField(max_length=160, blank=True)
+    # UNICO: es el namespace de archivos del tenant. Sin unicidad, dos negocios
+    # podian tener `media_prefix='shared/'` y resolver exactamente el mismo path
+    # de Blob: un upload sobrescribia el logo o la foto del otro.
+    media_prefix = models.CharField(max_length=160, unique=True, blank=True)
     plan_slug = models.SlugField(max_length=100, blank=True)
     activo = models.BooleanField(default=True)
     fecha_creacion = models.DateTimeField(default=timezone.now)
@@ -25,6 +29,13 @@ class Tenant(models.Model):
     class Meta:
         db_table = 'tenancy_tenants'
         ordering = ['nombre']
+
+    # Campos que identifican al tenant para ROUTING y almacenamiento. Cambiarlos
+    # en caliente parte el sistema: los workers que ya tocaron el alias siguen
+    # con la conexion vieja, los tokens emitidos dejan de resolver y los blobs
+    # quedan en el namespace anterior. Se declaran aca para que el admin los
+    # muestre de solo lectura y para documentar la invariante en el modelo.
+    CAMPOS_INMUTABLES = ('tenant_key', 'db_name', 'media_prefix')
 
     def __str__(self):
         return f'{self.nombre} ({self.tenant_key})'
@@ -36,7 +47,10 @@ class Tenant(models.Model):
             self.slug = self._slug_unico(self.nombre, tenant_key=self.tenant_key)
         if not self.db_name:
             self.db_name = f'tnt_{self.tenant_key}'
-        if not self.media_prefix:
+        # El prefijo NUNCA queda vacio: un prefijo vacio degrada las rutas a
+        # globales aunque tenancy este encendido, y dos tenants vacios colisionan
+        # entre si en el container compartido.
+        if not (self.media_prefix or '').strip(' /'):
             self.media_prefix = f'{self.tenant_key}/'
         super().save(*args, **kwargs)
 
@@ -82,9 +96,25 @@ class Identity(models.Model):
     class Meta:
         db_table = 'tenancy_identities'
         ordering = ['email']
+        constraints = [
+            # El login normaliza a minusculas y busca `email__iexact`, pero la
+            # unicidad de BD es sensible a mayusculas en PostgreSQL: la tabla
+            # aceptaba `Owner@Example.com` y `owner@example.com` a la vez, y el
+            # login elegia una u otra segun el orden de las filas.
+            models.UniqueConstraint(
+                Lower('email'), name='uniq_identity_email_lower',
+            ),
+        ]
 
     def __str__(self):
         return self.email
+
+    def save(self, *args, **kwargs):
+        # Normaliza en escritura, para que la constraint no dependa de que
+        # todos los callers se acuerden.
+        if self.email:
+            self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
 
     @property
     def is_authenticated(self):
@@ -114,12 +144,32 @@ class Membership(models.Model):
         db_table = 'tenancy_memberships'
         unique_together = ('identity', 'tenant')
         ordering = ['identity__email', 'tenant__tenant_key']
+        constraints = [
+            # Un usuario operativo del tenant pertenece a UNA identidad global.
+            # Sin esto, dos identities distintas podian mapear al mismo
+            # `tenant/username=admin`: dos credenciales globales actuando como
+            # el mismo usuario, y una auditoria basada en `Usuario` no podia
+            # distinguir quien hizo que.
+            models.UniqueConstraint(
+                fields=['tenant', 'username'],
+                name='uniq_membership_tenant_username',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.identity.email} -> {self.tenant.tenant_key}/{self.username}'
 
 
 class Domain(models.Model):
+    """
+    Modelo PREPARATORIO: no participa en la resolucion de tenant.
+
+    Ningun codigo fuera de este modulo lo consulta. Antes de habilitarlo hacen
+    falta normalizacion (IDNA, lower, puerto), un solo `is_primary` activo por
+    tenant y rechazo de hosts reservados. Hasta entonces el admin lo expone
+    como solo lectura para no aparentar un routing que no existe.
+    """
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='domains')
     domain = models.CharField(max_length=255, unique=True)
     is_primary = models.BooleanField(default=True)
@@ -132,6 +182,68 @@ class Domain(models.Model):
 
     def __str__(self):
         return self.domain
+
+
+class SesionImpersonacion(models.Model):
+    """
+    Rastro durable de una impersonacion de soporte.
+
+    Antes no quedaba ninguno. `impersonar_tenant` emitia un token que actuaba
+    como un `Usuario` operativo del tenant, y el `identity_id` del operador
+    global viajaba solo como atributo en memoria. Ademas el middleware de
+    auditoria omite deliberadamente todo `/api/` bajo tenancy, asi que una
+    accion de soporte quedaba atribuida al admin local impersonado — o no
+    quedaba en ningun lado.
+
+    Vive en el CONTROL PLANE a proposito: el actor es global y su trazabilidad
+    no debe depender de la base del tenant al que entro (ni poder alterarse
+    desde ella).
+    """
+
+    identity = models.ForeignKey(
+        Identity,
+        on_delete=models.PROTECT,
+        related_name='impersonaciones',
+        help_text='Actor global real que ejecuto la accion.',
+    )
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name='impersonaciones',
+    )
+    username_objetivo = models.CharField(
+        max_length=150,
+        help_text='Usuario operativo del tenant bajo el que se actuo.',
+    )
+    motivo = models.CharField(
+        max_length=300,
+        blank=True,
+        help_text='Ticket o razon declarada por el operador.',
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    inicio = models.DateTimeField(default=timezone.now, db_index=True)
+    expira = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Vencimiento del token emitido.',
+    )
+    cierre = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Logout explicito de la sesion impersonada.',
+    )
+
+    class Meta:
+        db_table = 'tenancy_sesiones_impersonacion'
+        ordering = ['-inicio']
+        indexes = [
+            models.Index(fields=['tenant', 'inicio']),
+            models.Index(fields=['identity', 'inicio']),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.identity.email} -> {self.tenant.tenant_key}/'
+            f'{self.username_objetivo} ({self.inicio:%Y-%m-%d %H:%M})'
+        )
 
 
 class SyncToken(models.Model):

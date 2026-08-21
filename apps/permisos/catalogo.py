@@ -17,6 +17,8 @@ CATALOGO = [
     ('clientes.ver', 'Ver clientes', 'clientes', 'Listar y consultar clientes.'),
     ('clientes.crear', 'Crear clientes', 'clientes', 'Registrar nuevos clientes.'),
     ('clientes.editar', 'Editar clientes', 'clientes', 'Modificar datos de clientes.'),
+    ('clientes.editar_limite_credito', 'Editar limite de credito', 'clientes',
+     'Cambiar el limite de credito de un cliente. Separado de `clientes.editar`: quien corrige un telefono no deberia poder ampliar credito.'),
     ('clientes.eliminar', 'Eliminar clientes', 'clientes', 'Dar de baja clientes.'),
 
     # --- Productos ----------------------------------------------------------
@@ -38,6 +40,9 @@ CATALOGO = [
     ('inventario.ajustar', 'Ajustar inventario', 'inventario', 'Ajustes manuales de inventario.'),
 
     # --- Caja ---------------------------------------------------------------
+    ('caja.operar', 'Operar caja', 'caja',
+     'Abrir y cerrar el propio turno, registrar movimientos y ver su estado. '
+     'Lo que hace una cajera todos los dias.'),
     ('caja.administrar', 'Administrar caja', 'caja',
      'Ver historial/turnos de otros, registrar movimientos de caja (retiros/ingresos).'),
 
@@ -61,6 +66,10 @@ CATALOGO = [
      'Registrar abonos a cuentas por cobrar.'),
     ('cuentas_por_cobrar.anular_pago', 'Anular abonos CxC', 'cuentas_por_cobrar',
      'Anular/revertir abonos registrados (reversa LIFO).'),
+    ('cuentas_por_cobrar.autorizar_exceso_credito', 'Autorizar exceso de credito',
+     'cuentas_por_cobrar',
+     'Emitir la autorizacion puntual que permite superar el limite de credito '
+     'de un cliente en una venta.'),
 
     # --- Reportes -----------------------------------------------------------
     ('reportes.ver', 'Ver reportes', 'reportes', 'Acceder a reportes y dashboard.'),
@@ -93,6 +102,7 @@ CATALOGO = [
 #     reversa de abonos es operacion sensible (default solo Administrador).
 PERMISOS_CAJERO_DEFAULT = [
     'ventas.crear',
+    'caja.operar',
     'ventas.aplicar_descuento',
     'ventas.reimprimir',
     'cuentas_por_cobrar.ver',

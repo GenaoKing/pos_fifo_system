@@ -208,6 +208,92 @@ class SnapshotFueraDeOrdenTests(_BaseCloud, TestCase):
         self.assertEqual(fila.stock_actual, 3)
 
 
+class LedgerCompraUnaAutoridadTests(_BaseCloud, TestCase):
+    """
+    INVENTARIO-007: una compra escribia el ledger cloud por DOS caminos.
+
+    `COMPRA_REGISTRADA` creaba una fila por linea con `movimiento_id_local=None`
+    y `INVENTARIO_MOVIMIENTO_REGISTRADO` otra con el ID real. Cada linea quedaba
+    duplicada, y al corregir la compra solo se actualizaba la que tenia ID: las
+    dos versiones divergian.
+    """
+
+    def setUp(self):
+        self._montar_cloud()
+        self._producto('LEDGER-A')
+
+    def _payload_compra(self):
+        return {
+            'compra_id_local': 55,
+            'numero_compra': 'COMP-20260820-00001',
+            'fecha_compra': timezone.now().isoformat(),
+            'usuario_username': 'svc_auditoria',
+            'detalles': [{
+                'producto_sku': 'LEDGER-A',
+                'producto_nombre': 'Producto LEDGER-A',
+                'lote_numero': 'LOTE-20260820-00001',
+                'cantidad': '4',
+                'costo_unitario': '10.00',
+            }],
+        }
+
+    def _payload_movimiento(self):
+        return {
+            'movimiento_id_local': 900,
+            'tipo': 'COMPRA',
+            'producto_sku': 'LEDGER-A',
+            'producto_nombre': 'Producto LEDGER-A',
+            'lote_numero': 'LOTE-20260820-00001',
+            'cantidad': 4,
+            'cantidad_anterior': 0,
+            'cantidad_nueva': 4,
+            'costo_unitario': '10.00',
+            'referencia_tipo': 'Compra',
+            'referencia_id': 55,
+            'usuario_username': 'svc_auditoria',
+            'notas': 'Compra inicial',
+            'fecha_movimiento': timezone.now().isoformat(),
+        }
+
+    def test_una_compra_deja_exactamente_una_fila_de_ledger_por_linea(self):
+        from apps.api.views.sync import (
+            _handler_compra,
+            _handler_movimiento_inventario,
+        )
+        from apps.sync.models import InventarioMovimientoSync
+
+        # Los dos eventos que la sucursal emite por una compra, en orden.
+        _handler_compra(self.sucursal, self._payload_compra())
+        _handler_movimiento_inventario(self.sucursal, self._payload_movimiento())
+
+        filas = InventarioMovimientoSync.objects.filter(producto_sku='LEDGER-A')
+
+        self.assertEqual(
+            filas.count(), 1,
+            list(filas.values('movimiento_id_local', 'cantidad')),
+        )
+        # La que sobrevive es la que tiene identidad estable.
+        self.assertEqual(filas.get().movimiento_id_local, 900)
+
+    def test_corregir_la_compra_actualiza_esa_unica_fila(self):
+        from apps.api.views.sync import (
+            _handler_compra,
+            _handler_movimiento_inventario,
+        )
+        from apps.sync.models import InventarioMovimientoSync
+
+        _handler_compra(self.sucursal, self._payload_compra())
+        _handler_movimiento_inventario(self.sucursal, self._payload_movimiento())
+
+        # La sucursal corrige la cantidad y reenvia el movimiento.
+        corregido = {**self._payload_movimiento(), 'cantidad': 9, 'cantidad_nueva': 9}
+        _handler_movimiento_inventario(self.sucursal, corregido)
+
+        filas = InventarioMovimientoSync.objects.filter(producto_sku='LEDGER-A')
+        self.assertEqual(filas.count(), 1)
+        self.assertEqual(filas.get().cantidad, 9)
+
+
 class DeduplicacionConcurrenteTests(_BaseCloud, TransactionTestCase):
     """
     SYNC-003: dos requests con el mismo hash no pueden aplicar el efecto dos
