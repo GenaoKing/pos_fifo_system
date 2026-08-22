@@ -4,11 +4,24 @@ from .context import TenantContextError, get_current_tenant_alias, tenancy_enabl
 
 
 CONTROL_PLANE_APPS = {'tenancy'}
-# `token_blacklist` va al control plane: la sesion del portal es global a la
-# identidad, no de un tenant. Si viviera por tenant, un logout no invalidaria
-# el refresh y ademas habria que migrar la tabla en cada base.
-DEFAULT_ONLY_APPS = {'admin', 'sessions', 'token_blacklist'}
-DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios'}
+DEFAULT_ONLY_APPS = {'admin', 'sessions'}
+# `token_blacklist` es DUAL-HOME, igual que `usuarios`, y no puede ser otra cosa:
+# su `OutstandingToken` tiene una FK a `usuarios`, asi que debe resolver SIEMPRE
+# a la misma base que el usuario.
+#
+# Se intento ponerlo en el control plane con el argumento de que "la sesion es
+# global a la identidad". Tumbo el login de produccion: al autenticar un usuario
+# de tenant, `RefreshToken.for_user()` intentaba crear el OutstandingToken en
+# `default` con FK a un Usuario cargado desde `tnt_*`, y el router lo rechazaba
+# con "the current database router prevents this relation".
+#
+# Dual-home tambien evita el problema inverso: sin tenant activo cae a `default`
+# en vez de reventar con TenantContextError, que es lo que pasaria si se dejara
+# resolver como un modelo de tenant puro.
+#
+# Regla general del reparto: todo FK/M2M hacia un modelo de tenant tiene que
+# vivir donde vive ese modelo.
+DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios', 'token_blacklist'}
 
 
 class TenantDatabaseRouter:

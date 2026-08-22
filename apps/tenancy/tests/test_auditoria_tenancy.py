@@ -299,14 +299,47 @@ class RevocacionDeSesionTests(TestCase):
             django_apps.is_installed('rest_framework_simplejwt.token_blacklist')
         )
 
-    def test_la_blacklist_vive_en_el_control_plane(self):
-        from apps.tenancy.router import DEFAULT_ONLY_APPS, TenantDatabaseRouter
+    def test_la_blacklist_es_dual_home_como_los_usuarios(self):
+        """
+        `OutstandingToken` tiene una FK a `usuarios`, asi que tiene que resolver
+        a la MISMA base que el usuario.
 
-        self.assertIn('token_blacklist', DEFAULT_ONLY_APPS)
+        Este test reemplaza a uno anterior que exigia lo contrario --que la
+        blacklist viviera solo en el control plane-- con el argumento de que la
+        sesion del portal es global a la identidad. Ese reparto **tumbo el login
+        de produccion** el 2026-08-22: al autenticar un usuario de tenant,
+        `RefreshToken.for_user()` intentaba crear el OutstandingToken en
+        `default` con FK a un Usuario cargado desde `tnt_*`, y el router lo
+        rechazaba con "the current database router prevents this relation".
+        """
+        from apps.tenancy.router import (
+            DEFAULT_ONLY_APPS,
+            DUAL_HOME_APPS,
+            TenantDatabaseRouter,
+        )
+
+        self.assertIn('token_blacklist', DUAL_HOME_APPS)
+        self.assertNotIn('token_blacklist', DEFAULT_ONLY_APPS)
 
         router = TenantDatabaseRouter()
+        # Tiene que poder migrarse en AMBOS lados: en el control plane para los
+        # usuarios que viven ahi, y en cada tenant para los suyos.
         self.assertTrue(router.allow_migrate('default', 'token_blacklist'))
-        self.assertFalse(router.allow_migrate('tnt_rev', 'token_blacklist'))
+        self.assertTrue(router.allow_migrate('tnt_rev', 'token_blacklist'))
+
+    def test_la_blacklist_resuelve_a_la_misma_base_que_el_usuario(self):
+        """La garantia de fondo: la FK nunca cruza bases."""
+        from django.contrib.auth import get_user_model
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+        from apps.tenancy.router import TenantDatabaseRouter
+
+        router = TenantDatabaseRouter()
+        self.assertEqual(
+            router.db_for_write(OutstandingToken),
+            router.db_for_write(get_user_model()),
+            'OutstandingToken y Usuario deben resolver a la misma base',
+        )
 
     def test_cloud_rota_y_lista_negra_el_refresh(self):
         """

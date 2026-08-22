@@ -84,7 +84,7 @@ if not exist "%DST_DIR%\deploy\env_cliente.env" (
     if exist "%DST_DIR%\deploy\env_cliente.bat" (
         echo   [INFO] Convirtiendo env_cliente.bat al nuevo formato .env...
         pushd "%DST_DIR%"
-        call "%DST_DIR%env\Scripts\python.exe" manage.py migrar_env_cliente --settings=config.settings_production
+        call "%DST_DIR%\venv\Scripts\python.exe" manage.py migrar_env_cliente --settings=config.settings_production
         popd
     )
 )
