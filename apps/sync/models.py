@@ -228,7 +228,7 @@ class EventoSync(models.Model):
         return self
 
 
-def reactivar_eventos(queryset):
+def reactivar_eventos(queryset, reserializar=False):
     """
     Devuelve a la cola de envio todos los eventos de `queryset`. Retorna cuantos.
 
@@ -240,6 +240,9 @@ def reactivar_eventos(queryset):
 
     El estado destino depende del payload: un evento sin payload vuelve como
     SIN_PAYLOAD para que el push lo re-serialice desde la BD.
+
+    `reserializar=True` fuerza esa reconstruccion tambien para los eventos que
+    SI tienen payload, descartando el guardado. Ver el comentario abajo.
     """
     ids = list(queryset.values_list('id', flat=True))
     if not ids:
@@ -247,6 +250,31 @@ def reactivar_eventos(queryset):
 
     base = EventoSync.objects.filter(id__in=ids)
     comun = {'intentos': 0, 'ultimo_error': '', 'sent_at': None}
+
+    if reserializar:
+        # Descarta el payload guardado para que el push lo reconstruya con el
+        # serializador ACTUAL.
+        #
+        # Hace falta cuando el evento fallo por algo que el codigo nuevo ya
+        # resuelve, no por un problema de transporte. Caso real: 15 CXC_CREADA
+        # murieron con "Cliente de CxC no existe en cloud" porque el payload de
+        # entonces no llevaba forma de identificar al cliente; reenviar ese
+        # mismo payload falla igual. Re-serializado, viaja con el bloque
+        # `cliente` y el cloud puede crearlo.
+        #
+        # Solo se vacia lo que el registro sabe reconstruir; el resto conserva
+        # su payload y vuelve tal cual.
+        from . import registry
+
+        reconstruibles = [
+            evento_id for evento_id, tipo, objeto_id in
+            base.values_list('id', 'tipo_evento', 'objeto_id_local')
+            if objeto_id and registry.por_tipo(tipo) is not None
+        ]
+        if reconstruibles:
+            EventoSync.objects.filter(id__in=reconstruibles).update(
+                payload=None, hash_payload='',
+            )
 
     return (
         base.filter(payload__isnull=True).update(estado='SIN_PAYLOAD', **comun)

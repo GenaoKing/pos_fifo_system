@@ -316,3 +316,78 @@ class SaludDeColaTests(VerificarSyncTestsBase):
 
         self.assertIn('VERIFICACION DE SYNC', salida)
         self.assertIn('HUECOS EN LA NUMERACION', salida)
+
+
+class ReserializarDescartadosTests(VerificarSyncTestsBase):
+    """
+    Escenario real de Royal Plast (2026-08-22): 15 eventos CXC_CREADA murieron
+    con "Cliente de CxC no existe en cloud" porque el payload de entonces no
+    llevaba forma de identificar al cliente.
+
+    Reenviar ESE MISMO payload falla igual: el defecto no era de transporte. Hay
+    que reconstruirlo con el serializador actual, que si incluye al cliente.
+    """
+
+    def _descartado(self, tipo='VENTA_CREADA', payload=None, objeto_id=1):
+        return EventoSync.objects.create(
+            sucursal=self.sucursal,
+            tipo_evento=tipo,
+            objeto_id_local=objeto_id,
+            payload=payload if payload is not None else {'viejo': True},
+            hash_payload='hash-viejo',
+            estado='DESCARTADO',
+            intentos=10,
+            ultimo_error='Cliente de CxC no existe en cloud',
+        )
+
+    @override_settings(SYNC_MAX_RETRIES=10)
+    def test_sin_reserializar_conserva_el_payload_viejo(self):
+        """Comportamiento por defecto: reenvia lo guardado."""
+        ev = self._descartado()
+
+        self._correr('--reintentar-descartados', '--ejecutar')
+
+        ev.refresh_from_db()
+        self.assertEqual(ev.estado, 'PENDIENTE')
+        self.assertEqual(ev.payload, {'viejo': True},
+                         'Sin --reserializar el payload no debe tocarse')
+        self.assertEqual(ev.intentos, 0)
+
+    @override_settings(SYNC_MAX_RETRIES=10)
+    def test_con_reserializar_descarta_el_payload_para_reconstruirlo(self):
+        venta = self._venta(self._numero(seq=1), con_evento=False)
+        ev = self._descartado(objeto_id=venta.pk)
+
+        self._correr('--reintentar-descartados', '--reserializar', '--ejecutar')
+
+        ev.refresh_from_db()
+        self.assertEqual(ev.estado, 'SIN_PAYLOAD',
+                         'Debe volver como SIN_PAYLOAD para que el push lo rearme')
+        self.assertIsNone(ev.payload)
+        self.assertEqual(ev.hash_payload, '')
+        self.assertEqual(ev.intentos, 0)
+
+    @override_settings(SYNC_MAX_RETRIES=10)
+    def test_no_descarta_el_payload_de_lo_que_no_sabe_reconstruir(self):
+        """
+        Vaciar el payload de un evento que el registro no puede rearmar lo
+        volveria irrecuperable. Ante la duda, se conserva.
+        """
+        ev = self._descartado(tipo='INVENTARIO_SNAPSHOT', objeto_id=None)
+
+        self._correr('--reintentar-descartados', '--reserializar', '--ejecutar')
+
+        ev.refresh_from_db()
+        self.assertEqual(ev.payload, {'viejo': True})
+        self.assertEqual(ev.estado, 'PENDIENTE')
+
+    @override_settings(SYNC_MAX_RETRIES=10)
+    def test_el_dry_run_no_toca_nada(self):
+        ev = self._descartado()
+
+        salida = self._correr('--reintentar-descartados', '--reserializar')
+
+        ev.refresh_from_db()
+        self.assertEqual(ev.estado, 'DESCARTADO')
+        self.assertEqual(ev.payload, {'viejo': True})
+        self.assertIn('dry-run', salida)

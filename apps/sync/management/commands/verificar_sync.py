@@ -57,7 +57,13 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--reintentar-descartados', action='store_true',
-            help='REPARA: devuelve a PENDIENTE los eventos que agotaron reintentos.',
+            help='REPARA: devuelve a la cola los eventos que agotaron reintentos.',
+        )
+        parser.add_argument(
+            '--reserializar', action='store_true',
+            help='Con --reintentar-descartados: descarta el payload guardado para '
+                 'que se reconstruya con el serializador actual. Necesario cuando '
+                 'el evento fallo por algo que el codigo nuevo ya resuelve.',
         )
         parser.add_argument(
             '--purgar-confirmados', type=int, metavar='DIAS',
@@ -105,7 +111,7 @@ class Command(BaseCommand):
         if opts['backfill']:
             self._reparar_backfill()
         if opts['reintentar_descartados']:
-            self._reparar_reintentar_descartados()
+            self._reparar_reintentar_descartados(opts['reserializar'])
         if opts['purgar_confirmados']:
             self._purgar_confirmados(opts['purgar_confirmados'])
 
@@ -166,7 +172,7 @@ class Command(BaseCommand):
                 w(self.style.ERROR(f'  Fallidos: {total_fallidos}'))
         self._aviso_dry_run()
 
-    def _reparar_reintentar_descartados(self):
+    def _reparar_reintentar_descartados(self, reserializar=False):
         """Devuelve a la cola los eventos que agotaron reintentos.
 
         Es la reparacion de BUG-C: las cuentas por cobrar que el cloud rechazaba
@@ -198,8 +204,17 @@ class Command(BaseCommand):
         for tipo, n in sorted(por_tipo.items()):
             w(f'  {tipo}: {n}')
 
+        if reserializar:
+            w(self.style.WARNING(
+                '  Se descartara el payload guardado de los eventos '
+                'reconstruibles: se rearman con el serializador actual.'
+            ))
+        else:
+            w('  Se reenviara el payload GUARDADO. Si el evento fallo por algo '
+              'que el codigo nuevo resuelve, usar --reserializar.')
+
         if self.ejecutar:
-            actualizados = reactivar_eventos(qs)
+            actualizados = reactivar_eventos(qs, reserializar=reserializar)
             w(self.style.SUCCESS(f'  Devueltos a la cola: {actualizados}'))
         self._aviso_dry_run()
 

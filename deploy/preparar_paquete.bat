@@ -63,6 +63,10 @@ robocopy "%PROJECT_DIR%\templates" "%DIST_DIR%\templates" /e >nul
 robocopy "%PROJECT_DIR%\static" "%DIST_DIR%\static" /e >nul
 robocopy "%PROJECT_DIR%\utils" "%DIST_DIR%\utils" /e /xd __pycache__ /xf *.pyc >nul
 robocopy "%PROJECT_DIR%\deploy" "%DIST_DIR%\deploy" /e /xf env_cliente.bat env_cliente.env >nul
+REM Los runbooks viajan CON el paquete: en la PC del cliente no hay repo,
+REM y son el procedimiento que se ejecuta ahi (persona o agente de IA).
+robocopy "%PROJECT_DIR%\docsunbooks" "%DIST_DIR%\docsunbooks" /e >nul
+copy "%PROJECT_DIR%\docs\BUGS.md" "%DIST_DIR%\docs\" >nul 2>&1
 
 REM Archivos raiz (solo produccion, NO: package.json, tailwind.config.js, environment.yml)
 for %%f in (manage.py requirements.txt server.py) do (
