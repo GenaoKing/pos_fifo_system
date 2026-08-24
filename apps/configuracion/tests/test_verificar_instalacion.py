@@ -1,18 +1,19 @@
 """
 Tests de `verificar_instalacion` (Fase 4).
 
-El foco esta en la **trampa de suscripciones**: enganchar una sucursal a un
-negocio sin aprovisionarle modulos apaga en silencio la impresion de tickets,
-las cotizaciones, las etiquetas Zebra, las CxC y el e-CF.
-
-Es dificil de diagnosticar porque los dos estados se ven iguales desde afuera:
+Cubre la **extrampa de suscripciones** (BUG-D): enganchar una sucursal a un
+negocio sin aprovisionarle modulos SOLIA apagar en silencio la impresion de
+tickets, las cotizaciones, las etiquetas Zebra, las CxC y el e-CF, porque:
 
     sucursal SIN negocio  -> fail-OPEN  -> todo funciona
-    sucursal CON negocio  -> manda la suscripcion; sin plan quedan solo los
+    sucursal CON negocio  -> manda la suscripcion; sin plan quedaban solo los
                              modulos core, y `impresion_termica` no es core
 
-Este comando existe para que esa diferencia sea visible en 5 minutos y no en una
-visita al cliente.
+`apps.suscripciones.engine` corrigio esa asimetria: un negocio sin
+aprovisionar ahora tambien falla abierto. Este comando ya no puede reportar
+"roto" para ese caso -- pero sigue senalando que el negocio no tiene
+entitlements de verdad configurados, porque el fail-open es una red de
+seguridad, no el estado deseado de una instalacion terminada.
 """
 from io import StringIO
 
@@ -71,42 +72,48 @@ class SucursalSinNegocioTests(VerificarInstalacionTestsBase):
         self.assertIn('sin negocio asignado', self._salida())
 
 
-class TrampaDeSuscripcionesTests(VerificarInstalacionTestsBase):
+class NegocioSinAprovisionarTests(VerificarInstalacionTestsBase):
+    """
+    `bootstrap_negocio` sin `bootstrap_suscripciones`: el caso exacto que
+    causaba BUG-D. Ya NO apaga nada -- fail-open -- pero el diagnostico sigue
+    marcando que falta aprovisionar de verdad.
+    """
+
     def setUp(self):
         super().setUp()
         self.negocio = Negocio.objects.create(nombre='Negocio VI')
         self.sucursal.negocio = self.negocio
         self.sucursal.save(update_fields=['negocio'])
 
-    def test_negocio_sin_suscripcion_apaga_los_vendibles(self):
-        """El caso exacto: bootstrap_negocio sin bootstrap_suscripciones."""
+    def test_negocio_sin_suscripcion_no_apaga_nada(self):
         modulos = self._reporte()['modulos']
 
         self.assertEqual(modulos['modo'], 'suscripciones')
         self.assertFalse(modulos['aprovisionado'])
-        self.assertIn('impresion_termica', modulos['apagados'],
-                      'La impresion termica deberia figurar como apagada')
+        self.assertEqual(modulos['apagados'], [])
+        self.assertFalse(modulos['roto'])
 
-    def test_avisa_explicitamente_que_no_imprime(self):
-        """
-        Que un modulo este "apagado" no le dice nada a quien instala. Que el POS
-        no imprime tickets, si.
-        """
-        salida = self._salida()
-
-        self.assertIn('NO IMPRIME TICKETS', salida)
-        self.assertIn('bootstrap_suscripciones', salida)
-
-    def test_impresion_termica_efectivamente_desactivada(self):
+    def test_impresion_termica_efectivamente_activa(self):
         """
         Confirma que el reporte no miente: el gate real que usa el POS
-        (`utils/impresoras/manager._is_printing_enabled`) devuelve False.
+        (`utils/impresoras/manager._is_printing_enabled`) devuelve True.
         """
         from apps.configuracion.utils import modulo_activo
 
-        self.assertFalse(modulo_activo('impresion_termica'))
+        self.assertTrue(modulo_activo('impresion_termica'))
 
-    def test_con_modulo_aprovisionado_deja_de_alertar(self):
+    def test_salida_avisa_que_falta_aprovisionar_sin_marcarlo_como_error(self):
+        salida = self._salida()
+
+        self.assertIn('AVISO', salida)
+        self.assertIn('bootstrap_suscripciones', salida)
+        # La seccion de modulos en si misma no debe marcar nada como roto
+        # (el RESULTADO global puede seguir en rojo por otros chequeos no
+        # relacionados, como el SECRET_KEY del entorno de test).
+        self.assertIn('OK: todos los modulos vendibles estan activos.', salida)
+        self.assertNotIn('APAGADOS', salida)
+
+    def test_con_modulo_aprovisionado_queda_aprovisionado(self):
         from apps.suscripciones.models import Modulo, NegocioModulo
 
         modulo, _ = Modulo.objects.get_or_create(
@@ -122,6 +129,28 @@ class TrampaDeSuscripcionesTests(VerificarInstalacionTestsBase):
 
         self.assertTrue(modulos['aprovisionado'])
         self.assertNotIn('impresion_termica', modulos['apagados'])
+
+    def test_una_exclusion_explicita_sin_plan_si_apaga_y_se_reporta_roto(self):
+        """
+        La trampa era "nadie configuro nada". Una exclusion explicita SI es
+        una decision, y si apaga impresion_termica, el comando debe seguir
+        marcandolo como roto de verdad -- no es el mismo caso que el fail-open.
+        """
+        from apps.suscripciones.models import Modulo, NegocioModulo
+
+        modulo, _ = Modulo.objects.get_or_create(
+            key='impresion_termica', defaults={'nombre': 'Impresion termica'},
+        )
+        NegocioModulo.objects.create(
+            negocio=self.negocio, modulo=modulo, incluido=False,
+        )
+        from django.core.cache import cache
+        cache.clear()
+
+        modulos = self._reporte()['modulos']
+
+        self.assertIn('impresion_termica', modulos['apagados'])
+        self.assertTrue(modulos['roto'])
 
 
 class DiagnosticoGeneralTests(VerificarInstalacionTestsBase):

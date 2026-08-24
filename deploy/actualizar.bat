@@ -45,7 +45,10 @@ REM --- DST = install vivo (argumento o pregunta) ---
 set "DST_DIR=%~1"
 if "%DST_DIR%"=="" (
     set "DEFAULT_DST=C:\pos_fifo_system"
-    set /p "DST_DIR=  Ruta del POS instalado [%DEFAULT_DST%]: "
+    REM `%DEFAULT_DST%` se expande en tiempo de PARSEO del bloque, antes de
+    REM que el `set` de arriba corra -- el prompt mostraba "[]" vacio en vez
+    REM del default (cosmetico: el default se seguia aplicando bien abajo).
+    set /p "DST_DIR=  Ruta del POS instalado [!DEFAULT_DST!]: "
     if "!DST_DIR!"=="" set "DST_DIR=!DEFAULT_DST!"
 )
 for %%I in ("%DST_DIR%") do set "DST_DIR=%%~fI"
@@ -77,19 +80,17 @@ if not exist "%DST_DIR%\venv\Scripts\activate.bat" (
 REM --- Cargar configuracion del cliente (DB, secret, sucursal, sync) ---
 set PGCLIENTENCODING=UTF8
 set PYTHONUTF8=1
-REM --- Configuracion: convertir del formato .bat al .env si hace falta ---
-REM Las instalaciones anteriores a la Fase 4 tienen su configuracion real en
-REM env_cliente.bat. Se convierte automaticamente: nadie tiene que reescribirla.
-if not exist "%DST_DIR%\deploy\env_cliente.env" (
-    if exist "%DST_DIR%\deploy\env_cliente.bat" (
-        echo   [INFO] Convirtiendo env_cliente.bat al nuevo formato .env...
-        pushd "%DST_DIR%"
-        call "%DST_DIR%\venv\Scripts\python.exe" manage.py migrar_env_cliente --settings=config.settings_production
-        popd
-    )
-)
 
-REM Cargar los valores para el resto de este script.
+REM Cargar los valores para el resto de este script, del formato que ya
+REM exista (el .env si una corrida anterior ya convirtio, si no el .bat de
+REM siempre). La CONVERSION real de .bat a .env pasa mas abajo, DESPUES de la
+REM FASE 4 (dependencias): el comando que la hace (`migrar_env_cliente`) vive
+REM en el codigo NUEVO -- que todavia no esta copiado en este punto, y ademas
+REM necesita `python-dotenv` instalado para poder importar `config.settings`.
+REM Intentarlo aqui siempre fallaba con "Unknown command: 'migrar_env_cliente'"
+REM en la primera actualizacion de cualquier cliente en formato .bat --
+REM exactamente el caso de Royal Plast (reproducido 2026-08-24): la
+REM conversion prometida por el runbook nunca ocurria en la primera pasada.
 if exist "%DST_DIR%\deploy\env_cliente.env" (
     for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%DST_DIR%\deploy\env_cliente.env") do (
         if not "%%A"=="" set "%%A=%%B"
@@ -138,10 +139,16 @@ REM FASE 2: Backup de la base de datos (punto de rollback)
 REM ============================================================================
 echo [FASE 2/8] Backup de la base de datos...
 if not exist "%DST_DIR%\backups" mkdir "%DST_DIR%\backups"
-set "FECHA=%date:~6,4%%date:~3,2%%date:~0,2%"
-set "HORA=%time:~0,2%%time:~3,2%%time:~6,2%"
-set "HORA=%HORA: =0%"
-set "BACKUP_FILE=%DST_DIR%\backups\%DB_NAME%_PRE_UPDATE_%FECHA%_%HORA%.dump"
+REM Recortar %DATE%/%TIME% por posicion asume un formato que depende del
+REM locale de Windows. En es-DO, %DATE% trae el dia de la semana adelante
+REM ("sab. 22/08/2026"), asi que el recorte se desalinea y produce timestamps
+REM con "/" adentro -- pg_dump no puede crear ese archivo, y como el script
+REM aborta si el backup falla, la actualizacion nunca pasaba de esta fase
+REM (reproducido en Royal Plast, 2026-08-24). PowerShell Get-Date -Format no
+REM depende del locale.
+for /f "usebackq tokens=*" %%T in (`powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"`) do set "STAMP=%%T"
+if not defined STAMP set "STAMP=%RANDOM%"
+set "BACKUP_FILE=%DST_DIR%\backups\%DB_NAME%_PRE_UPDATE_%STAMP%.dump"
 set "PGPASSWORD=%DB_PASSWORD%"
 pg_dump -U %DB_USER% -h %DB_HOST% -p %DB_PORT% -F c -b -f "%BACKUP_FILE%" %DB_NAME%
 if %errorlevel% neq 0 (
@@ -188,6 +195,39 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo   [OK] Dependencias actualizadas.
+echo.
+
+REM --- Convertir env_cliente.bat -> .env, ahora que el codigo nuevo esta
+REM     copiado (FASE 3) y sus dependencias instaladas (esta fase). Las
+REM     instalaciones anteriores a la Fase 4 tienen su configuracion real en
+REM     env_cliente.bat; se convierte automaticamente, nadie tiene que
+REM     reescribirla a mano.
+if not exist "%DST_DIR%\deploy\env_cliente.env" (
+    if exist "%DST_DIR%\deploy\env_cliente.bat" (
+        echo   Convirtiendo env_cliente.bat al nuevo formato .env...
+        python manage.py migrar_env_cliente --settings=config.settings_production
+        if !errorlevel! neq 0 (
+            REM No se detiene la actualizacion: las variables de entorno que
+            REM este script ya cargo del .bat siguen activas para el resto de
+            REM esta corrida. Pero el .env que va a leer el SERVICIO (una vez
+            REM registrado) puede haber quedado incompleto -- el comando ya
+            REM lo imprimio arriba con el nombre exacto de la variable.
+            echo.
+            echo   [AVISO CRITICO] migrar_env_cliente termino con error -- ver el
+            echo                   detalle arriba de esta linea: seguramente falta
+            echo                   agregar a mano una variable critica al .env antes
+            echo                   de registrar los servicios.
+            echo.
+        )
+        if not exist "%DST_DIR%\deploy\env_cliente.env" (
+            echo   [AVISO] La conversion no genero env_cliente.env todavia.
+            echo           La instalacion sigue funcionando por las variables de
+            echo           entorno que ya cargo este script del .bat.
+        ) else (
+            echo   [OK] env_cliente.env generado.
+        )
+    )
+)
 echo.
 
 REM ============================================================================
@@ -249,6 +289,24 @@ if exist "%NSSM_PATH%" (
     if !errorlevel! neq 0 (
         echo   [AVISO] No se pudo iniciar POSFifoSystem por NSSM.
         echo           Si aun no existe el servicio, ejecute deploy\registrar_servicio.bat
+        REM La causa real casi nunca es "el servicio no existe" -- ese mensaje
+        REM generico mandaba a re-registrar cuando el problema real estaba en
+        REM el stdout del proceso (tipico: env_check.py aborta el arranque
+        REM por una variable critica invalida). Reproducido en Royal Plast
+        REM (2026-08-24): el servicio SI existia, pero server.py se negaba a
+        REM levantar por un DJANGO_SECRET_KEY corto, y este mensaje generico
+        REM no lo delataba.
+        if exist "%DST_DIR%\logs\service_stdout.log" (
+            echo.
+            echo   Ultimas lineas de logs\service_stdout.log:
+            powershell -NoProfile -Command "Get-Content -Tail 15 -Path '%DST_DIR%\logs\service_stdout.log' | ForEach-Object { '    ' + $_ }"
+        )
+        if exist "%DST_DIR%\logs\service_stderr.log" (
+            echo.
+            echo   Ultimas lineas de logs\service_stderr.log:
+            powershell -NoProfile -Command "Get-Content -Tail 15 -Path '%DST_DIR%\logs\service_stderr.log' | ForEach-Object { '    ' + $_ }"
+        )
+        echo.
     ) else (
         echo   [OK] Servicio web POSFifoSystem iniciado.
     )

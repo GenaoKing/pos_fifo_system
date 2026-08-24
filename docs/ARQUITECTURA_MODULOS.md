@@ -153,38 +153,51 @@ derivación back-compat desde `ConfiguracionNegocio`.
 
 ---
 
-## Deuda: la asimetria fail-open / fail-closed (2026-08-19)
+## Resuelto: la asimetria fail-open / fail-closed (detectada 2026-08-19, corregida 2026-08-24)
 
-El resolutor de modulos falla ABIERTO en un caso y CERRADO en otro, y los dos
-estados se ven iguales desde afuera. Esa asimetria costo un diagnostico largo
+El resolutor de modulos fallaba ABIERTO en un caso y CERRADO en otro, y los dos
+estados se veian iguales desde afuera. Esa asimetria costo un diagnostico largo
 (ver BUG-D en `docs/BUGS.md`).
 
 ```
-modulo_activo(key)
-  sucursal SIN negocio            -> True  (fail-OPEN, lee el flag legacy)
-  negocio SIN aprovisionar        -> False (fail-CLOSED, solo core)
-  negocio CON plan/NegocioModulo  -> segun el entitlement   <- el unico intencional
+modulo_activo(key)                          ANTES              AHORA
+  sucursal SIN negocio            -> True   (fail-OPEN, lee el flag legacy)
+  negocio SIN aprovisionar        -> False  -> True  (fail-OPEN, igual que arriba)
+  negocio CON plan/NegocioModulo  -> segun el entitlement   <- el unico intencional, sin cambio
 ```
 
-El segundo caso no es una decision de producto: es un negocio que existe pero al
-que nunca se le asignaron modulos. Tratarlo como "no tiene derecho a nada" apaga
+El caso de en medio no era una decision de producto: es un negocio que existe
+pero al que nunca se le asignaron modulos -- la ventana entre `bootstrap_negocio`
+y `bootstrap_suscripciones`. Tratarlo como "no tiene derecho a nada" apagaba
 funciones que el cliente si compro -- incluida la impresion de tickets, que no es
 opcional para un POS.
 
-**Arreglo sugerido (no aplicado):** que un negocio sin suscripcion **y** sin
-filas `NegocioModulo` se trate como *no aprovisionado* y falle ABIERTO, igual que
-una sucursal sin negocio. Un negocio con plan o con overrides sigue resolviendo
-por entitlement, que es lo que el sistema quiere expresar.
+**Arreglo aplicado.** `_resolver_negocio` distingue "sin aprovisionar" (sin
+suscripcion activa con plan **y** sin una sola fila de `NegocioModulo`) de
+"aprovisionado con exclusiones" (aunque sea una sola fila). Solo el primer
+caso falla abierto:
 
 ```python
 # apps/suscripciones/engine.py :: _resolver_negocio
-# Hoy: sin plan y sin overrides -> solo core.
-# Sugerido: sin plan y sin overrides -> nunca se aprovisiono -> todos los modulos.
+if not tiene_plan and not overrides:
+    return set(registry.keys())   # sin aprovisionar -> fail-open
+# con plan y/o con overrides (aunque sea una exclusion) -> se respeta tal cual
 ```
 
-Mientras no se aplique, `manage.py verificar_instalacion` lo detecta y explica.
+Un negocio con plan, o con UNA sola fila de override (aunque sea una
+exclusion), sigue resolviendo por entitlement exactamente como antes: el
+fail-open no es indiscriminado, es solo para "nadie configuro nada todavia".
 
-**Por que importa mas de lo que parece:** el sistema de modulos hoy no cobra ni
-bloquea comercialmente nada -- es una fundacion para vender por tiers mas
-adelante. Pero ya tiene poder para apagar funciones en produccion. Una fundacion
-sin uso comercial no deberia poder dejar a un cliente sin imprimir.
+`manage.py verificar_instalacion` ya no marca este caso como roto (`roto` solo
+se enciende si algo vendible quedo apagado de verdad); sigue avisando que el
+negocio no tiene entitlements reales configurados, porque el fail-open es una
+red de seguridad, no el estado deseado de una instalacion terminada.
+
+Tests: `apps/suscripciones/tests/test_engine.py`,
+`apps/suscripciones/tests/test_enforcement.py`,
+`apps/configuracion/tests/test_verificar_instalacion.py`.
+
+**Por que importaba mas de lo que parecia:** el sistema de modulos hoy no
+cobra ni bloquea comercialmente nada -- es una fundacion para vender por tiers
+mas adelante. Pero ya tiene poder para apagar funciones en produccion. Una
+fundacion sin uso comercial no deberia poder dejar a un cliente sin imprimir.

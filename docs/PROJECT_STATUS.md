@@ -1,7 +1,10 @@
 # Estado maestro del proyecto
 
-Estado consolidado al 2026-06-09. Este documento es la puerta de entrada para
-leer el proyecto sin perderse entre roadmaps, runbooks y bitacoras historicas.
+Estado consolidado al 2026-06-09, con parches puntuales al 2026-08-24 (ver notas
+inline). Este documento es la puerta de entrada para leer el proyecto sin
+perderse entre roadmaps, runbooks y bitacoras historicas -- pero varias filas
+de la tabla llevan semanas sin una revision completa; verificar contra el
+roadmap especifico antes de accionar algo con fecha vieja.
 
 ## Como leer estos docs
 
@@ -22,16 +25,16 @@ bitacoras y exploraciones viven en subcarpetas.
 | Vision/producto | En progreso | `VISION_PRODUCTO_2026.md` | Elegir la proxima apuesta de producto luego de cerrar deploy dev/staging. |
 | POS local | En produccion en 2 clientes | `ROADMAP_CLOUD.md` | Desplegar Fases 1-4 de sync (visita RP sabado, SK semana siguiente). |
 | Deploy POS local | Update in-place + `.env` (Fase 4) | `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Desplegar el paquete nuevo; rotar SECRET_KEY (#9) en la misma ventana. |
-| Portal cloud | **En produccion** | `ROADMAP_PORTAL.md` | ASWA prod vivo (`red-bay-07331a710`) apuntando a la API de prod. Falta subir imagenes (74 archivos de RP). |
+| Portal cloud | **En produccion** | `ROADMAP_PORTAL.md` | ASWA prod vivo (`red-bay-07331a710`) apuntando a la API de prod. Imagenes de RP subidas (2026-08-23); grilla de productos pinta miniatura, no el original (2026-08-24, falta desplegar a prod). |
 | Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
-| Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Solo falta la media de RP. |
+| Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Modulos vendibles | Fundacion completa, con una trampa | `ARQUITECTURA_MODULOS.md` | BUG-D: puede apagar la impresion en silencio. Detectado por `verificar_instalacion`; deuda de fondo documentada. |
+| Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
-| Sync confiable | **Fases 0-4 implementadas, sin desplegar** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar: cloud primero, luego RP (sabado) y SK (semana siguiente). |
-| Bugs/hallazgos | 4 bugs con causa raiz identificada | `BUGS.md` | BUG-A/B/C corregidos en codigo (sin desplegar); BUG-D detectado, conducta sin cambiar. |
+| Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
+| Bugs/hallazgos | 6 hallazgos documentados | `BUGS.md` | BUG-A/B/C/E/F resueltos y desplegados. BUG-D resuelto en codigo, pendiente de desplegar junto con Fase 3. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy

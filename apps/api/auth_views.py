@@ -1,6 +1,7 @@
 import logging
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed
@@ -198,10 +199,36 @@ class TenantTokenRefreshSerializer(TokenRefreshSerializer):
     """
 
     def validate(self, attrs):
-        data = super().validate(attrs)
-
         refresh = RefreshToken(attrs['refresh'])
         identity_id = refresh.get('identity_id')
+        tenant_key = refresh.get('tenant_key') or refresh.get('tenant_id')
+
+        # Resolver el tenant ANTES de llamar a la base de simplejwt es lo que
+        # arregla BUG-E. `TokenRefreshSerializer.validate()` (la clase padre)
+        # resuelve el usuario del token con `Usuario.objects.get(id=...)`; bajo
+        # DB-per-tenant `Usuario` es dual-home y sin contexto activo esa
+        # consulta cae al control plane, donde el usuario no existe. Antes
+        # `super().validate()` corria primero y el `DoesNotExist` subia sin
+        # capturar -> 500 en vez de 401. Ahora el tenant se activa alrededor de
+        # la llamada, y lo que SI puede pasar (usuario borrado de verdad) se
+        # atrapa explicito.
+        tenant = None
+        if identity_id and tenant_key:
+            tenant = Tenant.objects.using('default').filter(
+                tenant_key=tenant_key, activo=True,
+            ).first()
+            if tenant is None:
+                raise InvalidToken('El tenant ya no esta activo.')
+
+        try:
+            if tenant is not None:
+                with tenant_context(tenant):
+                    data = super().validate(attrs)
+            else:
+                data = super().validate(attrs)
+        except ObjectDoesNotExist:
+            raise InvalidToken('El usuario del token ya no existe.')
+
         if not identity_id:
             # Token legacy (sin tenancy): se comporta como antes.
             return data
@@ -212,17 +239,10 @@ class TenantTokenRefreshSerializer(TokenRefreshSerializer):
         if identity is None:
             raise InvalidToken('La identidad ya no esta activa.')
 
-        tenant_key = refresh.get('tenant_key') or refresh.get('tenant_id')
         if not tenant_key:
             if identity.is_global and refresh.get('is_global'):
                 return data
             raise InvalidToken('Token sin tenant.')
-
-        tenant = Tenant.objects.using('default').filter(
-            tenant_key=tenant_key, activo=True,
-        ).first()
-        if tenant is None:
-            raise InvalidToken('El tenant ya no esta activo.')
 
         try:
             _autorizar_tenant(
@@ -352,11 +372,19 @@ def _validar_usuario_portal(user):
             code='usuario_inactivo',
         )
 
-    rol = getattr(user, 'rol', None)
-    if rol not in ('SYSADMIN', 'ADMIN'):
+    # Antes: solo ADMIN/SYSADMIN. Con RBAC granular ya operativo (apps.permisos)
+    # el gate correcto no es el rol sino tener algun permiso concreto -- es lo
+    # que abre el portal a la cajera (BUG-G, docs/BUGS.md: fotografiar
+    # productos desde el celular) sin darle acceso a nada mas de lo que su
+    # rol ya le concede. Un usuario sin ninguna asignacion de rol activa
+    # sigue sin poder entrar.
+    from apps.permisos.engine import permisos_de_usuario
+
+    if not permisos_de_usuario(user):
         raise serializers.ValidationError(
-            {'detail': 'Solo administradores pueden acceder al portal cloud.'},
-            code='rol_no_autorizado',
+            {'detail': 'Su usuario no tiene ningun permiso asignado para el '
+                       'portal cloud. Contacte al administrador.'},
+            code='sin_permisos_portal',
         )
 
 

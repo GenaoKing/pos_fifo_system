@@ -23,6 +23,8 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from config.env_check import CRITICAS as _CRITICAS_ENV_CHECK
+
 # `set NOMBRE=valor` o `set "NOMBRE=valor"`. El valor puede traer cualquier cosa.
 _SET = re.compile(r'^\s*set\s+"?([A-Za-z_][A-Za-z0-9_]*)=(.*?)"?\s*$', re.IGNORECASE)
 
@@ -35,6 +37,22 @@ _ALIAS = {
     'PRINTER_TERMICA': 'THERMAL_PRINTER_NAME',
     'PRINTER_ZEBRA': 'ZEBRA_PRINTER_NAME',
 }
+
+# `%NOMBRE%` -- un identificador ENTRE DOS `%` -- es una expansion de cmd sin
+# resolver y no tiene sentido en un .env. Un `%` suelto NO lo es: probar solo
+# "'%' in valor" (la version vieja de este comando) descartaba en silencio
+# cualquier valor con un `%` literal, incluido un DJANGO_SECRET_KEY real que
+# traia dos `%` en su alfabeto aleatorio -- se perdio en produccion en Royal
+# Plast el 2026-08-22 y el sistema arranco con el SECRET_KEY default del
+# repo, sin ningun error, hasta que alguien lo noto a mano. Este patron exige
+# el PAR de `%` con un identificador valido en medio.
+_EXPANSION_CMD = re.compile(r'%[A-Za-z_][A-Za-z0-9_]*%')
+
+# Ademas de lo que ya considera critico el chequeo de arranque (hoy solo
+# DJANGO_SECRET_KEY), la conexion a la BD es igual de catastrofica si se
+# pierde en silencio: una contrasena con un `%` real dejaria la instalacion
+# sin poder conectar, con el mismo patron exacto de perdida silenciosa.
+_CRITICAS = frozenset(_CRITICAS_ENV_CHECK) | {'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST'}
 
 
 class Command(BaseCommand):
@@ -65,7 +83,7 @@ class Command(BaseCommand):
                 f'(conviene respaldarlo antes).'
             )
 
-        variables, ignoradas = self._parsear(origen)
+        variables, ignoradas, valores_originales = self._parsear(origen)
         if not variables:
             raise CommandError(f'No se encontro ninguna variable en {origen}')
 
@@ -82,8 +100,27 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'{len(variables)} variables escritas en {destino}'
         ))
-        if ignoradas:
-            self.stdout.write(f'  Omitidas (propias del .bat): {", ".join(sorted(ignoradas))}')
+
+        # Las omitidas por ser propias del .bat (POS_DIR, BACKUP_DIR) son
+        # ruido esperado. Las omitidas por parecer una expansion de cmd sin
+        # resolver son sospechosas SIEMPRE, y si ademas es una variable
+        # critica, no basta con avisar de pasada: el archivo ya se escribio
+        # (no se pierde lo demas), pero el comando tiene que salir en rojo
+        # para que nadie lea "22 variables escritas" y siga de largo.
+        omitidas_por_bat = ignoradas & _OMITIR
+        omitidas_sospechosas = ignoradas - _OMITIR
+        if omitidas_por_bat:
+            self.stdout.write(f'  Omitidas (propias del .bat): {", ".join(sorted(omitidas_por_bat))}')
+
+        omitidas_criticas = omitidas_sospechosas & _CRITICAS
+        if omitidas_sospechosas:
+            self.stdout.write(self.style.WARNING(
+                f'  Omitidas por traer una expansion de cmd sin resolver: '
+                f'{", ".join(sorted(omitidas_sospechosas))}'
+            ))
+            for nombre in sorted(omitidas_sospechosas):
+                self.stdout.write(f'    {nombre}={valores_originales.get(nombre, "?")}')
+
         self.stdout.write('')
         self.stdout.write('Siguientes pasos:')
         self.stdout.write('  1. python manage.py verificar_instalacion')
@@ -91,12 +128,26 @@ class Command(BaseCommand):
         self.stdout.write('       deploy\\registrar_servicio.bat')
         self.stdout.write('       deploy\\registrar_sync_servicio.bat')
 
+        if omitidas_criticas:
+            raise CommandError(
+                f'{len(omitidas_criticas)} variable(s) CRITICA(S) quedaron fuera de '
+                f'{destino.name}: {", ".join(sorted(omitidas_criticas))}. El resto del '
+                f'archivo SI se escribio, pero sin estas la instalacion no arranca '
+                f'(o arranca insegura, con el default del repo). Agregarlas a mano al '
+                f'.env con su valor real -- esta arriba, "Omitidas por traer una '
+                f'expansion..." -- antes de continuar.'
+            )
+
     # ------------------------------------------------------------------
 
     def _parsear(self, origen):
-        """Devuelve (variables, ignoradas). Ultimo `set` gana, como en cmd."""
+        """Devuelve (variables, ignoradas, valores_originales). Ultimo `set` gana, como en cmd."""
         variables = {}
         ignoradas = set()
+        # Valor crudo de TODO lo que se vio en un `set`, incluido lo omitido.
+        # Sirve para mostrarle al operador el valor real de una variable
+        # critica que se omitio, sin que tenga que ir a abrir el .bat.
+        valores_originales = {}
 
         for linea in origen.read_text(encoding='utf-8', errors='replace').splitlines():
             limpia = linea.strip()
@@ -112,11 +163,14 @@ class Command(BaseCommand):
                 continue
 
             nombre, valor = m.group(1).upper(), m.group(2)
+            valores_originales[nombre] = valor
             if nombre in _OMITIR:
                 ignoradas.add(nombre)
                 continue
-            # Expansiones de cmd sin resolver: no tienen sentido en un .env.
-            if '%' in valor:
+            # Expansion de cmd sin resolver (`%NOMBRE%` pareado): no tiene
+            # sentido en un .env. Un `%` suelto SI es un valor literal valido
+            # -- ver el docstring de _EXPANSION_CMD arriba.
+            if _EXPANSION_CMD.search(valor):
                 ignoradas.add(nombre)
                 continue
             variables[nombre] = valor
@@ -128,7 +182,7 @@ class Command(BaseCommand):
             if valor and not variables.get(nuevo):
                 variables[nuevo] = valor
 
-        return variables, ignoradas
+        return variables, ignoradas, valores_originales
 
     def _render(self, variables, origen):
         lineas = [

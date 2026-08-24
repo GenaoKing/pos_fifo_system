@@ -28,11 +28,12 @@
 ### BUG-A — Perdida SILENCIOSA de eventos de sync cuando el servicio del POS no tiene `SYNC_ENABLED`
 
 - Fecha de hallazgo: 2026-08-19.
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
-  El gate se movio de la emision al envio y el evento ahora se escribe dentro de
-  la transaccion de negocio. Ver Fase 1 de `docs/ROADMAP_SYNC_CONFIABLE.md`.
-  Falta desplegar a los clientes y correr `verificar_sync --backfill` para
-  recuperar lo ya perdido.
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud +
+  Royal Plast en sitio). El gate se movio de la emision al envio y el evento
+  ahora se escribe dentro de la transaccion de negocio (Fase 1 de
+  `docs/ROADMAP_SYNC_CONFIABLE.md`). Reparado con `verificar_sync --backfill
+  --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda
+  pendiente de su visita.
 - Severidad: **alta** (perdida de datos irrecuperable por el mecanismo actual).
 - Sintoma: ventas registradas en la sucursal que NUNCA llegan al cloud, sin que
   nada falle a la vista: `sync_status` reporta 0 pendientes, el daemon
@@ -106,7 +107,7 @@ fila nunca se creo.
 
 - Fecha de hallazgo: documentado en `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` §5;
   confirmado en codigo 2026-08-19.
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud + Royal Plast en sitio). Reparado con `verificar_sync --backfill --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda pendiente de su visita.
   Cursor keyset `(fecha_modificacion, id)` + marca de agua contigua. Ver Fase 2
   de `docs/ROADMAP_SYNC_CONFIABLE.md`.
 - Severidad: media (perdida de ACTUALIZACIONES de maestros, no de transacciones).
@@ -193,7 +194,7 @@ de esta fase.
 
 - Fecha de hallazgo: 2026-08-19.
 - Severidad: **alta** (dinero real invisible en el portal, y creciendo).
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud + Royal Plast en sitio). Reparado con `verificar_sync --backfill --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda pendiente de su visita.
 - Sintoma: el dueno mira el portal y no ve ninguna cuenta por cobrar, aunque en
   la sucursal si existen ventas a credito con su cartera.
 
@@ -309,12 +310,17 @@ con el sintoma de impresion que se vio en SK Performance tras una actualizacion.
 y `actualizar.bat` ahora corre `verificar_instalacion` al terminar, que lo
 reporta en rojo con la causa y el arreglo.
 
-**Deuda pendiente (no se toco a proposito).** La asimetria de fondo sigue ahi:
-`modulo_activo` con `negocio=None` falla ABIERTO, pero un negocio a medio
-aprovisionar falla CERRADO, y los dos estados son indistinguibles desde afuera.
-Lo canonico seria que un negocio **sin aprovisionar** (sin suscripcion y sin
-`NegocioModulo`) tambien falle abierto, como el resto del sistema. Queda anotado
-en `docs/ARQUITECTURA_MODULOS.md`.
+**Deuda resuelta el 2026-08-24.** La asimetria de fondo -- `modulo_activo` con
+`negocio=None` fallaba ABIERTO, pero un negocio a medio aprovisionar fallaba
+CERRADO -- ya no existe. `apps/suscripciones/engine.py::_resolver_negocio`
+trata un negocio sin suscripcion activa con plan NI una sola fila de
+`NegocioModulo` igual que un negocio sin resolver: fail-open. En cuanto existe
+una suscripcion o UNA fila de override (aunque sea una exclusion), se respeta
+tal cual -- ya no es fail-open indiscriminado. `verificar_instalacion` sigue
+avisando que el negocio no tiene entitlements de verdad configurados, pero ya
+no lo marca como roto: el fail-open es una red de seguridad, no el estado
+deseado de una instalacion terminada. Detalle de diseno en
+`docs/ARQUITECTURA_MODULOS.md`.
 
 ---
 
@@ -345,16 +351,25 @@ contexto de tenant**, la consulta va al control plane, donde el usuario del
 tenant no existe. Un token emitido dentro de un tenant no se puede validar fuera
 de el.
 
-**Correccion sugerida (no aplicada).** Envolver la resolucion en el endpoint de
-refresh y devolver **401** cuando el usuario no resuelva -- que es lo que el
-frontend espera para mandar al login-- en vez de un 500. Y revisar por que el
-refresh pierde el contexto de tenant: si el token lleva `tenant_id`, deberia
-establecerse antes de resolver el usuario.
+**Corregido el 2026-08-24.** `TenantTokenRefreshSerializer.validate()`
+resuelve el tenant del token (`tenant_key`) y activa `tenant_context(tenant)`
+ALREDEDOR de la llamada a `super().validate()` -- antes corria despues, o no
+corria. Con el contexto activo, `Usuario.objects.get(id=...)` resuelve a la
+base del tenant, no al control plane. Si de verdad el usuario ya no existe
+(borrado, no solo sin contexto), `ObjectDoesNotExist` se atrapa explicito y se
+traduce a `InvalidToken` (401), nunca un 500 sin capturar. Tests en
+`apps/api/tests/test_refresh_tenant_context.py`.
 
-**Relacionado.** Misma familia que los 500 de `/login/` y `/reportes/`: el cloud
-sirve rutas que bajo tenancy fallan ruidoso sin contexto. Endurecimiento
-pendiente: esas rutas de template del POS local no deberian ser alcanzables en
-el cloud.
+**Tambien resuelto: las rutas de template del POS local dejaron de ser
+alcanzables en el cloud.** `config/urls.py` ahora excluye
+`inventario/`, `pos/`, `productos/`, `clientes/`, `cuentas-por-cobrar/`,
+`cotizaciones/`, `reportes/`, `caja/`, `auditoria/`, las de `usuarios`
+(incluye `/login/`) y `facturacion-electronica/` cuando
+`TENANCY_DB_PER_TENANT_ENABLED` esta activo -- el mismo flag que activa el
+router. `/admin/`, `/api/` y el health check siguen disponibles siempre. Sin
+esas rutas, un scanner tocando `/login/` o `/reportes/` recibe 404 en vez de
+gatillar `TenantContextError` -> 500. Tests en
+`apps/tenancy/tests/test_urls_ocultas_en_cloud.py`.
 
 ---
 
@@ -430,3 +445,194 @@ porque el registro es justamente lo que mintio. Regresion cubierta en
 `DEFAULT_ONLY_APPS` y `DUAL_HOME_APPS` **no es un cambio de configuracion**: es
 una migracion de datos. Toda app que cambie de bucket necesita, en cada base
 afectada, desregistrar sus migraciones y volver a aplicarlas.
+
+---
+
+### BUG-G — Cadena de fallos en la visita de actualizacion a Royal Plast (2026-08-24)
+
+- Fecha: 2026-08-24, actualizacion en sitio con el negocio cerrado (agente
+  remoto vía Remote Control, reporte completo entregado a esta sesión).
+- Severidad: **critica** la pieza 3 (perdida silenciosa de secreto); el resto
+  **bloqueante mientras se diagnostica**, pero sin dano de datos.
+- **Resultado final de la visita:** `verificar_sync` cerro con
+  `RESULTADO: sin perdida detectada.` Cola 641 CONFIRMADO / 2 ERROR (ver
+  Hallazgo 6, abajo). 36 hechos + 31 descartados repuestos; 15 CxC recuperadas
+  (RD$232,635 facturado / RD$97,918.55 saldo). El detalle completo de la
+  reparacion de datos queda en la bitacora del runbook, no aqui.
+
+Cuatro fallos estaban en codigo que este repo controla y habrian reaparecido
+en el proximo cliente. Los cuatro **corregidos el mismo dia**:
+
+**1. `actualizar.bat`: el timestamp del backup dependia del locale de Windows.**
+`%date:~6,4%%date:~3,2%%date:~0,2%` asume un formato fijo; en `es-DO`,
+`%DATE%` trae el dia de la semana adelante (`sáb. 22/08/2026`), el recorte se
+desalinea y produce un nombre de archivo con `/` adentro -- `pg_dump` no
+puede crearlo, y como el script aborta a proposito si el backup falla, la
+actualizacion nunca pasaba de la FASE 2. El parche manual que se venia
+usando (`BACKUP_FILE=%DB_NAME%.dump`, sin fecha) sobrescribia el backup
+anterior en cada corrida: se perdio el punto de rollback previo. Corregido
+con `powershell Get-Date -Format` (no depende del locale).
+
+**2. Byte de control `0x0B` colado en una ruta `\venv`.** El paquete usado en
+la visita traia `call "...\x0Benv\Scripts\python.exe"` -- alguien tecleo la
+secuencia de escape `\v` en algun editor/generador y quedo interpretada
+literal. El `call` fallaba sin chequeo de errorlevel y el script seguia de
+largo. La fuente en este repo ya estaba limpia (corregida en una sesion
+anterior), pero el paquete de la visita se genero antes de ese fix. Como red
+de seguridad permanente, `scripts/lint_bat.py` -- que ya corre como gate de
+`preparar_paquete.bat` -- ahora tambien escanea BEL/BS/VT/FF a nivel de
+bytes en cualquier `.bat`, asi el origen del proximo descuido (cual sea) no
+importa.
+
+**3. `migrar_env_cliente.py` perdia el `DJANGO_SECRET_KEY` en silencio -- el
+mas grave.** La heuristica vieja descartaba CUALQUIER valor con un `%`
+literal (`if '%' in valor: ignoradas.add(nombre)`), sin distinguir eso de una
+expansion de cmd real (`%NOMBRE%`) sin resolver. El `DJANGO_SECRET_KEY` de
+Royal Plast traia dos `%` en su alfabeto aleatorio y se omitio del `.env`
+generado. Combinado con `settings.py` cayendo al default inseguro del repo
+cuando falta la variable, la instalacion habria arrancado firmando cookies
+con una clave publica en el código fuente -- **sin ningun error**. El
+`.env` que `env_check.PLACEHOLDERS` marca como CRITICO existe como red de
+seguridad, pero depende de que alguien corra `verificar_instalacion`.
+
+Corregido: la heuristica ahora exige el PAR `%[A-Za-z_][A-Za-z0-9_]*%` (una
+expansion de verdad), no un `%` suelto. Y ademas -- la correccion de fondo --
+si una variable de la lista CRITICAS (`DJANGO_SECRET_KEY`, mas `DB_NAME`,
+`DB_USER`, `DB_PASSWORD`, `DB_HOST` para este comando) queda omitida por
+seguir pareciendo una expansion sin resolver, el comando **falla con
+`CommandError`** despues de escribir el resto del archivo (no se pierde lo
+demas, pero no se puede leer "N variables escritas" y seguir de largo). 7
+tests nuevos en `apps/configuracion/tests/test_migrar_env_cliente.py`,
+incluida la reproduccion exacta del secret real.
+
+**4. El orden de `actualizar.bat` garantizaba que la conversion a `.env`
+nunca ocurriera en la primera pasada.** La conversion estaba ANTES de la
+FASE 3 (copiar codigo nuevo), pero el comando `migrar_env_cliente` solo
+existe en el paquete nuevo -- `Unknown command: 'migrar_env_cliente'` en
+cada primera actualizacion de un cliente que siguiera en formato `.bat`. El
+runbook prometia una conversion que nunca pasaba. Movido a despues de la
+FASE 4 (dependencias instaladas, ademas necesario porque el comando importa
+`python-dotenv`).
+
+**Hardening relacionado, mismo dia:**
+- `registrar_sync_servicio.bat` no validaba que `env_cliente.env` existiera
+  antes de registrar el servicio (a diferencia de `registrar_servicio.bat`,
+  que si lo hace). El sintoma real de la visita: `POSFifoSync` quedaba en
+  bucle de reinicio (`CommandError: SYNC_ENABLED=False en settings`),
+  aparentando RUNNING porque nssm lo relanzaba. Ahora valida igual que su
+  contraparte.
+- FASE 8 de `actualizar.bat`, ante un fallo de arranque de `POSFifoSystem`,
+  imprimia solo un mensaje generico que sugeria "el servicio no existe" --
+  cuando la causa real (el gate de `env_check.py` rechazando un
+  `DJANGO_SECRET_KEY` invalido) estaba en `logs\service_stdout.log`. Ahora
+  imprime las ultimas 15 lineas de `service_stdout.log`/`service_stderr.log`
+  en ese caso.
+- Cosmetico: el prompt de ruta destino mostraba `[]` vacio en vez del
+  default (`%DEFAULT_DST%` se expandia en tiempo de parseo del bloque, antes
+  del `set`); corregido a `!DEFAULT_DST!`.
+- Cosmetico: `registrar_servicio.bat` y `registrar_sync_servicio.bat`
+  calculaban `PROJECT_DIR` como `%~dp0..` sin resolver el `..`, asi que
+  `POS_ENV_FILE` y las rutas de log quedaban como
+  `C:\pos_fifo_system\deploy\..\deploy\env_cliente.env`. Windows lo resuelve
+  igual, pero ensucia cualquier diagnostico (Task Scheduler, `nssm dump`).
+  Corregido con el mismo patron de canonicalizacion que ya usaba
+  `actualizar.bat` (`for %%I in ("%PROJECT_DIR%") do set "PROJECT_DIR=%%~fI"`).
+
+**Hallazgo 6 -- sin resolver a proposito, requiere decision.** Dos eventos
+quedaron en ERROR permanente porque no son backfilleables por diseno
+(`apps/sync/registry.py`: `cxc_creadas`/`cxc_pagos` tienen `backfill=False`
+adrede -- ver el docstring del modulo):
+
+- `VENTA_CREADA V-20260623-0001`: el producto `PROD-0361` no existe en cloud
+  todavia. Se repara con `reconciliar_cloud`, que exige un
+  `CLOUD_ADMIN_TOKEN` de sysadmin que no estaba disponible en sitio.
+- `CXC_PAGO_REGISTRADO V-20260622-0001-P5` y su analoga en `V-20260623-0002`:
+  la CxC de origen nunca emitio `CXC_CREADA`. `serializar_cxc` manda el
+  estado ACTUAL (saldo 0.00, PAGADA), no el estado al momento de crearse;
+  emitir el evento ahora crearia la cuenta ya saldada y el pago pendiente se
+  aplicaria encima -- si el handler del cloud resta en vez de recalcular, el
+  saldo terminaria negativo. Impacto acotado: ambas cuentas estan PAGADA con
+  saldo 0 (no hay plata por cobrar en juego), son RD$25,850 de historial que
+  no se ve en el portal.
+
+Ninguna reparacion de datos de produccion se ejecuto a ciegas para esto --
+correcto: adivinar sobre datos reales de un cliente pagando es peor que
+dejarlo pendiente. Pendiente: decidir si vale la pena escribir un evento
+`CXC_CREADA` "reconstruido" (con el estado historico, no el actual) para
+este tipo de hueco, o si se acepta como perdida de historial cosmetica.
+
+**Actualizacion 2026-08-24 -- Hallazgo 6 resuelto.** Se reconstruyeron
+`PROD-0361`/`PROD-0468` por ORM directo en `tnt_royalplast` y se rearmaron las
+CxC 18/19 llamando a los handlers de produccion con el estado historico
+correcto (saldo=total al crear, payload real de pago al pagar), dentro de una
+transaccion con verificacion post-condicion. Confirmado por SQL independiente:
+ambas cuentas en saldo=0.00/PAGADA, igual que en local. No hizo falta
+`CLOUD_ADMIN_TOKEN`: los handlers de `apps/api/views/sync.py` se invocaron
+directo via Django ORM, sin pasar por el endpoint HTTP.
+Esto era un sintoma puntual; la causa de fondo -- un SKU nuevo en sucursal
+tumbaba la venta entera -- se corrigio de raiz y se documenta en **BUG-H**,
+abajo.
+
+---
+
+### BUG-H — Patron B11b en ventas: un SKU nuevo en sucursal tumbaba la venta entera
+
+- Fecha de hallazgo: recurrencia detectada 2026-08-24, via sesion remota con
+  Royal Plast (400 productos en local vs 325 en cloud; una venta del dia
+  presente en local y ausente en cloud). Mismo patron de fondo que el
+  Hallazgo 6 de BUG-G y que BUG-C, pero para `Producto` en vez de `Cliente`.
+- Severidad: **alta** -- cada producto nuevo cargado desde el POS local era
+  una venta futura en riesgo de perderse en silencio (la cola reintenta,
+  falla identico, `DESCARTADO`).
+- **Estado: CORREGIDO, en `origin/develop` (commits `ee3c152`..`33f7a84`) y
+  frontend en `main` de `pos-cloud-dashboard` (`c9116f5`). NO desplegado a
+  prod todavia** -- falta correr `productos.0011` y `permisos.0008` (ver
+  `docs/ESTADO_AUDITORIAS.md` §2.1/§2.3), promover a `main`/prod, y el rig
+  end-to-end contra `royalplastdemo`.
+- Sintoma: `_resolver_productos_venta` (`apps/api/views/sync.py`) lanzaba
+  `ValueError` y rechazaba la venta **completa** si algun `producto_sku` del
+  detalle no existia en el cloud. El evento reintentaba, fallaba identico en
+  cada intento, agotaba `SYNC_MAX_RETRIES` y terminaba `DESCARTADO` --
+  perdida permanente, igual mecanismo que BUG-C.
+
+**Correccion aplicada** (mismo patron que BUG-C establecio para `Cliente`,
+ahora extendido a `Producto` -- ver decision **B11b** en
+`docs/ROADMAP_PORTAL.md`, revision 2026-08-24):
+
+1. `Producto` gana `origen_sucursal` (FK) + `pendiente_revision` (bool) +
+   `imagen_origen_url`. `Categoria.get_sin_clasificar()` como categoria
+   generica para el producto recien nacido.
+2. `_resolver_productos_venta` ya no lanza: por cada SKU faltante hace
+   `get_or_create` con nombre/precio del propio payload de venta,
+   `categoria=Sin clasificar`, `pendiente_revision=True`,
+   `origen_sucursal=<la que vendio>`. La venta se aplica completa
+   referenciando el stub.
+3. **Anti-clobber**, el riesgo central de este diseno: si el stub bajara por
+   el pull normal a la sucursal que lo origino, pisaria con datos pobres
+   cualquier producto real que compartiera SKU. `ProductoViewSet.get_base_queryset`
+   excluye `pendiente_revision=True` cuando el token es de sucursal --
+   invisible para cualquier engine local, viejo o nuevo, sin necesidad de
+   actualizarlo. Se libera **solo** con un PATCH que incluya `categoria` (el
+   submit normal del modal de edicion del portal); un PATCH de solo `activo`
+   (ej. el toggle de la lista) NO lo libera.
+4. Portal cloud abierto a CAJERA via permisos granulares: `productos.ver` +
+   `productos.fotografiar` (nuevo), ambos en `PERMISOS_CAJERO_DEFAULT` y
+   backfillados a los roles Cajero de sistema existentes por la data
+   migration `permisos.0008`. Puede fotografiar el producto recien nacido,
+   no tocar precio/categoria.
+5. Subida de foto desde el portal (con compresion client-side y camara via
+   `capture="environment"`) baja al POS local en el siguiente pull
+   (`_pull_productos` -> `_descargar_imagen_producto`), con miniatura
+   regenerada localmente. Comando `descargar_imagenes_productos` para
+   backfill/reparacion manual.
+
+**Pendiente:** desplegar (backend primero, migraciones incluidas; despues el
+frontend), rig end-to-end contra `royalplastdemo` (venta con SKU inexistente
+-> stub -> completar en el portal -> baja en el proximo pull; foto subida ->
+baja al POS local con miniatura), y -- en la proxima visita a Royal
+Plast/SK Performance -- actualizar el paquete local para que el punto 5
+(bajada de fotos) tenga efecto ahi.
+
+**Deuda relacionada.** Cierra la brecha que la nota de BUG-C dejaba abierta
+("el cloud sigue siendo la autoridad para editar maestros; aqui solo se crea
+lo que no existe") -- ahora aplica igual a productos.
