@@ -100,6 +100,10 @@ class ProductoSerializer(serializers.ModelSerializer):
       megabytes, mientras la miniatura ronda los 20 KB. Cae al original cuando
       el producto todavia no tiene miniatura generada.
     - stock_actual y valuacion_fifo NO se incluyen — son datos locales
+    - pendiente_revision / origen_sucursal_nombre: el producto nació como
+      stub de una venta con SKU desconocido (ver
+      apps.api.views.sync._resolver_productos_venta, BUG-G en docs/BUGS.md).
+      El portal los usa para el badge "Revisar" y el aviso en el modal.
     """
     categoria_nombre = serializers.CharField(
         source='categoria.nombre',
@@ -107,6 +111,11 @@ class ProductoSerializer(serializers.ModelSerializer):
     )
     imagen_url = serializers.SerializerMethodField()
     imagen_thumb_url = serializers.SerializerMethodField()
+    origen_sucursal_nombre = serializers.CharField(
+        source='origen_sucursal.nombre',
+        read_only=True,
+        default=None,
+    )
 
     class Meta:
         model = Producto
@@ -126,6 +135,8 @@ class ProductoSerializer(serializers.ModelSerializer):
             'imagen_url',
             'imagen_thumb_url',
             'atributos',
+            'pendiente_revision',
+            'origen_sucursal_nombre',
             'fecha_creacion',
             'fecha_modificacion',
         ]
@@ -192,6 +203,20 @@ class ProductoWriteSerializer(serializers.ModelSerializer):
         # SKU no se cambia después de creado — rompería la sincronización
         # con sucursal porque ahí es la clave de update_or_create.
         validated_data.pop('sku', None)
+
+        # Anti-clobber (BUG-G, docs/BUGS.md): un stub nacido de una venta con
+        # SKU desconocido queda `pendiente_revision=True` y oculto del pull
+        # hacia la sucursal que lo originó (ver ProductoViewSet). Solo se
+        # libera cuando alguien lo completa de verdad -- y "de verdad" se
+        # define como "mandó una categoría", porque el modal del portal
+        # siempre la incluye en el submit de edición. NO cualquier PATCH:
+        # `toggleProduct` (activar/desactivar) manda solo {activo}, y si eso
+        # bastara para liberar el stub, un simple clic lo bajaría a la
+        # sucursal con su nombre/precio/categoría genéricos todavía puestos,
+        # pisando el producto real que esa sucursal ya tiene para el SKU.
+        if instance.pendiente_revision and 'categoria' in validated_data:
+            validated_data['pendiente_revision'] = False
+
         return super().update(instance, validated_data)
 
     def validate_precio_venta(self, value):

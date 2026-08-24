@@ -16,12 +16,16 @@ Sync incremental:
 Todos los modelos ya tienen `fecha_modificacion` con auto_now=True.
 """
 
+import logging
+
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..permissions import MaestroPermisoMixin
+from ..permissions import MaestroPermisoMixin, _es_token_de_sucursal, requiere_alguno
 
 from apps.productos.models import Producto, Categoria
 from apps.clientes.models import Cliente
@@ -35,6 +39,30 @@ from ..serializers.maestros import (
     ClienteWriteSerializer,
 )
 from ..pagination import LargePagination
+
+logger = logging.getLogger('pos_system')
+
+# 10 MB. Los originales de este cliente promedian 3.2 MB (foto de celular sin
+# comprimir); el tope solo esta para frenar un archivo verdaderamente
+# anormal, no para exigir que el cajero comprima -- el frontend ya comprime
+# antes de subir (ver pos-cloud-dashboard).
+_LIMITE_IMAGEN_BYTES = 10 * 1024 * 1024
+
+
+class SubirImagenProductoSerializer(serializers.Serializer):
+    """
+    `ImageField` de DRF ya valida con Pillow que el archivo sea una imagen de
+    verdad (abre y lee las dimensiones); no hay que reimplementar eso.
+    """
+    imagen = serializers.ImageField()
+
+    def validate_imagen(self, value):
+        if value.size > _LIMITE_IMAGEN_BYTES:
+            raise serializers.ValidationError(
+                f'La imagen pesa {value.size / 1_000_000:.1f} MB; el limite es '
+                f'{_LIMITE_IMAGEN_BYTES / 1_000_000:.0f} MB.'
+            )
+        return value
 
 
 class SyncIncrementalMixin:
@@ -197,7 +225,20 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
         return ProductoWriteSerializer
 
     def get_base_queryset(self):
-        queryset = Producto.objects.select_related('categoria').all()
+        queryset = Producto.objects.select_related('categoria', 'origen_sucursal').all()
+
+        # Anti-clobber (BUG-G, docs/BUGS.md): un stub creado desde una venta
+        # con SKU desconocido (ver _resolver_productos_venta) nace con
+        # nombre/precio minimos y categoria generica. Si el pull de la
+        # sucursal que lo origino lo bajara asi, pisaria con ese stub pobre
+        # los datos reales que esa sucursal ya tiene para el mismo SKU --
+        # exactamente el dano que el sync de maestros existe para evitar.
+        # Se excluye SOLO para tokens de sucursal (sync incremental); el
+        # portal admin lo ve siempre, para poder completarlo. En cuanto se
+        # completa (ver ProductoWriteSerializer.update), fecha_modificacion
+        # avanza y baja normal en el proximo ciclo.
+        if _es_token_de_sucursal(self.request):
+            queryset = queryset.filter(pendiente_revision=False)
 
         # Filtros opcionales
         activo = self.request.query_params.get('activo')
@@ -207,6 +248,10 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
         categoria = self.request.query_params.get('categoria')
         if categoria:
             queryset = queryset.filter(categoria_id=categoria)
+
+        pendiente_revision = self.request.query_params.get('pendiente_revision')
+        if pendiente_revision is not None:
+            queryset = queryset.filter(pendiente_revision=pendiente_revision.lower() == 'true')
 
         # Búsqueda libre por nombre, sku, código de barras (uso del portal).
         search = self.request.query_params.get('search')
@@ -219,6 +264,64 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
             )
 
         return queryset
+
+    def get_permissions(self):
+        # La action de foto acepta `productos.editar` O el permiso acotado
+        # `productos.fotografiar` (pensado para la cajera: sube fotos, no
+        # cambia precio ni categoria). Fuera de MaestroPermisoMixin porque
+        # ese mapea UN permiso por accion, y aca hace falta el OR.
+        if self.action == 'imagen':
+            return [IsAuthenticated(), requiere_alguno('productos.editar', 'productos.fotografiar')()]
+        return super().get_permissions()
+
+    @action(detail=True, methods=['post', 'delete'], url_path='imagen')
+    def imagen(self, request, pk=None):
+        producto = self.get_object()
+        if request.method == 'DELETE':
+            return self._eliminar_imagen(producto)
+        return self._subir_imagen(request, producto)
+
+    def _subir_imagen(self, request, producto):
+        serializer = SubirImagenProductoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # El ORIGINAL anterior (no la miniatura -- esa la borra sola
+        # `sincronizar_miniatura` dentro de `producto.save()`) queda huerfano
+        # en el storage si no se borra aca: cada foto nueva dejaria un
+        # archivo mas en Blob que nadie referencia.
+        anterior = producto.imagen.name or ''
+        storage = producto.imagen.storage
+
+        producto.imagen = serializer.validated_data['imagen']
+        producto.save()
+
+        if anterior and anterior != (producto.imagen.name or ''):
+            try:
+                storage.delete(anterior)
+            except Exception as exc:  # pragma: no cover - borrar no debe tumbar la respuesta
+                logger.warning('No se pudo borrar la imagen anterior "%s": %s', anterior, exc)
+
+        return Response(self._read(producto).data)
+
+    def _eliminar_imagen(self, producto):
+        if producto.imagen:
+            storage = producto.imagen.storage
+            nombre_original = producto.imagen.name
+            nombre_miniatura = producto.imagen_miniatura.name if producto.imagen_miniatura else ''
+
+            producto.imagen = None
+            producto.imagen_miniatura = None
+            producto.save(sincronizar_miniatura=False)
+
+            for nombre in (nombre_original, nombre_miniatura):
+                if not nombre:
+                    continue
+                try:
+                    storage.delete(nombre)
+                except Exception as exc:  # pragma: no cover
+                    logger.warning('No se pudo borrar "%s" al eliminar la imagen: %s', nombre, exc)
+
+        return Response(self._read(producto).data)
 
 
 class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):

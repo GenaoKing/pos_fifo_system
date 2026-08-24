@@ -105,6 +105,30 @@ def requiere_permiso(codigo):
     return type(nombre, (TienePermiso,), {'codigo': codigo})
 
 
+def requiere_alguno(*codigos):
+    """
+    Factory: concede acceso si el usuario tiene AL MENOS UNO de los codigos.
+
+    Uso concreto: subir la foto de un producto la puede hacer quien edita
+    productos en general (`productos.editar`) O quien solo tiene el permiso
+    acotado `productos.fotografiar` (pensado para la cajera que fotografia
+    desde el celular pero no toca precios ni categoria).
+    """
+    nombre = 'RequiereAlguno_' + '_'.join(c.replace('.', '_') for c in codigos)
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        sucursal = _request_sucursal(request)
+        return any(user.tiene_permiso(c, sucursal=sucursal) for c in codigos)
+
+    return type(nombre, (BasePermission,), {
+        'message': 'No tiene el permiso requerido para realizar esta accion.',
+        'has_permission': has_permission,
+    })
+
+
 def _es_token_de_sucursal(request):
     """True si el request viene autenticado con un token de servicio de una
     sucursal activa (usado por el sync incremental)."""
