@@ -253,6 +253,35 @@ class GenerarMiniaturasCommandTests(TestCase):
         self.assertTrue(self.producto.imagen_miniatura)
         self.assertIn('generadas: 1', salida)
 
+    def test_si_fallan_todas_el_comando_falla(self):
+        """
+        Corriendo el backfill contra un tenant cuyos originales no estaban en
+        el storage, las 73 fallaron y el comando salio en 0: un runbook
+        encadenado lo habria dado por bueno.
+        """
+        from django.core.management.base import CommandError
+
+        # Dejar el campo apuntando a un archivo que no existe.
+        Producto.objects.filter(pk=self.producto.pk).update(
+            imagen='productos/no-existe.jpg', imagen_miniatura=None,
+        )
+        with self.assertRaises(CommandError) as caso:
+            self._correr(apply=True)
+        self.assertIn('Ninguna de las 1 miniaturas', str(caso.exception))
+
+    def test_una_que_falla_entre_varias_no_tumba_el_resto(self):
+        """Un catalogo con una foto rota se migra igual; se reporta el fallo."""
+        Producto.objects.create(
+            sku='SKU-ROTO-2',
+            nombre='Foto perdida',
+            categoria=self.categoria,
+            precio_venta=10,
+            imagen='productos/no-existe.jpg',
+        )
+        salida = self._correr(apply=True)
+        self.assertIn('generadas: 1', salida)
+        self.assertIn('fallidas:  1', salida)
+
     def test_segunda_corrida_no_tiene_nada_que_hacer(self):
         """Idempotente: se puede volver a correr sin regenerar ni duplicar."""
         self._correr(apply=True)

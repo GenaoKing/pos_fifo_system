@@ -9,7 +9,7 @@ subidas antes de que existiera la miniatura.
 Sirve igual en la sucursal (sin tenancy) y en el cloud (con `--tenant`).
 """
 from django.db.models import Q
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.productos.models import Producto
 from apps.tenancy.management.base import TenantCommandMixin
@@ -133,6 +133,17 @@ class Command(TenantCommandMixin, BaseCommand):
                 f'peso: {self._mb(bytes_origen)} -> {self._mb(bytes_miniatura)} '
                 f'({ahorro:.1f}% menos por vista de catalogo)'
             )
+        if fallidas and not generadas:
+            # Corriendo el backfill de `royalplastdemo` contra produccion,
+            # las 73 fallaron -- ese tenant nunca tuvo su media en Blob -- y el
+            # comando termino en 0. Un runbook o un script encadenado lo habria
+            # dado por bueno. Que todo falle es un fallo.
+            raise CommandError(
+                f'Ninguna de las {fallidas} miniaturas se pudo generar. '
+                f'La causa mas comun es que los originales no esten en el '
+                f'storage: revisar las primeras lineas FALLO / SIN MINIATURA.'
+            )
+
         estilo = self.style.SUCCESS if not fallidas else self.style.WARNING
         self.stdout.write(estilo('Miniaturas generadas.'))
 

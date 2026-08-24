@@ -196,6 +196,13 @@ El comando, por cada imagen:
 > Para un tenant cuya media ya se migró **antes** de que existieran las
 > miniaturas, correr después:
 > `python manage.py generar_miniaturas --tenant <key> --apply`
+>
+> Si **todas** fallan con `ResourceNotFoundError: The specified blob does not
+> exist`, ese tenant nunca tuvo su media en Blob: sus rutas siguen crudas
+> (`productos/foo.jpg` en vez de `<tenant>/productos/foo.jpg`). No es un
+> problema de las miniaturas — el portal ya mostraba las imágenes rotas. Se
+> arregla corriendo primero esta migración de media. Le pasa a
+> `royalplastdemo`, medido el 2026-08-24.
 
 Es **idempotente**: lo ya migrado se cuenta como `already_prefixed` y se salta.
 Se puede correr de nuevo sin miedo.
