@@ -86,24 +86,36 @@ class _BaseCloud:
         return client
 
 
-class VentaCompletaONadaTests(_BaseCloud, TestCase):
-    """SYNC-004: una venta no puede confirmarse con lineas omitidas."""
+class VentaConStubsTests(_BaseCloud, TestCase):
+    """
+    BUG-G (docs/BUGS.md): un SKU que no existe en cloud ya no rechaza la
+    venta entera. Nace como stub sellado (origen_sucursal +
+    pendiente_revision) y la venta se aplica completa -- antes, dos ventas de
+    produccion murieron DESCARTADAS tras 10 reintentos porque el producto
+    jamas se creaba en cloud por ningun otro camino.
+    """
 
     def setUp(self):
         self._montar_cloud()
 
-    def test_sku_ausente_falla_el_evento_entero(self):
+    def test_sku_faltante_crea_un_stub_y_la_venta_se_aplica_completa(self):
         self._producto('CLOUD-A')
         payload = _payload_venta('V-CLOUD-0001', ['CLOUD-A', 'CLOUD-FALTANTE'])
 
-        with self.assertRaises(ValueError) as ctx:
-            _handler_venta_creada(self.sucursal, payload)
+        _handler_venta_creada(self.sucursal, payload)
 
-        self.assertIn('CLOUD-FALTANTE', str(ctx.exception))
-        # Nada a medias: la cabecera tampoco se creo.
-        self.assertFalse(Venta.objects.filter(numero_venta='V-CLOUD-0001').exists())
+        venta = Venta.objects.get(numero_venta='V-CLOUD-0001')
+        self.assertEqual(venta.detalles.count(), 2)
 
-    def test_el_endpoint_reporta_error_y_no_confirma_el_evento(self):
+        stub = Producto.objects.get(sku='CLOUD-FALTANTE')
+        self.assertEqual(stub.nombre, 'CLOUD-FALTANTE')  # producto_nombre del payload
+        self.assertEqual(stub.precio_venta, Decimal('100.00'))  # precio_unitario del payload
+        self.assertEqual(stub.categoria.nombre, 'Sin clasificar')
+        self.assertTrue(stub.activo)
+        self.assertTrue(stub.pendiente_revision)
+        self.assertEqual(stub.origen_sucursal_id, self.sucursal.id)
+
+    def test_el_endpoint_confirma_el_evento_con_stub(self):
         self._producto('CLOUD-A')
         payload = _payload_venta('V-CLOUD-0002', ['CLOUD-A', 'CLOUD-FALTANTE'])
 
@@ -112,36 +124,64 @@ class VentaCompletaONadaTests(_BaseCloud, TestCase):
             {'eventos': [{
                 'tipo_evento': 'VENTA_CREADA',
                 'payload': payload,
-                'hash_payload': 'hash_venta_parcial',
+                'hash_payload': 'hash_venta_con_stub',
                 'timestamp': timezone.now().isoformat(),
             }]},
             format='json',
         )
 
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.data['errores'], 1)
-        self.assertEqual(res.data['detalle'][0]['estado'], 'ERROR')
-
-        # El evento NO queda registrado: el reintento posterior lo aplica
-        # completo cuando el producto llegue.
-        self.assertFalse(
-            EventoSync.objects.filter(hash_payload='hash_venta_parcial').exists()
+        self.assertEqual(res.data['errores'], 0)
+        self.assertEqual(res.data['detalle'][0]['estado'], 'CONFIRMADO')
+        self.assertTrue(
+            EventoSync.objects.filter(hash_payload='hash_venta_con_stub').exists()
         )
-        self.assertFalse(Venta.objects.filter(numero_venta='V-CLOUD-0002').exists())
+        self.assertTrue(Venta.objects.filter(numero_venta='V-CLOUD-0002').exists())
 
-    def test_cuando_el_producto_llega_el_reintento_aplica_la_venta_completa(self):
-        self._producto('CLOUD-A')
-        payload = _payload_venta('V-CLOUD-0003', ['CLOUD-A', 'CLOUD-TARDIO'])
+    def test_dos_ventas_con_el_mismo_sku_faltante_no_duplican_el_stub(self):
+        payload_1 = _payload_venta('V-CLOUD-0003', ['CLOUD-COMPARTIDO'])
+        payload_2 = _payload_venta('V-CLOUD-0004', ['CLOUD-COMPARTIDO'])
+
+        _handler_venta_creada(self.sucursal, payload_1)
+        _handler_venta_creada(self.sucursal, payload_2)
+
+        self.assertEqual(Producto.objects.filter(sku='CLOUD-COMPARTIDO').count(), 1)
+        stub = Producto.objects.get(sku='CLOUD-COMPARTIDO')
+        self.assertEqual(
+            Venta.objects.get(numero_venta='V-CLOUD-0003').detalles.get().producto_id,
+            stub.id,
+        )
+        self.assertEqual(
+            Venta.objects.get(numero_venta='V-CLOUD-0004').detalles.get().producto_id,
+            stub.id,
+        )
+
+    def test_linea_sin_sku_sigue_siendo_error(self):
+        """Payload corrupto/legacy: no hay con que crear ni el stub."""
+        payload = _payload_venta('V-CLOUD-0005', ['CLOUD-A'])
+        payload['detalles'][0]['producto_sku'] = None
 
         with self.assertRaises(ValueError):
             _handler_venta_creada(self.sucursal, payload)
+        self.assertFalse(Venta.objects.filter(numero_venta='V-CLOUD-0005').exists())
 
-        self._producto('CLOUD-TARDIO')
+    def test_reparar_lineas_venta_tambien_crea_stubs_sellados(self):
+        """El camino correctivo (_reparar_lineas_venta) usa la sucursal de la venta."""
+        self._producto('CLOUD-A')
+        payload = _payload_venta('V-CLOUD-0006', ['CLOUD-A'])
         _handler_venta_creada(self.sucursal, payload)
 
-        venta = Venta.objects.get(numero_venta='V-CLOUD-0003')
+        venta = Venta.objects.get(numero_venta='V-CLOUD-0006')
+        venta.detalles.all().delete()
+
+        payload_reparado = _payload_venta('V-CLOUD-0006', ['CLOUD-A', 'CLOUD-REPARADO'])
+        _handler_venta_creada(self.sucursal, payload_reparado)
+
+        venta.refresh_from_db()
         self.assertEqual(venta.detalles.count(), 2)
-        self.assertEqual(venta.pagos.count(), 1)
+        stub = Producto.objects.get(sku='CLOUD-REPARADO')
+        self.assertTrue(stub.pendiente_revision)
+        self.assertEqual(stub.origen_sucursal_id, self.sucursal.id)
 
     def test_reenvio_correctivo_reconstruye_lineas_faltantes(self):
         """

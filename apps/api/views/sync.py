@@ -732,14 +732,10 @@ def _handler_venta_creada(sucursal, payload):
         _reparar_lineas_venta(existente, payload, numero_venta)
         return
 
-    # Todas las dependencias ANTES de crear nada. Antes, un SKU que todavia no
-    # existia en cloud solo generaba un warning y esa linea se omitia: la venta
-    # quedaba con cabecera y pagos completos pero detalles incompletos, y el
-    # evento se confirmaba, asi que ese reenvio ya no podia repararla nunca.
-    # Fallar el evento entero lo deja reintentable: cuando el producto llegue,
-    # el mismo evento se aplica completo. Es el criterio que ya usaba el
-    # handler de cotizaciones.
-    productos_por_sku = _resolver_productos_venta(payload, numero_venta)
+    # Todas las dependencias ANTES de crear nada. Un SKU que no existe en
+    # cloud ya no rechaza la venta (ver BUG-G en docs/BUGS.md): nace como
+    # stub minimo y sellado -- ver _resolver_productos_venta.
+    productos_por_sku = _resolver_productos_venta(payload, numero_venta, sucursal)
 
     # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
     # resuelto), caer al usuario de servicio de la sucursal en vez de reventar
@@ -793,27 +789,70 @@ def _handler_venta_creada(sucursal, payload):
         )
 
 
-def _resolver_productos_venta(payload, numero_venta):
+def _resolver_productos_venta(payload, numero_venta, sucursal=None):
     """
     Mapa {sku: Producto} con TODOS los productos que la venta necesita.
 
-    Levanta si falta alguno: una venta a medias no es una venta. El evento
-    queda reintentable y se aplica completo cuando el producto llegue al cloud.
-    """
-    from apps.productos.models import Producto
+    Un SKU que no existe en cloud YA NO rechaza la venta entera (BUG-G,
+    docs/BUGS.md): dos ventas de produccion murieron DESCARTADAS -- tras 10
+    reintentos, sin que nadie las viera -- porque el producto habia nacido en
+    el POS local y nunca se creaba en el cloud por ningun otro camino
+    (no hay replicacion local->cloud de maestros).
 
-    skus = [d.get('producto_sku') for d in payload.get('detalles', [])]
+    En vez de eso, el producto nace como stub minimo: nombre y precio de la
+    propia linea de venta, categoria generica (`Categoria.get_sin_clasificar`),
+    sellado con `origen_sucursal` + `pendiente_revision=True` -- mismo patron
+    que `_resolver_o_crear_cliente` para clientes nacidos en sucursal. El
+    dueno lo completa desde el portal (categoria real, foto); mientras tanto
+    `ProductoViewSet.get_base_queryset` lo excluye del pull hacia la sucursal
+    de origen, para no pisarle con este stub pobre los datos reales que ya
+    tiene para el mismo SKU.
+
+    Una linea SIN sku (payload corrupto o de una version muy vieja) sigue
+    siendo error: no hay con que crear ni el stub.
+    """
+    from apps.productos.models import Categoria, Producto
+
+    detalles = payload.get('detalles', [])
+    if any(not d.get('producto_sku') for d in detalles):
+        raise ValueError(
+            f'Venta {numero_venta}: hay linea(s) de detalle sin producto_sku.'
+        )
+
+    skus = {d['producto_sku'] for d in detalles}
     encontrados = {
-        p.sku: p
-        for p in Producto.objects.filter(sku__in=[s for s in skus if s])
+        p.sku: p for p in Producto.objects.filter(sku__in=skus)
     }
 
-    faltantes = sorted({s for s in skus if s not in encontrados})
+    faltantes = skus - encontrados.keys()
     if faltantes:
-        raise ValueError(
-            f'Venta {numero_venta}: los productos {faltantes} no existen en '
-            f'cloud todavia. El evento se reintenta cuando lleguen.'
-        )
+        primera_ocurrencia = {}
+        for d in detalles:
+            sku = d['producto_sku']
+            if sku in faltantes:
+                primera_ocurrencia.setdefault(sku, d)
+
+        categoria = Categoria.get_sin_clasificar()
+        for sku in sorted(faltantes):
+            d = primera_ocurrencia[sku]
+            producto, creado = Producto.objects.get_or_create(
+                sku=sku,
+                defaults={
+                    'nombre': d.get('producto_nombre') or sku,
+                    'precio_venta': Decimal(d.get('precio_unitario') or '0'),
+                    'categoria': categoria,
+                    'activo': True,
+                    'origen_sucursal': sucursal,
+                    'pendiente_revision': True,
+                },
+            )
+            if creado:
+                logger.warning(
+                    'Producto %s creado como stub desde venta %s (sucursal %s); '
+                    'pendiente de revision en el portal.',
+                    sku, numero_venta, getattr(sucursal, 'codigo', None),
+                )
+            encontrados[sku] = producto
 
     return encontrados
 
@@ -832,7 +871,7 @@ def _reparar_lineas_venta(venta, payload, numero_venta):
     pagos_payload = payload.get('pagos', [])
 
     if venta.detalles.count() != len(detalles_payload):
-        productos_por_sku = _resolver_productos_venta(payload, numero_venta)
+        productos_por_sku = _resolver_productos_venta(payload, numero_venta, venta.sucursal)
         venta.detalles.all().delete()
         for d in detalles_payload:
             DetalleVenta.objects.create(
