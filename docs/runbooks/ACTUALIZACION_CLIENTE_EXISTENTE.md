@@ -168,6 +168,26 @@ Entrar a `https://red-bay-07331a710.7.azurestaticapps.net` y confirmar:
 
 ---
 
+## 8b. Generar las miniaturas del catálogo
+
+Solo hace falta una vez por instalación: de aquí en adelante cada foto que se
+suba genera la suya sola.
+
+```bat
+python manage.py generar_miniaturas --apply --settings=config.settings_production
+```
+
+**Salida esperada:** `generadas: N`, `fallidas: 0`, y una línea de peso del
+tipo `237.0 MB -> 1.5 MB`.
+
+Sin este paso, la lista de productos y el punto de venta siguen cargando las
+fotos originales —megabytes por cada cuadrito de 40 px— y el POS se siente
+lento en las máquinas modestas. Un `fallidas` mayor que 0 apunta a fotos cuyo
+archivo ya no está en `media\productos`; el producto sigue funcionando, solo
+se muestra pesado.
+
+---
+
 ## 9. Prueba de humo con el negocio
 
 Con el dueño o la cajera presentes, antes de irse:

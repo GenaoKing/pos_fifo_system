@@ -79,5 +79,14 @@ def producto_image_upload_to(instance, filename):
     return tenant_media_name('productos', filename)
 
 
+def producto_thumb_upload_to(instance, filename):
+    """
+    Solo aplica si alguien asigna un archivo al campo directamente. La ruta
+    normal la fija `utils.imagenes.guardar_miniatura`, que calcula el destino a
+    partir del original para que miniatura y original nunca se separen.
+    """
+    return tenant_media_name('productos/thumbs', filename)
+
+
 def config_logo_upload_to(instance, filename):
     return tenant_media_name('config', filename)

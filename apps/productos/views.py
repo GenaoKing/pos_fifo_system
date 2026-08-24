@@ -52,7 +52,10 @@ def lista_productos(request):
             'stock_minimo': producto.stock_minimo,
             'stock_actual': producto.stock_actual,
             'activo': producto.activo,
-            'imagen': producto.imagen.url if producto.imagen else None,
+            # Miniatura: la grilla la pinta de 40x40 y el original sale del
+            # celular del cliente. Cae al original si aun no tiene miniatura.
+            'imagen': producto.imagen_preview.url if producto.imagen_preview else None,
+            'imagen_original': producto.imagen.url if producto.imagen else None,
             'atributos': producto.atributos or {},
             # ─── CAMPOS NUEVOS ───
             'estado': producto.estado,
@@ -398,7 +401,8 @@ def subir_imagen_producto(request, producto_id):
         
         return JsonResponse({
             'success': True,
-            'imagen_url': producto.imagen.url if producto.imagen else None
+            'imagen_url': producto.imagen.url if producto.imagen else None,
+            'imagen': producto.imagen_preview.url if producto.imagen_preview else None
         })
         
     except Exception as e:

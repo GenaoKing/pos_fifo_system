@@ -138,9 +138,46 @@ class ProductoViewSetPermissionTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['sku'], 'TEST-002')
         self.assertEqual(response.data['imagen_url'], None)
+        self.assertIsNone(response.data['imagen_thumb_url'])
         self.assertTrue(
             Producto.objects.filter(sku='TEST-002', atributos={'color': 'rojo'}).exists()
         )
+
+    def test_la_lista_expone_la_miniatura_y_cae_al_original(self):
+        """
+        Contrato con el portal: la grilla pinta `imagen_thumb_url`. Si el campo
+        desaparece o deja de caer al original, la pantalla de productos vuelve
+        a bajar megabytes por cada cuadrito de 40x40 -- o se queda sin imagen.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from apps.productos.tests.test_miniaturas import imagen_jpeg
+
+        producto = Producto.objects.create(
+            sku='TEST-THUMB',
+            nombre='Con foto',
+            precio_venta='10.00',
+            categoria=self.categoria,
+            imagen=SimpleUploadedFile('foto.jpg', imagen_jpeg(), 'image/jpeg'),
+        )
+        self.addCleanup(producto.imagen.delete, save=False)
+        self.addCleanup(producto.imagen_miniatura.delete, save=False)
+
+        fila = self._fila(sku='TEST-THUMB')
+        self.assertIn('thumbs/', fila['imagen_thumb_url'])
+        self.assertNotEqual(fila['imagen_thumb_url'], fila['imagen_url'])
+
+        # Catalogo heredado, sin miniatura todavia: se muestra el original.
+        Producto.objects.filter(pk=producto.pk).update(imagen_miniatura=None)
+        fila = self._fila(sku='TEST-THUMB')
+        self.assertEqual(fila['imagen_thumb_url'], fila['imagen_url'])
+
+    def _fila(self, sku):
+        response = self.api(user=self.admin).get(self.productos_url)
+        self.assertEqual(response.status_code, 200)
+        datos = response.data
+        filas = datos['results'] if isinstance(datos, dict) and 'results' in datos else datos
+        return next(fila for fila in filas if fila['sku'] == sku)
 
     def test_sysadmin_puede_editar_producto(self):
         response = self.api(user=self.sysadmin).patch(

@@ -145,7 +145,18 @@ class Command(TenantCommandMixin, BaseCommand):
                     ))
 
             setattr(obj, field_name, saved_name)
-            obj.save(update_fields=[field_name])
+            if field_name == 'imagen':
+                # La miniatura se calcula del archivo LOCAL que ya tenemos
+                # abierto, no del blob recien subido: leerlo de vuelta haria
+                # viajar cada imagen dos veces por la red y duplicaria el
+                # tiempo de toda la migracion.
+                obj.save(update_fields=[field_name], sincronizar_miniatura=False)
+                with source_path.open('rb') as fuente:
+                    obj.sincronizar_miniatura(forzar=True, fuente=fuente)
+                if obj.imagen_miniatura:
+                    stats['miniaturas'] = stats.get('miniaturas', 0) + 1
+            else:
+                obj.save(update_fields=[field_name])
             stats['updated'] += 1
             self.stdout.write(f'OK {current_name} -> {saved_name}')
 

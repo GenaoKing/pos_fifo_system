@@ -155,7 +155,9 @@ def _producto_pos_data(producto):
         'categoria': producto.categoria.nombre if producto.categoria else 'Sin categoria',
         'categoria_id': producto.categoria_id,
         'precio_formateado': f"${producto.precio_venta:,.2f}",
-        'imagen': producto.imagen.url if producto.imagen else '',
+        # Mosaicos de 48x48: siempre la miniatura. El punto de venta carga
+        # el catalogo entero de golpe, asi que aca el ahorro es el mayor.
+        'imagen': producto.imagen_preview.url if producto.imagen_preview else '',
     }
 
 

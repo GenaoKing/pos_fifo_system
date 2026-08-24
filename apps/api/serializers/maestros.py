@@ -94,7 +94,11 @@ class ProductoSerializer(serializers.ModelSerializer):
     
     Notas:
     - categoria_nombre: campo denormalizado para display en sucursal
-    - imagen_url: URL absoluta de la imagen (si existe)
+    - imagen_url: URL absoluta del original (si existe)
+    - imagen_thumb_url: URL de la miniatura de 320 px. Es la que debe pintar
+      cualquier grilla: los originales vienen del celular del cliente y pesan
+      megabytes, mientras la miniatura ronda los 20 KB. Cae al original cuando
+      el producto todavia no tiene miniatura generada.
     - stock_actual y valuacion_fifo NO se incluyen — son datos locales
     """
     categoria_nombre = serializers.CharField(
@@ -102,6 +106,7 @@ class ProductoSerializer(serializers.ModelSerializer):
         read_only=True
     )
     imagen_url = serializers.SerializerMethodField()
+    imagen_thumb_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Producto
@@ -119,6 +124,7 @@ class ProductoSerializer(serializers.ModelSerializer):
             'stock_minimo',
             'activo',
             'imagen_url',
+            'imagen_thumb_url',
             'atributos',
             'fecha_creacion',
             'fecha_modificacion',
@@ -126,12 +132,18 @@ class ProductoSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_imagen_url(self, obj):
-        if obj.imagen:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.imagen.url)
-            return obj.imagen.url
-        return None
+        return self._url(obj.imagen)
+
+    def get_imagen_thumb_url(self, obj):
+        return self._url(obj.imagen_preview)
+
+    def _url(self, campo):
+        if not campo:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(campo.url)
+        return campo.url
 
 class ProductoWriteSerializer(serializers.ModelSerializer):
     """

@@ -2,7 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.postgres.indexes import GinIndex
 
-from apps.tenancy.media import producto_image_upload_to
+from apps.tenancy.media import producto_image_upload_to, producto_thumb_upload_to
 
 
 class Categoria(models.Model):
@@ -170,6 +170,18 @@ class Producto(models.Model):
         blank=True,
         null=True,
     )
+    # Derivada de `imagen`, la mantiene el modelo. Se guarda el nombre REAL en
+    # vez de deducirlo al leer: si el campo esta vacio no hay miniatura, y quien
+    # muestre la imagen cae al original en lugar de pedir un archivo que no
+    # existe y quedarse sin nada.
+    imagen_miniatura = models.ImageField(
+        'Miniatura',
+        upload_to=producto_thumb_upload_to,
+        blank=True,
+        null=True,
+        editable=False,
+        help_text='JPEG de 320 px generado a partir de la imagen. No se edita a mano.',
+    )
 
         # ← AGREGAR AQUÍ (línea ~90):
     atributos = models.JSONField(
@@ -200,7 +212,79 @@ class Producto(models.Model):
     
     def __str__(self):
         return f"{self.sku} - {self.nombre}"
-    
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        # Recordar la imagen tal como venia de la BD permite saber en `save()`
+        # si cambio, sin una consulta extra por guardado.
+        instancia = super().from_db(db, field_names, values)
+        if 'imagen' in field_names:
+            instancia._imagen_en_bd = instancia.imagen.name or ''
+        return instancia
+
+    def save(self, *args, **kwargs):
+        # `sincronizar_miniatura=False` es para quien ya tiene el archivo a mano
+        # y prefiere generarla el mismo pasando `fuente` — hoy, la migracion de
+        # media a Blob.
+        sincronizar = kwargs.pop('sincronizar_miniatura', True)
+        super().save(*args, **kwargs)
+        if sincronizar:
+            self.sincronizar_miniatura()
+
+    def sincronizar_miniatura(self, forzar=False, fuente=None):
+        """
+        Deja `imagen_miniatura` en linea con `imagen`.
+
+        Se llama sola en cada `save()` pero solo trabaja cuando hace falta: si
+        la imagen no cambio y ya hay miniatura, no toca el storage. Sin esa
+        guarda, cada guardado de un producto se llevaria una lectura del blob
+        original por la red.
+
+        Devuelve True si escribio algo.
+        """
+        from utils.imagenes import guardar_miniatura
+
+        anterior_imagen = getattr(self, '_imagen_en_bd', None)
+        imagen_actual = self.imagen.name or ''
+        sin_cambios = imagen_actual == anterior_imagen
+        if not forzar and sin_cambios and bool(self.imagen_miniatura) == bool(imagen_actual):
+            return False
+
+        vieja = self.imagen_miniatura.name or ''
+        storage = self.imagen_miniatura.storage
+
+        nueva = guardar_miniatura(self.imagen, fuente=fuente) if self.imagen else ''
+        if nueva == vieja:
+            self._imagen_en_bd = imagen_actual
+            return False
+
+        self.imagen_miniatura = nueva or None
+        # `update()` y no `save()`: guardar de nuevo reentraria aca.
+        type(self).objects.filter(pk=self.pk).update(imagen_miniatura=self.imagen_miniatura)
+        self._imagen_en_bd = imagen_actual
+
+        # La miniatura vieja ya no la referencia nadie. Dejarla acumula basura
+        # en el container a razon de un archivo por cada cambio de foto.
+        if vieja:
+            try:
+                storage.delete(vieja)
+            except Exception as exc:  # pragma: no cover - borrar no debe tumbar el guardado
+                import logging
+                logging.getLogger('imagenes').warning(
+                    'No se pudo borrar la miniatura anterior "%s": %s', vieja, exc,
+                )
+        return True
+
+    @property
+    def imagen_preview(self):
+        """
+        La imagen para MOSTRAR: miniatura si existe, original si no.
+
+        Un solo lugar decide, para que la grilla del portal, la lista del POS y
+        el punto de venta no se contradigan.
+        """
+        return self.imagen_miniatura or self.imagen or None
+
     @property
     def stock_actual(self):
         """Retorna el stock actual del producto sumando todos los lotes activos"""

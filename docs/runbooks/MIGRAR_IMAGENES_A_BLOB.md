@@ -189,6 +189,13 @@ El comando, por cada imagen:
 1. Calcula el destino con el prefijo del tenant (`royalplast/productos/...`).
 2. Sube el archivo al container `media-public`.
 3. Actualiza el campo en la BD del tenant para que apunte a la ruta nueva.
+4. **Genera la miniatura** en `royalplast/productos/thumbs/`, leyéndola del
+   archivo local que ya tiene abierto — no del blob recién subido, que
+   duplicaría el tráfico de toda la migración.
+
+> Para un tenant cuya media ya se migró **antes** de que existieran las
+> miniaturas, correr después:
+> `python manage.py generar_miniaturas --tenant <key> --apply`
 
 Es **idempotente**: lo ya migrado se cuenta como `already_prefixed` y se salta.
 Se puede correr de nuevo sin miedo.

@@ -91,6 +91,29 @@ Todos los ViewSets de datos maestros siguen el mismo patrón — ver `ProductoVi
 
 ---
 
+## Imágenes de catálogo: siempre la miniatura
+
+Las fotos las suben desde el celular y promedian **3.2 MB**. Todo lo que las
+muestra las dibuja de 40-48 px. Por eso `Producto` tiene dos campos:
+
+| Campo | Qué es | Quién lo escribe |
+|---|---|---|
+| `imagen` | el original, intacto | quien sube la foto |
+| `imagen_miniatura` | JPEG de 320 px (~20 KB) en `thumbs/` | el modelo, solo |
+
+**Para mostrar, usar `producto.imagen_preview`** — devuelve la miniatura, o el
+original si todavía no tiene. Nunca deducir la ruta de la miniatura: si el
+campo está vacío es que no existe, y pedirla igual deja al usuario sin imagen.
+
+La API del portal expone `imagen_thumb_url` (lo que pinta la grilla) junto a
+`imagen_url` (el original, para detalle o descarga).
+
+La miniatura se regenera sola al cambiar `imagen`. Para catálogos anteriores al
+cambio: `python manage.py generar_miniaturas --apply` (agregar
+`--tenant <key>` en el cloud). El estándar vive en `utils/imagenes.py`.
+
+---
+
 ## Sincronización cloud → sucursal
 
 No se usan eventos (`EventoSync`) para propagar cambios de datos maestros. El mecanismo es pull incremental:
