@@ -882,6 +882,20 @@ class SyncEngine:
                                    item.get('sku'), cat_nombre)
                     return DIFERIDO
 
+            # Cinturon extra (BUG-G, docs/BUGS.md): un stub pendiente de
+            # revision no deberia llegar aca -- el cloud ya lo excluye del
+            # pull para tokens de sucursal (ProductoViewSet.get_base_queryset)
+            # -- pero si llegara igual (version cloud distinta, bug futuro),
+            # no se aplica: aplicarlo pisaria el producto real de esta
+            # sucursal con nombre/precio/categoria de stub.
+            if item.get('pendiente_revision'):
+                logger.warning(
+                    'Producto %s: llego pendiente_revision=True al pull; se '
+                    'omite para no pisar el producto local con un stub.',
+                    item.get('sku'),
+                )
+                return
+
             defaults = {
                 'nombre': item.get('nombre', ''),
                 'descripcion': item.get('descripcion', '') or '',
@@ -896,12 +910,72 @@ class SyncEngine:
             if categoria:
                 defaults['categoria'] = categoria
 
-            Producto.objects.update_or_create(
+            producto, _ = Producto.objects.update_or_create(
                 sku=item['sku'],
                 defaults=defaults,
             )
+            self._descargar_imagen_producto(producto, item.get('imagen_url'))
 
         return self._pull_generic('productos', '/api/v1/maestros/productos/', apply)
+
+    def _descargar_imagen_producto(self, producto, imagen_url):
+        """
+        Baja la foto del producto si cambio en el cloud (subida desde el
+        portal, ver apps/api/views/maestros.py::ProductoViewSet.imagen).
+
+        Best-effort a proposito: NUNCA difiere el item ni frena el cursor --
+        el producto (texto) ya se aplico arriba, que es lo que de verdad
+        importa para no perder una venta. Si la descarga falla,
+        `imagen_origen_url` no se sella, asi que se reintenta solo en el
+        proximo ciclo en que el registro vuelva a cambiar, o a mano con
+        `manage.py descargar_imagenes_productos`.
+
+        Comparar contra `imagen_origen_url` (la URL ya descargada con exito),
+        no contra el nombre de archivo: el storage puede desambiguar nombres
+        y dos fotos distintas podrian coincidir en el nombre por casualidad.
+        """
+        from django.core.files.base import ContentFile
+        from apps.productos.models import Producto
+
+        if not imagen_url or imagen_url == producto.imagen_origen_url:
+            return
+
+        contenido = None
+        ultimo_error = None
+        for _intento in range(2):  # una descarga + un reintento
+            # Excepcion generica a proposito, mas amplia que en el resto del
+            # engine: esto pide un archivo a un storage de terceros (Blob),
+            # no al cloud propio, y es best-effort por diseno -- ninguna
+            # forma de fallar aca (red, respuesta rara, contenido vacio)
+            # puede tumbar el pull de productos, que es lo que de verdad
+            # importa.
+            try:
+                resp = requests.get(imagen_url, timeout=self.timeout)
+                if resp.status_code == 200 and resp.content:
+                    contenido = resp.content
+                    break
+                ultimo_error = f'HTTP {resp.status_code}'
+            except Exception as exc:
+                ultimo_error = str(exc)
+
+        if contenido is None:
+            logger.warning('Producto %s: no se pudo descargar la imagen (%s): %s',
+                            producto.sku, imagen_url, ultimo_error)
+            return
+
+        nombre = imagen_url.rsplit('/', 1)[-1].split('?')[0] or f'{producto.sku}.jpg'
+        try:
+            # save=True -> Producto.save() completo -> la miniatura local se
+            # regenera sola (Producto.sincronizar_miniatura).
+            producto.imagen.save(nombre, ContentFile(contenido), save=True)
+        except Exception as exc:
+            logger.warning('Producto %s: la imagen descargada no se pudo guardar: %s',
+                            producto.sku, exc)
+            return
+
+        # .update(), no .save(): ya se guardo arriba, esto solo sella la URL
+        # sin disparar otro ciclo de guardado/miniatura.
+        Producto.objects.filter(pk=producto.pk).update(imagen_origen_url=imagen_url)
 
     def _pull_clientes(self):
         from apps.clientes.models import Cliente
