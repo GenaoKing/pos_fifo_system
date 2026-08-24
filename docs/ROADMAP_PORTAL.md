@@ -213,6 +213,25 @@ Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).
     Lo que **no** cambia: el cloud sigue siendo la autoridad para **editar**
     maestros. El upsert solo crea lo que no existe; nunca pisa una edición hecha
     en el portal (única excepción acotada: rellenar una cédula vacía).
+  - **REVISIÓN 2026-08-24.** El mismo patrón se extendió de `Cliente` a
+    `Producto`: un `sku` desconocido en el detalle de una venta ya no
+    rechaza la venta completa (ver `BUG-H` en `docs/BUGS.md`, recurrencia
+    detectada esta sesión del mismo síntoma de fondo). En vez de eso crea un
+    stub sellado — `categoria = Categoria.get_sin_clasificar()`,
+    `pendiente_revision=True`, `origen_sucursal` — y la venta se aplica
+    completa referenciándolo. El stub queda **invisible para el pull de la
+    sucursal que lo originó** hasta que alguien lo completa en el portal
+    (PATCH con `categoria` real; cualquier otro campo, ej. solo `activo`,
+    NO libera el stub).
+    De paso: el portal se abrió a la cajera vía permisos granulares
+    (`productos.ver` + `productos.fotografiar`, nuevo, ambos en
+    `PERMISOS_CAJERO_DEFAULT`) y ahora permite subir/cambiar la foto de un
+    producto desde el celular (compresión client-side, cámara vía
+    `capture="environment"`); la foto baja al POS local en el siguiente pull
+    con su miniatura regenerada.
+    Estado: backend en `origin/develop` (commits `ee3c152`..`33f7a84`) y
+    frontend commiteado en `main` de `pos-cloud-dashboard` (`c9116f5`).
+    **Ninguno de los dos desplegado a prod todavía.**
   - Smoke esperado: crear cliente/categoría desde portal cloud → pull sucursal → aparece local. Crear cliente/categoría local con flujo legacy **no** debe considerarse propagación soportada.
 
 ### Frontend

@@ -71,6 +71,8 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `permisos.0007_permiso_autorizar_descuento` | Data migration: agrega `ventas.autorizar_descuento` al rol Administrador | Ninguno; idempotente |
 | `ventas.0008_venta_descuento_autorizacion` | 2 campos nullable en `Venta` (quién autorizó, motivo) | Ninguno |
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
+| `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
+| `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
@@ -101,12 +103,18 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 | `reportes.ver` | Dashboard personal | **Sí** |
 | `reportes.sucursal.ver` | Reportes on-demand de las sucursales asignadas | No |
 | `ventas.autorizar_descuento` | Autorizar un descuento sobre la tolerancia (§2.6) | No, y es el punto |
+| `productos.fotografiar` | Subir/cambiar la foto de un producto desde el portal cloud (no precio/categoría) | **Sí** |
 
 > **Revisá los roles existentes después de desplegar.** `caja.operar` y
 > `reportes.ver` entran en `PERMISOS_CAJERO_DEFAULT` para que ninguna
 > instalación pierda pantallas, pero **un rol custom que hayas creado a mano no
 > los tiene**. Sin `caja.operar` el módulo de caja da 403; sin `reportes.ver`,
 > el dashboard redirige al POS.
+>
+> `productos.fotografiar` (+ `productos.ver`, que ya existía pero no estaba en
+> el rol cajero) es distinto: la data migration `permisos.0008` ya se lo agrega
+> al rol Cajero **de sistema** en cada negocio existente, no solo a los nuevos.
+> Sigue sin tocar roles custom creados a mano — mismo caveat de arriba.
 
 ### 2.4 Cambios de contrato que rompen clientes viejos
 

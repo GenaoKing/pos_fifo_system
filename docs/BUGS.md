@@ -560,3 +560,79 @@ correcto: adivinar sobre datos reales de un cliente pagando es peor que
 dejarlo pendiente. Pendiente: decidir si vale la pena escribir un evento
 `CXC_CREADA` "reconstruido" (con el estado historico, no el actual) para
 este tipo de hueco, o si se acepta como perdida de historial cosmetica.
+
+**Actualizacion 2026-08-24 -- Hallazgo 6 resuelto.** Se reconstruyeron
+`PROD-0361`/`PROD-0468` por ORM directo en `tnt_royalplast` y se rearmaron las
+CxC 18/19 llamando a los handlers de produccion con el estado historico
+correcto (saldo=total al crear, payload real de pago al pagar), dentro de una
+transaccion con verificacion post-condicion. Confirmado por SQL independiente:
+ambas cuentas en saldo=0.00/PAGADA, igual que en local. No hizo falta
+`CLOUD_ADMIN_TOKEN`: los handlers de `apps/api/views/sync.py` se invocaron
+directo via Django ORM, sin pasar por el endpoint HTTP.
+Esto era un sintoma puntual; la causa de fondo -- un SKU nuevo en sucursal
+tumbaba la venta entera -- se corrigio de raiz y se documenta en **BUG-H**,
+abajo.
+
+---
+
+### BUG-H — Patron B11b en ventas: un SKU nuevo en sucursal tumbaba la venta entera
+
+- Fecha de hallazgo: recurrencia detectada 2026-08-24, via sesion remota con
+  Royal Plast (400 productos en local vs 325 en cloud; una venta del dia
+  presente en local y ausente en cloud). Mismo patron de fondo que el
+  Hallazgo 6 de BUG-G y que BUG-C, pero para `Producto` en vez de `Cliente`.
+- Severidad: **alta** -- cada producto nuevo cargado desde el POS local era
+  una venta futura en riesgo de perderse en silencio (la cola reintenta,
+  falla identico, `DESCARTADO`).
+- **Estado: CORREGIDO, en `origin/develop` (commits `ee3c152`..`33f7a84`) y
+  frontend en `main` de `pos-cloud-dashboard` (`c9116f5`). NO desplegado a
+  prod todavia** -- falta correr `productos.0011` y `permisos.0008` (ver
+  `docs/ESTADO_AUDITORIAS.md` §2.1/§2.3), promover a `main`/prod, y el rig
+  end-to-end contra `royalplastdemo`.
+- Sintoma: `_resolver_productos_venta` (`apps/api/views/sync.py`) lanzaba
+  `ValueError` y rechazaba la venta **completa** si algun `producto_sku` del
+  detalle no existia en el cloud. El evento reintentaba, fallaba identico en
+  cada intento, agotaba `SYNC_MAX_RETRIES` y terminaba `DESCARTADO` --
+  perdida permanente, igual mecanismo que BUG-C.
+
+**Correccion aplicada** (mismo patron que BUG-C establecio para `Cliente`,
+ahora extendido a `Producto` -- ver decision **B11b** en
+`docs/ROADMAP_PORTAL.md`, revision 2026-08-24):
+
+1. `Producto` gana `origen_sucursal` (FK) + `pendiente_revision` (bool) +
+   `imagen_origen_url`. `Categoria.get_sin_clasificar()` como categoria
+   generica para el producto recien nacido.
+2. `_resolver_productos_venta` ya no lanza: por cada SKU faltante hace
+   `get_or_create` con nombre/precio del propio payload de venta,
+   `categoria=Sin clasificar`, `pendiente_revision=True`,
+   `origen_sucursal=<la que vendio>`. La venta se aplica completa
+   referenciando el stub.
+3. **Anti-clobber**, el riesgo central de este diseno: si el stub bajara por
+   el pull normal a la sucursal que lo origino, pisaria con datos pobres
+   cualquier producto real que compartiera SKU. `ProductoViewSet.get_base_queryset`
+   excluye `pendiente_revision=True` cuando el token es de sucursal --
+   invisible para cualquier engine local, viejo o nuevo, sin necesidad de
+   actualizarlo. Se libera **solo** con un PATCH que incluya `categoria` (el
+   submit normal del modal de edicion del portal); un PATCH de solo `activo`
+   (ej. el toggle de la lista) NO lo libera.
+4. Portal cloud abierto a CAJERA via permisos granulares: `productos.ver` +
+   `productos.fotografiar` (nuevo), ambos en `PERMISOS_CAJERO_DEFAULT` y
+   backfillados a los roles Cajero de sistema existentes por la data
+   migration `permisos.0008`. Puede fotografiar el producto recien nacido,
+   no tocar precio/categoria.
+5. Subida de foto desde el portal (con compresion client-side y camara via
+   `capture="environment"`) baja al POS local en el siguiente pull
+   (`_pull_productos` -> `_descargar_imagen_producto`), con miniatura
+   regenerada localmente. Comando `descargar_imagenes_productos` para
+   backfill/reparacion manual.
+
+**Pendiente:** desplegar (backend primero, migraciones incluidas; despues el
+frontend), rig end-to-end contra `royalplastdemo` (venta con SKU inexistente
+-> stub -> completar en el portal -> baja en el proximo pull; foto subida ->
+baja al POS local con miniatura), y -- en la proxima visita a Royal
+Plast/SK Performance -- actualizar el paquete local para que el punto 5
+(bajada de fotos) tenga efecto ahi.
+
+**Deuda relacionada.** Cierra la brecha que la nota de BUG-C dejaba abierta
+("el cloud sigue siendo la autoridad para editar maestros; aqui solo se crea
+lo que no existe") -- ahora aplica igual a productos.
