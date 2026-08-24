@@ -191,6 +191,41 @@ class SyncEngine:
             return False
 
     # ------------------------------------------------------------------
+    # RESUMEN: agregados para conciliacion (Fase 3)
+    # ------------------------------------------------------------------
+
+    def obtener_resumen(self, desde, hasta, tz):
+        """
+        Pide al cloud el resumen agregado de `apps/sync/resumen.py` para el
+        rango [desde, hasta] (date, inclusive) en la zona `tz`.
+
+        Devuelve (resumen_dict, None) en exito, o (None, motivo) en fallo.
+        `motivo == 'no_soportado'` es el caso esperable contra un cloud
+        anterior a la Fase 3 (la ruta no existe -> 404/405): quien llama debe
+        degradar con un mensaje claro, no tratarlo como un error de verdad.
+        """
+        self._require_config()
+        try:
+            resp = requests.get(
+                self._url('/api/v1/sync/resumen/'),
+                params={'desde': desde.isoformat(), 'hasta': hasta.isoformat(), 'tz': tz},
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            return None, f'red: {exc}'
+
+        if resp.status_code in (404, 405):
+            return None, 'no_soportado'
+        if resp.status_code >= 400:
+            return None, f'HTTP {resp.status_code}: {resp.text[:300]}'
+
+        try:
+            return resp.json(), None
+        except ValueError:
+            return None, 'respuesta invalida (no JSON)'
+
+    # ------------------------------------------------------------------
     # PUSH: eventos locales -> cloud
     # ------------------------------------------------------------------
 

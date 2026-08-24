@@ -17,4 +17,5 @@ urlpatterns = [
     path('asignaciones/', sync.asignaciones_para_sucursal, name='api-sync-asignaciones'),
     path('metodos-credito/', sync.metodos_credito_para_sucursal, name='api-sync-metodos-credito'),
     path('configuracion/', sync.configuracion_para_sucursal, name='api-sync-configuracion'),
+    path('resumen/', sync.resumen_para_sucursal, name='api-sync-resumen'),
 ]

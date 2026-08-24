@@ -1,6 +1,7 @@
 # Roadmap — Sync confiable (local ↔ cloud)
 
-Estado: **plan aprobado, sin ejecutar**. Fecha: 2026-08-19.
+Estado: **Fases 0/1/2/4 desplegadas en prod (2026-08-22, RP en sitio). Fase 3
+implementada (2026-08-24), pendiente de desplegar.** Fecha original: 2026-08-19.
 Fuentes relacionadas: `docs/BUGS.md` (BUG-A, BUG-B),
 `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`, `docs/ROADMAP_TENANCY_DBPERTENANT.md`.
 
@@ -32,12 +33,12 @@ anterior en rojo.
 
 | Fase | Nombre | Estado | Rama sugerida |
 |---|---|---|---|
-| 0 | Rig de simulación + medición del daño | 🟡 parcial — comando listo, falta ciclo real y correr en clientes | `features/sync-verificacion` |
-| 1 | Outbox transaccional + upsert de cliente (BUG-A + BUG-C) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
-| 2 | Cursor keyset estable (BUG-B) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
-| 3 | Anti-entropía (reconciliación periódica) | ⬜ pendiente | `features/sync-antientropia` |
-| 4 | Configuración dinámica del servicio (dotenv) | 🟡 código listo y probado; falta desplegar | `features/sync-verificacion` |
-| 5 | Actualización remota del POS local | ⬜ futura (requiere Fase 4) | — |
+| 0 | Rig de simulación + medición del daño | ✅ hecho — corrido contra RP y SK reales | `features/sync-verificacion` |
+| 1 | Outbox transaccional + upsert de cliente (BUG-A + BUG-C) | ✅ desplegado (2026-08-22) | `features/sync-verificacion` |
+| 2 | Cursor keyset estable (BUG-B) | ✅ desplegado (2026-08-22) | `features/sync-verificacion` |
+| 3 | Anti-entropía (reconciliación periódica) | 🟡 implementada (2026-08-24); falta desplegar | `features/sync-antientropia` |
+| 4 | Configuración dinámica del servicio (dotenv) | ✅ desplegado (2026-08-22) | `features/sync-verificacion` |
+| 5 | Actualización remota del POS local | ⬜ futura (precondición Fase 4 cumplida) | — |
 
 ---
 
@@ -521,63 +522,65 @@ meses** y se encontraron por casualidad. Cada evento individual se confirma, per
 nadie pregunta nunca "¿tenemos los mismos datos?". Esta es la brecha más grande
 del sistema, más que el transporte.
 
-### 3.1 Endpoint de resumen en el cloud
+### 3.1 Endpoint de resumen en el cloud (implementado)
 
-`GET /api/v1/sync/resumen/?desde=YYYY-MM-DD&hasta=YYYY-MM-DD`
+`GET /api/v1/sync/resumen/?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&tz=<IANA>`
 (token de sucursal, scopeado al tenant y su sucursal).
 
-Devuelve, por día y por entidad, un **checksum barato**:
+`tz` viaja explícito en vez de asumirse UTC en un lado y local en el otro —
+es exactamente el riesgo de falsos positivos que esta sección advertía.
+`apps/sync/resumen.py::calcular_resumen` corre igual en los dos lados (mismo
+código, misma base) y trunca con `TruncDate(campo, tzinfo=zona)` sobre la
+fecha de DOMINIO de cada hecho (`fecha_venta`, `fecha_emision`, `fecha_pago`),
+nunca sobre `fecha_creacion` del cloud — esa es el momento en que se *aplicó*
+el evento, no el hecho en sí, y agrupar por ahí produce divergencias fantasma
+para todo evento aplicado con retraso.
 
-```json
-{
-  "ventas": [
-    {"dia": "2026-08-18", "count": 10, "suma": "15400.00", "max_ref": "V-20260818-0010"}
-  ],
-  "cierres_caja": [...],
-  "aperturas_caja": [...]
-}
-```
+Alcance final: `ventas` (count, suma, anuladas, max_ref), `cxc` (count,
+saldo) y `cxc_pagos` (count, monto, solo estado APLICADO). Se dejaron fuera
+`cierres_caja`/`aperturas_caja` del borrador original — el valor está
+concentrado en ventas/CxC/pagos, que es donde vive el dinero.
 
-`count` + `suma` + `max_ref` detecta faltantes, sobrantes y montos divergentes sin
-transferir un solo registro completo. Barato de calcular en ambos lados.
+### 3.2 Comando local `conciliar` (implementado)
 
-### 3.2 Comando local `conciliar`
+`python manage.py conciliar --dias=30 [--json] [--backfill] [--ejecutar]`
 
-`python manage.py conciliar --dias=30 [--json] [--backfill]`
+Calcula el resumen local, pide el del cloud y compara. No reimplementa
+detección de "hechos sin evento" — con `--backfill`, delega en
+`verificar_sync --backfill` (vía `call_command`) sobre la misma ventana:
+reenviar de más es seguro, y es la misma garantía que ya usa Fase 1. Contra
+un cloud anterior a esta fase (sin el endpoint), degrada a `NO_SOPORTADO` con
+mensaje claro y exit 0 — no revienta.
 
-Calcula el mismo resumen sobre la BD local, lo compara con el del cloud y reporta
-las diferencias por día y entidad. Con `--backfill`, reutiliza la maquinaria de
-la Fase 1 para encolar lo que falte arriba.
+### 3.3 Integración operativa (implementado)
 
-### 3.3 Integración operativa
+- El daemon `sincronizar` corre la conciliación **una vez al día local**
+  (`SYNC_CONCILIACION_HORA`, default 6 AM — la PC suele apagarse de noche, así
+  que en la práctica corre en el primer ciclo del día) y la deja en
+  `LogSync` (tipo `CONCILIACION`, con el detalle de divergencias en JSON).
+  Nunca corre `--backfill` sola: solo detecta: reparar sin que nadie mire el
+  resultado es el tipo de "arreglo silencioso" que este roadmap viene
+  evitando desde la Fase 1.
+- Bandera visible en el panel del POS local (`apps/sync/context_processors.py`)
+  cuando la última conciliación encontró divergencias o lleva más de 48h sin
+  correr.
+- Portal cloud mostrando esto por sucursal: **no implementado en este
+  ciclo** (queda en `docs/ROADMAP_PORTAL.md`).
 
-- El daemon `sincronizar` corre la conciliación **una vez al día** (ventana
-  configurable) además de sus ciclos normales, y la deja en `sync_logsync`.
-- Divergencia detectada → WARNING en log + bandera visible en el panel de sync
-  del POS.
-- El portal cloud muestra por sucursal: último heartbeat, último evento y
-  resultado de la última conciliación. Es lo que convierte al portal en el
-  "ente vivo" que se quiere: primero que reporte la verdad, después que escriba.
+**Riesgos (resueltos en el diseño).**
 
-**Criterios de aceptación.**
-
-- Borrar 3 ventas del cloud en el rig → la conciliación las reporta al día
-  siguiente (o al correrla a mano) con el día exacto.
-- `--backfill` las restituye y una segunda corrida da diferencia cero.
-- Costo: la conciliación de 90 días no debe tardar más de unos segundos ni
-  transferir más de unos pocos KB.
-
-**Riesgos.**
-
-- Falsos positivos por zona horaria: el cloud agrupa en UTC y el POS en
-  America/Santo_Domingo. **Definir explícitamente** que ambos lados agrupan por
-  fecha local de la sucursal. Este es el error más probable de toda la fase
-  (ya nos mordió antes: ver los dos bugs de timezone resueltos en `BUGS.md`).
+- Falsos positivos por zona horaria: cubierto por `?tz=` explícito. Test de
+  regresión de la frontera de medianoche en
+  `apps/sync/tests/test_resumen.py` y `apps/api/tests/test_sync_resumen.py`.
 
 ### Resultado Fase 3
 
-> _(llenar: tiempo de la conciliación, diferencias reales encontradas en RP y SK
-> al correrla por primera vez contra producción)_
+**Implementada el 2026-08-24** (código + 38 tests nuevos, suite completa
+verde). **Pendiente de desplegar** — igual que Fases 1/2/4 en su momento, el
+cloud debe salir primero (el endpoint es aditivo, así que el orden es menos
+crítico que en Fase 2, pero el comando local degrada mejor si el cloud ya lo
+tiene). Falta correrla contra producción para llenar: tiempo real de la
+conciliación y si aparece alguna divergencia real en Royal Plast o SK.
 
 ---
 

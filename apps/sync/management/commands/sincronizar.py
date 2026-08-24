@@ -29,6 +29,7 @@ import time
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from apps.sync.engine import clasificar_ciclo
 
@@ -71,6 +72,11 @@ class Command(BaseCommand):
             action='store_true',
             help='No grabar LogSync en BD (reduce ruido si corre muy seguido).',
         )
+        parser.add_argument(
+            '--sin-conciliacion',
+            action='store_true',
+            help='No correr la conciliacion diaria (Fase 3) en este loop.',
+        )
 
     def handle(self, *args, **opts):
         if not getattr(settings, 'SYNC_ENABLED', False):
@@ -92,6 +98,13 @@ class Command(BaseCommand):
         only_push = opts['only_push']
         only_pull = opts['only_pull']
         registrar_log = not opts['no_log']
+
+        self._sin_conciliacion = opts['sin_conciliacion'] or only_push or only_pull
+        # Fecha local (no datetime) de la ultima corrida de conciliacion en
+        # ESTE proceso. Vive en memoria, no en BD: si el servicio reinicia a
+        # mitad de dia, corre una vez de mas, que es inocuo (es solo lectura
+        # salvo que alguien pida --backfill a mano).
+        self._conciliacion_ultimo_dia = None
 
         # Manejo de Ctrl-C y SIGTERM (cuando NSSM manda stop)
         self._running = True
@@ -118,6 +131,11 @@ class Command(BaseCommand):
             except Exception as exc:
                 logger.exception('Error inesperado en ciclo de sync: %s', exc)
                 self.stderr.write(self.style.ERROR(f'Error: {exc}'))
+
+            if not self._sin_conciliacion:
+                # Fuera del try/except del ciclo: un fallo aca no debe
+                # contaminar el LogSync FULL del ciclo de sync, y viceversa.
+                self._conciliacion_diaria(engine)
 
             if once:
                 break
@@ -197,6 +215,60 @@ class Command(BaseCommand):
                 )
             except Exception as exc:
                 logger.warning('No se pudo registrar LogSync: %s', exc)
+
+    def _conciliacion_diaria(self, engine):
+        """
+        Corre `conciliar` como mucho una vez por dia local, a partir de
+        SYNC_CONCILIACION_HORA. Solo DETECTA -- nunca corre --backfill sola:
+        reparar automaticamente sin que nadie mire el resultado es exactamente
+        el tipo de "arreglo silencioso" que este roadmap viene evitando desde
+        la Fase 1. Un operador decide con `conciliar --backfill --ejecutar`.
+
+        Cualquier excepcion se atrapa aca: un fallo en la conciliacion no debe
+        tumbar el loop de push/pull, que es lo que de verdad mantiene vivo el
+        negocio.
+        """
+        if not getattr(settings, 'SYNC_CONCILIACION_ENABLED', True):
+            return
+
+        ahora = timezone.localtime()
+        hoy = ahora.date()
+        if self._conciliacion_ultimo_dia == hoy:
+            return
+        hora_minima = getattr(settings, 'SYNC_CONCILIACION_HORA', 6)
+        if ahora.hour < hora_minima:
+            return
+
+        try:
+            from apps.sync.conciliacion import conciliar
+            from apps.sync.models import LogSync
+            from apps.sucursales.models import get_sucursal_actual
+
+            dias = getattr(settings, 'SYNC_CONCILIACION_DIAS', 30)
+            resultado = conciliar(dias=dias)
+
+            self._conciliacion_ultimo_dia = hoy
+
+            if resultado['estado'] == 'NO_SOPORTADO':
+                self.stdout.write(f"[{self._now()}] CONCILIACION: {resultado['mensaje']}")
+                return
+
+            resultado_log = {
+                'OK': 'EXITOSO', 'DIVERGENTE': 'PARCIAL', 'ERROR': 'FALLO',
+            }[resultado['estado']]
+            estilo = self.style.SUCCESS if resultado['estado'] == 'OK' else self.style.WARNING
+            self.stdout.write(estilo(f"[{self._now()}] CONCILIACION: {resultado['mensaje']}"))
+
+            LogSync.objects.create(
+                tipo='CONCILIACION',
+                resultado=resultado_log,
+                mensaje=resultado['mensaje'][:5000],
+                detalle=resultado['divergencias'] or None,
+                sucursal=get_sucursal_actual(),
+            )
+        except Exception as exc:
+            logger.exception('Conciliacion diaria fallo: %s', exc)
+            self.stdout.write(self.style.ERROR(f'[{self._now()}] CONCILIACION: error: {exc}'))
 
     @staticmethod
     def _now():

@@ -162,6 +162,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'apps.configuracion.context_processors.config_negocio',
                 'apps.sucursales.context_processors.sucursal_actual',
+                'apps.sync.context_processors.estado_sync',
             ],
         },
     },
@@ -475,3 +476,11 @@ SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
 SYNC_BATCH_SIZE = int(os.environ.get('SYNC_BATCH_SIZE', '50'))
 SYNC_MAX_RETRIES = int(os.environ.get('SYNC_MAX_RETRIES', '10'))
 SYNC_HTTP_TIMEOUT = int(os.environ.get('SYNC_HTTP_TIMEOUT', '10'))
+
+# Conciliacion diaria (Fase 3, anti-entropia). El daemon la corre como mucho
+# una vez por dia, a partir de esta hora local: la PC de una sucursal suele
+# apagarse de noche, asi que "6 AM" en la practica significa "en el primer
+# ciclo del dia", no a una hora exacta.
+SYNC_CONCILIACION_ENABLED = _env_bool('SYNC_CONCILIACION_ENABLED', True)
+SYNC_CONCILIACION_HORA = _env_int('SYNC_CONCILIACION_HORA', 6)
+SYNC_CONCILIACION_DIAS = _env_int('SYNC_CONCILIACION_DIAS', 30)

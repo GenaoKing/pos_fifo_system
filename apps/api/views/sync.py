@@ -452,6 +452,63 @@ def configuracion_para_sucursal(request):
 
 
 # ============================================================================
+# GET /api/v1/sync/resumen/     (Fase 3 -- anti-entropia)
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def resumen_para_sucursal(request):
+    """
+    Agregados diarios (ventas, CxC, pagos) para que la sucursal compare su
+    propio estado local contra lo que el cloud realmente tiene.
+
+    Ver `apps/sync/resumen.py` para el diseno completo. Aditivo: un cloud
+    anterior a esta fase simplemente no tiene esta ruta (404), y el comando
+    `conciliar` del lado sucursal esta preparado para degradar limpio ante eso.
+    """
+    from apps.sync import resumen as resumen_mod
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+
+    desde_raw = request.query_params.get('desde')
+    hasta_raw = request.query_params.get('hasta')
+    tz_raw = request.query_params.get('tz')
+
+    if not (desde_raw and hasta_raw and tz_raw):
+        return Response(
+            {'detail': 'desde, hasta y tz son requeridos.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    desde = parse_date(desde_raw)
+    hasta = parse_date(hasta_raw)
+    if desde is None or hasta is None:
+        return Response(
+            {'detail': 'desde/hasta deben ser fechas ISO (YYYY-MM-DD).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if hasta < desde:
+        return Response({'detail': 'hasta no puede ser anterior a desde.'}, status=status.HTTP_400_BAD_REQUEST)
+    if (hasta - desde).days > 366:
+        return Response({'detail': 'rango maximo: 366 dias.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        datos = resumen_mod.calcular_resumen(desde, hasta, tz_raw, sucursal=sucursal)
+    except resumen_mod.TZInvalidaError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'version': 1,
+        'sucursal_codigo': getattr(sucursal, 'codigo', None),
+        'tz': tz_raw,
+        'desde': desde.isoformat(),
+        'hasta': hasta.isoformat(),
+        'generado': timezone.now().isoformat(),
+        **datos,
+    })
+
+
+# ============================================================================
 # HANDLERS por tipo de evento
 # ============================================================================
 
