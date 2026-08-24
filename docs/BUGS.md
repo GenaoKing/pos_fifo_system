@@ -445,3 +445,118 @@ porque el registro es justamente lo que mintio. Regresion cubierta en
 `DEFAULT_ONLY_APPS` y `DUAL_HOME_APPS` **no es un cambio de configuracion**: es
 una migracion de datos. Toda app que cambie de bucket necesita, en cada base
 afectada, desregistrar sus migraciones y volver a aplicarlas.
+
+---
+
+### BUG-G — Cadena de fallos en la visita de actualizacion a Royal Plast (2026-08-24)
+
+- Fecha: 2026-08-24, actualizacion en sitio con el negocio cerrado (agente
+  remoto vía Remote Control, reporte completo entregado a esta sesión).
+- Severidad: **critica** la pieza 3 (perdida silenciosa de secreto); el resto
+  **bloqueante mientras se diagnostica**, pero sin dano de datos.
+- **Resultado final de la visita:** `verificar_sync` cerro con
+  `RESULTADO: sin perdida detectada.` Cola 641 CONFIRMADO / 2 ERROR (ver
+  Hallazgo 6, abajo). 36 hechos + 31 descartados repuestos; 15 CxC recuperadas
+  (RD$232,635 facturado / RD$97,918.55 saldo). El detalle completo de la
+  reparacion de datos queda en la bitacora del runbook, no aqui.
+
+Cuatro fallos estaban en codigo que este repo controla y habrian reaparecido
+en el proximo cliente. Los cuatro **corregidos el mismo dia**:
+
+**1. `actualizar.bat`: el timestamp del backup dependia del locale de Windows.**
+`%date:~6,4%%date:~3,2%%date:~0,2%` asume un formato fijo; en `es-DO`,
+`%DATE%` trae el dia de la semana adelante (`sáb. 22/08/2026`), el recorte se
+desalinea y produce un nombre de archivo con `/` adentro -- `pg_dump` no
+puede crearlo, y como el script aborta a proposito si el backup falla, la
+actualizacion nunca pasaba de la FASE 2. El parche manual que se venia
+usando (`BACKUP_FILE=%DB_NAME%.dump`, sin fecha) sobrescribia el backup
+anterior en cada corrida: se perdio el punto de rollback previo. Corregido
+con `powershell Get-Date -Format` (no depende del locale).
+
+**2. Byte de control `0x0B` colado en una ruta `\venv`.** El paquete usado en
+la visita traia `call "...\x0Benv\Scripts\python.exe"` -- alguien tecleo la
+secuencia de escape `\v` en algun editor/generador y quedo interpretada
+literal. El `call` fallaba sin chequeo de errorlevel y el script seguia de
+largo. La fuente en este repo ya estaba limpia (corregida en una sesion
+anterior), pero el paquete de la visita se genero antes de ese fix. Como red
+de seguridad permanente, `scripts/lint_bat.py` -- que ya corre como gate de
+`preparar_paquete.bat` -- ahora tambien escanea BEL/BS/VT/FF a nivel de
+bytes en cualquier `.bat`, asi el origen del proximo descuido (cual sea) no
+importa.
+
+**3. `migrar_env_cliente.py` perdia el `DJANGO_SECRET_KEY` en silencio -- el
+mas grave.** La heuristica vieja descartaba CUALQUIER valor con un `%`
+literal (`if '%' in valor: ignoradas.add(nombre)`), sin distinguir eso de una
+expansion de cmd real (`%NOMBRE%`) sin resolver. El `DJANGO_SECRET_KEY` de
+Royal Plast traia dos `%` en su alfabeto aleatorio y se omitio del `.env`
+generado. Combinado con `settings.py` cayendo al default inseguro del repo
+cuando falta la variable, la instalacion habria arrancado firmando cookies
+con una clave publica en el código fuente -- **sin ningun error**. El
+`.env` que `env_check.PLACEHOLDERS` marca como CRITICO existe como red de
+seguridad, pero depende de que alguien corra `verificar_instalacion`.
+
+Corregido: la heuristica ahora exige el PAR `%[A-Za-z_][A-Za-z0-9_]*%` (una
+expansion de verdad), no un `%` suelto. Y ademas -- la correccion de fondo --
+si una variable de la lista CRITICAS (`DJANGO_SECRET_KEY`, mas `DB_NAME`,
+`DB_USER`, `DB_PASSWORD`, `DB_HOST` para este comando) queda omitida por
+seguir pareciendo una expansion sin resolver, el comando **falla con
+`CommandError`** despues de escribir el resto del archivo (no se pierde lo
+demas, pero no se puede leer "N variables escritas" y seguir de largo). 7
+tests nuevos en `apps/configuracion/tests/test_migrar_env_cliente.py`,
+incluida la reproduccion exacta del secret real.
+
+**4. El orden de `actualizar.bat` garantizaba que la conversion a `.env`
+nunca ocurriera en la primera pasada.** La conversion estaba ANTES de la
+FASE 3 (copiar codigo nuevo), pero el comando `migrar_env_cliente` solo
+existe en el paquete nuevo -- `Unknown command: 'migrar_env_cliente'` en
+cada primera actualizacion de un cliente que siguiera en formato `.bat`. El
+runbook prometia una conversion que nunca pasaba. Movido a despues de la
+FASE 4 (dependencias instaladas, ademas necesario porque el comando importa
+`python-dotenv`).
+
+**Hardening relacionado, mismo dia:**
+- `registrar_sync_servicio.bat` no validaba que `env_cliente.env` existiera
+  antes de registrar el servicio (a diferencia de `registrar_servicio.bat`,
+  que si lo hace). El sintoma real de la visita: `POSFifoSync` quedaba en
+  bucle de reinicio (`CommandError: SYNC_ENABLED=False en settings`),
+  aparentando RUNNING porque nssm lo relanzaba. Ahora valida igual que su
+  contraparte.
+- FASE 8 de `actualizar.bat`, ante un fallo de arranque de `POSFifoSystem`,
+  imprimia solo un mensaje generico que sugeria "el servicio no existe" --
+  cuando la causa real (el gate de `env_check.py` rechazando un
+  `DJANGO_SECRET_KEY` invalido) estaba en `logs\service_stdout.log`. Ahora
+  imprime las ultimas 15 lineas de `service_stdout.log`/`service_stderr.log`
+  en ese caso.
+- Cosmetico: el prompt de ruta destino mostraba `[]` vacio en vez del
+  default (`%DEFAULT_DST%` se expandia en tiempo de parseo del bloque, antes
+  del `set`); corregido a `!DEFAULT_DST!`.
+- Cosmetico: `registrar_servicio.bat` y `registrar_sync_servicio.bat`
+  calculaban `PROJECT_DIR` como `%~dp0..` sin resolver el `..`, asi que
+  `POS_ENV_FILE` y las rutas de log quedaban como
+  `C:\pos_fifo_system\deploy\..\deploy\env_cliente.env`. Windows lo resuelve
+  igual, pero ensucia cualquier diagnostico (Task Scheduler, `nssm dump`).
+  Corregido con el mismo patron de canonicalizacion que ya usaba
+  `actualizar.bat` (`for %%I in ("%PROJECT_DIR%") do set "PROJECT_DIR=%%~fI"`).
+
+**Hallazgo 6 -- sin resolver a proposito, requiere decision.** Dos eventos
+quedaron en ERROR permanente porque no son backfilleables por diseno
+(`apps/sync/registry.py`: `cxc_creadas`/`cxc_pagos` tienen `backfill=False`
+adrede -- ver el docstring del modulo):
+
+- `VENTA_CREADA V-20260623-0001`: el producto `PROD-0361` no existe en cloud
+  todavia. Se repara con `reconciliar_cloud`, que exige un
+  `CLOUD_ADMIN_TOKEN` de sysadmin que no estaba disponible en sitio.
+- `CXC_PAGO_REGISTRADO V-20260622-0001-P5` y su analoga en `V-20260623-0002`:
+  la CxC de origen nunca emitio `CXC_CREADA`. `serializar_cxc` manda el
+  estado ACTUAL (saldo 0.00, PAGADA), no el estado al momento de crearse;
+  emitir el evento ahora crearia la cuenta ya saldada y el pago pendiente se
+  aplicaria encima -- si el handler del cloud resta en vez de recalcular, el
+  saldo terminaria negativo. Impacto acotado: ambas cuentas estan PAGADA con
+  saldo 0 (no hay plata por cobrar en juego), son RD$25,850 de historial que
+  no se ve en el portal.
+
+Ninguna reparacion de datos de produccion se ejecuto a ciegas para esto --
+correcto: adivinar sobre datos reales de un cliente pagando es peor que
+dejarlo pendiente. Pendiente: decidir si vale la pena escribir un evento
+`CXC_CREADA` "reconstruido" (con el estado historico, no el actual) para
+este tipo de hueco, o si se acepta como perdida de historial cosmetica.
