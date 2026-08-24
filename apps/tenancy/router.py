@@ -21,6 +21,15 @@ DEFAULT_ONLY_APPS = {'admin', 'sessions'}
 #
 # Regla general del reparto: todo FK/M2M hacia un modelo de tenant tiene que
 # vivir donde vive ese modelo.
+#
+# SEGUNDA REGLA, aprendida con BUG-F: mover una app entre estos tres conjuntos
+# NO es un cambio de configuracion, es una migracion de datos. `allow_migrate`
+# filtra las OPERACIONES de una migracion, pero Django la REGISTRA como aplicada
+# igual. Una app excluida de las bases tenant acumula migraciones registradas
+# sin una sola tabla; al cambiarla de bucket, `migrate` no ve nada por hacer y
+# la base queda rota con el deploy en verde. Al mover una app hay que
+# desregistrarla (`DELETE FROM django_migrations WHERE app='<app>'`) en cada
+# base afectada y volver a migrar. `migrate_tenants` ahora lo detecta.
 DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios', 'token_blacklist'}
 
 

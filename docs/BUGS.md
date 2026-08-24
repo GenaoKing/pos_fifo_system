@@ -355,3 +355,78 @@ establecerse antes de resolver el usuario.
 sirve rutas que bajo tenancy fallan ruidoso sin contexto. Endurecimiento
 pendiente: esas rutas de template del POS local no deberian ser alcanzables en
 el cloud.
+
+---
+
+### BUG-F — `migrate` en verde sobre bases tenant sin tablas: caida del login del portal
+
+- Fecha: 2026-08-22 21:06 UTC (se sembro) → 2026-08-22 22:20 UTC (se manifesto).
+- Severidad: **critica**. El portal cloud quedo **sin poder autenticar a nadie**
+  durante ~5 horas, en los cuatro tenants de produccion.
+- Resuelto el 2026-08-23 03:5x UTC. **No requirio despliegue**: fue reparacion de
+  datos + re-corrida del job de migraciones.
+
+**Sintoma.** Credenciales correctas en el portal React → error. Credenciales
+incorrectas → `400 Credenciales invalidas` normal. O sea: **el login solo
+fallaba cuando el password era el correcto**, porque el fallo estaba despues del
+`check_password`:
+
+```
+django.db.utils.ProgrammingError: relation "token_blacklist_outstandingtoken" does not exist
+LINE 1: INSERT INTO "token_blacklist_outstandingtoken" ("user_id", "...
+```
+
+Marcador util para fechar el corte: `tenancy_identities.ultimo_acceso` solo se
+escribe si el login **completa**. Quedo congelado en el ultimo login bueno.
+
+**Causa raiz — el registro de migraciones miente por diseno.**
+`allow_migrate` filtra las **operaciones** de una migracion, pero Django
+**registra la migracion como aplicada de todos modos**. Mientras la app se
+mantiene excluida de esas bases, es inofensivo. El dia que la app cambia de
+bucket en el router, Django ya cree que esta aplicada y **nunca crea las tablas**.
+
+La secuencia exacta:
+
+1. Se instalo `rest_framework_simplejwt.token_blacklist` con el router
+   poniendola en `DEFAULT_ONLY_APPS` (control plane).
+2. El deploy migro: en `pos_fifo_prod` creo las 2 tablas; en las 4 bases `tnt_*`
+   `allow_migrate` bloqueo el `CreateModel` **pero registro las 12 migraciones**.
+3. Primer fallo: `RefreshToken.for_user()` intentaba crear el `OutstandingToken`
+   en `default` con FK a un `Usuario` cargado desde `tnt_*` →
+   `ValueError: the current database router prevents this relation`.
+4. Se corrigio el router moviendo `token_blacklist` a `DUAL_HOME_APPS` (commit
+   `c99d203`) — **correcto y necesario**: su FK apunta a `usuarios`, que es
+   dual-home; todo FK tiene que vivir donde vive su destino.
+5. El deploy volvio a migrar y reporto `migrados: 4/4`. **No aplico nada**: las
+   12 migraciones ya figuraban aplicadas. Tablas: cero.
+6. El error solo cambio de forma: de `prevents this relation` a
+   `relation ... does not exist`.
+
+**Lo peligroso no fue el bug, fue la senal.** `migrate` termino en verde dos
+veces sobre una base rota. Nada en el pipeline miraba las tablas reales.
+
+**Reparacion aplicada.**
+
+```sql
+-- por cada base tenant, tras respaldar las filas
+DELETE FROM django_migrations WHERE app='token_blacklist';
+```
+
+```bash
+az containerapp job start -n posfifo-prod-migrate -g posfifo-prod-rg
+```
+
+Verificacion (las 4 bases pasaron de `tablas=0 migraciones=12` a
+`tablas=2 migraciones=12`), y despues el camino completo del login ejercitado
+contra produccion para las 4 identidades.
+
+**Prevencion (aplicada).** `migrate_tenants` ahora corre `tablas_faltantes(alias)`
+**despues** de migrar cada tenant y falla si algun modelo del reparto tenant no
+tiene tabla real. Compara contra `pg_tables`, no contra `django_migrations`,
+porque el registro es justamente lo que mintio. Regresion cubierta en
+`apps/tenancy/tests/test_verificacion_tablas.py`.
+
+**Regla que queda.** Mover una app entre `CONTROL_PLANE_APPS`,
+`DEFAULT_ONLY_APPS` y `DUAL_HOME_APPS` **no es un cambio de configuracion**: es
+una migracion de datos. Toda app que cambie de bucket necesita, en cada base
+afectada, desregistrar sus migraciones y volver a aplicarlas.

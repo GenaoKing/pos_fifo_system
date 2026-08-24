@@ -1,10 +1,44 @@
+from django.apps import apps as django_apps
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import connections
 from django.utils import timezone
 
 from apps.tenancy.context import force_tenancy, tenant_context
 from apps.tenancy.models import Tenant
 from apps.tenancy.registry import configure_tenant_database
+from apps.tenancy.router import CONTROL_PLANE_APPS, DEFAULT_ONLY_APPS
+
+
+def tablas_faltantes(alias):
+    """
+    Modelos que deberian tener tabla en esta base tenant y no la tienen.
+
+    Existe por un fallo real en produccion. `allow_migrate` filtra las
+    OPERACIONES de una migracion, pero Django REGISTRA la migracion como
+    aplicada de todos modos. Mientras una app se mantiene excluida de las bases
+    tenant eso es inofensivo; el dia que la app cambia de bucket en el router,
+    Django ya cree que esta aplicada y nunca crea las tablas.
+
+    Fue exactamente lo que tumbo el login del portal: `token_blacklist` estaba
+    en DEFAULT_ONLY_APPS cuando se instalo, quedaron 12 migraciones registradas
+    sin una sola tabla en las cuatro bases tenant, y al pasarla a DUAL_HOME
+    `migrate` no tenia nada que hacer. Un `migrate` en verde con la base rota.
+
+    Comparar contra las tablas reales es la unica forma de detectarlo: el
+    registro de migraciones miente por diseno.
+    """
+    conn = connections[alias]
+    existentes = set(conn.introspection.table_names())
+    excluidas = CONTROL_PLANE_APPS | DEFAULT_ONLY_APPS
+    faltantes = []
+    for modelo in django_apps.get_models():
+        meta = modelo._meta
+        if meta.app_label in excluidas or meta.proxy or not meta.managed:
+            continue
+        if meta.db_table not in existentes:
+            faltantes.append(f'{meta.label} -> {meta.db_table}')
+    return sorted(faltantes)
 
 
 class Command(BaseCommand):
@@ -64,6 +98,21 @@ class Command(BaseCommand):
                             database=alias,
                             interactive=not options.get('noinput'),
                             verbosity=options.get('verbosity', 1),
+                        )
+                    # Verificar DESPUES de migrar: `migrate` puede terminar en
+                    # verde sobre una base a la que le faltan tablas (ver
+                    # `tablas_faltantes`). Sin esto, el deploy declara exito y
+                    # el fallo aparece en la cara del primer usuario.
+                    faltantes = tablas_faltantes(alias)
+                    if faltantes:
+                        raise CommandError(
+                            f'{tenant.tenant_key}: migrate termino sin error pero '
+                            f'faltan {len(faltantes)} tablas: '
+                            f'{", ".join(faltantes[:8])}'
+                            f'{" ..." if len(faltantes) > 8 else ""}. '
+                            f'Reparacion: borrar de django_migrations de '
+                            f'{tenant.db_name} las filas de la app afectada y '
+                            f'volver a correr migrate_tenants.'
                         )
                 except Exception as exc:
                     resultados.append({
