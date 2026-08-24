@@ -118,25 +118,29 @@ class Command(BaseCommand):
 
     def _revisar_modulos(self):
         """
-        Detecta el caso que apaga funciones en silencio.
+        Reporta el estado de aprovisionamiento del negocio.
 
         `modulo_activo()` resuelve asi:
 
-            sucursal SIN negocio  -> fail-OPEN: lee el flag legacy de
-                                     ConfiguracionNegocio. Todo funciona.
-            sucursal CON negocio  -> manda la suscripcion del negocio. Si ese
-                                     negocio no tiene suscripcion activa con
-                                     plan ni filas NegocioModulo, quedan SOLO
-                                     los modulos core.
+            sucursal SIN negocio      -> fail-OPEN: lee el flag legacy de
+                                         ConfiguracionNegocio. Todo funciona.
+            negocio SIN aprovisionar  -> fail-OPEN tambien (ver docstring de
+                                         `apps.suscripciones.engine`): sin
+                                         suscripcion activa con plan NI una
+                                         sola fila de NegocioModulo, se
+                                         resuelve como "todo activo". Ya no
+                                         apaga nada -- corrige la trampa que
+                                         documentaba BUG-D.
+            negocio CON aprovisionar  -> manda la suscripcion + overrides tal
+                                         cual se configuraron. Un modulo
+                                         puede quedar apagado a proposito.
 
-        `impresion_termica` NO es core. O sea: enganchar la sucursal a un negocio
-        sin aprovisionarle modulos **apaga la impresion de tickets**, y tambien
-        cotizaciones, etiquetas Zebra, CxC, financiacion y e-CF. Sin ningun
-        error visible.
-
-        La asimetria (sin negocio falla abierto, con negocio a medio aprovisionar
-        falla cerrado) es lo que lo vuelve dificil de diagnosticar: los dos
-        estados se ven iguales desde afuera.
+        Este chequeo sigue senalando el estado "sin aprovisionar" porque el
+        fail-open es una red de seguridad, no el estado deseado: sin una
+        suscripcion o overrides reales, el negocio no tiene entitlements de
+        verdad, solo el default abierto. `roto` ahora solo se enciende si algo
+        vendible quedo apagado y NO deberia -- que es la unica situacion que
+        de verdad rompe algo (imprimir, cobrar, etc.) en silencio.
         """
         from apps.suscripciones import registry
         from apps.sucursales.models import get_sucursal_actual
@@ -186,8 +190,11 @@ class Command(BaseCommand):
             'activos': sorted(activos),
             'apagados': apagados,
             # Un modulo apagado a proposito (ej. e-CF) no es un problema; que se
-            # haya apagado la impresion SI, porque nadie lo pidio.
-            'roto': 'impresion_termica' in apagados or not (tiene_plan or tiene_overrides),
+            # haya apagado la impresion SI, porque nadie lo pidio. El caso "sin
+            # aprovisionar" ya NO cuenta como roto: con el fail-open, no hay
+            # nada apagado -- es solo un aviso de que falta configurar
+            # entitlements de verdad.
+            'roto': 'impresion_termica' in apagados,
         }
 
     # ------------------------------------------------------------------
@@ -252,6 +259,10 @@ class Command(BaseCommand):
         else:
             w(f'  Modo: suscripciones | negocio: {m["negocio"]}')
             w(f'  Plan: {m["plan"] or "(ninguno)"}')
+            if not m['aprovisionado']:
+                w(warn('  AVISO: negocio sin suscripcion ni overrides. Fail-open: '
+                       'todo funciona, pero no hay entitlements de verdad '
+                       'configurados todavia (correr bootstrap_suscripciones).'))
             if not m['apagados']:
                 w(ok('  OK: todos los modulos vendibles estan activos.'))
             elif not m['roto']:
