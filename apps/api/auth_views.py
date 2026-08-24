@@ -372,11 +372,19 @@ def _validar_usuario_portal(user):
             code='usuario_inactivo',
         )
 
-    rol = getattr(user, 'rol', None)
-    if rol not in ('SYSADMIN', 'ADMIN'):
+    # Antes: solo ADMIN/SYSADMIN. Con RBAC granular ya operativo (apps.permisos)
+    # el gate correcto no es el rol sino tener algun permiso concreto -- es lo
+    # que abre el portal a la cajera (BUG-G, docs/BUGS.md: fotografiar
+    # productos desde el celular) sin darle acceso a nada mas de lo que su
+    # rol ya le concede. Un usuario sin ninguna asignacion de rol activa
+    # sigue sin poder entrar.
+    from apps.permisos.engine import permisos_de_usuario
+
+    if not permisos_de_usuario(user):
         raise serializers.ValidationError(
-            {'detail': 'Solo administradores pueden acceder al portal cloud.'},
-            code='rol_no_autorizado',
+            {'detail': 'Su usuario no tiene ningun permiso asignado para el '
+                       'portal cloud. Contacte al administrador.'},
+            code='sin_permisos_portal',
         )
 
 

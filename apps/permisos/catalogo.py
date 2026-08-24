@@ -26,6 +26,11 @@ CATALOGO = [
     ('productos.crear', 'Crear productos', 'productos', 'Registrar nuevos productos.'),
     ('productos.editar', 'Editar productos', 'productos', 'Modificar productos.'),
     ('productos.eliminar', 'Eliminar productos', 'productos', 'Dar de baja productos.'),
+    ('productos.fotografiar', 'Subir foto de producto', 'productos',
+     'Subir o cambiar la foto de un producto, sin poder tocar precio, '
+     'categoria ni el resto de sus datos. Separado de `productos.editar` '
+     'para que la cajera pueda fotografiar desde el celular sin ganar '
+     'permiso de editar el catalogo.'),
 
     # --- Categorias ---------------------------------------------------------
     ('categorias.ver', 'Ver categorias', 'categorias', 'Listar y consultar categorias.'),
@@ -119,6 +124,11 @@ PERMISOS_CAJERO_DEFAULT = [
     # este permiso en vez de con el flag legacy `es_cajera`. Va en el default
     # para que una instalacion existente no pierda la pantalla de inicio.
     'reportes.ver',
+    # Portal cloud (ver docs/BUGS.md BUG-G): la cajera puede entrar a ver el
+    # catalogo y fotografiar productos desde el celular -- no crear, editar
+    # precios ni borrar.
+    'productos.ver',
+    'productos.fotografiar',
 ]
 
 
