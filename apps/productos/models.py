@@ -79,11 +79,32 @@ class Categoria(models.Model):
     
     def __str__(self):
         return self.nombre
-    
+
     @property
     def total_productos(self):
         """Retorna el total de productos activos en esta categoría"""
         return self.productos.filter(activo=True).count()
+
+    @classmethod
+    def get_sin_clasificar(cls):
+        """
+        Categoria generica para productos creados como stub (ver
+        Producto.pendiente_revision). Molde de Cliente.get_cliente_contado.
+
+        Tiene que ser una fila REAL y activa: baja por el pull de categorias
+        antes que los productos en el mismo ciclo (apps/sync/engine.py), asi
+        el stub nunca queda diferido en la sucursal esperando una categoria
+        que no existe.
+        """
+        categoria, _ = cls.objects.get_or_create(
+            nombre='Sin clasificar',
+            defaults={
+                'activa': True,
+                'descripcion': 'Categoria generica para productos creados '
+                               'automaticamente desde una venta de sucursal.',
+            },
+        )
+        return categoria
 
 
 class Producto(models.Model):
@@ -183,7 +204,52 @@ class Producto(models.Model):
         help_text='JPEG de 320 px generado a partir de la imagen. No se edita a mano.',
     )
 
-        # ← AGREGAR AQUÍ (línea ~90):
+    # ------------------------------------------------------------------
+    # Origen y revision (solo se usan en el CLOUD; en el POS local quedan
+    # en su default). Ver apps/api/views/sync.py::_resolver_productos_venta.
+    # ------------------------------------------------------------------
+    #
+    # Una venta que llega con un SKU inexistente ya NO se rechaza entera:
+    # el producto nace como stub minimo (nombre y precio del payload,
+    # categoria generica) para no perder la venta, y queda marcado para que
+    # el dueno lo complete desde el portal. Molde exacto de
+    # Cliente.origen_sucursal (apps/clientes/models.py) -- procedencia
+    # permanente, no se limpia nunca.
+    origen_sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='productos_originados',
+        verbose_name='Sucursal de origen',
+        help_text='Sucursal donde nacio el producto, si nacio de una venta en sucursal.',
+    )
+    # Separado de `origen_sucursal` a proposito: la procedencia no cambia
+    # nunca, pero este SI se limpia cuando el dueno completa el producto
+    # desde el portal (categoria real, precio revisado). Mientras este en
+    # True, el pull de la sucursal de origen lo excluye -- ver
+    # ProductoViewSet.get_base_queryset -- para no pisar con datos pobres
+    # los reales que ya tiene esa sucursal para el mismo SKU.
+    pendiente_revision = models.BooleanField(
+        'Pendiente de revision',
+        default=False,
+        db_index=True,
+        help_text='Nacio como stub de una venta y todavia no se completo desde el portal.',
+    )
+    # Solo lo usa el POS local (pull de maestros) para detectar que la foto
+    # cambio en el cloud sin tener que descargarla en cada ciclo para
+    # comparar. Se sella con la URL que ya se descargo con exito; queda vacia
+    # mientras no haya descarga exitosa, asi que una descarga fallida
+    # reintenta sola en el proximo ciclo (no se sella nada).
+    imagen_origen_url = models.URLField(
+        'URL de origen de la imagen',
+        max_length=500,
+        blank=True,
+        default='',
+        editable=False,
+        help_text='Ultima imagen_url del cloud descargada con exito. Solo POS local.',
+    )
+
     atributos = models.JSONField(
         'Atributos Personalizados',
         default=dict,
