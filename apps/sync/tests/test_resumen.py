@@ -136,7 +136,28 @@ class CalcularResumenCxcTests(TestCase):
         resumen = calcular_resumen(date(2026, 8, 18), date(2026, 8, 18), 'America/Santo_Domingo')
         fila = resumen['cxc']['2026-08-18']
         self.assertEqual(fila['count'], 2)
-        self.assertEqual(fila['saldo'], '1200.00')
+        # saldo_original, no saldo: suma el TOTAL emitido ese dia (1000+500),
+        # no el balance vivo despues de pagos (1000+200).
+        self.assertEqual(fila['saldo_original'], '1500.00')
+
+    def test_un_pago_posterior_no_cambia_el_resumen_del_dia_de_emision(self):
+        """
+        Regresion: `saldo` es un balance vivo que un pago de HOY (fuera de la
+        ventana conciliada) sigue mutando. Si el resumen sumara `saldo` en vez
+        de `saldo_original`, este pago cambiaria el resultado del dia en que
+        la cuenta se emitio -- una divergencia fantasma atribuida al dia
+        equivocado. `saldo_original` no debe moverse.
+        """
+        cuenta = self._cuenta('V-CXC-3', date(2026, 8, 18), '1000.00', '1000.00')
+
+        antes = calcular_resumen(date(2026, 8, 18), date(2026, 8, 18), 'America/Santo_Domingo')
+
+        cuenta.saldo = Decimal('400.00')
+        cuenta.save(update_fields=['saldo'])
+
+        despues = calcular_resumen(date(2026, 8, 18), date(2026, 8, 18), 'America/Santo_Domingo')
+        self.assertEqual(antes['cxc']['2026-08-18'], despues['cxc']['2026-08-18'])
+        self.assertEqual(despues['cxc']['2026-08-18']['saldo_original'], '1000.00')
 
 
 class CalcularResumenPagosTests(TestCase):
@@ -203,8 +224,8 @@ class CompararResumenesTests(TestCase):
 
     def test_diferencia_de_un_centavo_no_es_falso_positivo(self):
         """Tolerancia de redondeo entre Decimal local y numero JSON del cloud."""
-        local = {'cxc': {'2026-08-18': {'count': 1, 'saldo': '100.00'}}}
-        cloud = {'cxc': {'2026-08-18': {'count': 1, 'saldo': '100.005'}}}
+        local = {'cxc': {'2026-08-18': {'count': 1, 'saldo_original': '100.00'}}}
+        cloud = {'cxc': {'2026-08-18': {'count': 1, 'saldo_original': '100.005'}}}
         self.assertEqual(comparar_resumenes(local, cloud), [])
 
     def test_conteo_correcto_pero_suma_distinta(self):
@@ -213,3 +234,16 @@ class CompararResumenesTests(TestCase):
         divergencias = comparar_resumenes(local, cloud)
         self.assertEqual(len(divergencias), 1)
         self.assertEqual(divergencias[0]['campo'], 'suma')
+
+    def test_max_ref_distinto_es_divergencia(self):
+        local = {'ventas': {'2026-08-18': {'count': 2, 'suma': '350.00', 'anuladas': 0, 'max_ref': 'V-0009'}}}
+        cloud = {'ventas': {'2026-08-18': {'count': 2, 'suma': '350.00', 'anuladas': 0, 'max_ref': 'V-0008'}}}
+        divergencias = comparar_resumenes(local, cloud)
+        self.assertEqual(len(divergencias), 1)
+        self.assertEqual(divergencias[0]['campo'], 'max_ref')
+        self.assertEqual(divergencias[0]['local'], 'V-0009')
+        self.assertEqual(divergencias[0]['cloud'], 'V-0008')
+
+    def test_max_ref_igual_no_reporta_nada(self):
+        resumen = {'ventas': {'2026-08-18': {'count': 2, 'suma': '350.00', 'anuladas': 0, 'max_ref': 'V-0009'}}}
+        self.assertEqual(comparar_resumenes(resumen, dict(resumen)), [])

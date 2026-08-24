@@ -50,6 +50,21 @@ class RutasLocalesOcultasBajoTenancyTests(TestCase):
         resp_admin = self.client.get('/admin/login/')
         self.assertNotEqual(resp_admin.status_code, 404)
 
+    def test_media_sigue_disponible_bajo_tenancy(self):
+        """
+        `serve_media` no renderiza template (no sufre TenantContextError) y un
+        cloud sin backend Blob sirve las imagenes de catalogo desde aca: no
+        puede quedar oculta junto con las rutas de template del POS local.
+        Se resuelve la URL en vez de pedir el archivo: un archivo inexistente
+        tambien da 404 y no distinguiria "ruta oculta" de "archivo ausente".
+        """
+        from django.urls import resolve
+
+        _recargar_urls(True)
+
+        match = resolve('/media/productos/x.jpg')
+        self.assertEqual(match.func.__name__, 'serve_media')
+
     def test_las_mismas_rutas_siguen_existiendo_sin_tenancy(self):
         """
         La instalacion local (el caso normal, sin DB-per-tenant) no debe

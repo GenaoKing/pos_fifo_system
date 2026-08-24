@@ -26,6 +26,7 @@ RotatingFileHandler configurado, iran tambien a sync.log. Si no, a consola.
 import logging
 import signal
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -105,6 +106,10 @@ class Command(BaseCommand):
         # mitad de dia, corre una vez de mas, que es inocuo (es solo lectura
         # salvo que alguien pida --backfill a mano).
         self._conciliacion_ultimo_dia = None
+        # Backoff tras un ERROR real (cloud alcanzable pero el resumen fallo):
+        # sin esto, un error persistente reintentaria cada `interval` segundos
+        # el resto del dia. None = sin backoff activo.
+        self._conciliacion_reintento_desde = None
 
         # Manejo de Ctrl-C y SIGTERM (cuando NSSM manda stop)
         self._running = True
@@ -238,6 +243,15 @@ class Command(BaseCommand):
         hora_minima = getattr(settings, 'SYNC_CONCILIACION_HORA', 6)
         if ahora.hour < hora_minima:
             return
+        if self._conciliacion_reintento_desde and ahora < self._conciliacion_reintento_desde:
+            return
+
+        # Sin conexion no hay nada que conciliar: un scan local completo para
+        # terminar en 'red: ...' solo produce una alerta falsa (el problema es
+        # la conexion, no el dato) y consumiria el turno del dia sin haber
+        # conciliado de verdad. El proximo ciclo reintenta solo.
+        if not engine.check_connection():
+            return
 
         try:
             from apps.sync.conciliacion import conciliar
@@ -245,13 +259,22 @@ class Command(BaseCommand):
             from apps.sucursales.models import get_sucursal_actual
 
             dias = getattr(settings, 'SYNC_CONCILIACION_DIAS', 30)
-            resultado = conciliar(dias=dias)
-
-            self._conciliacion_ultimo_dia = hoy
+            resultado = conciliar(dias=dias, engine=engine)
 
             if resultado['estado'] == 'NO_SOPORTADO':
+                self._conciliacion_ultimo_dia = hoy
+                self._conciliacion_reintento_desde = None
                 self.stdout.write(f"[{self._now()}] CONCILIACION: {resultado['mensaje']}")
                 return
+
+            if resultado['estado'] == 'ERROR':
+                # Error real (cloud alcanzable, el resumen fallo): se registra
+                # -- es señal legitima -- pero no consume el turno del dia;
+                # se reintenta en una hora en vez de en el proximo ciclo.
+                self._conciliacion_reintento_desde = ahora + timedelta(hours=1)
+            else:
+                self._conciliacion_ultimo_dia = hoy
+                self._conciliacion_reintento_desde = None
 
             resultado_log = {
                 'OK': 'EXITOSO', 'DIVERGENTE': 'PARCIAL', 'ERROR': 'FALLO',

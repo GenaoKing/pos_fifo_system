@@ -62,6 +62,11 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # API REST V1
     path('api/', include('apps.api.urls')),
+    # `serve_media` no renderiza template ni toca un modelo de negocio -- no
+    # sufre el TenantContextError de BUG-E. Un cloud sin backend Blob (o con
+    # AZURE_BLOB_MEDIA_ENABLED=false) sirve las imagenes de catalogo desde
+    # aca, asi que tiene que existir en los dos modos.
+    path('media/<path:path>', serve_media),
 ]
 
 if not _ES_INSTANCIA_CLOUD:
@@ -82,6 +87,4 @@ if not _ES_INSTANCIA_CLOUD:
         path('', include('apps.usuarios.urls')),
 
         path('facturacion-electronica/', include('apps.facturacion_electronica.urls')),
-
-        path('media/<path:path>', serve_media),
     ]

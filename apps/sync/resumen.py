@@ -27,6 +27,15 @@ cola. Agrupar por esa fecha produce divergencias fantasma permanentes para
 todo hecho aplicado con retraso. Por eso cada agregado usa el campo de fecha
 que ya tiene el propio modelo de negocio (ver cada funcion abajo).
 
+Corolario: el campo que se suma dentro de cada dia tiene que ser INMUTABLE
+respecto de esa fecha. `CuentaPorCobrar.saldo` es un balance vivo que un pago
+posterior (en cualquier fecha, incluso hoy, fuera de la ventana) sigue
+mutando -- sumarlo agrupado por `fecha_emision` filtra por cuando la cuenta
+NACIO pero mide un valor que cambia depues, produciendo divergencias
+atribuidas al dia equivocado. `saldo_original` se escribe una sola vez al
+crear la cuenta y no vuelve a cambiar: es lo que hay que comparar. La cobranza
+(los pagos) ya la vigila `cxc_pagos`, agrupada por `fecha_pago`.
+
 ## Zona horaria
 
 `fecha_venta` y `fecha_pago` son `DateTimeField` (aware, en UTC en la BD).
@@ -40,7 +49,7 @@ en vez de asumir la suya propia.
 componente horario que truncar. Se agrupa tal cual.
 """
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -71,8 +80,8 @@ def calcular_resumen(desde, hasta, tz, sucursal=None):
 
     Devuelve:
         {
-          'ventas':    {'2026-08-18': {'count': 10, 'suma': '15400.00', 'anuladas': 1}},
-          'cxc':       {'2026-08-18': {'count': 2, 'saldo': '3500.00'}},
+          'ventas':    {'2026-08-18': {'count': 10, 'suma': '15400.00', 'anuladas': 1, 'max_ref': 'V-000123'}},
+          'cxc':       {'2026-08-18': {'count': 2, 'saldo_original': '3500.00'}},
           'cxc_pagos': {'2026-08-18': {'count': 3, 'monto': '1200.00'}},
         }
 
@@ -88,16 +97,29 @@ def calcular_resumen(desde, hasta, tz, sucursal=None):
     }
 
 
+def _limites(desde, hasta, zona):
+    """
+    [desde, hasta] (date, en `zona`) -> [inicio, fin) como datetime aware en
+    UTC, listo para filtrar un DateTimeField directo. Equivalente exacto a
+    `TruncDate(campo, tzinfo=zona) in [desde, hasta]`, pero permite filtrar
+    ANTES de truncar: sobre un campo indexado, Postgres puede usar el indice
+    en vez de recalcular TruncDate fila por fila sobre toda la tabla.
+    """
+    inicio = datetime.combine(desde, time.min, tzinfo=zona)
+    fin = datetime.combine(hasta + timedelta(days=1), time.min, tzinfo=zona)
+    return inicio, fin
+
+
 def _resumen_ventas(desde, hasta, zona, sucursal):
     from apps.ventas.models import Venta
 
-    qs = Venta.objects.all()
+    inicio, fin = _limites(desde, hasta, zona)
+    qs = Venta.objects.filter(fecha_venta__gte=inicio, fecha_venta__lt=fin)
     if sucursal is not None:
         qs = qs.filter(sucursal=sucursal)
 
     filas = (
         qs.annotate(dia=TruncDate('fecha_venta', tzinfo=zona))
-        .filter(dia__gte=desde, dia__lte=hasta)
         .values('dia')
         .annotate(
             count=Count('id'),
@@ -121,13 +143,18 @@ def _resumen_ventas(desde, hasta, zona, sucursal):
 def _resumen_cxc(desde, hasta, sucursal):
     from apps.cuentas_por_cobrar.models import CuentaPorCobrar
 
+    # `saldo_original`, NO `saldo`: `saldo` es el balance vivo, mutado por
+    # cualquier pago posterior (incluso de hoy, fuera de la ventana). Sumarlo
+    # agrupado por `fecha_emision` produce divergencias fantasma atribuidas al
+    # dia en que la cuenta nacio, no al dia real del cambio. `saldo_original`
+    # se escribe una vez al crear la cuenta y no cambia mas.
     qs = CuentaPorCobrar.objects.filter(fecha_emision__gte=desde, fecha_emision__lte=hasta)
     if sucursal is not None:
         qs = qs.filter(sucursal=sucursal)
 
     filas = (
         qs.values('fecha_emision')
-        .annotate(count=Count('id'), saldo=Sum('saldo'))
+        .annotate(count=Count('id'), saldo_original=Sum('saldo_original'))
     )
 
     resultado = {}
@@ -136,7 +163,7 @@ def _resumen_cxc(desde, hasta, sucursal):
         clave = dia.isoformat() if isinstance(dia, date) else str(dia)
         resultado[clave] = {
             'count': fila['count'],
-            'saldo': _dec(fila['saldo']),
+            'saldo_original': _dec(fila['saldo_original']),
         }
     return resultado
 
@@ -148,13 +175,13 @@ def _resumen_cxc_pagos(desde, hasta, zona, sucursal):
     # sumando saldo cobrado en ninguno de los dos lados. Si la anulacion no
     # replico, el conteo total (con anulados) SI diverge y lo delata; por eso
     # se reporta tambien `count` sobre el total, no solo sobre lo aplicado.
-    qs = PagoCxC.objects.all()
+    inicio, fin = _limites(desde, hasta, zona)
+    qs = PagoCxC.objects.filter(fecha_pago__gte=inicio, fecha_pago__lt=fin)
     if sucursal is not None:
         qs = qs.filter(cuenta__sucursal=sucursal)
 
     filas = (
         qs.annotate(dia=TruncDate('fecha_pago', tzinfo=zona))
-        .filter(dia__gte=desde, dia__lte=hasta)
         .values('dia')
         .annotate(
             count=Count('id'),
@@ -190,8 +217,14 @@ _CAMPOS_ENTEROS = {
 }
 _CAMPOS_MONTO = {
     'ventas': ('suma',),
-    'cxc': ('saldo',),
+    'cxc': ('saldo_original',),
     'cxc_pagos': ('monto',),
+}
+# Comparacion exacta de texto -- sin tolerancia, no son montos. `max_ref`
+# atrapa el caso "mismo count y suma, pero el ultimo correlativo no
+# coincide" (p. ej. un numero_venta se aplico con un valor distinto).
+_CAMPOS_TEXTO = {
+    'ventas': ('max_ref',),
 }
 _TOLERANCIA_MONTO = Decimal('0.01')
 
@@ -232,6 +265,15 @@ def comparar_resumenes(local, cloud):
                     divergencias.append({
                         'tipo': tipo, 'dia': dia, 'campo': campo,
                         'local': str(lv), 'cloud': str(cv),
+                    })
+
+            for campo in _CAMPOS_TEXTO.get(tipo, ()):
+                lv = str(fila_local.get(campo, '') or '')
+                cv = str(fila_cloud.get(campo, '') or '')
+                if lv != cv:
+                    divergencias.append({
+                        'tipo': tipo, 'dia': dia, 'campo': campo,
+                        'local': lv, 'cloud': cv,
                     })
 
     return divergencias

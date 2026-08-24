@@ -73,8 +73,9 @@ def conciliar(dias, engine=None, backfill=False, ejecutar=False):
         'backfill': None,
     }
 
-    local = resumen_mod.calcular_resumen(desde, hasta, tz)
-
+    # Pedir el resumen del cloud ANTES de calcular el local: si el cloud no
+    # responde (o es una version sin el endpoint), el scan local completo
+    # habria sido trabajo tirado.
     engine = engine or SyncEngine()
     cloud, error = engine.obtener_resumen(desde, hasta, tz)
 
@@ -91,6 +92,7 @@ def conciliar(dias, engine=None, backfill=False, ejecutar=False):
         resultado['mensaje'] = error
         return resultado
 
+    local = resumen_mod.calcular_resumen(desde, hasta, tz)
     divergencias = resumen_mod.comparar_resumenes(local, cloud)
     resultado['divergencias'] = divergencias
     resultado['estado'] = 'DIVERGENTE' if divergencias else 'OK'

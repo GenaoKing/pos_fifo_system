@@ -536,10 +536,14 @@ nunca sobre `fecha_creacion` del cloud — esa es el momento en que se *aplicó*
 el evento, no el hecho en sí, y agrupar por ahí produce divergencias fantasma
 para todo evento aplicado con retraso.
 
-Alcance final: `ventas` (count, suma, anuladas, max_ref), `cxc` (count,
-saldo) y `cxc_pagos` (count, monto, solo estado APLICADO). Se dejaron fuera
-`cierres_caja`/`aperturas_caja` del borrador original — el valor está
-concentrado en ventas/CxC/pagos, que es donde vive el dinero.
+Alcance final: `ventas` (count, suma, anuladas, max_ref — comparado exacto,
+no solo informativo), `cxc` (count, saldo_original) y `cxc_pagos` (count,
+monto, solo estado APLICADO). `cxc` compara `saldo_original`, no `saldo`: el
+segundo es un balance vivo que un pago posterior sigue mutando, y sumarlo
+agrupado por `fecha_emision` producía divergencias fantasma atribuidas al día
+en que la cuenta nació. Se dejaron fuera `cierres_caja`/`aperturas_caja` del
+borrador original — el valor está concentrado en ventas/CxC/pagos, que es
+donde vive el dinero.
 
 ### 3.2 Comando local `conciliar` (implementado)
 
