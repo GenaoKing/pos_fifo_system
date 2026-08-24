@@ -28,11 +28,12 @@
 ### BUG-A — Perdida SILENCIOSA de eventos de sync cuando el servicio del POS no tiene `SYNC_ENABLED`
 
 - Fecha de hallazgo: 2026-08-19.
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
-  El gate se movio de la emision al envio y el evento ahora se escribe dentro de
-  la transaccion de negocio. Ver Fase 1 de `docs/ROADMAP_SYNC_CONFIABLE.md`.
-  Falta desplegar a los clientes y correr `verificar_sync --backfill` para
-  recuperar lo ya perdido.
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud +
+  Royal Plast en sitio). El gate se movio de la emision al envio y el evento
+  ahora se escribe dentro de la transaccion de negocio (Fase 1 de
+  `docs/ROADMAP_SYNC_CONFIABLE.md`). Reparado con `verificar_sync --backfill
+  --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda
+  pendiente de su visita.
 - Severidad: **alta** (perdida de datos irrecuperable por el mecanismo actual).
 - Sintoma: ventas registradas en la sucursal que NUNCA llegan al cloud, sin que
   nada falle a la vista: `sync_status` reporta 0 pendientes, el daemon
@@ -106,7 +107,7 @@ fila nunca se creo.
 
 - Fecha de hallazgo: documentado en `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` §5;
   confirmado en codigo 2026-08-19.
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud + Royal Plast en sitio). Reparado con `verificar_sync --backfill --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda pendiente de su visita.
   Cursor keyset `(fecha_modificacion, id)` + marca de agua contigua. Ver Fase 2
   de `docs/ROADMAP_SYNC_CONFIABLE.md`.
 - Severidad: media (perdida de ACTUALIZACIONES de maestros, no de transacciones).
@@ -193,7 +194,7 @@ de esta fase.
 
 - Fecha de hallazgo: 2026-08-19.
 - Severidad: **alta** (dinero real invisible en el portal, y creciendo).
-- **Estado: CORREGIDO en codigo (2026-08-19), pendiente de desplegar.**
+- **Estado: CORREGIDO y DESPLEGADO.** En prod desde el 2026-08-22 (cloud + Royal Plast en sitio). Reparado con `verificar_sync --backfill --reintentar-descartados --ejecutar` en Royal Plast; SK Performance queda pendiente de su visita.
 - Sintoma: el dueno mira el portal y no ve ninguna cuenta por cobrar, aunque en
   la sucursal si existen ventas a credito con su cartera.
 
@@ -309,12 +310,17 @@ con el sintoma de impresion que se vio en SK Performance tras una actualizacion.
 y `actualizar.bat` ahora corre `verificar_instalacion` al terminar, que lo
 reporta en rojo con la causa y el arreglo.
 
-**Deuda pendiente (no se toco a proposito).** La asimetria de fondo sigue ahi:
-`modulo_activo` con `negocio=None` falla ABIERTO, pero un negocio a medio
-aprovisionar falla CERRADO, y los dos estados son indistinguibles desde afuera.
-Lo canonico seria que un negocio **sin aprovisionar** (sin suscripcion y sin
-`NegocioModulo`) tambien falle abierto, como el resto del sistema. Queda anotado
-en `docs/ARQUITECTURA_MODULOS.md`.
+**Deuda resuelta el 2026-08-24.** La asimetria de fondo -- `modulo_activo` con
+`negocio=None` fallaba ABIERTO, pero un negocio a medio aprovisionar fallaba
+CERRADO -- ya no existe. `apps/suscripciones/engine.py::_resolver_negocio`
+trata un negocio sin suscripcion activa con plan NI una sola fila de
+`NegocioModulo` igual que un negocio sin resolver: fail-open. En cuanto existe
+una suscripcion o UNA fila de override (aunque sea una exclusion), se respeta
+tal cual -- ya no es fail-open indiscriminado. `verificar_instalacion` sigue
+avisando que el negocio no tiene entitlements de verdad configurados, pero ya
+no lo marca como roto: el fail-open es una red de seguridad, no el estado
+deseado de una instalacion terminada. Detalle de diseno en
+`docs/ARQUITECTURA_MODULOS.md`.
 
 ---
 
@@ -345,16 +351,25 @@ contexto de tenant**, la consulta va al control plane, donde el usuario del
 tenant no existe. Un token emitido dentro de un tenant no se puede validar fuera
 de el.
 
-**Correccion sugerida (no aplicada).** Envolver la resolucion en el endpoint de
-refresh y devolver **401** cuando el usuario no resuelva -- que es lo que el
-frontend espera para mandar al login-- en vez de un 500. Y revisar por que el
-refresh pierde el contexto de tenant: si el token lleva `tenant_id`, deberia
-establecerse antes de resolver el usuario.
+**Corregido el 2026-08-24.** `TenantTokenRefreshSerializer.validate()`
+resuelve el tenant del token (`tenant_key`) y activa `tenant_context(tenant)`
+ALREDEDOR de la llamada a `super().validate()` -- antes corria despues, o no
+corria. Con el contexto activo, `Usuario.objects.get(id=...)` resuelve a la
+base del tenant, no al control plane. Si de verdad el usuario ya no existe
+(borrado, no solo sin contexto), `ObjectDoesNotExist` se atrapa explicito y se
+traduce a `InvalidToken` (401), nunca un 500 sin capturar. Tests en
+`apps/api/tests/test_refresh_tenant_context.py`.
 
-**Relacionado.** Misma familia que los 500 de `/login/` y `/reportes/`: el cloud
-sirve rutas que bajo tenancy fallan ruidoso sin contexto. Endurecimiento
-pendiente: esas rutas de template del POS local no deberian ser alcanzables en
-el cloud.
+**Tambien resuelto: las rutas de template del POS local dejaron de ser
+alcanzables en el cloud.** `config/urls.py` ahora excluye
+`inventario/`, `pos/`, `productos/`, `clientes/`, `cuentas-por-cobrar/`,
+`cotizaciones/`, `reportes/`, `caja/`, `auditoria/`, las de `usuarios`
+(incluye `/login/`) y `facturacion-electronica/` cuando
+`TENANCY_DB_PER_TENANT_ENABLED` esta activo -- el mismo flag que activa el
+router. `/admin/`, `/api/` y el health check siguen disponibles siempre. Sin
+esas rutas, un scanner tocando `/login/` o `/reportes/` recibe 404 en vez de
+gatillar `TenantContextError` -> 500. Tests en
+`apps/tenancy/tests/test_urls_ocultas_en_cloud.py`.
 
 ---
 
