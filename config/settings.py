@@ -136,6 +136,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Acota el memo de permisos a un request. Va DESPUES de Authentication
+    # (necesita request.user resuelto) y ANTES de cualquier cosa que consulte
+    # permisos.
+    'apps.permisos.middleware.PermisosRequestCacheMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'apps.tenancy.middleware.ClearTenantContextMiddleware',

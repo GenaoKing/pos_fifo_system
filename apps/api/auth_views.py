@@ -378,9 +378,13 @@ def _validar_usuario_portal(user):
     # productos desde el celular) sin darle acceso a nada mas de lo que su
     # rol ya le concede. Un usuario sin ninguna asignacion de rol activa
     # sigue sin poder entrar.
-    from apps.permisos.engine import permisos_de_usuario
+    from apps.permisos.engine import TODAS, permisos_de_usuario
 
-    if not permisos_de_usuario(user):
+    # `TODAS` explicito: la pregunta aca es "¿tiene algun permiso en alguna
+    # parte?", que es un caso legitimo de union del negocio completo. El scope
+    # por defecto pasa a ser "solo asignaciones globales" (PER-003), y con el
+    # una cajera con rol acotado a su sucursal no podria entrar al portal.
+    if not permisos_de_usuario(user, sucursal=TODAS):
         raise serializers.ValidationError(
             {'detail': 'Su usuario no tiene ningun permiso asignado para el '
                        'portal cloud. Contacte al administrador.'},
@@ -411,7 +415,7 @@ def _user_payload(user):
             'is_global': True,
         }
 
-    from apps.permisos.engine import permisos_de_usuario
+    from apps.permisos.engine import TODAS, permisos_de_usuario
     from apps.suscripciones.engine import modulos_negocio
 
     negocio = getattr(user, 'negocio', None)
@@ -441,6 +445,10 @@ def _user_payload(user):
         'rol': getattr(user, 'rol', None),
         'negocio': negocio_payload,
         'tenant_id': tenant_id,
-        'permisos': sorted(permisos_de_usuario(user)),
+        # PISTA PARA LA UI, no enforcement: es la union de lo que el usuario
+        # puede en alguna sucursal, para que el portal sepa que menus dibujar.
+        # Cada endpoint revalida con el scope real (apps/api/permissions.py);
+        # que un boton aparezca no significa que la accion vaya a pasar.
+        'permisos': sorted(permisos_de_usuario(user, sucursal=TODAS)),
         'modulos': sorted(modulos_negocio(negocio)),
     }

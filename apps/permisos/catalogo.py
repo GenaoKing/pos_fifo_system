@@ -132,6 +132,18 @@ PERMISOS_CAJERO_DEFAULT = [
 ]
 
 
+# Capacidades del OPERADOR del SaaS, no del dueno de un negocio.
+#
+# El catalogo ya describia `suscripciones.administrar` como capacidad del
+# operador, pero `es_acceso_total` se la concedia a cualquier ADMIN — y un ADMIN
+# es el administrador de UN tenant. En una BD por tenant eso le permitia editar
+# su propia suscripcion y sus entitlements. `tiene_permiso` trata estos codigos
+# aparte: solo los aprueba un principal global (SYSADMIN o superusuario).
+PERMISOS_OPERADOR_SAAS = frozenset({
+    'suscripciones.administrar',
+})
+
+
 def codigos_catalogo():
     """Set con todos los codigos del catalogo."""
     return {fila[0] for fila in CATALOGO}

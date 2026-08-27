@@ -123,6 +123,25 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         return self.first_name or self.username
     
     @property
+    def is_active(self):
+        """
+        Contrato de Django para "cuenta habilitada", ligado a `activo`.
+
+        `AbstractBaseUser` define `is_active = True` como atributo de clase, y
+        este modelo nunca lo redefinia: Django veia activo a TODO usuario. El
+        login local si miraba `activo`, pero solo al iniciar sesion — una sesion
+        ya emitida se recargaba por el backend estandar, que mira `is_active`, y
+        sobrevivia a la desactivacion. Unificarlos hace que desactivar tenga
+        efecto en el proximo request (PER-010).
+        """
+        return bool(self.activo)
+
+    @is_active.setter
+    def is_active(self, valor):
+        # `createsuperuser` y algunos flujos de Django escriben is_active.
+        self.activo = bool(valor)
+
+    @property
     def es_admin(self):
         """SYSADMIN tambien es admin a efectos de permisos"""
         return self.rol in ('ADMIN', 'SYSADMIN')

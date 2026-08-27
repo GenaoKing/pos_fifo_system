@@ -4,6 +4,15 @@ Fecha: 2026-08-20
 Revisión de cierre: `3f22385`  
 Modo: lectura, pruebas y documentación; no se aplicaron correcciones funcionales.
 
+> **Estado (2026-08-27): P1 MITIGADO (10/10).** Los diez hallazgos P1 se
+> verificaron contra el código y los diez resultaron reales; los diez están
+> corregidos, con pruebas de regresión. **P2 y P3 siguen abiertos** salvo
+> PER-011, que se cerró junto con las señales. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Incluye 1 migración con deduplicación previa, un cambio de contrato del
+> motor** (qué significa llamar sin sucursal) **y un cambio de alcance del
+> portal** (un ADMIN de tenant ya no administra suscripciones).
+
 ## Resumen ejecutivo
 
 `apps/permisos` es la frontera de autorización del POS local, del portal cloud y
@@ -922,15 +931,158 @@ reportadas arriba se repitieron con el entorno oficial `pos_fifo`.
 - Se preservaron todos los cambios externos existentes en inventario, sync y
   documentos de auditorías anteriores.
 
-## Cierre
+---
 
-`apps/permisos` tiene una buena estructura inicial, pero hoy no puede tratarse
-como una frontera de autorización completamente aislada y revocable. El problema
-principal no es la consulta básica rol → permisos, que funciona en el camino
-feliz; son las identidades omitidas alrededor de esa consulta: tenant, sucursal,
-estado del usuario, proceso de caché e identidad estable de sincronización.
+# Estado de mitigación
 
-La prioridad inmediata debe ser impedir mezcla de caché entre tenants y cerrar
-la revocación entre cloud y sucursal. Después conviene consolidar invariantes y
-retirar el bypass legacy. Hasta entonces, una suite verde demuestra compatibilidad
-con la semántica actual, pero no garantiza aislamiento ni mínimo privilegio.
+Fecha: 2026-08-27. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los diez son reales** — ninguno resultó falso positivo ni
+obsoleto.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| PER-001 | Sí | Corregido | La clave de caché lleva `_namespace()`: el `tenant_key` activo. Bajo tenancy sin contexto **falla fuerte** (`TenantContextError`) en vez de caer al namespace implícito, igual que el router y el prefijo de media. No se deriva de `Negocio.pk`, que también es local a cada base. |
+| PER-002 | Sí | Corregido | El motor detecta si el backend de caché se comparte entre procesos. Con `LocMemCache` **deja de cachear entre requests** y pasa a memoizar dentro del request (`ContextVar` + `PermisosRequestCacheMiddleware`). Con un backend compartido vuelve el caché con TTL. |
+| PER-003 | Sí | Corregido | `sucursal=None` ahora significa **solo asignaciones globales**. La unión de todo el negocio existe pero hay que pedirla por su nombre: `sucursal=TODAS`. Decoradores y filtro de plantilla resuelven la sucursal real del request/instalación. |
+| PER-004 | Sí | Corregido | `AsignacionRol.clean()` exige mismo negocio para usuario, rol y sucursal. El resolver además filtra `rol__negocio_id == usuario.negocio_id` y estados activos: aunque la fila exista, no se convierte en privilegio. |
+| PER-005 | Sí | Corregido | `negocio_actual()` exige identidad global (`es_principal_global`: superusuario, SYSADMIN o `identity.is_global`) antes de aceptar `?negocio=`. Un usuario sin negocio ya no resuelve ninguno. |
+| PER-006 | Sí | **Abierto** | Ver «Lo que no se tocó». |
+| PER-007 | Sí | **Abierto** | Ver «Lo que no se tocó». |
+| PER-008 | Sí | Corregido | Dos índices únicos **parciales** en lugar de `unique_together`: uno para `sucursal IS NULL` y otro para el resto. |
+| PER-009 | Sí | Corregido | Dos límites por encima del acceso total: un código fuera del catálogo **siempre deniega** (con warning), y las capacidades del operador SaaS (`PERMISOS_OPERADOR_SAAS`) solo las aprueba un principal global. |
+| PER-010 | Sí | Corregido | `Usuario.is_active` pasa a ser una propiedad ligada a `activo`; el motor comprueba `activo` en cada resolución; las señales observan además Usuario, Negocio y Sucursal. |
+| PER-011 | Sí | Corregido | La señal limpia el memo local **de inmediato** y difiere el bump de versión global a `transaction.on_commit`. |
+
+## El cambio que más conviene entender: qué significa llamar sin sucursal
+
+Era el hallazgo con más superficie, porque el valor por defecto era el menos
+conservador de los tres posibles:
+
+```python
+# ANTES
+tiene_permiso('ventas.anular')            # unión de TODAS las sucursales
+# AHORA
+tiene_permiso('ventas.anular')            # solo asignaciones globales
+tiene_permiso('ventas.anular', sucursal=s)  # globales + las de esa sucursal
+permisos_de_usuario(u, sucursal=TODAS)      # unión, pedida por su nombre
+```
+
+Los tres consumidores que llamaban sin scope —los dos decoradores y el filtro
+`|puede`— ahora resuelven la sucursal del request o de la instalación. **En una
+instalación de una sola sucursal no cambia nada.** En una BD compartida por
+varias, cada gate responde por la sucursal en la que se está operando.
+
+El login del portal y el payload `/me` sí piden `TODAS` explícitamente: la
+pregunta ahí es «¿puede algo en alguna parte?», que es un caso legítimo de
+unión. El payload quedó documentado en el código como **pista para la UI, no
+enforcement**.
+
+## Cambios de conducta observables
+
+1. **Un ADMIN de tenant ya no administra suscripciones.** Los endpoints de
+   planes, módulos, suscripciones y overrides ahora exigen un principal global.
+   El catálogo y el propio docstring de la vista ya describían esa capacidad
+   como del operador del SaaS; el acceso total legacy se la concedía igual, y
+   en una BD por tenant eso permitía editarse el propio plan. **Si el portal
+   React muestra esa sección a un ADMIN, ahora recibirá 403.**
+2. **Un permiso acotado a una sucursal deja de aplicar fuera de ella** en las
+   vistas y plantillas del POS.
+3. **Un código de permiso con typo deniega**, incluso para ADMIN. Antes lo
+   aprobaba, así que un gate nuevo mal escrito no protegía nada y el error era
+   invisible.
+4. **Desactivar un usuario surte efecto en el próximo request**, no al expirar
+   el caché ni al siguiente login.
+5. **Un usuario sin negocio no tiene permisos de tenant** y no puede resolver
+   ningún negocio con `?negocio=`.
+6. **Dos asignaciones globales idénticas ya no pueden crearse**; la segunda
+   levanta `IntegrityError`.
+7. **Con `LocMemCache` hay una consulta más por request y usuario.** Es el
+   precio de que tres workers no discrepen. Con Redis configurado, el caché
+   entre requests vuelve solo.
+
+## Despliegue: 1 migración
+
+**`permisos.0009_asignacion_unicidad_efectiva`** — reemplaza `unique_together`
+por dos índices únicos parciales, con un `RunPython` de **deduplicación previa**.
+
+**Regla de resolución, que es una decisión de seguridad y no un detalle:**
+cuando un grupo duplicado contiene alguna fila inactiva, **la fila
+superviviente queda inactiva**. Una fila inactiva significa que alguien revisó
+esa asignación y decidió quitarla; conservar la activa restauraría en silencio
+un privilegio que un operador cree retirado — exactamente el síntoma del
+hallazgo. Si el permiso hacía falta, se vuelve a otorgar desde el portal y queda
+registrado: el error en esa dirección es recuperable, en la otra no se nota.
+
+### Recomendación de infraestructura, no de código
+
+PER-002 tiene una mitad que el código no puede resolver: **configurar un backend
+de caché compartido (Redis) para el cloud.** Sin él, el motor funciona
+correctamente —por eso deja de cachear entre requests— pero paga una consulta
+por request. Con Redis recupera el caché y la invalidación por versión sirve
+para los tres workers a la vez.
+
+Mientras tanto, conviene corregir dos textos que se contradicen con el
+`Dockerfile` (`--workers 3`): `docs/RBAC_PERMISOS.md:73-74` describe Azure como
+single-worker, y el mismo supuesto estaba en el comentario del motor (ya
+corregido ahí).
+
+## Lo que no se tocó, y por qué
+
+- **PER-006 y PER-007 (tombstones de sync).** Cambiar el usuario, el rol o la
+  sucursal de una asignación crea la relación nueva en el POS local y deja la
+  anterior activa para siempre; borrar un rol custom hace lo mismo. La
+  corrección de fondo es una identidad cloud inmutable que viaje al local, más
+  un ledger de tombstones y una reconciliación completa periódica — es un
+  cambio de contrato de sincronización con su propia migración, del tamaño de
+  las auditorías de `apps/sync`. **Sigue siendo un privilegio que persiste
+  indefinidamente: conviene tomarlo a continuación.**
+- **P2 restantes (PER-012 a PER-018)** y **P3 (PER-019 a PER-021)**: no se
+  entraron en esta pasada.
+- **Retirar el bypass de `ADMIN`.** La auditoría lo pide, pero exige migrar
+  antes a cada admin a asignaciones explícitas con una comprobación previa de
+  lockout. Lo que sí se hizo es acotarlo: ya no aprueba códigos inexistentes ni
+  capacidades del operador.
+
+## Pruebas
+
+Suite completa, serial: **886 tests, OK.**
+
+Módulo de regresión nuevo: `apps/permisos/tests/test_auditoria_permisos.py`
+(31 tests).
+
+Dos tests existentes **afirmaban la conducta defectuosa** y se reescribieron
+sobre la correcta:
+
+- `test_acceso_total_no_depende_del_catalogo` exigía que un ADMIN aprobara
+  `codigo.inexistente` — la cita textual de PER-009. Se separó en dos: la parte
+  legítima (un admin no queda bloqueado con la tabla `permisos` vacía, porque la
+  fuente de verdad es el catálogo declarativo) y la corrección (un código fuera
+  del catálogo deniega).
+- El fixture de `test_suscripciones_admin` llamaba `op` a un usuario con
+  `rol='ADMIN'` **y negocio propio** — un administrador de tenant haciendo de
+  operador, apoyado justo en el bypass del hallazgo. Ahora el operador es
+  SYSADMIN y hay dos tests nuevos que verifican que el dueño del negocio recibe
+  403 y no puede cambiarse el plan.
+
+**Verificación por mutación.** Revertidos los dos hallazgos centrales:
+
+- Con `sucursal=None` volviendo a unir todas las sucursales (PER-003),
+  `test_sin_scope_un_permiso_de_a_ya_no_aplica` falla con `True is not false` —
+  la reproducción literal de la auditoría.
+- Con `_usuario_habilitado` ignorando `activo` (PER-010),
+  `test_un_usuario_desactivado_pierde_los_permisos` falla igual.
+
+**Un test que protege a los demás.**
+`test_el_catalogo_declarativo_cubre_todos_los_gates_reales` recorre el código y
+las plantillas buscando gates que pidan un permiso fuera del catálogo. Hacer que
+un código desconocido deniegue solo es seguro mientras eso sea cierto (PER-013),
+así que el invariante quedó escrito como test: si alguien agrega un gate con un
+código que no declaró, falla ahí y no en producción.
+
+**Un error propio, corregido durante el trabajo.** La primera versión de las
+señales difería *toda* la invalidación a `transaction.on_commit`, y eso dejaba
+el memo local con el set viejo durante el resto del request. Tres tests
+existentes lo detectaron. La separación correcta —memo local ya, versión global
+al commit— es la que quedó.

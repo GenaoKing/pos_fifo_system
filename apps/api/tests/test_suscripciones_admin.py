@@ -21,12 +21,47 @@ class SuscripcionAdminTests(TestCase):
         self.susc = SuscripcionNegocio.objects.create(
             negocio=self.negocio, plan=Plan.objects.get(slug='basico'), activa=True
         )
-        self.admin = User.objects.create_user(
-            'op', 'op@e.com', 'x', rol='ADMIN', negocio=self.negocio
+        # El operador del SaaS: SYSADMIN, sin negocio propio. El fixture
+        # anterior usaba un `rol='ADMIN'` CON negocio —un administrador de
+        # tenant— y funcionaba solo porque el acceso total legacy le concedia
+        # `suscripciones.administrar`. Eso es PER-009: el dueno de un negocio
+        # llegaba a los controles comerciales y, en una BD por tenant, podia
+        # editar su propia suscripcion y sus entitlements.
+        self.operador = User.objects.create_user(
+            'op', 'op@e.com', 'x', rol='SYSADMIN'
+        )
+        self.admin = self.operador  # alias historico de los tests de abajo
+        self.admin_tenant = User.objects.create_user(
+            'duena', 'duena@e.com', 'x', rol='ADMIN', negocio=self.negocio
         )
         self.cajera = User.objects.create_user(
             'c', 'c@e.com', 'x', rol='CAJERA', negocio=self.negocio
         )
+
+    def test_admin_del_tenant_no_administra_su_propia_suscripcion(self):
+        """
+        PER-009. Un ADMIN es el dueno de UN negocio; los planes, suscripciones
+        y overrides son del operador de la plataforma. Antes llegaba a todos
+        estos endpoints por acceso total.
+        """
+        api = self._api(self.admin_tenant)
+        for ruta in (
+            '/api/v1/suscripciones/modulos/',
+            '/api/v1/suscripciones/planes/',
+            '/api/v1/suscripciones/negocios/',
+            '/api/v1/suscripciones/overrides/',
+        ):
+            with self.subTest(ruta=ruta):
+                self.assertEqual(api.get(ruta).status_code, 403)
+
+    def test_el_admin_del_tenant_tampoco_puede_cambiarse_el_plan(self):
+        r = self._api(self.admin_tenant).patch(
+            f'/api/v1/suscripciones/negocios/{self.susc.id}/',
+            {'plan': Plan.objects.get(slug='empresarial').id}, format='json',
+        )
+        self.assertEqual(r.status_code, 403)
+        self.susc.refresh_from_db()
+        self.assertEqual(self.susc.plan.slug, 'basico')
 
     def _api(self, user):
         client = APIClient()

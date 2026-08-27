@@ -11,7 +11,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**103 hallazgos verificados y mitigados en 7 módulos.** En todos los casos se
+**114 hallazgos verificados y mitigados en 8 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -24,8 +24,9 @@ positivos ni hallazgos obsoletos.
 | `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
+| `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
 
-**Suite completa, serial: 721 tests, OK.**
+**Suite completa, serial: 886 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -37,7 +38,6 @@ ni los corrigió todavía**:
 | `apps/auditoria` | 22 |
 | `apps/productos` | 22 |
 | `apps/configuracion` | 21 |
-| `apps/permisos` | 21 |
 | `apps/usuarios` | 19 |
 | `apps/cotizaciones` | 18 |
 | `apps/api` | 8 |
@@ -72,6 +72,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `ventas.0008_venta_descuento_autorizacion` | 2 campos nullable en `Venta` (quién autorizó, motivo) | Ninguno |
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
 | `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
+| `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
@@ -90,6 +91,13 @@ cierre. Por defecto `BASE_DIR/private/reportes`.
 - **Debe incluirse en el backup.** Es el único lugar donde viven los cierres en
   PDF. Ya está en `.gitignore`.
 - Bajo tenancy, los archivos se separan solos por prefijo de tenant.
+
+**Backend de cache compartido (Redis) para el cloud** — recomendado, no
+obligatorio. El motor de permisos detecta que `LocMemCache` no se comparte
+entre los tres workers de Gunicorn y, para no autorizar con datos revocados,
+**deja de cachear entre requests**: funciona correctamente pero paga una
+consulta por request y usuario. Con Redis configurado recupera el cache y la
+invalidacion por version alcanza a los tres workers a la vez.
 
 ### 2.3 Permisos nuevos en el catálogo RBAC
 
@@ -129,7 +137,19 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
    etiqueta. Si alguien venía usando el endpoint como "stock de hoy con fecha
    bonita", las cifras van a cambiar — correctamente. Una fecha futura ahora da
    400.
-4. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+4. **Un ADMIN de tenant ya no administra suscripciones.** Los endpoints de
+   planes, modulos, suscripciones y overrides exigen ahora un principal
+   global (SYSADMIN, superusuario o identidad global del control plane). El
+   catalogo ya describia esa capacidad como del operador del SaaS; el acceso
+   total legacy se la concedia igual, y en una BD por tenant eso permitia
+   editarse el propio plan. **Si el portal React muestra esa seccion a un
+   ADMIN, ahora recibira 403.**
+5. **Llamar a `tiene_permiso` sin sucursal cambio de significado.** Antes
+   unia las asignaciones de TODAS las sucursales; ahora consulta solo las
+   globales. La union sigue disponible como `sucursal=TODAS`. En una
+   instalacion de una sola sucursal no cambia nada.
+6. **Un codigo de permiso con typo deniega**, incluso para ADMIN.
+7. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización
