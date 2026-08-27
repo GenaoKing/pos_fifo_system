@@ -7,11 +7,14 @@ hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
 quedó fuera de alcance a propósito**. El detalle técnico de cada hallazgo vive
 en su documento de `docs/exploracion/`; acá está lo que hace falta para operar.
 
+> **Lista accionable:** [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md) — los mismos
+> pendientes en formato de checklist, ordenados por urgencia.
+
 ---
 
 ## 1. Resumen de avance
 
-**114 hallazgos verificados y mitigados en 8 módulos.** En todos los casos se
+**123 hallazgos verificados y mitigados en 9 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -25,8 +28,9 @@ positivos ni hallazgos obsoletos.
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
 | `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
+| `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 
-**Suite completa, serial: 886 tests, OK.**
+**Suite completa, serial: 937 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -38,7 +42,6 @@ ni los corrigió todavía**:
 | `apps/auditoria` | 22 |
 | `apps/productos` | 22 |
 | `apps/configuracion` | 21 |
-| `apps/usuarios` | 19 |
 | `apps/cotizaciones` | 18 |
 | `apps/api` | 8 |
 
@@ -72,6 +75,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `ventas.0008_venta_descuento_autorizacion` | 2 campos nullable en `Venta` (quién autorizó, motivo) | Ninguno |
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
 | `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
+| `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
 
@@ -149,7 +153,12 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
    globales. La union sigue disponible como `sucursal=TODAS`. En una
    instalacion de una sola sucursal no cambia nada.
 6. **Un codigo de permiso con typo deniega**, incluso para ADMIN.
-7. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+7. **El logout solo acepta POST.** `GET /logout/` devuelve **405**;
+   cualquier integracion o marcador que lo use hay que cambiarlo.
+8. **Desactivar un usuario retira el acceso de inmediato** en todos los
+   caminos: sesion abierta, Django Admin, token DRF y JWT. Antes solo lo
+   frenaba el login local, y solo al iniciar sesion.
+9. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización

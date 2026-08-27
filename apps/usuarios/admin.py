@@ -8,8 +8,8 @@ class UsuarioAdmin(BaseUserAdmin):
     """Administración de usuarios en Django Admin"""
     
     # Campos a mostrar en la lista
-    list_display = ('username', 'email', 'rol', 'activo', 'fecha_creacion')
-    list_filter = ('rol', 'activo', 'is_staff', 'fecha_creacion')
+    list_display = ('username', 'email', 'negocio', 'rol', 'activo', 'fecha_creacion')
+    list_filter = ('rol', 'activo', 'is_staff', 'negocio', 'fecha_creacion')
     search_fields = ('username', 'email', 'first_name', 'last_name')
     ordering = ('-fecha_creacion',)
     
@@ -22,7 +22,11 @@ class UsuarioAdmin(BaseUserAdmin):
             'fields': ('first_name', 'last_name', 'email')
         }),
         ('Permisos', {
-            'fields': ('rol', 'activo', 'is_staff', 'is_superuser', 'groups', 'user_permissions')
+            # `negocio` es visible y editable: el admin lo omitia por completo,
+            # asi que un alta desde aca quedaba con `negocio=NULL` — el valor
+            # que los resolutores leen como "identidad global" (USR-003).
+            'fields': ('negocio', 'rol', 'activo', 'is_staff', 'is_superuser',
+                       'groups', 'user_permissions')
         }),
         ('Fechas importantes', {
             'fields': ('ultimo_acceso', 'fecha_creacion', 'fecha_modificacion'),
@@ -37,7 +41,8 @@ class UsuarioAdmin(BaseUserAdmin):
     add_fieldsets = (
         ('Crear nuevo usuario', {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'password1', 'password2', 'rol', 'activo'),
+            'fields': ('username', 'email', 'negocio', 'password1', 'password2',
+                       'rol', 'activo'),
         }),
     )
     

@@ -62,9 +62,16 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     
     # Negocio (tenant) al que pertenece el usuario.
     # Null = usuario global (ej. SYSADMIN). Alimenta el claim tenant_id del JWT.
+    #
+    # `PROTECT`, no `SET_NULL` (USR-003). Con SET_NULL, borrar un negocio no
+    # desactivaba ni eliminaba a sus usuarios: los convertia en usuarios
+    # "global-looking", y `NULL` es justo el valor que los resolutores tratan
+    # como identidad global. Un descuido de mantenimiento producia, en silencio,
+    # un conjunto de cuentas sin tenant. Ahora borrar un negocio con usuarios
+    # falla y obliga a decidir explicitamente que pasa con cada uno.
     negocio = models.ForeignKey(
         'negocios.Negocio',
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='usuarios',

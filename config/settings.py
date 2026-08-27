@@ -92,7 +92,9 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    # AdminSite propio: bajo tenancy exige identidad global del control
+    # plane, para que /admin/ no sea una puerta paralela al portal (USR-002).
+    'apps.usuarios.admin_site.PosAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
