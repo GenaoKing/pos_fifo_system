@@ -117,6 +117,13 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 - [ ] **Paginación real** en cartera CxC (corta a 300) e historial de turnos
       (corta a 50, **sin avisar**). El inventario ya declara `productos_ocultos`.
+- [ ] **Cerrar el último tramo de AUD-002.** El historial ya es append-only
+      contra la aplicación, y una edición externa es **detectable** por el
+      hash de cada fila. Lo que falta: borrar la ÚLTIMA fila no deja hueco de
+      secuencia. Lo cerraría una cadena de hashes (obliga a serializar cada
+      INSERT de auditoría — caro en el camino de una venta) o, mejor, una
+      **exportación periódica a almacenamiento WORM**, que además protege
+      contra el borrado total de la tabla.
 - [ ] **Chart.js desde CDN** sin integridad ni fallback local
       (`templates/reportes/on_demand.html`). En un POS sin Internet estable los
       gráficos fallan aunque los datos estén.
@@ -127,15 +134,23 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
-- [ ] `apps/auditoria` — 22 hallazgos
 - [ ] `apps/productos` — 22 hallazgos
 - [ ] `apps/configuracion` — 21 hallazgos
 - [ ] `apps/cotizaciones` — 18 hallazgos
 - [ ] `apps/clientes` — 21 hallazgos
+- [ ] `apps/negocios` — 17 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/auditoria`** (P1 cerrados, más AUD-007/011/012/014/015/022):
+AUD-008 (política de fallo contradictoria), AUD-009 (la anulación registra el
+estado nuevo como si fuera el anterior), AUD-010 (acción/nivel/resultado
+incoherentes), AUD-013 (excepciones sin redacción), AUD-016
+(`registrar_compra()` no serializa su payload), AUD-018 (taxonomía sin
+productores), AUD-019 (el visor oculta datos), AUD-020 (sin lifecycle de
+retención), AUD-021 (identidad histórica del objeto).
 
 **Pendientes de `apps/usuarios`** (P1 cerrados, más USR-008/009/018):
 USR-007 (flujo de provisión de usuarios tenant), USR-010 (`Identity` y

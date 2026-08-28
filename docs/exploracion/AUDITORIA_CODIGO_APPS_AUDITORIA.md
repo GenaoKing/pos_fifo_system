@@ -5,6 +5,16 @@ Revisión inicial: `3f22385`
 Revisión de cierre: `65ce805`
 Modo: lectura, pruebas y documentación; no se aplicaron correcciones funcionales.
 
+> **Estado (2026-08-27): P1 MITIGADO (6/6).** Los seis hallazgos P1 se
+> verificaron contra el código y los seis resultaron reales; los seis están
+> corregidos, con pruebas de regresión. Se cerraron además AUD-007, AUD-011,
+> AUD-012, AUD-014, AUD-015 y AUD-022. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Incluye 1 migración, un permiso nuevo, un comando nuevo
+> (`verificar_auditoria`) y un cambio de contrato: el historial pasa a ser
+> append-only, así que ningún código puede seguir haciendo `update()` o
+> `delete()` sobre `Auditoria`.**
+
 Nota de concurrencia: la evidencia y las pruebas corresponden al snapshot de
 `apps/auditoria` inspeccionado antes del cierre. Mientras se redactaba este
 documento apareció trabajo del usuario sin commit que añadió
@@ -853,17 +863,131 @@ La aplicación puede considerarse cerrada cuando, como mínimo:
 - las veintidós reproducciones quedan convertidas en pruebas de rechazo,
   aislamiento, integridad o degradación controlada.
 
-## Conclusión
+---
 
-El problema principal de `apps/auditoria` no es que falten columnas: es que la
-tabla todavía funciona como un log de aplicación mutable y de cobertura optativa,
-no como evidencia. Una fila puede cruzar sucursales al consultarse, perder actor y
-sucursal, guardar una transición falsa, aceptar una acción inventada y luego ser
-editada o borrada sin dejar señal.
+# Estado de mitigación
 
-La mejora de mayor retorno es definir un sobre de evento inmutable y versionado
-—actor snapshot, tenant, sucursal, objeto, pre/postimagen, resultado y
-correlación— y obligar a que cada servicio crítico lo emita mediante outbox hacia
-un sink append-only verificable. Sobre esa base sí tiene sentido mejorar el
-dashboard, la retención y las alertas; antes de ella, “más logs” no equivale a
-“más trazabilidad”.
+Fecha: 2026-08-27. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los seis son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| AUD-001 | Sí | Corregido | Permiso nuevo `auditoria.consolidado.ver` + `apps/auditoria/scope.py`. El filtro de alcance se aplica **antes** que cualquier parámetro del cliente, y cubre las tres superficies que el hallazgo enumera: la lista, las **cuatro estadísticas** y la lista de usuarios del selector. |
+| AUD-002 | Sí | Corregido (parcial por diseño) | `Auditoria` es append-only: `save()` rechaza el UPDATE, `delete()` está prohibido y el `QuerySet` bloquea `update()`/`delete()` masivos. El Admin ya no ofrece borrar **a nadie**, ni siquiera a un superusuario. Cada fila lleva un `hash_integridad` y el comando `verificar_auditoria` detecta alteraciones hechas por fuera de la aplicación. La retención pasa por `purgar_hasta()`, que **registra su propia ejecución**. |
+| AUD-003 | Sí | Corregido | Campos snapshot `actor_username`, `actor_nombre` y `actor_tipo`, congelados al crear el registro. `actor_display` distingue tres casos que antes eran uno solo: persona, persona cuya cuenta fue eliminada, y sistema. |
+| AUD-004 | Sí | Corregido | `Auditoria.derivar_sucursal(objeto)` es la regla única: mira `sucursal` directa y, si no, sigue las rutas conocidas (`lote→sucursal`, `venta→sucursal`, `cuenta→sucursal`, `turno→caja→sucursal`). Los helpers de venta, anulación, reimpresión y ajuste la usan; el middleware copia `request.sucursal`. |
+| AUD-005 | Sí | Corregido | Se eliminó el skip de `/api/`. La fase de request no toca la base, así que siempre prepara contexto; lo único que se comprueba antes de **escribir** es que haya tenant activo (`_sin_destino_de_escritura`), que es la restricción real. |
+| AUD-006 | Sí | Corregido | La cobertura se declara por **nombre de vista** (`app_name:url_name`) en `VISTAS_AUDITADAS`, no por substrings de path. Un test recorre el registro y falla si alguna vista declarada deja de resolver. |
+| AUD-007 | Sí | Corregido | La acción y el nivel salen del registro, no del método HTTP. Antes todo POST era `CREAR`, aunque la vista fuera una anulación. |
+| AUD-011 | Sí | Corregido | `get_client_ip` ignora `X-Forwarded-For` salvo que `AUDITORIA_CONFIAR_EN_PROXY=True`, y entonces toma la **última** entrada de la cadena (la que agregó el proxy), no la primera (que pudo poner el cliente). |
+| AUD-012 | Sí | Corregido | La sesión solo se escribe cuando la IP realmente cambió. |
+| AUD-014 | Sí | Corregido | Las fechas se formatean con `timezone.localtime`. |
+| AUD-015 | Sí | Corregido | Página, `por_pagina`, `usuario_id` y las fechas se parsean tolerando basura; ningún parámetro produce 500. |
+| AUD-022 | Sí | Corregido | La app crítica no tenía pruebas propias. Ahora tiene 30. |
+
+## Hasta dónde llega la inmutabilidad (AUD-002)
+
+Conviene ser preciso sobre qué se ganó y qué falta, porque «inmutable» admite
+grados:
+
+- **Contra la aplicación:** cerrado. Ni el ORM, ni un queryset masivo, ni el
+  Admin pueden modificar o borrar una fila.
+- **Contra una edición externa** (`UPDATE` en psql, un dump editado):
+  **detectable**, no impedible. El `hash_integridad` de cada fila lo delata, y
+  `verificar_auditoria` lo reporta.
+- **Contra un borrado externo:** parcialmente. Los huecos de secuencia en el
+  `id` señalan dónde mirar, pero **borrar la última fila no deja hueco**.
+
+Lo que cerraría ese último caso es una **cadena de hashes** —cada evento
+firmando al anterior— o una firma por lote. No se implementó porque encadenar
+obliga a serializar todas las escrituras de auditoría (cada INSERT necesita leer
+y bloquear el anterior), y en un POS eso es un cuello de botella en el camino
+crítico de cada venta. La alternativa correcta es una **exportación periódica a
+almacenamiento WORM**, que además protege contra el borrado total de la tabla.
+Ambas quedan anotadas como pendientes.
+
+## Cambios de conducta observables
+
+1. **`Auditoria.objects.update()` y `.delete()` lanzan `AuditoriaInmutable`.**
+   Si algún código o script hacía limpieza así, va a fallar — a propósito.
+   La vía es `Auditoria.objects.purgar_hasta(fecha, motivo=...)`.
+2. **Un supervisor con `auditoria.ver` acotado a una sucursal ya no ve el
+   historial de las otras**, ni sus estadísticas ni su lista de usuarios.
+3. **El actor mostrado ya no cambia si se renombra al usuario**, y una cuenta
+   eliminada se presenta como tal en vez de como «Sistema».
+4. **Las fechas del dashboard se mueven** a la hora local: hasta ahora se
+   mostraban en UTC, es decir cuatro horas corridas en Santo Domingo.
+5. **La IP registrada cambia** en despliegues detrás de proxy hasta que se
+   configure `AUDITORIA_CONFIAR_EN_PROXY=True`: pasa a ser la del proxy en vez
+   de la declarada por el cliente. Es menos precisa y más veraz.
+6. **Las mutaciones del portal cloud ahora dejan rastro automático.**
+
+## Despliegue
+
+**1 migración: `auditoria.0005_auditoria_inmutable_y_actor`** — agrega los tres
+campos de snapshot y el hash. Todos con default vacío; no transforma datos.
+
+> Los registros anteriores quedan **sin hash**, y `verificar_auditoria` los
+> reporta como «no se pueden verificar ni descartar» en vez de darlos por
+> buenos. Es lo honesto: su integridad no se puede afirmar retroactivamente.
+
+**Configuración nueva (opcional):** `AUDITORIA_CONFIAR_EN_PROXY`. Ponerlo en
+`True` **solo** si hay un proxy delante que reescribe `X-Forwarded-For` y
+descarta la cabecera del cliente. Es una afirmación sobre el despliegue, no una
+preferencia.
+
+**Permiso nuevo:** `auditoria.consolidado.ver`. No entra en ningún rol por
+defecto; hay que asignarlo a quien deba ver el historial de todas las sucursales.
+
+## Lo que no se tocó
+
+P2 restantes: AUD-008 (política de fallo contradictoria), AUD-009 (la anulación
+registra el estado nuevo como si fuera el anterior), AUD-010 (el modelo acepta
+combinaciones incoherentes de acción/nivel/resultado), AUD-013 (las excepciones
+se guardan completas y duplicadas, sin redacción), AUD-016
+(`registrar_compra()` no puede serializar su payload), AUD-018 (la taxonomía
+promete cobertura que los productores no implementan).
+
+P3: AUD-019 (el visor oculta datos necesarios para investigar), AUD-020 (no hay
+lifecycle de retención ni las consultas escalan), AUD-021 (la relación genérica
+no garantiza la identidad histórica del objeto).
+
+**AUD-017 ya estaba cerrado** antes de esta pasada: el cierre diario usaba un
+esquema de auditoría inexistente, y se corrigió en la mitigación de
+`apps/reportes` (RPT-005).
+
+## Pruebas
+
+Suite completa, serial: **944 tests, OK.**
+
+Módulo de regresión nuevo: `apps/auditoria/tests/test_auditoria_auditoria.py`
+(30 pruebas).
+
+**Un test existente afirmaba la conducta defectuosa.**
+`apps/tenancy/tests/test_router.py::test_auditoria_middleware_skips_api_in_tenancy_mode`
+verificaba que el middleware descartara `/api/` — exactamente la omisión que
+reporta AUD-005, y la auditoría lo señala. Se reescribió en dos: uno afirma que
+el contexto sí se prepara, otro que la escritura se abstiene cuando no hay
+tenant activo.
+
+**Verificación por mutación.** Revertidos los tres hallazgos centrales, cinco
+pruebas fallan:
+
+- Permitiendo reescribir (AUD-002), `test_un_registro_no_se_puede_modificar`.
+- Resolviendo el actor por la FK viva (AUD-003), fallan
+  `test_una_cuenta_eliminada_no_se_presenta_como_sistema`
+  (`'efimero' not found in 'Sistema'` — la reproducción literal) y
+  `test_la_api_muestra_el_snapshot`.
+- Quitando el filtro de alcance (AUD-001),
+  `test_la_api_no_devuelve_eventos_de_otra_sucursal` y
+  `test_un_consolidado_acotado_a_una_sucursal_no_consolida`.
+
+**Dos errores propios que los tests atraparon.** El primero: declaré en
+`VISTAS_AUDITADAS` seis vistas que no existen (`pos:api_procesar_venta`,
+`productos:eliminar`, `usuarios:crear`…) — es decir, repetí el error de AUD-006
+mientras lo corregía. El test de cobertura falló y quedó como la defensa
+permanente contra esa clase de error. El segundo: `purgar_hasta()` borraba su
+propia constancia, porque la fila de la purga es anterior a un corte futuro; se
+fijan los ids antes de registrarla.

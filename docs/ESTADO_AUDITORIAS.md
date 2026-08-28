@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**123 hallazgos verificados y mitigados en 9 módulos.** En todos los casos se
+**135 hallazgos verificados y mitigados en 10 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -29,8 +29,9 @@ positivos ni hallazgos obsoletos.
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
 | `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
 | `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
+| `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 
-**Suite completa, serial: 937 tests, OK.**
+**Suite completa, serial: 944 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -39,7 +40,6 @@ ni los corrigió todavía**:
 
 | Módulo | Hallazgos documentados |
 |---|---:|
-| `apps/auditoria` | 22 |
 | `apps/productos` | 22 |
 | `apps/configuracion` | 21 |
 | `apps/cotizaciones` | 18 |
@@ -75,6 +75,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `ventas.0008_venta_descuento_autorizacion` | 2 campos nullable en `Venta` (quién autorizó, motivo) | Ninguno |
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
 | `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
+| `auditoria.0005_auditoria_inmutable_y_actor` | Snapshot del actor + hash de integridad | No transforma datos. Los registros previos quedan **sin hash**: el verificador los reporta como no verificables, no como buenos |
 | `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
@@ -103,6 +104,11 @@ entre los tres workers de Gunicorn y, para no autorizar con datos revocados,
 consulta por request y usuario. Con Redis configurado recupera el cache y la
 invalidacion por version alcanza a los tres workers a la vez.
 
+**`AUDITORIA_CONFIAR_EN_PROXY`** (opcional, default `False`). Ponerlo en
+`True` **solo** si hay un proxy delante que reescribe `X-Forwarded-For` y
+descarta la cabecera del cliente. Es una afirmacion sobre el despliegue: sin
+el, la IP de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
+
 ### 2.3 Permisos nuevos en el catálogo RBAC
 
 Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos).
@@ -116,6 +122,7 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 | `reportes.sucursal.ver` | Reportes on-demand de las sucursales asignadas | No |
 | `ventas.autorizar_descuento` | Autorizar un descuento sobre la tolerancia (§2.6) | No, y es el punto |
 | `productos.fotografiar` | Subir/cambiar la foto de un producto desde el portal cloud (no precio/categoría) | **Sí** |
+| `auditoria.consolidado.ver` | Ver el historial de TODAS las sucursales | No, y es el punto |
 
 > **Revisá los roles existentes después de desplegar.** `caja.operar` y
 > `reportes.ver` entran en `PERMISOS_CAJERO_DEFAULT` para que ninguna
@@ -158,7 +165,13 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 8. **Desactivar un usuario retira el acceso de inmediato** en todos los
    caminos: sesion abierta, Django Admin, token DRF y JWT. Antes solo lo
    frenaba el login local, y solo al iniciar sesion.
-9. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+9. **`Auditoria.objects.update()` y `.delete()` lanzan `AuditoriaInmutable`.**
+   Si algun script hacia limpieza asi, va a fallar — a proposito. La via es
+   `Auditoria.objects.purgar_hasta(fecha, motivo=...)`, que registra su
+   propia ejecucion.
+10. **Las fechas del dashboard de auditoria se mueven a hora local.** Hasta
+    ahora se mostraban en UTC: cuatro horas corridas en Santo Domingo.
+11. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización
