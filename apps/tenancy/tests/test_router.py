@@ -103,10 +103,33 @@ class TenantContextMiddlewareTests(SimpleTestCase):
         finally:
             reset_current_tenant(tokens)
 
-    def test_auditoria_middleware_skips_api_in_tenancy_mode(self):
+    def test_auditoria_middleware_prepara_contexto_tambien_en_la_api(self):
+        """
+        AUD-005. Este test afirmaba lo contrario: que bajo tenancy el
+        middleware descartaba TODO `/api/` antes de crear contexto. La API es
+        justamente donde viven sync, el CRUD cloud y las operaciones
+        administrativas, asi que esa omision dejaba fuera del registro
+        automatico las acciones hechas con credenciales globales, de servicio o
+        por impersonacion.
+
+        La fase de request no toca la base —solo arma un dict— asi que no hay
+        motivo para saltarla. Lo que si depende del tenant es la ESCRITURA, y
+        eso se decide aparte, en `_sin_destino_de_escritura`.
+        """
         request = self.factory.post('/api/v1/maestros/productos/')
 
         result = AuditoriaMiddleware(lambda req: HttpResponse('ok')).process_request(request)
 
         self.assertIsNone(result)
-        self.assertFalse(hasattr(request, 'audit_info'))
+        self.assertTrue(hasattr(request, 'audit_info'))
+        self.assertEqual(request.audit_info['method'], 'POST')
+
+    def test_auditoria_no_escribe_sin_tenant_activo(self):
+        """
+        El limite real: con tenancy encendida y sin tenant en contexto, el
+        router rechaza cualquier consulta. Ahi si hay que abstenerse.
+        """
+        middleware = AuditoriaMiddleware(lambda req: HttpResponse('ok'))
+        request = self.factory.post('/api/v1/maestros/productos/')
+
+        self.assertTrue(middleware._sin_destino_de_escritura(request))

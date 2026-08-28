@@ -1,36 +1,84 @@
 """
-Views para Dashboard de Auditoría
-Agregar a: apps/auditoria/views.py
+apps/auditoria/views.py
+Dashboard de auditoria: pagina con filtros y API de busqueda paginada.
 
-Nueva vista:
-1. dashboard_auditoria - Página con filtros y tabla de registros
+Cuatro hallazgos viven aca:
+
+AUD-001  Ambas vistas comprobaban `tiene_permiso('auditoria.ver')` sin sucursal
+         y despues consultaban `Auditoria.objects...` sin filtro alguno. Un
+         supervisor con el permiso acotado a la sucursal A abria el dashboard y
+         recibia registros, estadisticas y usuarios de B: motivos de anulacion,
+         montos, nombres de clientes, usernames e IPs de otra tienda.
+
+AUD-003  El actor se resolvia consultando la FK viva. Un usuario renombrado
+         cambiaba como se presenta un hecho de hace meses, y una FK nula se
+         mostraba como "Sistema", indistinguible de un job automatico.
+
+AUD-014  Las fechas se formateaban con `strftime` sobre el datetime en UTC. En
+         Santo Domingo (UTC-4) todo el historial se leia cuatro horas corrido.
+
+AUD-015  `int(request.GET.get('pagina', 1))` con un valor no numerico levantaba
+         `ValueError` y devolvia 500.
 """
+import logging
+from datetime import date, timedelta
 
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Q, Count
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
 from django.utils import timezone
-from datetime import timedelta
-import json
+
+from apps.usuarios.models import Usuario
 
 from .models import Auditoria
-from apps.usuarios.models import Usuario
+from .scope import alcance_de
+
+logger = logging.getLogger('auditoria')
+
+POR_PAGINA_DEFECTO = 25
+POR_PAGINA_MAX = 100
+
+
+def _entero(valor, defecto, minimo=1, maximo=None):
+    """Lee un entero del querystring sin convertir basura en un 500."""
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return defecto
+    if numero < minimo:
+        return defecto
+    if maximo is not None:
+        return min(numero, maximo)
+    return numero
+
+
+def _fecha(valor):
+    """Fecha ISO del querystring, o None si no lo es."""
+    if not valor:
+        return None
+    try:
+        return date.fromisoformat(valor)
+    except ValueError:
+        return None
+
+
+def _local(momento):
+    """Formatea un instante en la zona del negocio, no en UTC."""
+    if momento is None:
+        return ''
+    return timezone.localtime(momento).strftime('%d/%m/%Y %H:%M:%S')
 
 
 @login_required
 def dashboard_auditoria(request):
-    """
-    Dashboard de auditoría con filtros y tabla paginada.
-    Solo accesible por ADMIN y SYSADMIN.
-    """
-    if not request.user.tiene_permiso('auditoria.ver'):
+    """Dashboard de auditoria con filtros y tabla paginada."""
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
 
-    # ── Opciones de filtro para el frontend ──
     tipos_accion = [
         {'value': choice[0], 'label': choice[1]}
         for choice in Auditoria.TipoAccion.choices
@@ -41,8 +89,10 @@ def dashboard_auditoria(request):
         for choice in Auditoria.NivelImportancia.choices
     ]
 
+    # Solo los usuarios del alcance: la lista completa de activos revelaba la
+    # nomina de las otras sucursales.
     usuarios = list(
-        Usuario.objects.filter(activo=True)
+        alcance.filtrar_usuarios(Usuario.objects.filter(activo=True))
         .values('id', 'username', 'first_name', 'last_name')
         .order_by('first_name', 'username')
     )
@@ -54,20 +104,16 @@ def dashboard_auditoria(request):
         for u in usuarios
     ]
 
-    # ── Estadísticas rápidas (últimas 24h) ──
+    # Las estadisticas tambien se acotan: un conteo agregado permite inferir la
+    # actividad de otra tienda aunque despues se oculten las filas.
+    base = alcance.filtrar(Auditoria.objects.all())
     hace_24h = timezone.now() - timedelta(hours=24)
+    del_dia = base.filter(fecha_hora__gte=hace_24h)
     stats = {
-        'total_24h': Auditoria.objects.filter(fecha_hora__gte=hace_24h).count(),
-        'criticas_24h': Auditoria.objects.filter(
-            fecha_hora__gte=hace_24h,
-            nivel_importancia='CRITICA'
-        ).count(),
-        'errores_24h': Auditoria.objects.filter(
-            fecha_hora__gte=hace_24h,
-            exito=False
-        ).count(),
-        'usuarios_activos_24h': Auditoria.objects.filter(
-            fecha_hora__gte=hace_24h,
+        'total_24h': del_dia.count(),
+        'criticas_24h': del_dia.filter(nivel_importancia='CRITICA').count(),
+        'errores_24h': del_dia.filter(exito=False).count(),
+        'usuarios_activos_24h': del_dia.filter(
             usuario__isnull=False
         ).values('usuario').distinct().count(),
     }
@@ -78,6 +124,7 @@ def dashboard_auditoria(request):
             'niveles': niveles,
             'usuarios': usuarios_data,
             'stats': stats,
+            'alcance_global': alcance.es_global,
         },
     }
 
@@ -100,30 +147,37 @@ def api_auditoria_buscar(request):
         busqueda: str (texto libre en descripcion)
         solo_errores: bool
     """
-    if not request.user.tiene_permiso('auditoria.ver'):
-        return JsonResponse({'error': 'Sin permisos'}, status=403)
+    alcance = alcance_de(request.user)
+    if not alcance.permitido:
+        return JsonResponse(
+            {'success': False, 'error': 'Sin permisos', 'codigo': 'sin_permiso'},
+            status=403,
+        )
 
-    # Parámetros
-    pagina = int(request.GET.get('pagina', 1))
-    por_pagina = min(int(request.GET.get('por_pagina', 25)), 100)
+    pagina = _entero(request.GET.get('pagina'), 1)
+    por_pagina = _entero(
+        request.GET.get('por_pagina'), POR_PAGINA_DEFECTO, maximo=POR_PAGINA_MAX,
+    )
     accion = request.GET.get('accion', '')
     nivel = request.GET.get('nivel', '')
-    usuario_id = request.GET.get('usuario_id', '')
-    fecha_desde = request.GET.get('fecha_desde', '')
-    fecha_hasta = request.GET.get('fecha_hasta', '')
+    usuario_id = _entero(request.GET.get('usuario_id'), None)
+    fecha_desde = _fecha(request.GET.get('fecha_desde'))
+    fecha_hasta = _fecha(request.GET.get('fecha_hasta'))
     busqueda = request.GET.get('busqueda', '').strip()
     solo_errores = request.GET.get('solo_errores', '') == 'true'
 
-    # Query base
-    qs = Auditoria.objects.select_related('usuario').order_by('-fecha_hora')
+    # El filtro de alcance se aplica ANTES que cualquier otro: ningun parametro
+    # del cliente puede ampliarlo.
+    qs = alcance.filtrar(
+        Auditoria.objects.select_related('usuario', 'sucursal')
+    ).order_by('-fecha_hora')
 
-    # Aplicar filtros
     if accion:
         qs = qs.filter(accion=accion)
     if nivel:
         qs = qs.filter(nivel_importancia=nivel)
     if usuario_id:
-        qs = qs.filter(usuario_id=int(usuario_id))
+        qs = qs.filter(usuario_id=usuario_id)
     if fecha_desde:
         qs = qs.filter(fecha_hora__date__gte=fecha_desde)
     if fecha_hasta:
@@ -133,24 +187,24 @@ def api_auditoria_buscar(request):
     if solo_errores:
         qs = qs.filter(exito=False)
 
-    # Paginar
     paginator = Paginator(qs, por_pagina)
     page = paginator.get_page(pagina)
 
-    registros = []
-    for r in page.object_list:
-        registros.append({
-            'id': r.id,
-            'fecha': r.fecha_hora.strftime('%d/%m/%Y %H:%M:%S'),
-            'usuario': (r.usuario.get_full_name() or r.usuario.username) if r.usuario else 'Sistema',
-            'accion': r.accion,
-            'accion_display': r.get_accion_display(),
-            'descripcion': r.descripcion,
-            'nivel': r.nivel_importancia,
-            'nivel_display': r.get_nivel_importancia_display(),
-            'exito': r.exito,
-            'ip_address': r.ip_address or '',
-        })
+    registros = [{
+        'id': r.id,
+        'fecha': _local(r.fecha_hora),
+        # `actor_display` usa el snapshot congelado al momento del hecho, y
+        # distingue una cuenta eliminada de un proceso automatico.
+        'usuario': r.actor_display,
+        'accion': r.accion,
+        'accion_display': r.get_accion_display(),
+        'descripcion': r.descripcion,
+        'nivel': r.nivel_importancia,
+        'nivel_display': r.get_nivel_importancia_display(),
+        'exito': r.exito,
+        'ip_address': r.ip_address or '',
+        'sucursal': r.sucursal.nombre if r.sucursal_id else None,
+    } for r in page.object_list]
 
     return JsonResponse({
         'success': True,

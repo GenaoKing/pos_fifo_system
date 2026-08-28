@@ -52,7 +52,12 @@ CATALOGO = [
      'Ver historial/turnos de otros, registrar movimientos de caja (retiros/ingresos).'),
 
     # --- Auditoria ----------------------------------------------------------
-    ('auditoria.ver', 'Ver auditoria', 'auditoria', 'Consultar el registro de auditoria.'),
+    ('auditoria.ver', 'Ver auditoria', 'auditoria',
+     'Consultar el registro de auditoria de las sucursales asignadas.'),
+    ('auditoria.consolidado.ver', 'Ver auditoria consolidada', 'auditoria',
+     'Consultar el registro de TODAS las sucursales. Solo consolida si la '
+     'asignacion del rol es global (sin sucursal); acotada a una, vale por '
+     'esa sucursal unicamente.'),
 
     # --- Configuracion ------------------------------------------------------
     ('configuracion.administrar', 'Administrar configuracion', 'configuracion',
