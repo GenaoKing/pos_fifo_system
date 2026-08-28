@@ -81,6 +81,14 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       sin corregir; requiere levantar dos bases en el pipeline.
 - [ ] **Drill de restauración.** `backup_tenant` verifica el artefacto, pero
       nadie lo restauró end-to-end.
+- [ ] **Antes de desplegar: verificar el self-row de cada tenant.**
+      `Negocio.self_row()` ahora falla si una base tenant tiene mas de una
+      fila `Negocio`, en vez de retitular la de menor PK y dejar la otra
+      colgando. Conviene revisarlo antes de que lo descubra el provisioning.
+- [ ] **Revisar usuarios sin negocio.** El resolver ahora deniega a un
+      huerfano cuando hay algo que aislar (bajo tenancy siempre; sin tenancy,
+      con mas de un negocio activo). El bootstrap los enlaza, pero una
+      instalacion migrada a mano puede tenerlos.
 - [ ] **Revisar roles custom después de desplegar.** Las data migrations tocan
       los roles **de sistema**; un rol creado a mano no recibe los permisos
       nuevos (`caja.operar`, `reportes.ver`, `productos.fotografiar`).
@@ -138,11 +146,18 @@ Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 - [ ] `apps/configuracion` — 21 hallazgos
 - [ ] `apps/cotizaciones` — 18 hallazgos
 - [ ] `apps/clientes` — 21 hallazgos
-- [ ] `apps/negocios` — 17 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/negocios`** (P1 cerrados, más NEG-010/015):
+NEG-006 (tres fuentes de identidad comercial), NEG-007 (ciclo de vida del
+tenant sin auditoría), NEG-008 (cascada al borrar un negocio — la mitad de
+usuarios ya la cubre USR-003), NEG-009 (`slug` mutable en identidad legacy),
+NEG-011 (RNC sin política de unicidad), NEG-012 (escrituras directas evitan
+validadores), NEG-013 (autogeneración de slug omitible), NEG-014 (carrera
+TOCTOU en el slug), NEG-016, NEG-017.
 
 **Pendientes de `apps/auditoria`** (P1 cerrados, más AUD-007/011/012/014/015/022):
 AUD-008 (política de fallo contradictoria), AUD-009 (la anulación registra el

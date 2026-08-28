@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**135 hallazgos verificados y mitigados en 10 módulos.** En todos los casos se
+**142 hallazgos verificados y mitigados en 11 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -30,8 +30,9 @@ positivos ni hallazgos obsoletos.
 | `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
 | `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
+| `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 
-**Suite completa, serial: 944 tests, OK.**
+**Suite completa, serial: 966 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -171,7 +172,13 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
    propia ejecucion.
 10. **Las fechas del dashboard de auditoria se mueven a hora local.** Hasta
     ahora se mostraban en UTC: cuatro horas corridas en Santo Domingo.
-11. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+11. **`negocio_actual()` ya no decide alcance global.** Sigue devolviendo
+    `Negocio | None`, pero `None` significa "no hay tenant", nunca "todos".
+    Quien necesite distinguir usa `resolver_negocio()`. Los builders de
+    reportes reciben `resolucion=` y sin scope devuelven vacio.
+12. **Un `?negocio=` invalido o inactivo devuelve 403** en vez de ampliar la
+    consulta a todos los negocios.
+13. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización
