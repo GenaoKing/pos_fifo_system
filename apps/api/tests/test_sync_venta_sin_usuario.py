@@ -11,6 +11,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.api.services.reporting import build_ventas_por_cajero
+from apps.negocios.utils import Resolucion
 from apps.api.views.sync import _handler_venta_creada
 from apps.sucursales.models import Sucursal
 from apps.ventas.models import Venta
@@ -48,6 +49,11 @@ class VentaSinUsuarioSyncTests(TestCase):
     def test_ventas_por_cajero_no_revienta(self):
         _handler_venta_creada(self.sucursal, self._payload())
         hoy = timezone.localdate()
-        data = build_ventas_por_cajero({'desde': str(hoy), 'hasta': str(hoy)})
+        # El scope va explicito: un builder sin resolucion devuelve vacio,
+        # porque `None` ya no puede significar 'todas las sucursales' (NEG-001).
+        data = build_ventas_por_cajero(
+            {'desde': str(hoy), 'hasta': str(hoy)},
+            resolucion=Resolucion.global_(),
+        )
         usernames = {c['username'] for c in data['cajeros']}
         self.assertIn('svc_sd', usernames)

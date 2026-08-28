@@ -32,7 +32,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, PagoCxC
-from apps.negocios.utils import negocio_actual
+from apps.negocios.utils import resolver_negocio
 
 from ..pagination import StandardPagination
 from ..permissions import PuedeLeerMaestro, requiere_modulo
@@ -53,9 +53,15 @@ ESTADOS_ABIERTOS = (
 def _scope_por_tenant(qs, request, *, prefijo=''):
     """Acota el queryset al tenant del request (aislamiento multi-negocio).
 
-    - Token de servicio de sucursal (sync)  -> esa sucursal.
-    - Usuario con negocio                    -> su negocio (todas sus sucursales).
-    - Usuario global/SYSADMIN (negocio None) -> sin filtro; puede acotar con ?negocio=.
+    - Token de servicio de sucursal (sync) -> esa sucursal.
+    - Usuario con negocio activo            -> su negocio.
+    - Principal global sin selector         -> sin filtro.
+    - Cualquier fallo de resolucion         -> queryset VACIO.
+
+    Ese ultimo caso es el hallazgo NEG-001: la version anterior devolvia el
+    queryset sin filtro cuando el resolver no podia resolver el tenant, asi que
+    un usuario huerfano o un `?negocio=` invalido veian la cartera de todos los
+    negocios.
 
     `prefijo` ajusta el path del FK a Sucursal: '' para CuentaPorCobrar (filtra
     `sucursal`), 'cuenta__' para CuotaCxC/PagoCxC (filtra `cuenta__sucursal`).
@@ -63,10 +69,9 @@ def _scope_por_tenant(qs, request, *, prefijo=''):
     sucursal = getattr(getattr(request, 'auth', None), 'sucursal', None)
     if sucursal is not None:
         return qs.filter(**{f'{prefijo}sucursal': sucursal})
-    negocio = negocio_actual(request)
-    if negocio is not None:
-        return qs.filter(**{f'{prefijo}sucursal__negocio': negocio})
-    return qs
+    return resolver_negocio(request).filtrar(
+        qs, campo=f'{prefijo}sucursal__negocio',
+    )
 
 
 class CuentaPorCobrarViewSet(viewsets.ReadOnlyModelViewSet):

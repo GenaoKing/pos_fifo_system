@@ -294,7 +294,9 @@ class Command(BaseCommand):
             SuscripcionNegocio,
         )
 
-        negocio = Negocio.objects.order_by('id').first()
+        # `self_row()` falla si hay mas de una fila, en vez de retitular la
+        # de menor PK y dejar el resto colgando (NEG-005).
+        negocio = Negocio.self_row()
         if negocio is None:
             negocio = Negocio.objects.create(nombre=nombre, slug=slug, rnc=rnc, activo=True)
         else:
