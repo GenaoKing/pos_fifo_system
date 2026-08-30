@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**163 hallazgos verificados y mitigados en 14 módulos.** En todos los casos se
+**168 hallazgos verificados y mitigados en 15 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -34,8 +34,9 @@ positivos ni hallazgos obsoletos.
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
+| `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 
-**Suite completa, serial: 1032 tests, OK.**
+**Suite completa, serial: 1054 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -208,7 +209,16 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     su alcance. Ese permiso existia en el catalogo pero no habilitaba
     nada, asi que es probable que nadie lo tenga asignado.
 22. **`migrar_env_cliente --dry-run` ya no imprime credenciales.**
-23. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+23. **Suspender un negocio ahora suspende.** Antes le habilitaba TODOS los
+    modulos, igual que `plan=null`. Si alguna instalacion tiene hoy
+    `activa=False` y opera con funciones premium, esas funciones
+    desapareceran al desplegar.
+24. **Un override de sucursal apagado bloquea los endpoints API** de ese
+    modulo, y un token de servicio con usuario sin negocio deja de ser
+    fail-open.
+25. **Bajar de plan, suspender o borrar un override pueden devolver 400**
+    si hay datos en vuelo o dependientes activos.
+26. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización

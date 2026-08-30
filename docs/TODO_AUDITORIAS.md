@@ -80,6 +80,12 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: revisar suscripciones suspendidas o sin plan.**
+      `SuscripcionNegocio.objects.filter(Q(activa=False) | Q(plan__isnull=True))`
+      Cada fila ahí opera HOY con todos los módulos (SUS-001) y pasará a
+      operar con los que le correspondan. Si alguna estaba suspendida "de
+      mentira" —usada para dejar el plan abierto— hay que darle un plan
+      explícito antes.
 - [ ] **Antes de desplegar: verificar `SUCURSAL_CODIGO`.** Tiene que
       corresponder a una `Sucursal` existente. Si no, y hay mas de una
       configuracion, la aplicacion ahora se detiene en vez de operar con la
@@ -88,10 +94,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       permiso existia en el catalogo pero no habilitaba nada, asi que es
       probable que nadie lo tenga. Sin el, el Admin de configuracion queda
       cerrado incluso para quien tenga el permiso Django (CFG-003).
-- [ ] **Backend de caché compartido (Redis) en el cloud.** Sin él el motor de
-      permisos funciona correctamente —deja de cachear entre requests— pero paga
-      una consulta por request y usuario. Con Redis recupera el caché y la
-      invalidación alcanza a los tres workers a la vez.
+- [ ] **Backend de caché compartido (Redis) en el cloud.** Ya son TRES los
+      controles que pagan el mismo precio —TTL corto o sin caché entre
+      requests, para no discrepar entre los tres workers de Gunicorn—:
+      permisos, configuración y entitlements. Los tres lo recuperan con un
+      backend compartido, y la invalidación pasa a alcanzar a todos.
 - [ ] **Corregir `docs/RBAC_PERMISOS.md:73-74`**, que describe Azure como
       single-worker mientras el `Dockerfile` arranca Gunicorn con `--workers 3`.
 - [ ] **USR-014 — definir proxies confiables.** La IP de auditoría confía en
@@ -178,10 +185,21 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
 - [ ] `apps/cotizaciones` — 18 hallazgos
+- [ ] `apps/common` — 15 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/suscripciones`** (P1 5/10):
+SUS-006 (CxC y reportes on-demand sin enforcement HTML de módulo), SUS-007
+(plantillas y sync leen flags legacy, servicios leen el entitlement),
+SUS-008 (el bootstrap une flags entre sucursales: si A tenía e-CF y B no,
+ambas terminan con e-CF), SUS-009 (las configuraciones legacy sin sucursal
+se ignoran al migrar), **SUS-010 (los hooks de datos bloqueantes tragan
+cualquier excepción: un fallo de base se interpreta como "no hay datos
+pendientes" y AUTORIZA la baja — el más barato de los cinco y el más
+peligroso)**, SUS-011 a SUS-019.
 
 **Pendientes de `apps/configuracion`** (P1 cerrados):
 CFG-006 (combinaciones operativas y fiscales inseguras), CFG-007 (el pull
