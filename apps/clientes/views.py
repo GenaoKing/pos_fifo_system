@@ -3,21 +3,45 @@ Views para Gestion de Clientes
 apps/clientes/views.py
 """
 
-from decimal import Decimal
-
-from django.core.exceptions import PermissionDenied
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.db.models import Q, Sum, Count
 import json
+import logging
+from decimal import Decimal, InvalidOperation
+
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.db.models import Count, Q, Sum
+from django.http import Http404, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_http_methods
 
 from apps.auditoria.models import Auditoria, get_client_ip
-from apps.permisos.decorators import requiere_permiso_json
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+    sucursal_del_request as _sucursal_actual,
+)
 
 from .models import Cliente
+
+logger = logging.getLogger('clientes')
+
+
+def _es_del_cloud(cliente):
+    """
+    True si el maestro lo gobierna el cloud y el pull lo va a sobrescribir.
+
+    Solo aplica con `SYNC_ENABLED`: una instalacion standalone es su propia
+    fuente de verdad. Y solo a los clientes ADOPTADOS por el cloud
+    (`origen_cloud_id`): los que nacieron en la sucursal siguen siendo suyos
+    hasta que el cloud los adopte.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, 'SYNC_ENABLED', False):
+        return False
+    return getattr(cliente, 'origen_cloud_id', None) is not None
 
 
 def _parse_plazo_credito_dias(value):
@@ -37,6 +61,7 @@ def _resumen_credito(cliente):
 
 
 @login_required
+@requiere_permiso_local('clientes.ver')
 def lista_clientes(request):
     """Lista de clientes con filtros"""
 
@@ -172,13 +197,37 @@ def editar_cliente(request, cliente_id):
     """
 
     try:
-        cliente = get_object_or_404(Cliente, id=cliente_id)
+      with transaction.atomic():
+        cliente = get_object_or_404(
+            Cliente.objects.select_for_update(), id=cliente_id,
+        )
 
         if cliente.es_contado:
             return JsonResponse({
                 'success': False,
                 'message': 'No se puede editar el cliente CONTADO'
             })
+
+        if _es_del_cloud(cliente):
+            # CLI-004: la arquitectura declara al cloud fuente de verdad para
+            # los maestros, y `_pull_clientes` reemplaza nombre, tipo,
+            # identificacion, contacto, limite, plazo, condiciones, notas y
+            # estado. Editar aca confirmaba una decision que desaparecia en el
+            # siguiente pull —incluido el limite de credito— y podia disparar
+            # otra reprogramacion de cartera.
+            #
+            # El proxy de la escritura local hacia la API cloud es la solucion
+            # de fondo y esta pendiente. Mientras tanto, lo que NO se puede
+            # hacer es confirmarle al operador un cambio sin ruta de
+            # convergencia: se rechaza y se le dice donde editarlo.
+            return JsonResponse({
+                'success': False,
+                'message': (
+                    'Este cliente se administra desde el portal cloud. '
+                    'Editalo alli: un cambio local se perderia en la proxima '
+                    'sincronizacion.'
+                ),
+            }, status=409)
 
         data = json.loads(request.body)
 
@@ -204,6 +253,12 @@ def editar_cliente(request, cliente_id):
         cliente.notas = data.get('notas', '').strip() or None
         cliente.activo = data.get('activo', True)
 
+        # CLI-005: guardar, auditar y reprogramar cartera eran tres pasos
+        # sueltos. Forzando un fallo en la auditoria, la respuesta era 400 pero
+        # el limite nuevo ya estaba en base sin evidencia; forzando un fallo en
+        # la reprogramacion, el plazo quedaba confirmado con las cuotas viejas.
+        # El operador veia un error sobre una decision financiera que si se
+        # habia aplicado.
         cliente.save()
 
         if Decimal(str(limite_anterior)) != Decimal(str(cliente.limite_credito)):
@@ -244,45 +299,81 @@ def editar_cliente(request, cliente_id):
         # invalido".
         return JsonResponse({'success': False, 'message': str(exc)}, status=403)
 
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError) as exc:
+        return JsonResponse(
+            {'success': False, 'message': f'Datos invalidos: {exc}'}, status=400,
+        )
+    except Exception:
+        logger.exception('Error editando un cliente')
+        return JsonResponse(
+            {'success': False, 'message': 'No se pudo actualizar el cliente.'},
+            status=400,
+        )
 
 
 @login_required
+@requiere_permiso_json('clientes.eliminar')
 @require_http_methods(["POST"])
 def toggle_estado_cliente(request, cliente_id):
-    """Activar/desactivar cliente"""
+    """
+    Activar/desactivar cliente.
 
+    Exigia solo `@login_required` (CLI-002): cualquier usuario autenticado, sin
+    un solo permiso, podia bloquear a un cliente para credito y cotizaciones —o
+    reactivar a uno dado de baja por riesgo— y no quedaba ni autor ni fecha.
+
+    Se gatea con `clientes.eliminar` porque desactivar ES la baja: el modelo no
+    borra, inactiva. Y la transicion se audita dentro de la misma transaccion
+    que la escribe, para que no exista un cambio de estado sin evidencia.
+    """
     try:
-        cliente = get_object_or_404(Cliente, id=cliente_id)
+        with transaction.atomic():
+            cliente = get_object_or_404(
+                Cliente.objects.select_for_update(), id=cliente_id,
+            )
 
-        if cliente.es_contado:
-            return JsonResponse({
-                'success': False,
-                'message': 'No se puede desactivar el cliente CONTADO'
-            })
+            if cliente.es_contado:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No se puede desactivar el cliente CONTADO'
+                })
 
-        cliente.activo = not cliente.activo
-        cliente.save()
+            anterior = cliente.activo
+            cliente.activo = not anterior
+            cliente.save(update_fields=['activo', 'fecha_modificacion'])
 
-        estado = "activado" if cliente.activo else "desactivado"
+            estado = "activado" if cliente.activo else "desactivado"
+            Auditoria.registrar(
+                accion=Auditoria.TipoAccion.EDITAR,
+                descripcion=f'Cliente "{cliente.nombre}" {estado}',
+                usuario=request.user,
+                content_object=cliente,
+                datos_anteriores={'activo': anterior},
+                datos_nuevos={'activo': cliente.activo},
+                ip_address=get_client_ip(request),
+                sucursal=_sucursal_actual(request),
+                nivel_importancia=Auditoria.NivelImportancia.ALTA,
+            )
+
         return JsonResponse({
             'success': True,
             'activo': cliente.activo,
             'message': f'Cliente "{cliente.nombre}" {estado}'
         })
 
-    except Exception as e:
+    except Http404:
+        raise
+    except Exception:
+        # CLI-014: el texto de la excepcion iba literal al navegador.
+        logger.exception('Error cambiando el estado de un cliente')
         return JsonResponse({
             'success': False,
-            'message': str(e)
+            'message': 'No se pudo cambiar el estado del cliente.'
         }, status=400)
 
 
 @login_required
+@requiere_permiso_json('clientes.ver')
 @require_http_methods(["GET"])
 def buscar_clientes(request):
     """
@@ -324,6 +415,7 @@ def buscar_clientes(request):
 
 
 @login_required
+@requiere_permiso_local('clientes.ver')
 def detalle_cliente(request, cliente_id):
     """Detalle de cliente con historial de compras"""
 

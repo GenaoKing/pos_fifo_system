@@ -11,7 +11,7 @@ reconstruir el registro. Campos computados (stock, valuación) se
 excluyen porque son locales a cada sucursal.
 """
 
-from rest_framework import serializers
+from rest_framework import exceptions, serializers
 from apps.productos.models import Producto, Categoria
 from apps.clientes.models import Cliente
 
@@ -322,6 +322,67 @@ class ClienteWriteSerializer(serializers.ModelSerializer):
             'activo': {'required': False},
             'tipo': {'required': False},
         }
+
+    # Campos cuya edicion requiere un permiso propio, ademas de
+    # `clientes.editar`. Se autoriza por CAMPO y antes de persistir.
+    CAMPOS_FINANCIEROS = {
+        'limite_credito': 'clientes.editar_limite_credito',
+    }
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        self._autorizar_campos_financieros(attrs)
+        self._proteger_generico(attrs)
+        return attrs
+
+    def _autorizar_campos_financieros(self, attrs):
+        """
+        Ampliar el credito no viene incluido en "editar un cliente" (CLI-003).
+
+        El catalogo ya separa `clientes.editar_limite_credito` —y la vista
+        Django local ya lo exigia—, pero el mixin de permisos del portal mapea
+        todo `update`/`partial_update` a `clientes.editar`. Con eso, un operador
+        podia eludir por completo el flujo de override de credito: primero subia
+        el limite por PATCH, despues vendia a credito sin dejar ninguna
+        excepcion crediticia registrada.
+        """
+        request = self.context.get('request')
+        usuario = getattr(request, 'user', None)
+        if usuario is None:
+            return
+
+        from apps.permisos.decorators import sucursal_del_request
+
+        sucursal = sucursal_del_request(request) if request is not None else None
+
+        for campo, permiso in self.CAMPOS_FINANCIEROS.items():
+            if campo not in attrs:
+                continue
+            # Solo importa si el valor CAMBIA: un PATCH que reenvia el limite
+            # actual sin tocarlo no es una decision financiera.
+            if self.instance is not None:
+                actual = getattr(self.instance, campo, None)
+                if actual is not None and attrs[campo] == actual:
+                    continue
+            if not usuario.tiene_permiso(permiso, sucursal=sucursal):
+                raise exceptions.PermissionDenied(
+                    f'Cambiar "{campo}" requiere el permiso "{permiso}".'
+                )
+
+    def _proteger_generico(self, attrs):
+        """
+        El cliente CONTADO generico no se edita desde el portal (CLI-007).
+
+        `validate_tipo` solo corre cuando `tipo` viene en el payload, asi que un
+        PATCH parcial sobre la fila que YA es CONTADO la renombraba o
+        desactivaba sin pasar por ninguna validacion. Ventas historicas y
+        cotizaciones apuntan a esa fila.
+        """
+        if self.instance is not None and getattr(self.instance, 'es_contado', False):
+            raise exceptions.PermissionDenied(
+                'El cliente CONTADO es la identidad generica del sistema y no '
+                'se puede modificar desde el portal.'
+            )
 
     def validate_nombre(self, value):
         value = value.strip()
