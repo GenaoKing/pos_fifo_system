@@ -80,6 +80,13 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: revisar cotizaciones pendientes vencidas.**
+      `Cotizacion.objects.filter(estado='PENDIENTE', fecha_creacion__lt=timezone.now()-timedelta(days=15)).count()`
+      Dejan de ser convertibles (COT-007). Si el negocio venia convirtiendo
+      ofertas viejas, avisarle o revisar la ventana en `Cotizacion.DIAS_VALIDEZ`.
+- [ ] **Antes de desplegar: asignar `cotizaciones.precio_negociado`** a
+      quien deba negociar precios. No esta en ningun rol por defecto a
+      proposito: es la decision financiera que COT-002 pide separar.
 - [ ] **Antes de desplegar: revisar suscripciones suspendidas o sin plan.**
       `SuscripcionNegocio.objects.filter(Q(activa=False) | Q(plan__isnull=True))`
       Cada fila ahí opera HOY con todos los módulos (SUS-001) y pasará a
@@ -184,12 +191,20 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
-- [ ] `apps/cotizaciones` — 18 hallazgos
 - [ ] `apps/common` — 15 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/cotizaciones`** (P1 cerrados, más COT-016):
+COT-008 (cantidades e importes imposibles), COT-009 (acepta clientes
+inactivos — los productos ya usan `productos_vendibles()`), **COT-010 (la
+numeración por `count()+1`: el mismo defecto ya corregido en ventas y
+lotes, aquí sigue vivo)**, COT-011 (cabecera y detalles con totales
+distintos), COT-012 (sin auditoría del ciclo), COT-013 (borrar no converge
+con cloud), COT-014 (parcial: faltan rutas), COT-015 (estado y vínculo a
+venta sin invariante de base), COT-017, COT-018.
 
 **Pendientes de `apps/suscripciones`** (P1 5/10):
 SUS-006 (CxC y reportes on-demand sin enforcement HTML de módulo), SUS-007

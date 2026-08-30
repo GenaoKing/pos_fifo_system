@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**168 hallazgos verificados y mitigados en 15 módulos.** En todos los casos se
+**176 hallazgos verificados y mitigados en 16 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -35,8 +35,9 @@ positivos ni hallazgos obsoletos.
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
 | `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
+| `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 
-**Suite completa, serial: 1054 tests, OK.**
+**Suite completa, serial: 1078 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -128,6 +129,8 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 | `ventas.autorizar_descuento` | Autorizar un descuento sobre la tolerancia (§2.6) | No, y es el punto |
 | `productos.fotografiar` | Subir/cambiar la foto de un producto desde el portal cloud (no precio/categoría) | **Sí** |
 | `auditoria.consolidado.ver` | Ver el historial de TODAS las sucursales | No, y es el punto |
+| `cotizaciones.ver` / `cotizaciones.crear` | Emitir y consultar cotizaciones | **Si** |
+| `cotizaciones.precio_negociado` | Cotizar por debajo del precio vigente | No, y es el punto |
 
 > **Revisá los roles existentes después de desplegar.** `caja.operar` y
 > `reportes.ver` entran en `PERMISOS_CAJERO_DEFAULT` para que ninguna
@@ -218,7 +221,15 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     fail-open.
 25. **Bajar de plan, suspender o borrar un override pueden devolver 400**
     si hay datos en vuelo o dependientes activos.
-26. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+26. **Cotizar por debajo del precio vigente exige
+    `cotizaciones.precio_negociado`**, que NO esta en ningun rol por
+    defecto. Antes, cotizar barato era la puerta trasera del permiso de
+    descuentos: la cotizacion se vuelve fuente autorizada de precio.
+27. **Una cotizacion de mas de 15 dias ya no se convierte.** El PDF lo
+    afirmaba desde siempre; ahora el backend lo sostiene.
+28. **La conversion falla si cambia el cliente, la sucursal o si se piden
+    mas unidades de las cotizadas.**
+29. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización
