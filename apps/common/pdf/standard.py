@@ -148,10 +148,24 @@ def get_styles():
 
 
 def clean(value) -> str:
+    """Escapa y ACOTA el texto que va a ReportLab (COM-004)."""
     if value is None:
         return '-'
     text = str(value)
+    if len(text) > MAX_TEXTO:
+        text = text[:MAX_TEXTO - len(TRUNCADO)] + TRUNCADO
     return escape(text).replace('\n', '<br/>')
+
+
+# Tope de caracteres por celda/parrafo (COM-004).
+#
+# Los datos que llegan aca incluyen notas y direcciones guardadas en `TextField`,
+# es decir sin limite. Un texto suficientemente largo hace que ReportLab lance
+# `LayoutError` y el documento entero no se genera. Truncar con marca visible es
+# preferible a no emitir el PDF: el operador ve que hay mas contenido en vez de
+# recibir un 500.
+MAX_TEXTO = 4000
+TRUNCADO = ' [...]'
 
 
 def para(value, style=None, *, bold: bool = False, color=None):
@@ -167,12 +181,54 @@ def para(value, style=None, *, bold: bool = False, color=None):
     return Paragraph(text, style)
 
 
+# Simbolo de moneda del documento (COM-003).
+#
+# Se imprimia `$` a secas, con separadores estadounidenses: RD$1,234.50 se
+# presentaba como `$1,234.50`, indistinguible de dolares en un documento
+# comercial o fiscal. `RD$` es inequivoco y es la moneda de todas las
+# instalaciones actuales; si alguna vez hay multimoneda, esto pasa a salir de la
+# configuracion del negocio.
+SIMBOLO_MONEDA = 'RD$'
+
+
+class ImporteInvalido(ValueError):
+    """Se intento imprimir como dinero algo que no es un importe."""
+
+
 def money(value) -> str:
-    try:
-        amount = Decimal(str(value or 0))
-    except (InvalidOperation, TypeError, ValueError):
-        amount = Decimal('0.00')
-    return f'${amount:,.2f}'
+    """
+    Formatea un importe. NO convierte basura en cero.
+
+    `money()` capturaba `InvalidOperation`, `TypeError` y `ValueError` y
+    devolvia `$0.00` sin informar nada (COM-002): `money('importe-corrupto')`
+    imprimia exactamente `$0.00`. Un dato derivado o importado corrupto se
+    presentaba como ausencia REAL de deuda, descuento o pago — el PDF quedaba
+    bien formado y materialmente falso, que es la peor combinacion posible en un
+    documento que alguien usa para cobrar o para discutir.
+
+    Tampoco se comprobaba `is_finite()`, asi que salian `$NaN` e `$Infinity`
+    como si fueran campos monetarios (COM-003).
+
+    Un cero real se sigue imprimiendo como cero. Lo que falla es lo que no es un
+    numero.
+    """
+    if value is None or value == '':
+        amount = Decimal('0')
+    else:
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ImporteInvalido(
+                f'No se puede imprimir {value!r} como importe.'
+            ) from exc
+
+    if not amount.is_finite():
+        raise ImporteInvalido(
+            f'Importe no finito ({amount}): no se puede representar en un '
+            f'documento.'
+        )
+
+    return f'{SIMBOLO_MONEDA}{amount:,.2f}'
 
 
 def date(value, include_time: bool = False) -> str:
@@ -432,14 +488,39 @@ def note(text: str):
 
 
 def footer_canvas(canvas_obj, doc, *, label: str = ''):
+    """
+    Pie de pagina.
+
+    Dos correcciones:
+
+    COM-010  El sello usaba la hora del HOST, no la del negocio. En un
+             contenedor en UTC, un cierre generado a las 8 PM en Santo
+             Domingo se sellaba a medianoche del dia siguiente: el
+             documento se contradecia con la fecha que el propio reporte
+             declara.
+
+    COM-011  Las coordenadas salian de `PAGE_WIDTH`, la constante Carta del
+             modulo, aunque el documento declarara otro tamano u
+             orientacion (`document(pagesize=...)`). En apaisado, la linea
+             y los textos quedaban a dos tercios del ancho real.
+    """
+    pagesize = getattr(doc, 'pagesize', None)
+    ancho_pagina = pagesize[0] if pagesize else PAGE_WIDTH
+
     canvas_obj.saveState()
     canvas_obj.setStrokeColor(PRIMARY)
     canvas_obj.setLineWidth(1)
-    canvas_obj.line(MARGIN_X, 0.52 * inch, PAGE_WIDTH - MARGIN_X, 0.52 * inch)
+    canvas_obj.line(MARGIN_X, 0.52 * inch, ancho_pagina - MARGIN_X, 0.52 * inch)
     canvas_obj.setFont('Helvetica', 7.5)
     canvas_obj.setFillColor(MUTED)
-    canvas_obj.drawString(MARGIN_X, 0.36 * inch, f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    generado = timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M')
+    canvas_obj.drawString(MARGIN_X, 0.36 * inch, f"Generado: {generado}")
     if label:
-        canvas_obj.drawCentredString(PAGE_WIDTH / 2, 0.36 * inch, str(label).replace('\n', ' '))
-    canvas_obj.drawRightString(PAGE_WIDTH - MARGIN_X, 0.36 * inch, f"Pagina {canvas_obj.getPageNumber()}")
+        canvas_obj.drawCentredString(
+            ancho_pagina / 2, 0.36 * inch, str(label).replace('\n', ' '),
+        )
+    canvas_obj.drawRightString(
+        ancho_pagina - MARGIN_X, 0.36 * inch,
+        f"Pagina {canvas_obj.getPageNumber()}",
+    )
     canvas_obj.restoreState()

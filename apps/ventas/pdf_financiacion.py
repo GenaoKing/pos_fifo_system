@@ -19,7 +19,7 @@ from apps.common.pdf.standard import (
     standard_table,
     totals_table,
 )
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import config_para_documento
 
 
 def generar_factura_cooperativa(venta, financiacion, detalles, pagos):
@@ -27,7 +27,9 @@ def generar_factura_cooperativa(venta, financiacion, detalles, pagos):
     Genera PDF de factura formal para financiacion cooperativa.
     """
     buffer = io.BytesIO()
-    config = get_config()
+    # COM-001: la factura se encabeza con la identidad fiscal de la
+    # sucursal que hizo la venta, no con la del settings del proceso.
+    config = config_para_documento(getattr(venta, 'sucursal', None))
     nombre_negocio = getattr(config, 'nombre_negocio', '') or 'Sistema POS'
 
     elements = []

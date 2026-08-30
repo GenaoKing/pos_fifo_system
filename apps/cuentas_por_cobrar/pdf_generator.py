@@ -18,7 +18,7 @@ from apps.common.pdf.standard import (
     section_title,
     standard_table,
 )
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import config_para_documento
 
 
 class EstadoCuentaPDF:
@@ -28,7 +28,16 @@ class EstadoCuentaPDF:
         self.cliente = cliente
         self.cuentas = list(cuentas)
         self.resumen = resumen
-        self.config = get_config()
+        # COM-001: el encabezado sale de la sucursal del OBJETO, no de
+        # `SUCURSAL_CODIGO`. Con settings apuntando a A, un documento de B
+        # se imprimia con el nombre, el RNC, la direccion y el logo de A.
+        # Las cuentas de un estado son de un mismo cliente; se toma la
+        # sucursal de la primera con sucursal conocida.
+        sucursal = next(
+            (c.sucursal for c in self.cuentas if getattr(c, 'sucursal_id', None)),
+            None,
+        )
+        self.config = config_para_documento(sucursal)
 
     def _resumen_cliente(self):
         proximo = self.resumen.get('proximo_vencimiento')

@@ -179,6 +179,53 @@ def _config_sin_sucursal(codigo_sucursal, ConfiguracionNegocio):
     return ConfiguracionNegocio.load()
 
 
+def config_de_sucursal(sucursal):
+    """
+    Configuracion de UNA sucursal concreta, sin mirar `SUCURSAL_CODIGO`.
+
+    Existe por COM-001: los generadores de PDF resolvian el encabezado con
+    `get_config()`, que sale de settings, aunque el objeto que documentan
+    —cotizacion, estado de cuenta, cierre, factura— conoce su propia sucursal.
+    Con `SUCURSAL_CODIGO=A`, una cotizacion de B se imprimia con el nombre, el
+    RNC, la direccion, el telefono y el logo de A. En una disputa, el documento
+    no representa de forma confiable quien lo emitio.
+
+    Devuelve `None` si la sucursal no tiene configuracion propia; el llamador
+    decide si cae al contexto global o si eso es un error.
+    """
+    if sucursal is None:
+        return None
+
+    from .models import ConfiguracionNegocio
+
+    return ConfiguracionNegocio.objects.filter(sucursal=sucursal).first()
+
+
+def config_para_documento(sucursal):
+    """
+    Configuracion con la que encabezar un documento de esa sucursal.
+
+    Si la sucursal tiene la suya, esa. Si no —instalacion sin migrar, o
+    documento consolidado sin sucursal— cae al contexto actual y deja
+    constancia: un encabezado que no corresponde al hecho documentado es
+    exactamente el hallazgo, y conviene que se note en el log antes de que se
+    note en una factura.
+    """
+    import logging
+
+    propia = config_de_sucursal(sucursal)
+    if propia is not None:
+        return propia
+
+    if sucursal is not None:
+        logging.getLogger('configuracion').warning(
+            'La sucursal %s no tiene configuracion propia; el documento se '
+            'encabeza con la configuracion del contexto actual.',
+            getattr(sucursal, 'codigo', sucursal),
+        )
+    return get_config()
+
+
 def invalidar_config(codigo_sucursal=None):
     """Descarta la configuracion cacheada de esta sucursal."""
     cache.delete(cache_key_config(codigo_sucursal))
