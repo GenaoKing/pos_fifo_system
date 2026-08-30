@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**151 hallazgos verificados y mitigados en 12 módulos.** En todos los casos se
+**158 hallazgos verificados y mitigados en 13 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -32,8 +32,9 @@ positivos ni hallazgos obsoletos.
 | `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 | `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
+| `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 
-**Suite completa, serial: 990 tests, OK.**
+**Suite completa, serial: 1015 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -189,7 +190,17 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 15. **Con sync activo, editar un cliente del cloud devuelve 409** en el POS
     local: antes se confirmaba y el siguiente pull lo pisaba.
 16. **El cliente CONTADO no se edita ni se borra desde el portal.**
-17. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+17. **El CRUD de productos y categorias exige permisos.** Una cajera sin
+    ellos pierde el listado y recibe 403 en crear, editar, desactivar,
+    imagenes y etiquetas. Los roles de sistema ya los tienen; un rol custom
+    creado a mano, no.
+18. **Un producto de categoria inactiva deja de venderse** en las tres
+    busquedas del POS, en los accesos rapidos y en la confirmacion de la
+    venta. Si el negocio usaba categorias inactivas como agrupacion sin
+    intencion de retirar sus productos, esos productos desaparecen.
+19. **La subida de imagen solo acepta JPEG/PNG/WEBP** de hasta 8 MB, y
+    renombra el archivo del lado servidor.
+20. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización

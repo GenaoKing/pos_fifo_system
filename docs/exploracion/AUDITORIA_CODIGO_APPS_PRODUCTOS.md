@@ -53,6 +53,13 @@ Se documentan **22 hallazgos**:
 | P2 | 9 | Debilita validación, trazabilidad, atomicidad, concurrencia, manejo de fallos o control operacional. |
 | P3 | 5 | Deuda de pruebas, rendimiento y mantenibilidad que aumenta el costo de operar o corregir el catálogo. |
 
+> **Estado (2026-08-30): P1 MITIGADO (6/8; dos abiertos por alcance).** Los
+> ocho hallazgos P1 se verificaron contra el código y los ocho resultaron
+> reales. Seis están corregidos; PRO-002 y PRO-003 son cambios de arquitectura
+> distribuida y quedan documentados como pendientes. Se cerró además PRO-018.
+> Ver [Estado de mitigación](#estado-de-mitigación) al final.
+> **Sin migraciones.**
+
 La suite seleccionada terminó con **75/75 pruebas existentes aprobadas**.
 `apps/productos` no aportó casos propios. Una batería adversarial temporal
 terminó con **14/14 reproducciones confirmadas** y fue retirada del workspace.
@@ -799,15 +806,125 @@ La aplicación puede considerarse cerrada cuando, como mínimo:
 - la lista de productos mantiene consultas y tamaño de respuesta acotados al
   crecer el catálogo.
 
-## Conclusión
+---
 
-`apps/productos` no necesita solo endurecer formularios: necesita consolidar el
-contrato de maestro entre local y cloud. Hoy el canal HTML tiene más capacidad
-y menos validación que la API, mientras sync depende de campos que ese canal
-puede cambiar. La combinación permite mutaciones no autorizadas, divergencia,
-duplicación, baja no convergente y venta de artículos retirados.
+# Estado de mitigación
 
-El orden de mayor retorno es cerrar permisos/XSS y, de inmediato, diseñar la
-identidad y autoridad del catálogo como una sola corrección transversal. Las
-mejoras de rendimiento y Admin son importantes, pero no deben preceder a esas
-garantías de seguridad e integridad.
+Fecha: 2026-08-30. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los ocho son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| PRO-001 | Sí | Corregido | Los 12 endpoints HTML exigen su permiso del catálogo: `productos.{ver,crear,editar,eliminar}`, `categorias.{ver,crear,editar,eliminar}` y `productos.fotografiar` para las imágenes. |
+| PRO-002 | Sí | **Abierto** | Ver abajo. |
+| PRO-003 | Sí | **Abierto** | Ver abajo. |
+| PRO-004 | Sí | **Abierto** | Mismo bloque que PRO-002/003: falta el tombstone de maestros. |
+| PRO-005 | Sí | Corregido | `json_script` + `JSON.parse(textContent)` en ambas listas. |
+| PRO-006 | Sí | Corregido | `utils/imagenes.validar_imagen_subida()`: tamaño **antes** de decodificar, decodificación real con Pillow, formato en una allowlist (JPEG/PNG/WEBP) y **nombre generado por el servidor**. |
+| PRO-007 | Sí | Corregido | `productos_vendibles()` y `Producto.es_vendible` son la única definición, aplicada en las tres búsquedas del POS, en los accesos rápidos y —lo que importa— dentro del cargador transaccional de la venta. |
+| PRO-008 | Sí | Corregido | El pull conserva `NULL` en vez de convertirlo a `''`. |
+| PRO-018 | Sí | Corregido | La app no aportaba casos propios. Ahora tiene 48. |
+
+## PRO-002, PRO-003 y PRO-004: por qué quedan abiertos
+
+Los tres son la misma pregunta: **quién es el escritor autoritativo de los
+maestros**, y su respuesta es un cambio de arquitectura distribuida, no un gate.
+
+- **PRO-002** — las escrituras HTML son locales y no se propagan. La solución es
+  el proxy hacia la API cloud, que el roadmap ya decidió y no está construido.
+- **PRO-003** — el SKU es la clave que usa el pull (`update_or_create(sku=…)`) y
+  es editable localmente: cambiarlo y bajar el SKU anterior crea **dos**
+  productos. La solución es darle a `Producto` una identidad cloud inmutable,
+  como ya tienen las categorías (`origen_cloud_id`) — migración, backfill y
+  cambio del contrato de sync.
+- **PRO-004** — el `DELETE` físico de la API no deja tombstone, así que una
+  sucursal conserva y vende una copia que el cloud ya borró.
+
+**No se aplicó la contención que sí puse en clientes** (rechazar la edición
+local de un registro adoptado por el cloud). En clientes era barato porque
+`origen_cloud_id` ya existe; en productos **no existe todavía**, y no hay forma
+fiable de distinguir un producto bajado del cloud de uno creado en la sucursal.
+Inventar una heurística aquí sería peor que la deuda: bloquearía ediciones
+legítimas o dejaría pasar las peligrosas.
+
+Los tres van juntos al TODO como un solo trabajo.
+
+## Cambios de conducta observables
+
+1. **El CRUD de productos y categorías exige permisos.** Una cajera sin ellos
+   pierde el listado (redirect) y recibe 403 en crear, editar, desactivar,
+   imágenes y etiquetas. **Si algún rol operativo usaba estas pantallas sin los
+   permisos, hay que agregárselos** — el catálogo ya los declaraba.
+2. **Un producto de categoría inactiva deja de venderse**, en la búsqueda, en el
+   escáner, en los accesos rápidos y en la confirmación de la venta. Si el
+   negocio usaba categorías inactivas como agrupación sin intención de retirar
+   sus productos, esos productos desaparecen del POS.
+3. **La subida de imagen rechaza lo que no sea JPEG/PNG/WEBP**, con máximo de
+   8 MB, y renombra el archivo del lado servidor.
+4. **El pull ya no convierte `codigo_barras` vacío en `''`.**
+
+## Dos bugs vivos encontrados mientras se corregía
+
+Ninguno estaba en la auditoría; aparecieron al tocar el código:
+
+1. **El filtro de marcas estaba roto de entrada.** `{% csrf_token %}` y
+   `{{ marcas_json|json_script:"marcas-data" }}` estaban **entre bloques** de la
+   plantilla, donde la herencia los descarta: el nodo `marcas-data` nunca se
+   renderizaba y `document.getElementById('marcas-data')` devolvía `null`.
+2. **`marcas_json` estaba doblemente codificado** (`json.dumps` en la vista +
+   `json_script` en la plantilla), así que aunque el nodo hubiera existido,
+   `JSON.parse` habría devuelto un *string* y `x-for` habría iterado sus
+   caracteres.
+
+Ambos quedaron corregidos al mover los nodos dentro de `{% block content %}` y
+pasar objetos crudos al filtro.
+
+## Despliegue
+
+**Sin migraciones.** Todo el cambio es de código y plantillas.
+
+> **Revisar antes de desplegar:** los roles operativos que usen las pantallas de
+> catálogo necesitan los permisos correspondientes. Los roles **de sistema** ya
+> los tienen (`productos.ver` y `productos.fotografiar` entraron al rol Cajero
+> en `permisos.0008`); un rol **custom** creado a mano, no.
+
+> **Revisar también:** si hay categorías inactivas con productos activos, esos
+> productos dejan de aparecer en el POS. Consulta:
+> `Producto.objects.filter(activo=True, categoria__activa=False).count()`.
+
+## Lo que no se tocó
+
+P2: PRO-009 (HTML y modelo omiten validaciones que la API sí aplica), PRO-010
+(cambios de precio sin auditoría de dominio), PRO-011 (acciones masivas del
+Admin ocultan la fecha real), PRO-012 (ciclo de vida de imágenes no atómico),
+PRO-013 (la configuración de atributos no es un esquema aplicado), PRO-014
+(carreras en los generadores de SKU y código de barras), PRO-015 (errores y
+borrados protegidos sin contrato), PRO-016 (el chequeo cloud ocurre antes de
+autenticar), PRO-017 (la impresión física sin permiso propio, cuota ni
+trazabilidad).
+
+P3: PRO-019 (la lista carga todo el catálogo con N+1), PRO-020 (indicadores
+inconsistentes en Admin), PRO-021 (el formato de código de barras configurado no
+se respeta), PRO-022 (deuda de mantenimiento).
+
+**PRO-010 conviene pronto:** un cambio de precio es una decisión financiera de
+la misma clase que el límite de crédito, y hoy no deja auditoría de dominio. El
+gate de PRO-001 ya limita **quién** puede hacerlo; falta el **registro de que
+ocurrió**.
+
+## Pruebas
+
+Suite completa, serial: **1015 tests, OK.**
+
+Módulo de regresión nuevo:
+`apps/productos/tests/test_auditoria_productos.py` (48 pruebas).
+
+**Verificación por mutación.** Revertidos tres hallazgos, seis pruebas fallan:
+
+- Sin el filtro de vendibilidad (PRO-007), `ProductoInexistenteError not raised`
+  tanto para el producto inactivo como para el de categoría inactiva.
+- Sin la validación de imagen (PRO-006), `200 != 400` para el HTML disfrazado,
+  la extensión mentirosa y el archivo sobre cuota.
+- Sin el gate de creación (PRO-001), `200 != 403`.

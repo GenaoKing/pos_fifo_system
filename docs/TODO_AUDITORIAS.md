@@ -37,6 +37,18 @@ retirado**. Recomendado tomar a continuación.
 
 ## 🟠 Decisiones que dependen del negocio
 
+- [ ] **PRO-002 + PRO-003 + PRO-004 — quién es el escritor autoritativo de
+      los maestros de producto.** Los tres son la misma pregunta:
+      * las escrituras HTML son locales y no se propagan (PRO-002);
+      * el SKU, que el pull usa como clave, es editable localmente, y
+        cambiarlo y bajar el anterior crea DOS productos (PRO-003);
+      * el `DELETE` de la API no deja tombstone, así que la sucursal
+        conserva y vende lo que el cloud ya borró (PRO-004).
+      La base de la solución es darle a `Producto` una identidad cloud
+      inmutable, como ya tienen las categorías. **No se aplicó la
+      contención que sí se puso en clientes** porque ahí `origen_cloud_id`
+      ya existía; en productos no, y no hay forma fiable de distinguir un
+      producto bajado del cloud de uno creado en la sucursal.
 - [ ] **CLI-004 — proxy de escritura de maestros hacia el cloud.** Hoy, con
       sync activo, editar un cliente adoptado por el cloud devuelve **409** y
       remite al portal: es contencion, no la solucion. La decision ya tomada
@@ -87,6 +99,9 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       sin corregir; requiere levantar dos bases en el pipeline.
 - [ ] **Drill de restauración.** `backup_tenant` verifica el artefacto, pero
       nadie lo restauró end-to-end.
+- [ ] **Antes de desplegar: revisar categorias inactivas con productos
+      activos.** Esos productos dejan de aparecer en el POS (PRO-007).
+      `Producto.objects.filter(activo=True, categoria__activa=False).count()`
 - [ ] **Antes de desplegar: revisar los clientes marcados CONTADO.**
       `Cliente.objects.filter(tipo='CONTADO').values('id','nombre','cedula_rnc')`.
       La migracion `clientes.0006` consolida los duplicados limpios del
@@ -154,13 +169,21 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
-- [ ] `apps/productos` — 22 hallazgos
 - [ ] `apps/configuracion` — 21 hallazgos
 - [ ] `apps/cotizaciones` — 18 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/productos`** (P1 6/8; PRO-018 cerrado):
+PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
+**PRO-010 (cambios de precio sin auditoría de dominio — conviene pronto:
+un precio es una decisión financiera y hoy no queda registro de que
+ocurrió)**, PRO-011, PRO-012 (ciclo de vida de imágenes no atómico),
+PRO-013, PRO-014 (carreras en los generadores de SKU y código de barras),
+PRO-015, PRO-016 (el chequeo cloud ocurre antes de autenticar), PRO-017
+(impresión sin permiso propio ni cuota), PRO-019 a PRO-022.
 
 **Pendientes de `apps/clientes`** (P1 cerrados, más CLI-014/020):
 CLI-006 (aislamiento por negocio en base compartida — contenido por
