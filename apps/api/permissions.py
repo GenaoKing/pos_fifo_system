@@ -199,9 +199,10 @@ class MaestroPermisoMixin:
 
 class RequiereModulo(BasePermission):
     """
-    Concede acceso solo si el modulo `modulo` esta activo para el negocio del
-    usuario (su tenant). Fail-open si el usuario no tiene negocio resuelto
-    (los modulos son comerciales, no de seguridad).
+    Concede acceso solo si el modulo `modulo` esta activo para el negocio y la
+    sucursal del request. Fail-open solo si NO hay a quien preguntarle: ni
+    negocio en el usuario ni sucursal en el request (los modulos son
+    comerciales, no de seguridad).
     """
     modulo = None
     message = 'Este modulo no esta incluido en el plan del negocio.'
@@ -213,9 +214,25 @@ class RequiereModulo(BasePermission):
         key = self.modulo or getattr(view, 'modulo_requerido', None)
         if not key:
             return True
+
         from apps.suscripciones.engine import modulo_activo
+
+        # SUS-005: se miraba SOLO `user.negocio`, ignorando la sucursal del
+        # request y la del token de servicio. Dos consecuencias:
+        #
+        #   - un usuario con CxC apagado EN SU SUCURSAL obtenia permiso igual,
+        #     porque el override local no llegaba al gate;
+        #   - un usuario de servicio con `negocio=NULL` y token ligado a una
+        #     sucursal cuyo plan no incluye el modulo caia en el fail-open.
+        #
+        # La sucursal se resuelve primero: su negocio es la respuesta cuando el
+        # usuario no la trae.
+        sucursal = _request_sucursal(request)
         negocio = getattr(user, 'negocio', None)
-        return modulo_activo(key, negocio=negocio)
+        if negocio is None and sucursal is not None:
+            negocio = getattr(sucursal, 'negocio', None)
+
+        return modulo_activo(key, negocio=negocio, sucursal=sucursal)
 
 
 def requiere_modulo(key):
