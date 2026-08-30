@@ -57,7 +57,7 @@ from apps.auditoria.models import Auditoria
 from apps.configuracion.utils import get_config, modulo_activo
 from apps.inventario.fifo_logic import procesar_venta_fifo
 from apps.inventario.models import Lote
-from apps.productos.models import Producto
+from apps.productos.models import Producto, productos_vendibles
 from apps.sync import events as sync_events
 from utils.impresoras.manager import print_manager
 
@@ -663,17 +663,50 @@ def _resolver_sucursal():
 # -----------------------------------------------------------------------------
 
 def _cargar_productos(items: list[dict]) -> dict[int, Producto]:
-    """Trae de una sola vez los productos del carrito, indexados por id."""
+    """
+    Trae de una sola vez los productos del carrito, indexados por id.
+
+    Filtra por VENDIBILIDAD, no solo por existencia (PRO-007). Antes este
+    cargador —que corre dentro de la transaccion de la venta, o sea el ultimo
+    lugar donde todavia se puede negar— filtraba unicamente por id: recuperaba
+    tanto un producto inactivo como uno cuya categoria estaba dada de baja. Una
+    pestana vieja, un cliente manual o simplemente una carrera entre la
+    seleccion y la confirmacion alcanzaban para vender un articulo retirado.
+    """
     ids = {item['producto_id'] for item in items}
-    productos = {p.id: p for p in Producto.objects.filter(id__in=ids)}
+    productos = {
+        p.id: p
+        for p in productos_vendibles(
+            Producto.objects.select_related('categoria').filter(id__in=ids)
+        )
+    }
 
     faltantes = ids - set(productos)
-    if faltantes:
+    if not faltantes:
+        return productos
+
+    # Se distingue "no existe" de "existe pero no se puede vender": son dos
+    # errores distintos para el operador.
+    existentes = {
+        p.id: p
+        for p in Producto.objects.select_related('categoria').filter(
+            id__in=faltantes,
+        )
+    }
+    primero = sorted(faltantes)[0]
+    producto = existentes.get(primero)
+    if producto is None:
         raise ProductoInexistenteError(
-            f'El producto con id={sorted(faltantes)[0]} no existe.'
+            f'El producto con id={primero} no existe.'
         )
 
-    return productos
+    motivo = (
+        'esta inactivo' if not producto.activo
+        else 'pertenece a una categoria inactiva'
+    )
+    raise ProductoInexistenteError(
+        f'El producto "{producto.nombre}" {motivo} y no se puede vender.'
+    )
 
 
 def _validar_precios(

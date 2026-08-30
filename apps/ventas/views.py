@@ -36,7 +36,7 @@ from apps.auditoria.models import Auditoria, get_client_ip
 
 
 from apps.ventas.models import Venta, DetalleVenta, Pago
-from apps.productos.models import Producto
+from apps.productos.models import Producto, productos_vendibles
 from apps.inventario.models import Lote, MovimientoLote
 from apps.inventario.fifo_logic import procesar_venta_fifo
 
@@ -215,7 +215,13 @@ def buscar_productos(request):
         })
     
     # Buscar productos activos que coincidan
-    productos = Producto.objects.filter(activo=True).select_related('categoria')
+    # PRO-007: una sola regla de vendibilidad. Antes esta busqueda exigia
+    # `categoria__activa=True` SOLO si el cliente mandaba filtro de
+    # categoria, asi que un producto de una categoria dada de baja aparecia
+    # igual en el listado general.
+    productos = productos_vendibles(
+        Producto.objects.select_related('categoria')
+    )
 
     if categoria_id:
         productos = productos.filter(categoria_id=categoria_id, categoria__activa=True)
@@ -262,10 +268,9 @@ def producto_por_codigo(request, codigo_barras):
         JSON con datos del producto o error si no existe
     """
     try:
-        producto = Producto.objects.select_related('categoria').get(
-            codigo_barras=codigo_barras,
-            activo=True
-        )
+        producto = productos_vendibles(
+            Producto.objects.select_related('categoria')
+        ).get(codigo_barras=codigo_barras)
         
         return JsonResponse({
             'success': True,
@@ -288,10 +293,9 @@ def producto_por_id(request, producto_id):
     Se usa para accesos rapidos de producto, manteniendo precio y stock frescos.
     """
     try:
-        producto = Producto.objects.select_related('categoria').get(
-            id=producto_id,
-            activo=True,
-        )
+        producto = productos_vendibles(
+            Producto.objects.select_related('categoria')
+        ).get(id=producto_id)
     except Producto.DoesNotExist:
         return JsonResponse({
             'success': False,
@@ -318,7 +322,8 @@ def accesos_rapidos_pos(request):
     accesos_validos = []
     for acceso in accesos:
         if acceso.tipo == AccesoRapidoPOS.TIPO_PRODUCTO:
-            if acceso.producto_id and acceso.producto.activo:
+            # Misma regla que el resto del POS (PRO-007).
+            if acceso.producto_id and acceso.producto.es_vendible:
                 accesos_validos.append(_acceso_rapido_pos_data(acceso))
         elif acceso.tipo == AccesoRapidoPOS.TIPO_CATEGORIA:
             if acceso.categoria_id and acceso.categoria.activa:
@@ -357,7 +362,7 @@ def verificar_stock(request, producto_id):
     cantidad_solicitada = int(request.GET.get('cantidad', 1))
     
     try:
-        producto = Producto.objects.get(id=producto_id, activo=True)
+        producto = productos_vendibles().get(id=producto_id)
         
         # Obtener lotes con stock ordenados por FIFO
         lotes = Lote.objects.filter(

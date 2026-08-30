@@ -11,6 +11,8 @@
 {% endblock %}
 
 {% block content %}
+{# Ver PRO-005 en lista_productos.html: mismo patron, misma correccion. #}
+{{ categorias_json|json_script:"categorias-data" }}
 <div x-data="categoriasManager()">
     
     <!-- Header con acciones -->
@@ -366,7 +368,9 @@
 <script>
 function categoriasManager() {
     return {
-        categorias: {{ categorias_json|safe }},
+        categorias: JSON.parse(
+            document.getElementById('categorias-data').textContent
+        ),
         filteredCategorias: [],
         searchQuery: '',
         filterEstado: '',

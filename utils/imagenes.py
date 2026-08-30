@@ -156,3 +156,96 @@ def guardar_miniatura(campo_origen, fuente=None):
         return ''
 
     return campo_origen.storage.save(destino, contenido)
+
+
+# =====================================================================
+# Validacion de subida (PRO-006)
+# =====================================================================
+#
+# El endpoint de imagen asignaba `request.FILES['imagen']` directo al campo y
+# guardaba: no comprobaba que fuera una imagen, ni su tipo, ni su tamano. Se
+# subieron bytes HTML con `Content-Type: text/plain` y quedaron guardados y
+# servidos desde media. Con eso, cualquier cuenta autenticada convierte el
+# servidor —o el blob storage del tenant— en alojamiento de archivos
+# arbitrarios, y segun dominio y cabeceras eso es superficie de phishing.
+#
+# `ImageField` NO valida por si solo cuando se asigna un archivo por codigo:
+# la validacion vive en el formulario, y aca no hay formulario.
+
+TAMANO_MAX_BYTES = 8 * 1024 * 1024  # 8 MB: una foto de celular entra holgada
+
+FORMATOS_PERMITIDOS = {'JPEG', 'PNG', 'WEBP'}
+
+EXTENSION_POR_FORMATO = {
+    'JPEG': '.jpg',
+    'PNG': '.png',
+    'WEBP': '.webp',
+}
+
+
+class ImagenInvalida(ValueError):
+    """El archivo subido no es una imagen aceptable."""
+
+
+def validar_imagen_subida(archivo):
+    """
+    Comprueba que `archivo` sea realmente una imagen de un formato permitido.
+
+    Devuelve el formato detectado. Lanza `ImagenInvalida` con un mensaje apto
+    para mostrarle al operador.
+
+    El tamano se mira ANTES de decodificar: decodificar es justamente lo caro, y
+    un archivo enorme no deberia poder consumir memoria del worker solo para
+    despues ser rechazado.
+    """
+    if archivo is None:
+        raise ImagenInvalida('No se recibio ninguna imagen.')
+
+    tamano = getattr(archivo, 'size', None)
+    if tamano is not None and tamano > TAMANO_MAX_BYTES:
+        mb = TAMANO_MAX_BYTES // (1024 * 1024)
+        raise ImagenInvalida(f'La imagen supera el maximo de {mb} MB.')
+
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow es dependencia del proyecto
+        raise ImagenInvalida('No se puede validar la imagen en este servidor.')
+
+    try:
+        archivo.seek(0)
+        with Image.open(archivo) as imagen:
+            # `verify()` detecta el archivo corrupto o que no es imagen; despues
+            # el objeto queda inutilizable, por eso solo se lee el formato.
+            formato = (imagen.format or '').upper()
+            imagen.verify()
+    except ImagenInvalida:
+        raise
+    except Exception:
+        raise ImagenInvalida('El archivo no es una imagen valida.')
+    finally:
+        try:
+            archivo.seek(0)
+        except Exception:
+            pass
+
+    if formato not in FORMATOS_PERMITIDOS:
+        permitidos = ', '.join(sorted(FORMATOS_PERMITIDOS))
+        raise ImagenInvalida(
+            f'Formato "{formato or "desconocido"}" no permitido. '
+            f'Usa {permitidos}.'
+        )
+
+    return formato
+
+
+def nombre_seguro(formato, prefijo='producto'):
+    """
+    Nombre de archivo generado del lado servidor.
+
+    El nombre que envia el cliente no se usa: puede traer rutas, caracteres de
+    control o una extension que no corresponde al contenido real.
+    """
+    import secrets
+
+    extension = EXTENSION_POR_FORMATO.get(formato, '.jpg')
+    return f'{prefijo}_{secrets.token_hex(8)}{extension}'

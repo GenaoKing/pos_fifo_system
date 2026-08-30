@@ -15,6 +15,11 @@ from apps.configuracion.decorators import requiere_modulo
 
 from .models import Producto, Categoria
 from apps.sync.decorators import requiere_conexion_cloud
+from utils.imagenes import ImagenInvalida, nombre_seguro, validar_imagen_subida
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+)
 
 
 # ==========================================
@@ -22,6 +27,7 @@ from apps.sync.decorators import requiere_conexion_cloud
 # ==========================================
 
 @login_required
+@requiere_permiso_local('productos.ver')
 def lista_productos(request):
     """Lista de productos con filtros"""
  
@@ -69,9 +75,13 @@ def lista_productos(request):
     categorias = Categoria.objects.filter(activa=True).order_by('nombre')
  
     context = {
-        'productos_json': json.dumps(productos_data),
+        # Objetos crudos: los serializa `json_script` en la plantilla (PRO-005).
+        # `json.dumps` aca ademas doblaba la codificacion de `marcas_json`, asi
+        # que el filtro de marcas recibia un STRING en vez de una lista y
+        # `x-for` iteraba sus caracteres.
+        'productos_json': productos_data,
         'categorias': categorias,
-        'marcas_json': json.dumps(marcas_lista),
+        'marcas_json': marcas_lista,
     }
  
     return render(request, 'productos/lista_productos.html', context)
@@ -79,6 +89,7 @@ def lista_productos(request):
 
 @requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
+@requiere_permiso_json('productos.crear')
 @require_http_methods(["POST"])
 def crear_producto(request):
     """Crear nuevo producto vía AJAX"""
@@ -127,6 +138,7 @@ def crear_producto(request):
 
 @requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
+@requiere_permiso_json('productos.editar')
 @require_http_methods(["POST"])
 def editar_producto(request, producto_id):
     """Editar producto existente vía AJAX"""
@@ -178,6 +190,7 @@ def editar_producto(request, producto_id):
 
 
 @login_required
+@requiere_permiso_json('productos.eliminar')
 @require_http_methods(["POST"])
 def toggle_estado_producto(request, producto_id):
     """Activar/desactivar producto"""
@@ -207,6 +220,7 @@ def toggle_estado_producto(request, producto_id):
 # ==========================================
 
 @login_required
+@requiere_permiso_local('categorias.ver')
 def lista_categorias(request):
     """Lista de categorías con sus productos"""
     
@@ -239,13 +253,14 @@ def lista_categorias(request):
         })
     
     context = {
-        'categorias_json': json.dumps(categorias_data),
+        'categorias_json': categorias_data,
     }
     
     return render(request, 'productos/lista_categorias.html', context)
 
 
 @login_required
+@requiere_permiso_json('categorias.crear')
 @require_http_methods(["POST"])
 def crear_categoria(request):
     """Crear nueva categoría vía AJAX"""
@@ -283,6 +298,7 @@ def crear_categoria(request):
 
 
 @login_required
+@requiere_permiso_json('categorias.editar')
 @require_http_methods(["POST"])
 def editar_categoria(request, categoria_id):
     """Editar categoría existente vía AJAX"""
@@ -321,6 +337,7 @@ def editar_categoria(request, categoria_id):
 
 
 @login_required
+@requiere_permiso_json('productos.ver')
 @require_http_methods(["POST"])
 @requiere_modulo('etiquetas_zebra')
 def imprimir_etiqueta(request, producto_id):
@@ -356,6 +373,7 @@ def imprimir_etiqueta(request, producto_id):
 
 
 @login_required
+@requiere_permiso_json('categorias.eliminar')
 @require_http_methods(["POST"])
 def toggle_estado_categoria(request, categoria_id):
     """Activar/desactivar categoría"""
@@ -380,6 +398,7 @@ def toggle_estado_categoria(request, categoria_id):
         }, status=400)
 
 @login_required
+@requiere_permiso_json('productos.fotografiar')
 @require_http_methods(["POST"])
 def subir_imagen_producto(request, producto_id):
     """Subir o actualizar imagen de un producto"""
@@ -392,9 +411,25 @@ def subir_imagen_producto(request, producto_id):
                 'success': False,
                 'message': 'No se recibió ninguna imagen'
             }, status=400)
-        
-        # Guardar la imagen
-        producto.imagen = request.FILES['imagen']
+
+        # PRO-006: el archivo se asignaba directo al campo y se guardaba, sin
+        # comprobar que fuera una imagen, ni su tipo, ni su tamano. Se subieron
+        # bytes HTML con `Content-Type: text/plain` y quedaron publicados desde
+        # media. `ImageField` no valida solo cuando se asigna por codigo: esa
+        # validacion vive en el formulario, y aca no hay formulario.
+        archivo = request.FILES['imagen']
+        try:
+            formato = validar_imagen_subida(archivo)
+        except ImagenInvalida as exc:
+            return JsonResponse(
+                {'success': False, 'message': str(exc)}, status=400,
+            )
+
+        # El nombre lo pone el servidor: el del cliente puede traer rutas,
+        # caracteres de control o una extension que no corresponde al contenido.
+        archivo.name = nombre_seguro(formato, prefijo=f'producto-{producto.id}')
+
+        producto.imagen = archivo
         producto.save()
         
         messages.success(request, f'Imagen actualizada para "{producto.nombre}"')
@@ -413,6 +448,7 @@ def subir_imagen_producto(request, producto_id):
 
 
 @login_required
+@requiere_permiso_json('productos.fotografiar')
 @require_http_methods(["POST"])
 def eliminar_imagen_producto(request, producto_id):
     """Eliminar imagen de un producto"""
@@ -440,6 +476,7 @@ def eliminar_imagen_producto(request, producto_id):
     
 
 @login_required
+@requiere_permiso_json('categorias.ver')
 def obtener_config_atributos(request, categoria_id):
     """Devuelve la configuración de atributos de una categoría"""
     try:

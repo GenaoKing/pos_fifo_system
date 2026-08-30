@@ -107,6 +107,25 @@ class Categoria(models.Model):
         return categoria
 
 
+def productos_vendibles(queryset=None):
+    """
+    Los productos que se pueden vender. Una sola definicion (PRO-007).
+
+    "Vendible" no era una condicion sino varias, y no coincidian: la busqueda
+    general del POS exigia `categoria__activa=True` SOLO si el cliente enviaba
+    filtro de categoria; la busqueda por codigo y por id miraban el producto
+    pero no su categoria; y el cargador transaccional de la venta filtraba
+    unicamente por id. Es decir: un producto activo en una categoria dada de
+    baja aparecia en el escaner y se vendia, y un producto inactivo se podia
+    materializar en una venta con una pestana vieja o una carrera.
+
+    La baja administrativa tiene que ser una garantia del backend, no una
+    convencion de la UI.
+    """
+    base = Producto.objects.all() if queryset is None else queryset
+    return base.filter(activo=True, categoria__activa=True)
+
+
 class Producto(models.Model):
     """Productos del inventario"""
     
@@ -276,6 +295,11 @@ class Producto(models.Model):
             GinIndex(fields=['atributos'], name='idx_productos_atributos'),
         ]
     
+    @property
+    def es_vendible(self):
+        """Misma regla que `productos_vendibles()`, por instancia."""
+        return bool(self.activo and self.categoria and self.categoria.activa)
+
     def __str__(self):
         return f"{self.sku} - {self.nombre}"
 

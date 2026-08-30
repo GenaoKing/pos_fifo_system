@@ -900,7 +900,13 @@ class SyncEngine:
                 'nombre': item.get('nombre', ''),
                 'descripcion': item.get('descripcion', '') or '',
                 'precio_venta': item.get('precio_venta', '0'),
-                'codigo_barras': item.get('codigo_barras') or '',
+                # PRO-008: NULL se conservaba como cadena vacia, y `''` SI
+                # colisiona contra la unicidad (a diferencia de NULL). Al bajar
+                # dos productos cloud sin codigo, el primero se guardaba como
+                # `''` y el segundo violaba `productos_codigo_barras_key`: el
+                # cursor `VersionMaestro` no avanzaba y la sucursal dejaba de
+                # recibir TODO el catalogo posterior. Reintentar no curaba nada.
+                'codigo_barras': (item.get('codigo_barras') or '').strip() or None,
                 'activo': item.get('activo', True),
                 'estado': item.get('estado') or 'nuevo',
                 'marca': item.get('marca') or '',
