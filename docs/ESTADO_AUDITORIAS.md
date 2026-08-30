@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**158 hallazgos verificados y mitigados en 13 módulos.** En todos los casos se
+**163 hallazgos verificados y mitigados en 14 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -33,8 +33,9 @@ positivos ni hallazgos obsoletos.
 | `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
+| `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
 
-**Suite completa, serial: 1015 tests, OK.**
+**Suite completa, serial: 1032 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -44,7 +45,6 @@ ni los corrigió todavía**:
 | Módulo | Hallazgos documentados |
 |---|---:|
 | `apps/productos` | 22 |
-| `apps/configuracion` | 21 |
 | `apps/cotizaciones` | 18 |
 | `apps/api` | 8 |
 
@@ -200,7 +200,15 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     intencion de retirar sus productos, esos productos desaparecen.
 19. **La subida de imagen solo acepta JPEG/PNG/WEBP** de hasta 8 MB, y
     renombra el archivo del lado servidor.
-20. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+20. **`get_config()` puede lanzar `ConfiguracionNoResuelta`**, pero solo
+    cuando `SUCURSAL_CODIGO` no resuelve Y hay mas de una configuracion:
+    el escenario donde antes se servia la de otra tienda en silencio.
+21. **Un staff con permisos Django sobre la configuracion ya no entra al
+    Admin sin `configuracion.administrar`**, y solo ve las sucursales de
+    su alcance. Ese permiso existia en el catalogo pero no habilitaba
+    nada, asi que es probable que nadie lo tenga asignado.
+22. **`migrar_env_cliente --dry-run` ya no imprime credenciales.**
+23. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización

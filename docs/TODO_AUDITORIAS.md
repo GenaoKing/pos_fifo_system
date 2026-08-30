@@ -80,6 +80,14 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: verificar `SUCURSAL_CODIGO`.** Tiene que
+      corresponder a una `Sucursal` existente. Si no, y hay mas de una
+      configuracion, la aplicacion ahora se detiene en vez de operar con la
+      identidad fiscal y los medios de pago de otra tienda (CFG-002).
+- [ ] **Antes de desplegar: asignar `configuracion.administrar`.** El
+      permiso existia en el catalogo pero no habilitaba nada, asi que es
+      probable que nadie lo tenga. Sin el, el Admin de configuracion queda
+      cerrado incluso para quien tenga el permiso Django (CFG-003).
 - [ ] **Backend de caché compartido (Redis) en el cloud.** Sin él el motor de
       permisos funciona correctamente —deja de cachear entre requests— pero paga
       una consulta por request y usuario. Con Redis recupera el caché y la
@@ -169,12 +177,21 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
-- [ ] `apps/configuracion` — 21 hallazgos
 - [ ] `apps/cotizaciones` — 18 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/configuracion`** (P1 cerrados):
+CFG-006 (combinaciones operativas y fiscales inseguras), CFG-007 (el pull
+omite validadores), CFG-008 (controles e-CF sin unidad), CFG-009 (dos
+fuentes de verdad entre plantillas y gates), CFG-010, **CFG-011 (la
+proteccion contra borrar configuracion es ilusoria: `QuerySet.delete()` no
+pasa por el modelo)**, **CFG-012 + CFG-017 (leer configuracion puede
+crearla, y ningun cambio deja auditoria de dominio: hoy no se puede
+reconstruir quien activo el inventario negativo ni cuando)**, CFG-013,
+CFG-014, CFG-015, CFG-016, CFG-018 a CFG-021.
 
 **Pendientes de `apps/productos`** (P1 6/8; PRO-018 cerrado):
 PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
