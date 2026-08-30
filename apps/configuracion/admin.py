@@ -39,9 +39,48 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
         }),
     )
 
+    # -----------------------------------------------------------------
+    # CFG-003: el Admin es la UNICA interfaz de esta configuracion, y operaba
+    # en un plano de permisos distinto del RBAC del negocio.
+    #
+    # `configuracion.administrar` esta declarado en el catalogo y no tenia
+    # ningun consumidor: un staff con el permiso Django `change_configuracionnegocio`
+    # —otorgado para una necesidad puntual— abria el changelist con 200 y veia
+    # las configuraciones de TODAS las sucursales. Y al reves: el panel RBAC
+    # comunicaba una capacidad que en la practica no habilitaba ni revocaba
+    # nada.
+    #
+    # Ahora Admin exige AMBOS: el permiso Django (que ya pedia) y el permiso
+    # RBAC, y ademas el queryset se acota a las sucursales del alcance.
+    # -----------------------------------------------------------------
+
+    PERMISO_RBAC = 'configuracion.administrar'
+
+    def _alcance(self, request):
+        from apps.permisos.alcance import Alcance
+        from apps.permisos.engine import sucursales_con_permiso
+
+        ids = sucursales_con_permiso(request.user, self.PERMISO_RBAC)
+        return Alcance(ids, consolidado=ids is None)
+
+    def _autorizado(self, request):
+        return self._alcance(request).permitido
+
+    def get_queryset(self, request):
+        return self._alcance(request).filtrar(super().get_queryset(request))
+
+    def has_module_permission(self, request):
+        return super().has_module_permission(request) and self._autorizado(request)
+
+    def has_view_permission(self, request, obj=None):
+        return super().has_view_permission(request, obj) and self._autorizado(request)
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and self._autorizado(request)
+
     def has_add_permission(self, request):
-        # Fase 2: permitir multiples configs (una por sucursal)
-        return True
+        # Fase 2: permitir multiples configs (una por sucursal), con RBAC.
+        return self._autorizado(request)
 
     def has_delete_permission(self, request, obj=None):
         return False

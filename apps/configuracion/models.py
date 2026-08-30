@@ -303,18 +303,27 @@ class ConfiguracionNegocio(models.Model):
         # Cada sucursal tiene su propia config.
         # -----------------------------------------------------------
         super().save(*args, **kwargs)
-        # Invalidar cache al guardar
+
+        # Invalidar cache al guardar. La clave la construye
+        # `cache_key_config()`, que incluye el tenant activo (CFG-001): armarla
+        # a mano aca la dejaria desincronizada del lector en cuanto cambie.
         from django.core.cache import cache
+
+        from .utils import invalidar_config
+
         if self.sucursal:
-            cache.delete(f'config_negocio_{self.sucursal.codigo}')
+            invalidar_config(self.sucursal.codigo)
             # Tambien invalidar cache de sucursal_actual por si cambio
             cache.delete(f'sucursal_actual_{self.sucursal.codigo}')
         else:
-            # Fallback legacy: invalidar cache sin sucursal
-            cache.delete('config_negocio')
+            invalidar_config('')
 
     def delete(self, *args, **kwargs):
-        pass  # No permitir eliminar configuracion
+        """
+        No se borra la configuracion. (CFG-011 senala que esta proteccion es
+        ilusoria: `QuerySet.delete()` no pasa por aca. Queda anotado.)
+        """
+        pass
 
     @classmethod
     def load(cls, sucursal=None):

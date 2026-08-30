@@ -90,9 +90,16 @@ class Command(BaseCommand):
         contenido = self._render(variables, origen)
 
         if opts['dry_run']:
-            self.stdout.write(contenido)
+            # CFG-004: escribia el contenido COMPLETO a stdout, y el origen
+            # contiene passwords y tokens — el propio docstring del comando
+            # lo dice. Un `DB_PASSWORD` de prueba apareció literal en la
+            # salida capturada. "dry-run" sugiere que es seguro porque no
+            # escribe archivo, no que imprime todo su contenido en una
+            # consola que termina en un ticket de soporte o en el log de CI.
+            self.stdout.write(self._render_redactado(variables, origen))
             self.stdout.write(self.style.WARNING(
-                f'\n(dry-run: no se escribio nada. {len(variables)} variables)'
+                f'\n(dry-run: no se escribio nada. {len(variables)} '
+                f'variables. Los valores sensibles van enmascarados.)'
             ))
             return
 
@@ -183,6 +190,39 @@ class Command(BaseCommand):
                 variables[nuevo] = valor
 
         return variables, ignoradas, valores_originales
+
+    # Nombres cuyo VALOR nunca se imprime. Se decide por el NOMBRE de la
+    # variable, no por su contenido: un secreto no se reconoce mirandolo.
+    _PATRONES_SENSIBLES = (
+        'PASSWORD', 'SECRET', 'TOKEN', 'KEY', 'API', 'PIN', 'CERT',
+        'CREDENTIAL', 'AUTH',
+    )
+
+    def _es_sensible(self, nombre):
+        return any(p in nombre.upper() for p in self._PATRONES_SENSIBLES)
+
+    def _enmascarar(self, valor):
+        """
+        Muestra lo justo para reconocer el valor, no para reutilizarlo.
+
+        Con menos de 8 caracteres no se muestra ninguno: en un secreto
+        corto, dos caracteres de cada punta ya son una fraccion util.
+        """
+        if not valor:
+            return '(vacio)'
+        if len(valor) < 8:
+            return f'*** ({len(valor)} caracteres)'
+        return f'{valor[:2]}***{valor[-2:]} ({len(valor)} caracteres)'
+
+    def _render_redactado(self, variables, origen):
+        """El mismo archivo que se escribiria, con los secretos ocultos."""
+        lineas = [f'# (dry-run de {origen})']
+        for nombre, valor in variables.items():
+            if self._es_sensible(nombre):
+                lineas.append(f'{nombre}={self._enmascarar(str(valor))}')
+            else:
+                lineas.append(f'{nombre}={valor}')
+        return chr(10).join(lineas)
 
     def _render(self, variables, origen):
         lineas = [
