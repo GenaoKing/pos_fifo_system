@@ -85,6 +85,16 @@ CATALOGO = [
      'Emitir la autorizacion puntual que permite superar el limite de credito '
      'de un cliente en una venta.'),
 
+    # --- Cotizaciones ---------------------------------------------------
+    ('cotizaciones.ver', 'Ver cotizaciones', 'cotizaciones',
+     'Listar y consultar cotizaciones de las sucursales asignadas.'),
+    ('cotizaciones.crear', 'Crear cotizaciones', 'cotizaciones',
+     'Emitir una cotizacion.'),
+    ('cotizaciones.precio_negociado', 'Cotizar por debajo del precio', 'cotizaciones',
+     'Emitir una cotizacion con un precio menor al vigente. Es una decision '
+     'financiera equivalente a un descuento: la cotizacion se convierte en '
+     'fuente autorizada de precio para la venta.'),
+
     # --- Reportes -----------------------------------------------------------
     ('reportes.ver', 'Ver reportes', 'reportes', 'Acceder a reportes y dashboard.'),
     ('reportes.sucursal.ver', 'Ver reportes de su sucursal', 'reportes',
@@ -134,6 +144,13 @@ PERMISOS_CAJERO_DEFAULT = [
     # precios ni borrar.
     'productos.ver',
     'productos.fotografiar',
+    # El POS ya emitia cotizaciones sin ningun permiso (COT-001): incluirlas en
+    # el default evita que una instalacion existente pierda la funcion.
+    # `cotizaciones.precio_negociado` NO va aca a proposito: cotizar por debajo
+    # del precio vigente es la decision financiera que el hallazgo pide separar,
+    # porque la cotizacion se vuelve fuente autorizada de precio para la venta.
+    'cotizaciones.ver',
+    'cotizaciones.crear',
 ]
 
 

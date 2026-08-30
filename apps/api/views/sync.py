@@ -1294,20 +1294,50 @@ def _handler_cotizacion_creada(sucursal, payload):
         if payload.get('fecha_creacion') else timezone.now()
     )
 
-    cotizacion, _ = Cotizacion.objects.update_or_create(
-        sucursal=sucursal,
-        numero_cotizacion=numero,
-        defaults={
-            'cliente': cliente,
-            'usuario': usuario,
-            'fecha_creacion': fecha_creacion,
-            'subtotal': Decimal(payload.get('subtotal', '0')),
-            'descuento_total': Decimal(payload.get('descuento_total', '0')),
-            'total': Decimal(payload.get('total', '0')),
-            'estado': payload.get('estado', 'PENDIENTE'),
-            'notas': payload.get('notas', '') or '',
-        },
-    )
+    # COT-004: este handler copiaba `estado` del payload sin mirar el estado
+    # actual, asi que un evento COTIZACION_CREADA ATRASADO reabria una
+    # cotizacion ya CONVERTIDA. Se reproducio: se capturo el payload inicial, se
+    # convirtio la cotizacion normalmente y despues se aplico ese evento viejo;
+    # el cloud la dejo PENDIENTE conservando la primera venta, y una segunda
+    # llamada al servicio creo OTRA venta contra la misma oferta — duplicando
+    # cobro y consumo FIFO.
+    #
+    # "Creada" es create-only en lo que hace al ciclo de vida: sobre una
+    # cotizacion que ya existe puede refrescar importes y textos, pero nunca
+    # retroceder su estado ni desvincular su venta.
+    existente = Cotizacion.objects.filter(
+        sucursal=sucursal, numero_cotizacion=numero,
+    ).first()
+
+    campos = {
+        'cliente': cliente,
+        'usuario': usuario,
+        'fecha_creacion': fecha_creacion,
+        'subtotal': Decimal(payload.get('subtotal', '0')),
+        'descuento_total': Decimal(payload.get('descuento_total', '0')),
+        'total': Decimal(payload.get('total', '0')),
+        'notas': payload.get('notas', '') or '',
+    }
+
+    if existente is None:
+        campos['estado'] = payload.get('estado', 'PENDIENTE')
+        cotizacion = Cotizacion.objects.create(
+            sucursal=sucursal, numero_cotizacion=numero, **campos,
+        )
+    else:
+        if existente.estado == 'PENDIENTE':
+            # Todavia no hubo una transicion que proteger.
+            campos['estado'] = payload.get('estado', 'PENDIENTE')
+        else:
+            logger.info(
+                '[SYNC] COTIZACION_CREADA atrasada para %s: se conserva el '
+                'estado %s en vez de retroceder a %s.',
+                numero, existente.estado, payload.get('estado', 'PENDIENTE'),
+            )
+        for campo, valor in campos.items():
+            setattr(existente, campo, valor)
+        existente.save()
+        cotizacion = existente
     cotizacion.detalles.all().delete()
     for item in payload.get('detalles', []):
         sku = item.get('producto_sku')

@@ -281,6 +281,10 @@ def procesar_venta_service(
         # un error de negocio en vez de generar una segunda venta.
         cotizacion = _resolver_cotizacion(cotizacion_id)
 
+        _validar_alcance_cotizacion(
+            cotizacion, items=items, cliente_id=cliente_id, sucursal=sucursal,
+        )
+
         productos = _cargar_productos(items)
         _validar_precios(items, productos, cotizacion)
         _validar_stock(
@@ -815,12 +819,84 @@ def _resolver_cotizacion(cotizacion_id):
         )
 
     if not cotizacion.puede_convertirse:
+        if cotizacion.estado == 'PENDIENTE' and cotizacion.esta_vencida:
+            raise CotizacionInvalidaError(
+                f'La cotización {cotizacion.numero_cotizacion} vencio el '
+                f'{cotizacion.fecha_vencimiento:%d/%m/%Y} '
+                f'({cotizacion.DIAS_VALIDEZ} dias de validez). '
+                f'Emiti una nueva con los precios actuales.'
+            )
         raise CotizacionInvalidaError(
             f'La cotización {cotizacion.numero_cotizacion} ya no puede '
             f'convertirse (estado actual: {cotizacion.get_estado_display()}).'
         )
 
     return cotizacion
+
+
+def _validar_alcance_cotizacion(cotizacion, *, items, cliente_id, sucursal):
+    """
+    La oferta vale para QUIEN, DONDE y CUANTO se cotizo (COT-003).
+
+    La conversion solo miraba id y estado. Con eso:
+
+      - una cotizacion de una unidad autorizaba cinco al precio negociado;
+      - una cotizacion del Cliente A se convertia en una venta del Cliente B;
+      - una oferta de una sucursal se usaba en otra.
+
+    Es decir: una oferta especial —personal, de volumen o de una tienda— se
+    transferia a otro comprador, otra caja u otro volumen, y la venta quedaba
+    ligada a una cotizacion cuyos datos no explican lo que se vendio.
+    """
+    if cotizacion is None:
+        return
+
+    # --- Cliente -------------------------------------------------------
+    cotizado_a = cotizacion.cliente_id
+    pedido_para = int(cliente_id) if cliente_id else None
+    if pedido_para is None:
+        from apps.clientes.models import Cliente
+
+        pedido_para = Cliente.get_cliente_contado().pk
+    if cotizado_a != pedido_para:
+        raise CotizacionInvalidaError(
+            f'La cotización {cotizacion.numero_cotizacion} se emitió para otro '
+            f'cliente. Emiti una nueva para este.'
+        )
+
+    # --- Sucursal ------------------------------------------------------
+    if (
+        cotizacion.sucursal_id is not None
+        and sucursal is not None
+        and cotizacion.sucursal_id != sucursal.pk
+    ):
+        raise CotizacionInvalidaError(
+            f'La cotización {cotizacion.numero_cotizacion} se emitió en otra '
+            f'sucursal y no se puede convertir aquí.'
+        )
+
+    # --- Cantidades ----------------------------------------------------
+    cotizado = {}
+    for detalle in cotizacion.detalles.all():
+        cotizado[detalle.producto_id] = cotizado.get(detalle.producto_id, 0) + int(
+            detalle.cantidad
+        )
+
+    pedido = {}
+    for item in items:
+        pedido[item['producto_id']] = pedido.get(item['producto_id'], 0) + int(
+            item['cantidad']
+        )
+
+    for producto_id, cantidad in pedido.items():
+        autorizada = cotizado.get(producto_id, 0)
+        if cantidad > autorizada:
+            raise CotizacionInvalidaError(
+                f'La cotización {cotizacion.numero_cotizacion} autoriza '
+                f'{autorizada} unidad(es) de ese producto y se intentan vender '
+                f'{cantidad}. El excedente necesita su propia cotización o el '
+                f'precio vigente.'
+            )
 
 
 def _marcar_cotizacion_convertida(cotizacion, venta: Venta) -> None:
