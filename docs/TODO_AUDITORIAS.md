@@ -37,6 +37,12 @@ retirado**. Recomendado tomar a continuación.
 
 ## 🟠 Decisiones que dependen del negocio
 
+- [ ] **CLI-004 — proxy de escritura de maestros hacia el cloud.** Hoy, con
+      sync activo, editar un cliente adoptado por el cloud devuelve **409** y
+      remite al portal: es contencion, no la solucion. La decision ya tomada
+      en el roadmap es que toda mutacion local de maestros pase por la API
+      cloud y refresque la replica. Falta construirla.
+
 Ninguna está tomada. El sistema funciona con la opción elegida; cambiarla es
 acotado. Ver §3 de ESTADO_AUDITORIAS.
 
@@ -81,6 +87,12 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       sin corregir; requiere levantar dos bases en el pipeline.
 - [ ] **Drill de restauración.** `backup_tenant` verifica el artefacto, pero
       nadie lo restauró end-to-end.
+- [ ] **Antes de desplegar: revisar los clientes marcados CONTADO.**
+      `Cliente.objects.filter(tipo='CONTADO').values('id','nombre','cedula_rnc')`.
+      La migracion `clientes.0006` consolida los duplicados limpios del
+      generico, pero **aborta** si encuentra un cliente real convertido a
+      CONTADO: reasignar sus ventas al generico falsificaria la historia
+      comercial. Hay que corregirle el `tipo` primero.
 - [ ] **Antes de desplegar: verificar el self-row de cada tenant.**
       `Negocio.self_row()` ahora falla si una base tenant tiene mas de una
       fila `Negocio`, en vez de retitular la de menor PK y dejar la otra
@@ -145,11 +157,20 @@ Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 - [ ] `apps/productos` — 22 hallazgos
 - [ ] `apps/configuracion` — 21 hallazgos
 - [ ] `apps/cotizaciones` — 18 hallazgos
-- [ ] `apps/clientes` — 21 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/clientes`** (P1 cerrados, más CLI-014/020):
+CLI-006 (aislamiento por negocio en base compartida — contenido por
+DB-per-tenant), CLI-008 (escrituras locales sin `full_clean`), CLI-009
+(cédula/RNC sin formato canónico), CLI-010 (identidad de origen a medias),
+CLI-011 (mutaciones sin auditoría), CLI-012 (sucursal en la auditoría de
+límite — hecho en el toggle, falta en la edición), CLI-013 (`DELETE` físico
+da 500 con referencias), **CLI-015 (la ruta de detalle apunta a una
+plantilla inexistente: 500 garantizado)**, CLI-016 (N+1 financieros),
+CLI-017, CLI-018, CLI-019, CLI-021.
 
 **Pendientes de `apps/negocios`** (P1 cerrados, más NEG-010/015):
 NEG-006 (tres fuentes de identidad comercial), NEG-007 (ciclo de vida del

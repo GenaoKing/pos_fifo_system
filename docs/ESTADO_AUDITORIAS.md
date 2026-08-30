@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**142 hallazgos verificados y mitigados en 11 módulos.** En todos los casos se
+**151 hallazgos verificados y mitigados en 12 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -31,8 +31,9 @@ positivos ni hallazgos obsoletos.
 | `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 | `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
+| `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 
-**Suite completa, serial: 966 tests, OK.**
+**Suite completa, serial: 990 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -77,6 +78,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
 | `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
 | `auditoria.0005_auditoria_inmutable_y_actor` | Snapshot del actor + hash de integridad | No transforma datos. Los registros previos quedan **sin hash**: el verificador los reporta como no verificables, no como buenos |
+| `clientes.0006_cliente_contado_singleton` | ⚠️ Singleton del cliente CONTADO | **ABORTA** si hay un cliente REAL marcado CONTADO (reasignar sus ventas al generico falsificaria la historia). Los duplicados limpios del generico se consolidan repuntando ventas, CxC y cotizaciones |
 | `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
@@ -178,7 +180,16 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     reportes reciben `resolucion=` y sin scope devuelven vacio.
 12. **Un `?negocio=` invalido o inactivo devuelve 403** en vez de ampliar la
     consulta a todos los negocios.
-13. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+13. **Las lecturas de clientes exigen `clientes.ver`.** Listado, busqueda y
+    detalle entregaban cedula/RNC, telefono, direccion, notas internas,
+    limite y saldo a cualquier autenticado. Si un rol operativo los usaba
+    sin el permiso, hay que agregarselo.
+14. **Subir el limite de credito por el portal exige el permiso
+    financiero.** Un PATCH que mezcle telefono y limite se rechaza entero.
+15. **Con sync activo, editar un cliente del cloud devuelve 409** en el POS
+    local: antes se confirmaba y el siguiente pull lo pisaba.
+16. **El cliente CONTADO no se edita ni se borra desde el portal.**
+17. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización

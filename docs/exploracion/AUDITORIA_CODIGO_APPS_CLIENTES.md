@@ -52,6 +52,13 @@ Se documentan **21 hallazgos**:
 | P2 | 10 | Debilita integridad, auditabilidad, disponibilidad, sincronización o rendimiento en producción. |
 | P3 | 4 | Aumenta deuda, ambigüedad contractual y probabilidad de regresión. |
 
+> **Estado (2026-08-30): P1 MITIGADO (7/7, uno parcial por alcance).** Los
+> siete hallazgos P1 se verificaron contra el código y los siete resultaron
+> reales. Seis están corregidos por completo; CLI-004 tiene una contención, no
+> la solución de fondo. Se cerró además CLI-014 y CLI-020. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Incluye 1 migración con preflight que ABORTA** ante un caso ambiguo.
+
 La suite seleccionada terminó con **110/110 pruebas existentes aprobadas**.
 `apps/clientes` aporta **0 pruebas propias**. Una batería adversarial temporal
 terminó con **24/24 reproducciones confirmadas** y se retiró del workspace.
@@ -646,3 +653,126 @@ permanentes.
 Este orden no implica corregir dentro de esta auditoría. Cada bloque requiere un
 plan separado, revisión de datos reales y reejecución contra los cambios
 concurrentes del usuario.
+
+---
+
+# Estado de mitigación
+
+Fecha: 2026-08-30. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los siete son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| CLI-001 | Sí | Corregido | Listado, búsqueda y detalle exigen `clientes.ver`. Sin él: redirect en las vistas HTML, 403 en la búsqueda JSON, y ningún dato en el cuerpo. |
+| CLI-002 | Sí | Corregido | `toggle_estado_cliente` exige `clientes.eliminar` —desactivar **es** la baja: el modelo no borra, inactiva— y la transición se audita dentro de la misma transacción, con actor, sucursal y valores anterior/nuevo. |
+| CLI-003 | Sí | Corregido | Autorización **por campo** en `ClienteWriteSerializer.validate()`: cambiar `limite_credito` exige `clientes.editar_limite_credito` además de `clientes.editar`. Cubre el payload mixto, y reenviar el mismo valor no cuenta como decisión financiera. |
+| CLI-004 | Sí | **Contenido, no resuelto** | Ver abajo. |
+| CLI-005 | Sí | Corregido | `transaction.atomic()` + `select_for_update()` envuelven lectura, validación, escritura, auditoría y reprogramación de cartera. |
+| CLI-006 | Sí | **Sin cambios** | Ver abajo. |
+| CLI-007 | Sí | Corregido | Índice único parcial `cliente_contado_singleton`, `get_cliente_contado()` sin carrera, y el genérico es inmutable e imborrable desde la API (`_proteger_generico` + `perform_destroy`). |
+| CLI-014 | Sí | Corregido | Los errores internos van al log; el navegador recibe un mensaje estable. |
+| CLI-020 | Sí | Corregido | La app no tenía pruebas propias. Ahora tiene 24. |
+
+## CLI-004: qué se hizo y qué falta
+
+El hallazgo es real y su solución de fondo es una **feature, no un arreglo**:
+que toda mutación local de maestros pase por la API cloud y refresque la
+réplica. Eso es lo que el roadmap ya decidió y no está construido.
+
+Lo que sí se puede hacer sin construirla —y es la mitad que importa— es **dejar
+de confirmarle al operador una decisión que va a desaparecer**. Editar un
+cliente adoptado por el cloud devolvía 200, y el siguiente `_pull_clientes`
+restauraba nombre, límite, plazo y condiciones, pudiendo además disparar otra
+reprogramación de cartera.
+
+Ahora, **con `SYNC_ENABLED` y sobre un cliente que tiene `origen_cloud_id`**, la
+edición local devuelve **409** y le dice al operador dónde editarlo. Los
+clientes nacidos en la sucursal siguen siendo editables ahí hasta que el cloud
+los adopte, y una instalación standalone no cambia en nada.
+
+**Lo que falta es el proxy de escritura**, y queda anotado en el TODO.
+
+## CLI-006: por qué no se tocó
+
+El aislamiento de `Cliente` por negocio en base compartida requiere modelar
+ownership explícito: FK a `Negocio`, migración con backfill, y revisar la
+unicidad global de `cedula_rnc` —que hoy impediría registrar la misma
+identificación en dos empresas independientes—. Es un cambio de modelo de
+datos, no un gate.
+
+La contención real es DB-por-tenant, que ya es la arquitectura vigente, y esa
+frontera se endureció en la mitigación de `apps/negocios` (NEG-001): un request
+sin tenant resuelto ahora falla cerrado en vez de ampliar el queryset. El
+despliegue compartido/legacy sigue sin aislamiento y está anotado.
+
+## Cambios de conducta observables
+
+1. **Un usuario sin `clientes.ver` pierde el listado, la búsqueda y el
+   detalle.** Si algún rol operativo los usaba sin tener el permiso, hay que
+   agregárselo — el catálogo ya lo definía para esto.
+2. **Desactivar un cliente exige `clientes.eliminar`** y deja auditoría.
+3. **Subir el límite de crédito por el portal exige el permiso financiero.**
+   Un PATCH que mezcle teléfono y límite se rechaza entero.
+4. **El cliente CONTADO no se edita ni se borra desde el portal**, ni siquiera
+   por un ADMIN.
+5. **Con sync activo, editar un cliente del cloud devuelve 409** en el POS
+   local.
+6. **Los errores de edición ya no muestran el texto de la excepción.**
+
+## Despliegue: 1 migración, con preflight que puede abortar
+
+**`clientes.0006_cliente_contado_singleton`** — impone el singleton, precedido
+de una consolidación.
+
+La consolidación distingue dos casos que la constraint no distingue, porque
+tienen consecuencias opuestas:
+
+- **Duplicados del genérico** (nombre `CLIENTE CONTADO`, sin cédula/RNC): son
+  intercambiables por definición. Se consolidan sobre el más antiguo,
+  repuntando ventas, cuentas por cobrar y cotizaciones, y las sobrantes se
+  eliminan.
+- **Un cliente REAL convertido a CONTADO** (con nombre propio o identificación):
+  la migración **ABORTA** con el detalle de cada fila. Reasignar sus ventas al
+  genérico falsificaría la historia comercial, y esa no es una decisión que un
+  script deba tomar. Hay que corregir su `tipo` a PERSONAL/CORPORATIVO antes.
+
+> **Antes de desplegar conviene comprobarlo:**
+> `Cliente.objects.filter(tipo='CONTADO').values('id', 'nombre', 'cedula_rnc')`.
+> Con más de una fila que no sea el genérico limpio, la migración se detiene.
+
+## Lo que no se tocó
+
+P2 restantes: CLI-008 (las escrituras locales omiten `full_clean`), CLI-009
+(cédula/RNC sin formato canónico ni validación), CLI-010 (la identidad de origen
+puede quedar a medias), CLI-011 (la API y la creación local no auditan
+mutaciones), CLI-012 (la auditoría de límite local no atribuía sucursal — **ya
+cubierto**: ahora se pasa `sucursal` en el cambio de estado, falta en la
+edición), CLI-013 (`DELETE` físico produce 500 con referencias), CLI-015 (la
+ruta de detalle falla por plantilla inexistente), CLI-016 (N+1 financieros en
+listado y búsqueda), CLI-017 (el Admin muta campos internos sin contrato).
+
+P3: CLI-018 (la UI muestra acciones no ejecutables), CLI-019 (dos superficies
+CRUD con contratos distintos), CLI-021 (responsabilidades dispersas).
+
+**CLI-015 merece atención pronto:** la ruta de detalle apunta a una plantilla
+que no existe, así que hoy es un 500 garantizado. El gate de `clientes.ver` que
+se agregó no lo arregla, solo lo hace inalcanzable para quien no tenga el
+permiso.
+
+## Pruebas
+
+Suite completa, serial: **990 tests, OK.**
+
+Módulo de regresión nuevo: `apps/clientes/tests/test_auditoria_clientes.py`
+(24 pruebas).
+
+**Verificación por mutación.** Revertidos tres hallazgos, cinco pruebas fallan:
+
+- Sin `transaction.atomic` (CLI-005), el límite queda en `99999.00` tras un
+  fallo de auditoría y el plazo en `90` tras un fallo de reprogramación — las
+  dos reproducciones textuales.
+- Sin el gate del toggle (CLI-002), `200 != 403`.
+- Sin la autorización por campo (CLI-003), `200 != 403`, incluido el payload
+  mixto.
