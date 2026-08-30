@@ -80,6 +80,12 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: avisar del cambio de `$` a `RD$`** en todos los
+      PDFs. Es visible para el cliente final; si hay plantillas, capturas o
+      material impreso que lo referencien, conviene anticiparlo.
+- [ ] **Antes de desplegar: sucursales sin configuracion propia.**
+      `Sucursal.objects.filter(configuracionnegocio__isnull=True)` — sus
+      documentos caen al contexto actual y dejan un warning (COM-001).
 - [ ] **Antes de desplegar: revisar cotizaciones pendientes vencidas.**
       `Cotizacion.objects.filter(estado='PENDIENTE', fecha_creacion__lt=timezone.now()-timedelta(days=15)).count()`
       Dejan de ser convertibles (COT-007). Si el negocio venia convirtiendo
@@ -191,11 +197,25 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 Existen y describen hallazgos reales; nadie las verificó ni corrigió.
 
-- [ ] `apps/common` — 15 hallazgos
 - [ ] `apps/api` — 8 hallazgos
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+
+**Pendientes de `apps/common`** (P1 cerrado + COM-002/003/004/010/011/015):
+COM-005 (forma de tablas sin validar: una columna extra expandio la tabla
+a 777pt sobre 518pt disponibles, y el contenido financiero queda fuera de
+pagina sin error), COM-006, COM-007 (un logo corrupto rompe el documento),
+COM-008 (un fallo de storage se traga y genera el PDF sin logo),
+**COM-009 (el logo remoto se lee completo en memoria SIN LIMITE: el tamano
+del archivo que alguien suba determina cuanta memoria consume el worker en
+cada documento — el mas urgente de los seis)**, COM-012, COM-013 (los
+builds no fijan ReportLab/Pillow aunque existan snapshots exactos que el
+Dockerfile no usa), COM-014.
+
+Los seis P2 de renderizado se dejaron fuera porque cada uno necesita
+decidir QUE hacer cuando falla —emitir sin logo, fallar, degradar— y esa
+decision conviene tomarla con el comportamiento observado en produccion.
 
 **Pendientes de `apps/cotizaciones`** (P1 cerrados, más COT-016):
 COT-008 (cantidades e importes imposibles), COT-009 (acepta clientes

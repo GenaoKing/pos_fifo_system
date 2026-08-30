@@ -14,7 +14,7 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**176 hallazgos verificados y mitigados en 16 módulos.** En todos los casos se
+**183 hallazgos verificados y mitigados en 17 módulos.** En todos los casos se
 releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
 positivos ni hallazgos obsoletos.
 
@@ -36,8 +36,9 @@ positivos ni hallazgos obsoletos.
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
 | `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 | `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
+| `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 
-**Suite completa, serial: 1078 tests, OK.**
+**Suite completa, serial: 1098 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -229,7 +230,16 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     afirmaba desde siempre; ahora el backend lo sostiene.
 28. **La conversion falla si cambia el cliente, la sucursal o si se piden
     mas unidades de las cotizadas.**
-29. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+29. **Todos los importes de PDF pasan de `$` a `RD$`.** `$1,234.50` no
+    distinguia DOP de USD en un documento que alguien usa para cobrar.
+    Es visible para el cliente final; la constante es `SIMBOLO_MONEDA`.
+30. **Un importe corrupto o no finito impide emitir el documento**
+    (`ImporteInvalido`) en vez de imprimirse como `$0.00`. Un PDF bien
+    formado y materialmente falso es peor que no emitirlo.
+31. **Cada documento se encabeza con la identidad fiscal de SU sucursal.**
+    Si una instalacion venia imprimiendo todo con la del `settings`, los
+    documentos de otras sucursales cambian de encabezado.
+32. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
 
 ### 2.6 Feature nuevo: descuentos con autorización
