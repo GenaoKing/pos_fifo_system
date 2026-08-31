@@ -195,9 +195,10 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## ⚪ Auditorías escritas pero sin procesar
 
-Existen y describen hallazgos reales; nadie las verificó ni corrigió.
-
-- [ ] `apps/api` — 8 hallazgos
+**Ninguna.** La serie quedó cerrada el 2026-08-30 con `apps/api` (8 hallazgos,
+ya resueltos en junio de 2026 y re-verificados; su decisión de scope quedó
+superada por NEG-001). Lo que sigue abajo son hallazgos P2/P3 dentro de módulos
+ya procesados.
 
 **Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
 PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).

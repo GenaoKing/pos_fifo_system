@@ -14,9 +14,9 @@ en su documento de `docs/exploracion/`; acá está lo que hace falta para operar
 
 ## 1. Resumen de avance
 
-**183 hallazgos verificados y mitigados en 17 módulos.** En todos los casos se
-releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
-positivos ni hallazgos obsoletos.
+**191 hallazgos verificados y mitigados en 18 módulos** — la serie completa.
+En todos los casos se releyó cada hallazgo contra el código antes de tocar
+nada: no hubo falsos positivos ni hallazgos obsoletos.
 
 | Módulo | Hallazgos | Estado | Documento |
 |---|---:|---|---|
@@ -37,19 +37,15 @@ positivos ni hallazgos obsoletos.
 | `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 | `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
+| `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 1098 tests, OK.**
+**Suite completa, serial: 1110 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
-Estos documentos existen y describen hallazgos reales, pero **nadie los verificó
-ni los corrigió todavía**:
-
-| Módulo | Hallazgos documentados |
-|---|---:|
-| `apps/productos` | 22 |
-| `apps/cotizaciones` | 18 |
-| `apps/api` | 8 |
+**Ninguna.** La serie quedó cerrada el 2026-08-30 con `apps/api`. Lo que
+sigue abierto son hallazgos P2/P3 dentro de módulos ya procesados, listados
+en [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md).
 
 ---
 
@@ -241,6 +237,23 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
     documentos de otras sucursales cambian de encabezado.
 32. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
+33. **Un usuario sin negocio deja de verlo todo** (NEG-001), y esto se
+    observa sobre todo en la API: cartera CxC, reportes cloud y
+    `sucursales/status`. Antes, `negocio_id=NULL` en una cuenta activa se
+    leía como "sin filtro" y entregaba los datos de **todos** los negocios.
+    Solo aplica donde hay más de un negocio activo: la instalación local de
+    un negocio único sigue funcionando igual. **Revisar antes de desplegar:**
+
+    ```sql
+    SELECT id, username, rol FROM usuarios_usuario
+    WHERE negocio_id IS NULL AND activo AND NOT is_superuser;
+    ```
+
+    Si alguna de esas cuentas está en uso, asignarle su negocio **antes** de
+    desplegar o se queda sin cartera ni reportes. Esta regla reemplaza una
+    decisión explícita de junio de 2026 en la auditoría de `apps/api` ("el
+    solicitante sin negocio resoluble ve todo por defecto"), que confundía
+    "es un principal global" con "no pude resolver el negocio".
 
 ### 2.6 Feature nuevo: descuentos con autorización
 

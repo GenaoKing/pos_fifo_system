@@ -230,6 +230,11 @@ global, sin `?negocio=`) ve TODO por defecto (compat con `negocio_actual` y con
 "Null = usuario global" del modelo Usuario); puede acotar con `?negocio=<id>`.
 Patron unico de tenant: `apps.negocios.utils.negocio_actual`.
 
+> **La decision de scope de este parrafo quedo SUPERADA el 2026-08-30 por
+> NEG-001.** Ver [Re-verificacion](#re-verificacion-2026-08-30) al final: ver
+> todo pasa a depender de ser un principal global verificado, no de que la
+> resolucion del negocio haya fallado. El resto de la resolucion sigue vigente.
+
 - **API-001 — RESUELTO.** Helper `_scope_por_tenant` en
   `apps/api/views/cuentas_por_cobrar.py` (token de sucursal -> esa sucursal;
   usuario con negocio -> `sucursal__negocio`; global -> sin filtro). Aplicado en
@@ -277,3 +282,105 @@ Patron unico de tenant: `apps.negocios.utils.negocio_actual`.
 
 Regresion: las 92 pruebas previas de maestros/CxC/reportes siguen verdes; 18
 pruebas nuevas cubren el aislamiento y el fallback de sync.
+
+---
+
+# Re-verificacion (2026-08-30)
+
+Cierre de la auditoria de `apps/api`, la ultima de la serie. **No habia nada que
+corregir**: los 8 hallazgos se resolvieron en junio y los 8 siguen resueltos
+contra el codigo de hoy. Lo que si cambio es una **decision**, y esa es la razon
+de esta seccion.
+
+## Los 8, contra el codigo actual
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| API-001 | Resuelto | `apps/api/views/cuentas_por_cobrar.py:72` — `resolver_negocio(request).filtrar(...)`; `:111` aplica `_scope_por_tenant` en las agregaciones. |
+| API-002 | Resuelto | `apps/api/services/reporting.py:105` — `_active_sucursales(codigo=None, resolucion=None)`. |
+| API-003 | Resuelto | `apps/api/views/sync.py:744` y `:1291` — `_resolver_usuario(...) or sucursal.usuario_servicio`. |
+| API-004 | Resuelto | `apps/api/views/maestros.py:163` — `ReadAfterWriteMixin`. |
+| API-005 | Resuelto | Cuatro `get_base_queryset()`; ninguna asignacion a `self.queryset`. |
+| API-006 | Resuelto | `reporting.py:701` — `es_snapshot_local: True`, `fuente_stock: 'LOCAL'`. |
+| API-007 | No aplica | `git ls-files apps/api` no devuelve `__pycache__` ni `.pyc`. |
+| API-008 | Resuelto | `apps/api/serializers/cuentas_por_cobrar.py:92,112` — `monto_financiado`. |
+
+## Lo que cambio: la decision de scope
+
+La resolucion de junio dejo escrita esta regla:
+
+> el solicitante **sin negocio resoluble** (SYSADMIN/global, sin `?negocio=`)
+> ve TODO por defecto
+
+La frase junta dos cosas que se ven igual y no lo son. **SYSADMIN** es un
+principal global: ver todo es su trabajo. **"Sin negocio resoluble"** es otra
+cosa — es que la resolucion *fallo*—, y el parentesis las trata como sinonimos.
+
+Eso es exactamente NEG-001, corregido en la auditoria de `apps/negocios`: un
+`ADMIN` activo, no staff, no superusuario y con `negocio_id=NULL` recibia la
+cartera y los reportes de **todos** los negocios. `es_acceso_total` le concedia
+el permiso y `negocio_actual` devolvia `None` —"no pude resolver"— que los
+consumidores leian como "sin filtro". Un dato de aprovisionamiento faltante se
+leia como la autorizacion mas amplia del sistema.
+
+**La regla vigente es la de NEG-001:** ver todo depende de ser un principal
+global *verificado*. `resolver_negocio()` devuelve un resultado tipado
+(`TENANT` / `GLOBAL` / `SIN_ACCESO`) en vez de un `None` sobrecargado, y el
+huerfano cae en `SIN_ACCESO` cuando hay mas de un negocio activo — "denegar
+donde hay algo que aislar", no "huerfano = denegar", para no romper la
+instalacion local de un solo negocio que nunca corrio el bootstrap.
+
+En la practica **API-001 y API-002 quedaron mas restrictivos que su propia
+resolucion de junio**: fallan cerrado donde antes fallaban abierto. Los
+endpoints afectados son los mismos que junio ya cubria: cartera CxC (list,
+retrieve, `resumen`, `aging`, `cartera_clientes`, `cobros`,
+`proximos_vencimientos`), reportes cloud y `sucursales/status`.
+
+Se agrego ademas NEG-002, que junio no contemplaba: `?negocio=<id>` con un id
+inexistente o inactivo caia a GLOBAL. Un typo o un bookmark viejo **ensanchaban**
+la consulta que el operador intentaba acotar; ahora devuelve vacio.
+
+## Que se toco
+
+Nada de `apps/api` — el codigo ya cumplia. Solo descripciones y cobertura:
+
+1. **`apps/api/tests/test_auditoria_api.py`** (nuevo, 12 pruebas). Los tests de
+   junio cubren al SYSADMIN, que sigue viendo todo y por eso nunca fallaron. El
+   caso que la regla vieja abria —el huerfano— no estaba cubierto **en la
+   frontera de la API**, que es donde la fuga se materializaba. Ahora si.
+2. **`apps/api/tests/test_cxc_scope_negocio.py`**: el docstring del modulo y el
+   comentario de `self.sysadmin` describian el contrato viejo (`negocio_actual
+   None`). Los tests no cambian —eran correctos—; cambia lo que dicen que
+   prueban.
+
+## Despliegue
+
+**Sin migraciones. Sin permisos nuevos. Sin cambios de contrato** respecto de lo
+ya desplegado: `apps/api` no se modifico en esta pasada.
+
+> **Revisar antes de desplegar** — no es de `apps/api` sino de NEG-001, y ya
+> figura en `docs/ESTADO_AUDITORIAS.md`, pero se repite aca porque es donde se
+> observa:
+>
+> ```sql
+> SELECT id, username, rol FROM usuarios_usuario
+> WHERE negocio_id IS NULL AND activo AND NOT is_superuser;
+> ```
+>
+> En una instalacion con **mas de un negocio activo**, esas cuentas pasan de ver
+> todo a no ver nada. Es la correccion, no una regresion — pero si alguna es una
+> cuenta operativa en uso, hay que asignarle su negocio **antes** de desplegar o
+> se queda sin cartera ni reportes.
+
+## Pruebas
+
+Suite completa, serial: **1110 tests, OK.**
+
+Modulo nuevo: `apps/api/tests/test_auditoria_api.py` (12 pruebas), sobre las 92
+previas de maestros/CxC/reportes y las 18 de junio.
+
+**Verificacion por mutacion.** Revertido `_resolver_huerfano()` a la conducta
+previa a NEG-001 (huerfano -> GLOBAL): fallan las 4 pruebas del huerfano — vuelve
+a ver las dos carteras, recupera la cuenta ajena por pk, y consolida reportes y
+sucursales. Revertida por separado la caida a GLOBAL del `?negocio=` invalido:
+falla la prueba de NEG-002. Las pruebas miden lo que dicen medir.
