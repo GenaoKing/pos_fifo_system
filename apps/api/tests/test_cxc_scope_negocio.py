@@ -6,6 +6,13 @@ cartera_clientes, cobros, proximos_vencimientos) respetan el scope del tenant:
   - token de sucursal       -> solo SU sucursal (y 404 en pk ajeno),
   - usuario con negocio      -> solo SU negocio,
   - SYSADMIN/global          -> todo; ?negocio=<id> lo acota.
+
+NOTA (2026-08-30): la resolucion de junio dejo escrito que "el solicitante sin
+negocio resoluble ve TODO". NEG-001 corrigio esa regla: ver todo depende de ser
+un principal global VERIFICADO, no de que la resolucion del negocio haya
+fallado. Lo que estos tests fijan sigue vigente —un SYSADMIN es global— y el
+caso que la regla vieja abria, el usuario huerfano, se cubre en
+`test_auditoria_api.py`.
 """
 from datetime import timedelta
 from decimal import Decimal
@@ -54,7 +61,8 @@ class CxCScopeNegocioTests(TestCase):
             testing.crear_rol(self.neg_b, 'Cobrador', ['cuentas_por_cobrar.ver']),
         )
 
-        # SYSADMIN global: acceso total y negocio_actual None.
+        # SYSADMIN: principal global verificado. Ve todo por su autoridad,
+        # no porque `negocio_actual` devuelva None (ver NOTA del encabezado).
         self.sysadmin = User.objects.create_user(
             username='sysadmin_cxc', email='sys_cxc@test.local', password='x',
             rol='SYSADMIN', activo=True,
