@@ -193,6 +193,33 @@ class InmutabilidadTests(AuditoriaTestCase):
         evento.refresh_from_db()
         self.assertFalse(evento.integridad_ok())
 
+    def test_el_hash_firma_el_instante_que_se_persiste(self):
+        """
+        Regresion del fallo de CI. `fecha_hora` era `auto_now_add`, que
+        reescribe el campo con un `now()` nuevo DENTRO de `save()`, DESPUES de
+        que el hash ya se firmo con el valor anterior. El instante firmado y el
+        guardado diferian por microsegundos, asi que `integridad_ok()` de un
+        registro intacto daba False. En Windows el reloj es grueso y ambos
+        `now()` coincidian —el bug quedaba oculto—; en el Linux de CI divergian
+        siempre.
+
+        Dos aserciones: una de comportamiento (el hash guardado respeta el
+        valor releido de la base) y una estructural, porque la primera vuelve a
+        pasar por accidente en un host de reloj grueso. Lo que no puede volver
+        es que el campo se reescriba al guardar.
+        """
+        evento = self._evento('Instante')
+        evento.refresh_from_db()
+        self.assertTrue(evento.integridad_ok())
+
+        campo = Auditoria._meta.get_field('fecha_hora')
+        self.assertFalse(
+            getattr(campo, 'auto_now_add', False),
+            'fecha_hora no puede ser auto_now_add: reescribe el valor despues '
+            'de firmar el hash.',
+        )
+        self.assertFalse(getattr(campo, 'auto_now', False))
+
     def test_el_comando_reporta_la_alteracion(self):
         evento = self._evento('Genuino')
         from django.db import connection

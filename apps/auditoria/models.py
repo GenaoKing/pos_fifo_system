@@ -6,6 +6,7 @@ from django.db import models
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.conf import settings
+from django.utils import timezone
 
 
 class AuditoriaInmutable(RuntimeError):
@@ -229,8 +230,17 @@ class Auditoria(models.Model):
     )
 
     # === CUÁNDO se realizó ===
+    # No usa `auto_now_add`: ese flag reescribe el campo con un `timezone.now()`
+    # nuevo DENTRO de `super().save()`, DESPUES de que `save()` ya firmo el
+    # hash con el valor anterior (abajo). El instante firmado y el persistido
+    # diferian por microsegundos, asi que `integridad_ok()` de un registro
+    # recien creado daba False. En Windows el reloj es lo bastante grueso para
+    # que ambos `now()` coincidan y el bug quedaba oculto; en el Linux de CI
+    # divergian siempre. Con `default` el valor se fija una sola vez, antes de
+    # firmar, y es el mismo que llega a la base.
     fecha_hora = models.DateTimeField(
-        auto_now_add=True,
+        default=timezone.now,
+        editable=False,
         verbose_name='Fecha y hora',
         db_index=True
     )
@@ -362,9 +372,21 @@ class Auditoria(models.Model):
     def calcular_hash(self):
         """SHA-256 sobre los campos que no deben cambiar nunca."""
         import hashlib
+        from datetime import timezone as dt_timezone
 
         partes = [str(getattr(self, campo) or '') for campo in self.CAMPOS_FIRMADOS]
-        partes.append(self.fecha_hora.isoformat() if self.fecha_hora else '')
+        # La fecha se firma en UTC y con precision fija: asi el hash no depende
+        # de como cada driver o zona horaria represente el MISMO instante al
+        # releerlo de la base. `isoformat()` crudo variaba el sufijo de offset
+        # entre psycopg y el valor en memoria, y eso rompia la verificacion en
+        # CI aunque la fila no se hubiera tocado.
+        if self.fecha_hora:
+            dt = self.fecha_hora
+            if timezone.is_aware(dt):
+                dt = dt.astimezone(dt_timezone.utc)
+            partes.append(dt.strftime('%Y-%m-%dT%H:%M:%S.%f'))
+        else:
+            partes.append('')
         partes.append(str(self.content_type_id or ''))
         partes.append(str(self.usuario_id or ''))
         return hashlib.sha256('|'.join(partes).encode('utf-8')).hexdigest()
