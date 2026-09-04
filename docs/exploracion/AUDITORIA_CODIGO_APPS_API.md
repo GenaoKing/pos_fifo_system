@@ -374,7 +374,7 @@ ya desplegado: `apps/api` no se modifico en esta pasada.
 
 ## Pruebas
 
-Suite completa, serial: **1110 tests, OK.**
+Suite completa, serial: **1111 tests, OK.**
 
 Modulo nuevo: `apps/api/tests/test_auditoria_api.py` (12 pruebas), sobre las 92
 previas de maestros/CxC/reportes y las 18 de junio.

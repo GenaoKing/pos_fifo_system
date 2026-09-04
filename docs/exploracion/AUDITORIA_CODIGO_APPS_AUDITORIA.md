@@ -926,8 +926,19 @@ Ambas quedan anotadas como pendientes.
 
 ## Despliegue
 
-**1 migración: `auditoria.0005_auditoria_inmutable_y_actor`** — agrega los tres
-campos de snapshot y el hash. Todos con default vacío; no transforma datos.
+**2 migraciones:**
+
+- **`auditoria.0005_auditoria_inmutable_y_actor`** — agrega los tres campos de
+  snapshot y el hash. Todos con default vacío; no transforma datos.
+- **`auditoria.0006_alter_auditoria_fecha_hora`** — corrige el hash de 0005.
+  `fecha_hora` era `auto_now_add`, que reescribe el campo con un `now()` nuevo
+  DENTRO de `save()`, DESPUÉS de que el hash ya se firmó con el valor anterior.
+  El instante firmado y el persistido diferían por microsegundos, así que
+  `integridad_ok()` de un registro **intacto** daba `False`. En Windows el reloj
+  es lo bastante grueso para que ambos `now()` coincidieran y el bug quedaba
+  oculto; en el Linux de CI divergían siempre, y por eso lo cazó el pipeline y
+  no la suite local. Pasa a `default=now`, `editable=False`: el valor se fija una
+  sola vez, antes de firmar. **Desplegar junto con 0005.**
 
 > Los registros anteriores quedan **sin hash**, y `verificar_auditoria` los
 > reporta como «no se pueden verificar ni descartar» en vez de darlos por
@@ -963,7 +974,7 @@ esquema de auditoría inexistente, y se corrigió en la mitigación de
 Suite completa, serial: **944 tests, OK.**
 
 Módulo de regresión nuevo: `apps/auditoria/tests/test_auditoria_auditoria.py`
-(30 pruebas).
+(31 pruebas).
 
 **Un test existente afirmaba la conducta defectuosa.**
 `apps/tenancy/tests/test_router.py::test_auditoria_middleware_skips_api_in_tenancy_mode`
@@ -991,3 +1002,17 @@ mientras lo corregía. El test de cobertura falló y quedó como la defensa
 permanente contra esa clase de error. El segundo: `purgar_hasta()` borraba su
 propia constancia, porque la fila de la purga es anterior a un corte futuro; se
 fijan los ids antes de registrarla.
+
+**Un tercero, que atrapó CI y no la suite local.** El hash de integridad se
+firmaba con `fecha_hora` **antes** de que `auto_now_add` lo reescribiera dentro
+de `save()`, así que un registro recién creado ya fallaba `integridad_ok()`. En
+Windows los dos `now()` coincidían por la resolución gruesa del reloj y la suite
+pasaba en verde; en el Linux de CI divergían siempre y las dos pruebas de
+integridad fallaban. El campo pasó a `default=now`/`editable=False`
+(`auditoria.0006`), y el hash canoniza la fecha a UTC con precisión fija para no
+depender de cómo cada driver la represente al releerla. La prueba nueva
+—`test_el_hash_firma_el_instante_que_se_persiste`— cierra con una aserción
+**estructural** (el campo no puede volver a ser `auto_now_add`), porque la de
+comportamiento vuelve a pasar por accidente en un host de reloj grueso: es la
+misma lección de la zona horaria del pie de página en COMMON, encontrada esta vez
+por el pipeline.

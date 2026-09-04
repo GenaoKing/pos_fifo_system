@@ -39,7 +39,7 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 1110 tests, OK.**
+**Suite completa, serial: 1111 tests, OK.**
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -53,7 +53,7 @@ en [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md).
 
 ### 2.1 Migraciones
 
-**18 migraciones** en total (13 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
+**19 migraciones** en total (14 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
 transforman datos y merecen leerse antes de correrlas en producción.
 
 | Migración | Qué hace | Riesgo |
@@ -78,6 +78,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
 | `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
 | `auditoria.0005_auditoria_inmutable_y_actor` | Snapshot del actor + hash de integridad | No transforma datos. Los registros previos quedan **sin hash**: el verificador los reporta como no verificables, no como buenos |
+| `auditoria.0006_alter_auditoria_fecha_hora` | `fecha_hora` deja de ser `auto_now_add` (pasa a `default=now`, `editable=False`) — corrige el hash de integridad de 0005 | No transforma datos. **Desplegar junto con 0005**: el hash de 0005 quedaba mal firmado y en producción esa migración aún no corrió, así que ningún registro real llegó a firmarse con el hash roto. Ver la nota de `verificar_auditoria` en §2.5 |
 | `clientes.0006_cliente_contado_singleton` | ⚠️ Singleton del cliente CONTADO | **ABORTA** si hay un cliente REAL marcado CONTADO (reasignar sus ventas al generico falsificaria la historia). Los duplicados limpios del generico se consolidan repuntando ventas, CxC y cotizaciones |
 | `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
@@ -329,6 +330,14 @@ python manage.py generar_cierre_diario                    # local
 python manage.py generar_cierre_diario --tenant demo      # un tenant
 python manage.py generar_cierre_diario --todos-los-tenants
 ```
+
+**`verificar_auditoria` en entornos que ya corrieron un `0005` pre-fix.** Si una
+base de dev/staging registró auditoría entre `0005` y `0006` (código con el hash
+mal firmado), esos registros aparecerán como **alterados** al verificar — fueron
+firmados por el código defectuoso, no manipulados. En producción no pasa: `0005`
+y `0006` entran juntos. Para una base así, la vía limpia es purgar el tramo
+afectado con `Auditoria.objects.purgar_hasta(fecha, motivo=...)` o aceptar que
+ese corte quede marcado.
 
 ---
 
