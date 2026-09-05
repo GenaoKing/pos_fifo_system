@@ -1,5 +1,11 @@
 # Roadmap Portal Cloud (Fase 5)
 
+> **Actualizacion 2026-09-05:** la V1 de notificaciones configurables esta
+> implementada en backend, portal e infraestructura. Incluye bandeja durable,
+> Web Push, reglas rol/usuario con alcance RBAC, eventos de caja y Container
+> Apps Job por minuto. No esta desplegada: seguir
+> `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` y pilotear solo en demo.
+
 Documento vivo. Estado al **12 junio 2026**.
 Branch backend: `features/cloud-dashboard` / `develop` segun flujo vigente.
 Repo frontend: `pos-cloud-dashboard` (sibling de `pos_fifo_system`).

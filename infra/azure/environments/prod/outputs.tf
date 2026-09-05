@@ -19,6 +19,10 @@ output "static_web_app" {
   sensitive   = true
 }
 
+output "notifications_job_id" {
+  value = module.container_apps.notifications_job_id
+}
+
 output "postgres" {
   description = "Datos no secretos de PostgreSQL consumidos desde platform."
   value = {

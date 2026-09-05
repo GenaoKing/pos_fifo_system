@@ -24,10 +24,12 @@ module "container_apps" {
   registry_server = local.container_registry_login_server
   image           = local.container_image
 
-  enable_api         = var.enable_api_container_app
-  enable_migrate_job = var.enable_migrate_job
-  api_name           = local.api_container_app_name
-  migrate_job_name   = local.migrate_job_name
+  enable_api               = var.enable_api_container_app
+  enable_migrate_job       = var.enable_migrate_job
+  enable_notifications_job = var.enable_notifications_job
+  api_name                 = local.api_container_app_name
+  migrate_job_name         = local.migrate_job_name
+  notifications_job_name   = local.notifications_job_name
 
   django_secret_key    = var.django_secret_key
   allowed_hosts        = var.api_allowed_hosts
@@ -45,11 +47,15 @@ module "container_apps" {
   db_port              = var.db_port
   db_sslmode           = var.db_sslmode
 
-  use_key_vault_secrets         = var.use_key_vault_secrets
-  key_vault_id                  = var.enable_key_vault ? module.key_vault[0].id : null
-  key_vault_uri                 = var.enable_key_vault ? module.key_vault[0].vault_uri : null
-  django_secret_key_secret_name = var.django_secret_key_secret_name
-  db_password_secret_name       = var.db_password_secret_name
+  use_key_vault_secrets                  = var.use_key_vault_secrets
+  key_vault_id                           = var.enable_key_vault ? module.key_vault[0].id : null
+  key_vault_uri                          = var.enable_key_vault ? module.key_vault[0].vault_uri : null
+  django_secret_key_secret_name          = var.django_secret_key_secret_name
+  db_password_secret_name                = var.db_password_secret_name
+  web_push_enabled                       = var.web_push_enabled
+  web_push_vapid_public_key              = var.web_push_vapid_public_key
+  web_push_vapid_private_key_secret_name = var.web_push_vapid_private_key_secret_name
+  web_push_vapid_subject                 = var.web_push_vapid_subject
 
   enable_blob_media            = var.enable_media_storage
   enable_db_per_tenant         = var.enable_db_per_tenant

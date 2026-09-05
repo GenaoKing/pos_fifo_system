@@ -4,7 +4,7 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-08-27**
+Última actualización: **2026-09-05**
 
 ---
 
@@ -173,6 +173,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       a cada admin a asignaciones explícitas, con comprobación previa de
       lockout. Ya está acotado: no aprueba códigos inexistentes ni capacidades
       del operador SaaS.
+- [ ] **Unificar los guards RBAC de notificaciones con `permisos.engine`.**
+      `notificaciones.services._asignaciones_en_alcance` copia los filtros
+      `activo` (rol/negocio/sucursal) de `_resolver_permisos`; extraer un helper
+      compartido evita que diverjan. Hoy están sincronizados y con comentario
+      cruzado. Deuda menor del code review de notificaciones (2026-09-05).
 
 ---
 

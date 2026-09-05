@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-08-21** · Rama: `develop`
+Última actualización: **2026-09-05** · Rama: `develop`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -83,6 +83,10 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
+| `permisos.0010_notificaciones_administrar` | Agrega el permiso al rol Administrador de sistema | No modifica roles personalizados |
+| `notificaciones.0001_initial` | Tablas de reglas, eventos, bandeja, dispositivos, entregas y marcador durable | Ninguno; el motor nace apagado |
+| `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
+| `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
@@ -129,6 +133,7 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 | `auditoria.consolidado.ver` | Ver el historial de TODAS las sucursales | No, y es el punto |
 | `cotizaciones.ver` / `cotizaciones.crear` | Emitir y consultar cotizaciones | **Si** |
 | `cotizaciones.precio_negociado` | Cotizar por debajo del precio vigente | No, y es el punto |
+| `notificaciones.administrar` | Configurar eventos, roles, usuarios y umbrales | No; solo Administrador de sistema por migracion |
 
 > **Revisá los roles existentes después de desplegar.** `caja.operar` y
 > `reportes.ver` entran en `PERMISOS_CAJERO_DEFAULT` para que ninguna
@@ -441,6 +446,12 @@ Ninguno bloquea el despliegue.
 - **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
   sin sucursal en varios puntos de esa app.
 - **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- **Guards RBAC duplicados en notificaciones.**
+  `notificaciones.services._asignaciones_en_alcance` replica a mano los filtros
+  `activo` de `permisos.engine._resolver_permisos` (rol, negocio y sucursal).
+  Hoy están sincronizados y con comentario cruzado en ambos lados; extraer un
+  único helper compartido evitaría que puedan divergir. Surgió del code review
+  de notificaciones (2026-09-05); no bloquea el despliegue.
 
 ### Presentación y rendimiento
 

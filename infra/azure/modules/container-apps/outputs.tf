@@ -22,3 +22,13 @@ output "migrate_job_id" {
   description = "ID del job de migraciones. Null si enable_migrate_job=false."
   value       = var.enable_migrate_job ? azurerm_container_app_job.migrate[0].id : null
 }
+
+output "notifications_job_id" {
+  description = "ID del job programado de notificaciones. Null si esta deshabilitado."
+  value       = var.enable_notifications_job ? azurerm_container_app_job.notifications[0].id : null
+}
+
+output "notifications_identity_principal_id" {
+  description = "Principal ID de la identidad dedicada del job."
+  value       = var.enable_notifications_job ? azurerm_user_assigned_identity.notifications[0].principal_id : null
+}

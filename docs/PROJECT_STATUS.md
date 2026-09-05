@@ -1,6 +1,6 @@
 # Estado maestro del proyecto
 
-Estado consolidado al 2026-06-09, con parches puntuales al 2026-08-24 (ver notas
+Estado consolidado al 2026-06-09, con parches puntuales al 2026-09-05 (ver notas
 inline). Este documento es la puerta de entrada para leer el proyecto sin
 perderse entre roadmaps, runbooks y bitacoras historicas -- pero varias filas
 de la tabla llevan semanas sin una revision completa; verificar contra el
@@ -30,6 +30,7 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
+| Notificaciones portal | V1 implementada y revisada, sin desplegar | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Code review cerrado (2026-09-05): 8 correcciones en `develop` (transferencia de dispositivo compartido, INCLUIR aditiva, dead-letter de proyeccion, guards RBAC + 4 de eficiencia). Falta migrar cloud, configurar VAPID y pilotear solo en tenant demo antes de habilitar el job. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
@@ -51,6 +52,11 @@ Estado actual contrastado con el repo:
 - `infra/azure/environments/dev` contiene Terraform para RG, ACR, Container
   Apps, Container App Job, Key Vault, observabilidad, identities/RBAC y remote
   state.
+- `apps/notificaciones` y el portal React implementan bandeja, reglas RBAC,
+  Web Push y un job programado por minuto. Un code review (2026-09-05) endurecio
+  8 puntos antes de desplegar (ver la fila de Notificaciones arriba y el
+  runbook). El smoke fisico y el despliegue siguen pendientes; usar
+  `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`.
 - `docs/runbooks/AZURE_DEV_RESOURCES.md` lista recursos reales de Azure dev.
 
 Discrepancias resueltas o visibles:
