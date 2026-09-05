@@ -240,6 +240,8 @@ class Command(TenantCommandMixin, BaseCommand):
                 AsignacionRolModel=AsignacionRol,
                 nombre=options['nombre'],
             )
+            from apps.notificaciones.seed import crear_reglas_default
+            crear_reglas_default(negocio)
             suscripciones_seed.bootstrap(
                 ModuloModel=Modulo,
                 PlanModel=Plan,

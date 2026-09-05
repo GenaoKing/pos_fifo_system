@@ -367,6 +367,8 @@ class Command(BaseCommand):
             AsignacionRolModel=AsignacionRol,
             nombre=nombre,
         )
+        from apps.notificaciones.seed import crear_reglas_default
+        crear_reglas_default(negocio)
 
         suscripciones_seed.bootstrap(
             ModuloModel=Modulo,
