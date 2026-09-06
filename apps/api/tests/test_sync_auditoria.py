@@ -10,9 +10,10 @@ confirmada) y SYNC-008 (snapshot fuera de orden).
 import threading
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -84,6 +85,66 @@ class _BaseCloud:
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
         return client
+
+
+class RecepcionIntegridadTests(_BaseCloud, TestCase):
+    """Un fallo real del handler no puede producir un ACK falso al POS."""
+
+    def setUp(self):
+        self._montar_cloud()
+
+    def _evento(self, hash_payload):
+        return {'eventos': [{
+            'tipo_evento': 'APERTURA_CAJA',
+            'payload': {'dato': 'prueba'},
+            'hash_payload': hash_payload,
+            'timestamp': timezone.now().isoformat(),
+        }]}
+
+    def test_integrity_error_del_handler_queda_en_error_y_se_reintenta(self):
+        def handler_con_error(sucursal, payload):
+            raise IntegrityError('detalle-interno-no-debe-salir')
+
+        with patch.dict(
+            'apps.api.views.sync.HANDLERS',
+            {'APERTURA_CAJA': handler_con_error},
+        ):
+            respuesta = self._api().post(
+                '/api/v1/sync/eventos/',
+                self._evento('hash-integrity-handler'),
+                format='json',
+            )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data['recibidos'], 0)
+        self.assertEqual(respuesta.data['duplicados'], 0)
+        self.assertEqual(respuesta.data['errores'], 1)
+        detalle = respuesta.data['detalle'][0]
+        self.assertEqual(detalle['estado'], 'ERROR')
+        self.assertNotIn('detalle-interno', detalle['error'])
+        self.assertFalse(
+            EventoSync.objects.filter(hash_payload='hash-integrity-handler').exists()
+        )
+
+    def test_receptor_abre_atomic_en_la_base_resuelta_del_tenant(self):
+        with patch.dict(
+            'apps.api.views.sync.HANDLERS',
+            {'APERTURA_CAJA': lambda sucursal, payload: None},
+        ), patch(
+            'apps.api.views.sync.get_current_tenant_alias',
+            return_value='default',
+        ), patch(
+            'apps.api.views.sync.transaction.atomic',
+            wraps=transaction.atomic,
+        ) as atomic:
+            respuesta = self._api().post(
+                '/api/v1/sync/eventos/',
+                self._evento('hash-atomic-tenant'),
+                format='json',
+            )
+
+        self.assertEqual(respuesta.data['detalle'][0]['estado'], 'CONFIRMADO')
+        atomic.assert_called_once_with(using='default')
 
 
 class VentaConStubsTests(_BaseCloud, TestCase):

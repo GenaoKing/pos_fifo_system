@@ -673,3 +673,23 @@ lo que no existe") -- ahora aplica igual a productos.
 - Correccion propuesta: reemplazarlo por `{% comment %}...{% endcomment %}` o
   dejar el comentario completo en una sola linea, y cubrir que ninguna nota
   interna aparezca en el HTML renderizado.
+
+### BUG-K — El receptor sync confirmaba fallos de integridad como duplicados
+
+- Fecha de hallazgo: 2026-09-06, durante el smoke de apertura de caja para
+  Web Push en el tenant demo.
+- Severidad: **alta**. El POS recibía un ACK terminal aunque el hecho no se
+  hubiera aplicado ni persistido en cloud, por lo que dejaba de reintentarlo.
+- **Estado: CORREGIDO EN CÓDIGO; pendiente de CI y despliegue a dev.**
+- Reproducción observada: `APERTURA_CAJA` llegó con un operador que todavía no
+  existía en cloud. El handler produjo `IntegrityError`, no se creó el turno ni
+  `EventoSync`, pero la respuesta se clasificó como `DUPLICADO` y el cliente
+  marcó el evento local como confirmado.
+- Causa raíz doble en `apps/api/views/sync.py`: el bloque capturaba cualquier
+  `IntegrityError` como una carrera idempotente y `transaction.atomic()` abría
+  la transacción sobre `default`, no sobre la base activa del tenant.
+- Corrección: abrir el bloque atómico con el alias tenant explícito y, después
+  del rollback, aceptar `DUPLICADO` únicamente si el mismo `hash_payload`
+  realmente existe. Si no existe, responder `ERROR` sin detalles internos para
+  que el POS lo reintente. La prueba de concurrencia existente sigue exigiendo
+  exactamente un `CONFIRMADO` y un `DUPLICADO` para una colisión real.

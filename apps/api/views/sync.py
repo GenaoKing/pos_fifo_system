@@ -45,10 +45,16 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.response import Response
 
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
+from apps.tenancy.context import get_current_tenant_alias
 from ..permissions import EsSucursalAutenticada
 from ..serializers.sync import EventoBatchSerializer
 
 logger = logging.getLogger('pos_system')
+
+
+def _database_alias():
+    """Base del tenant activo; ``default`` conserva el modo POS/local."""
+    return get_current_tenant_alias() or 'default'
 
 
 # ============================================================================
@@ -78,6 +84,7 @@ def recibir_eventos(request):
     recibidos = 0
     duplicados = 0
     errores = 0
+    database_alias = _database_alias()
 
     for evento_data in eventos:
         hash_payload = evento_data['hash_payload']
@@ -88,7 +95,9 @@ def recibir_eventos(request):
         # posterior). NO es suficiente por si solo — dos requests concurrentes
         # pasan los dos por aca. El respaldo real es la constraint unica sobre
         # `hash_payload`, que se ejerce en el INSERT de mas abajo.
-        if EventoSync.objects.filter(hash_payload=hash_payload).exists():
+        if EventoSync.objects.using(database_alias).filter(
+            hash_payload=hash_payload,
+        ).exists():
             duplicados += 1
             resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
             continue
@@ -104,14 +113,14 @@ def recibir_eventos(request):
             continue
 
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=database_alias):
                 handler(sucursal, payload)
                 # Este INSERT es la RESERVA del hecho, no solo su bitacora:
                 # corre en la misma transaccion que el handler, asi que si otro
                 # request concurrente ya reservo el hash, falla aca y revierte
                 # tambien el efecto del handler. Sin esto, dos daemons
                 # solapados duplicaban pagos CxC y movimientos de caja.
-                EventoSync.objects.create(
+                EventoSync.objects.using(database_alias).create(
                     sucursal=sucursal,
                     tipo_evento=tipo_evento,
                     payload=payload,
@@ -129,16 +138,33 @@ def recibir_eventos(request):
                 _extraer_referencia(tipo_evento, payload),
                 hash_payload[:12],
             )
-        except IntegrityError:
-            # Perdio la carrera contra otro request con el mismo hash. El otro
-            # aplico el efecto y esta transaccion ya revirtio la duplicada:
-            # para la sucursal el hecho esta entregado.
-            duplicados += 1
-            resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
-            logger.info(
-                '[SYNC] %s hash=%s aplicado por otra request concurrente',
-                tipo_evento, hash_payload[:12],
-            )
+        except IntegrityError as exc:
+            # Un IntegrityError solo prueba una carrera idempotente si, una vez
+            # revertida esta transaccion, el hash reservado por el otro request
+            # realmente existe. El handler tambien puede fallar por integridad
+            # de sus propios datos; confirmarlo como DUPLICADO perderia el hecho
+            # en la sucursal sin haberlo aplicado en cloud.
+            aplicado_por_otro = EventoSync.objects.using(database_alias).filter(
+                hash_payload=hash_payload,
+            ).exists()
+            if aplicado_por_otro:
+                duplicados += 1
+                resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+                logger.info(
+                    '[SYNC] %s hash=%s aplicado por otra request concurrente',
+                    tipo_evento, hash_payload[:12],
+                )
+            else:
+                errores += 1
+                resultados.append({
+                    'hash': hash_payload,
+                    'estado': 'ERROR',
+                    'error': 'Error de integridad al aplicar el evento.',
+                })
+                logger.error(
+                    '[SYNC] Error de integridad aplicando %s hash=%s (%s)',
+                    tipo_evento, hash_payload[:12], type(exc).__name__,
+                )
         except Exception as exc:
             errores += 1
             resultados.append({
