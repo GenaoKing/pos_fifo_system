@@ -20,6 +20,7 @@ from apps.notificaciones.models import (
     SuscripcionPush,
 )
 from apps.permisos.models import AsignacionRol, Rol
+from apps.tenancy.context import get_current_tenant_alias
 
 from ..pagination import NotificacionesPagination
 from ..permissions import requiere_permiso
@@ -348,6 +349,13 @@ class SuscripcionPushViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return SuscripcionPush.objects.filter(usuario=self.request.user)
 
+    @staticmethod
+    def _database_alias():
+        # En cloud el router envia SuscripcionPush a la base tenant. Un
+        # transaction.atomic() sin `using` abriria la transaccion en `default`
+        # y PostgreSQL rechazaria el SELECT FOR UPDATE de la base tenant.
+        return get_current_tenant_alias() or 'default'
+
     def _registrar_suscripcion(self, usuario, endpoint, defaults):
         """Alta, re-alta o transferencia de un endpoint bajo lock.
 
@@ -398,15 +406,16 @@ class SuscripcionPushViewSet(viewsets.ModelViewSet):
             'user_agent': request.headers.get('User-Agent', '')[:300],
             'activa': True,
         }
+        database_alias = self._database_alias()
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=database_alias):
                 obj, creada, transferida = self._registrar_suscripcion(
                     request.user, endpoint, defaults,
                 )
         except IntegrityError:
             # Perdio una carrera de alta simultanea del mismo endpoint: la
             # fila ya existe y ahora converge sobre ella bajo lock.
-            with transaction.atomic():
+            with transaction.atomic(using=database_alias):
                 obj, creada, transferida = self._registrar_suscripcion(
                     request.user, endpoint, defaults,
                 )
