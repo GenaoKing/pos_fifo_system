@@ -30,7 +30,7 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Notificaciones portal | **V1 activa en dev; piloto en curso** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Motor activo solo para `demo`, un dispositivo Win32 real y job por minuto habilitado (2026-09-06). Apertura, cierre cuadrado y reapertura produjeron una fila de bandeja y una entrega `ENVIADA` cada uno; falta confirmacion visual y ampliar el smoke a movimientos, otros dispositivos y reglas negativas. |
+| Notificaciones portal | **V1 activa en dev; piloto en curso** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Motor activo solo para `demo`, un dispositivo Win32 real y job por minuto habilitado (2026-09-06). Cuatro operaciones produjeron una fila de bandeja y una entrega `ENVIADA` cada una; el ultimo cierre recorrio POS→sync→job en 98 s. Falta confirmacion visual y ampliar el smoke a movimientos, otros dispositivos y reglas negativas. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
@@ -58,8 +58,10 @@ Estado actual contrastado con el repo:
   `demo` estan en dev. El motor se activo con corte temporal solo para `demo` y
   el job `posfifo-dev-notifications` corre cada minuto con identidad propia y
   secretos desde Key Vault. El smoke manual confirmo bandeja y aceptacion Web
-  Push para apertura/cierre/reapertura; falta confirmar la presentacion visual
-  y completar la matriz de dispositivos/movimientos/reglas del runbook.
+  Push para apertura/cierre/reapertura; un segundo cierre confirmo el circuito
+  automatico en 98 segundos, sin errores ni reintentos. Falta confirmar la
+  presentacion visual y completar la matriz de dispositivos/movimientos/reglas
+  del runbook.
 - `docs/runbooks/AZURE_DEV_RESOURCES.md` lista recursos reales de Azure dev.
 
 Discrepancias resueltas o visibles:
