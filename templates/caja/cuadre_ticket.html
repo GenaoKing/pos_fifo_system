@@ -1,0 +1,200 @@
+{% load static %}<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cuadre de caja — {{ turno.caja.nombre }}</title>
+    <style>
+        {% if formato == 'ticket' %}
+        @page { size: 80mm auto; margin: 3mm; }
+        {% else %}
+        @page { size: Letter; margin: 12mm; }
+        {% endif %}
+
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #111827;
+            background: #f3f4f6;
+            margin: 0;
+            padding: 24px 12px;
+        }
+
+        .toolbar {
+            max-width: 760px;
+            margin: 0 auto 16px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .toolbar .grow { flex: 1; }
+        .btn {
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #111827;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .btn-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+        .btn.active { background: #111827; border-color: #111827; color: #fff; }
+
+        .doc {
+            background: #fff;
+            color: #111827;
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 24px 28px;
+            border-radius: 10px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.12);
+        }
+        body.formato-ticket .doc {
+            max-width: 320px;
+            padding: 10px 12px;
+            font-size: 12px;
+        }
+
+        .negocio { text-align: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 10px; }
+        .negocio img { max-height: 56px; margin-bottom: 6px; }
+        .negocio .nombre { font-weight: 700; font-size: 16px; }
+        .negocio .sub { color: #6b7280; font-size: 12px; }
+
+        h1 { text-align: center; font-size: 15px; letter-spacing: .06em; margin: 8px 0; text-transform: uppercase; }
+        .parcial { text-align:center; background:#fef3c7; color:#92400e; border-radius:6px; padding:4px 8px; font-size:12px; margin-bottom:8px; }
+
+        .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; font-size: 13px; margin-bottom: 14px; }
+        body.formato-ticket .meta { grid-template-columns: 1fr; font-size: 12px; }
+        .meta .k { color: #6b7280; }
+
+        .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        body.formato-ticket .cols { grid-template-columns: 1fr; gap: 10px; }
+
+        .bloque h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin: 0 0 6px; }
+        .row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 13px; }
+        body.formato-ticket .row { font-size: 12px; }
+        .row .lbl { color: #4b5563; }
+        .row .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .row.total { border-top: 1px solid #e5e7eb; margin-top: 4px; padding-top: 4px; font-weight: 700; }
+        .row.grand { border-top: 2px solid #111827; margin-top: 6px; padding-top: 6px; font-weight: 700; font-size: 15px; }
+        .pos { color: #047857; }
+        .neg { color: #b91c1c; }
+
+        .movs { margin-top: 16px; }
+        .movs .row { font-size: 12px; color: #4b5563; }
+
+        .firmas { display: flex; gap: 40px; margin-top: 40px; }
+        .firmas .f { flex: 1; border-top: 1px solid #9ca3af; padding-top: 6px; text-align: center; font-size: 12px; color: #6b7280; }
+        body.formato-ticket .firmas { display: none; }
+
+        .pie { text-align: center; color: #9ca3af; font-size: 11px; margin-top: 16px; }
+
+        @media print {
+            body { background: #fff; padding: 0; }
+            .no-print { display: none !important; }
+            .doc { box-shadow: none; border-radius: 0; max-width: none; margin: 0; padding: 0; }
+        }
+    </style>
+</head>
+<body class="formato-{{ formato }}">
+
+    <div class="toolbar no-print">
+        <button class="btn btn-primary" onclick="window.print()">🖨 Imprimir</button>
+        <a class="btn {% if formato == 'carta' %}active{% endif %}" href="?formato=carta">Carta</a>
+        <a class="btn {% if formato == 'ticket' %}active{% endif %}" href="?formato=ticket">Ticket 80 mm</a>
+        <span class="grow"></span>
+        <a class="btn" href="{% url 'caja:index' %}">Volver</a>
+    </div>
+
+    <div class="doc">
+        <div class="negocio">
+            {% if config.logo %}<img src="{{ config.logo.url }}" alt="logo">{% endif %}
+            <div class="nombre">{{ config.nombre_negocio|default:"Mi Negocio" }}</div>
+            {% if config.rnc %}<div class="sub">RNC: {{ config.rnc }}</div>{% endif %}
+            {% if config.direccion %}<div class="sub">{{ config.direccion }}</div>{% endif %}
+            {% if config.telefono %}<div class="sub">Tel: {{ config.telefono }}</div>{% endif %}
+        </div>
+
+        <h1>Cuadre de Caja</h1>
+        {% if turno.estado == 'ABIERTO' %}
+        <div class="parcial">Turno ABIERTO — cuadre parcial (aún no cerrado)</div>
+        {% endif %}
+
+        <div class="meta">
+            <div><span class="k">Caja:</span> {{ turno.caja.nombre }}</div>
+            <div><span class="k">Cajero/a:</span> {{ turno.usuario.get_short_name|default:turno.usuario.username }}</div>
+            <div><span class="k">Apertura:</span> {{ turno.fecha_apertura|date:"d/m/Y H:i" }}</div>
+            <div><span class="k">Cierre:</span> {% if turno.fecha_cierre %}{{ turno.fecha_cierre|date:"d/m/Y H:i" }}{% else %}—{% endif %}</div>
+            {% if turno.cerrado_por %}<div><span class="k">Cerrado por:</span> {{ turno.cerrado_por.get_short_name|default:turno.cerrado_por.username }}</div>{% endif %}
+        </div>
+
+        <div class="cols">
+            {# ---- Columna: ventas + cobros ---- #}
+            <div class="bloque">
+                <h2>Ventas ({{ resumen.cantidad_ventas }})</h2>
+                {% for l in ventas_lineas %}
+                <div class="row"><span class="lbl">{{ l.label }}</span><span class="val">${{ l.monto|floatformat:"2u" }}</span></div>
+                {% empty %}
+                <div class="row"><span class="lbl">Sin ventas</span><span class="val">$0.00</span></div>
+                {% endfor %}
+                <div class="row total"><span class="lbl">Total ventas</span><span class="val">${{ resumen.total_ventas|floatformat:"2u" }}</span></div>
+
+                <div style="height:10px"></div>
+                <h2>Cobros CxC</h2>
+                {% for l in cobros_lineas %}
+                <div class="row"><span class="lbl">{{ l.label }}</span><span class="val">${{ l.monto|floatformat:"2u" }}</span></div>
+                {% empty %}
+                <div class="row"><span class="lbl">Sin cobros</span><span class="val">$0.00</span></div>
+                {% endfor %}
+                <div class="row total"><span class="lbl">Total cobros</span><span class="val">${{ resumen.cobros_cxc_total|floatformat:"2u" }}</span></div>
+            </div>
+
+            {# ---- Columna: arqueo de efectivo ---- #}
+            <div class="bloque">
+                <h2>Arqueo de efectivo</h2>
+                <div class="row"><span class="lbl">Fondo apertura</span><span class="val">${{ resumen.fondo_apertura|floatformat:"2u" }}</span></div>
+                <div class="row"><span class="lbl">+ Ventas efectivo</span><span class="val pos">${{ resumen.efectivo_ventas|floatformat:"2u" }}</span></div>
+                <div class="row"><span class="lbl">+ Cobros efectivo</span><span class="val pos">${{ resumen.efectivo_cxc|floatformat:"2u" }}</span></div>
+                <div class="row"><span class="lbl">+ Ingresos</span><span class="val pos">${{ resumen.ingresos|floatformat:"2u" }}</span></div>
+                <div class="row"><span class="lbl">− Retiros</span><span class="val neg">${{ resumen.retiros|floatformat:"2u" }}</span></div>
+                <div class="row"><span class="lbl">− Gastos</span><span class="val neg">${{ resumen.gastos|floatformat:"2u" }}</span></div>
+                <div class="row total"><span class="lbl">Esperado</span><span class="val">${{ resumen.esperado|floatformat:"2u" }}</span></div>
+                <div class="row total"><span class="lbl">Contado</span><span class="val">${{ resumen.contado|floatformat:"2u" }}</span></div>
+                <div class="row grand">
+                    <span class="lbl">Diferencia</span>
+                    <span class="val {% if resumen.diferencia < 0 %}neg{% else %}pos{% endif %}">${{ resumen.diferencia|floatformat:"2u" }}</span>
+                </div>
+            </div>
+        </div>
+
+        {% if movimientos %}
+        <div class="movs">
+            <h2>Movimientos del turno</h2>
+            {% for m in movimientos %}
+            <div class="row">
+                <span class="lbl">{{ m.fecha|date:"H:i" }} · {{ m.get_tipo_display }}{% if m.descripcion %} — {{ m.descripcion }}{% endif %}</span>
+                <span class="val">${{ m.monto|floatformat:"2u" }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if turno.notas_cierre %}
+        <div class="movs"><span class="k" style="color:#6b7280;font-size:12px;">Notas de cierre:</span> <span style="font-size:12px;">{{ turno.notas_cierre }}</span></div>
+        {% endif %}
+
+        <div class="firmas">
+            <div class="f">Firma cajero/a</div>
+            <div class="f">Firma responsable</div>
+        </div>
+
+        <div class="pie">Generado {% now "d/m/Y H:i" %} · Documento interno de arqueo</div>
+    </div>
+
+    {% if auto_print %}
+    <script>window.addEventListener('load', function () { window.print(); });</script>
+    {% endif %}
+</body>
+</html>

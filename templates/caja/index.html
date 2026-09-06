@@ -51,6 +51,7 @@
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                             <input type="number" x-model="formApertura.fondo" min="0" step="0.01"
+                                   name="fondo_apertura" autocomplete="off"
                                    class="form-input w-full pl-7" placeholder="0.00">
                         </div>
                     </div>
@@ -116,7 +117,8 @@
             {# --- Columna izquierda: Desglose + Movimientos --- #}
             <div class="lg:col-span-2 space-y-6">
 
-                {# KPIs del turno #}
+                {# KPIs de efectivo del turno (ocultos con conteo ciego para no-admin) #}
+                <template x-if="!desglose.ocultar_efectivo">
                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
                     <div class="card">
                         <div class="card-body text-center py-4">
@@ -149,8 +151,10 @@
                         </div>
                     </div>
                 </div>
+                </template>
 
-                {# Efectivo esperado destacado #}
+                {# Efectivo esperado destacado (oculto con conteo ciego) #}
+                <template x-if="!desglose.ocultar_efectivo">
                 <div class="card bg-primary-50 border border-primary-200">
                     <div class="card-body flex items-center justify-between py-4">
                         <div>
@@ -158,6 +162,48 @@
                             <p class="text-xs text-primary-500 mt-0.5">Fondo + Ventas Efectivo + Ingresos - Retiros - Gastos</p>
                         </div>
                         <p class="text-2xl font-bold text-primary-700">$<span x-text="fmt(desglose.esperado)"></span></p>
+                    </div>
+                </div>
+                </template>
+
+                {# Aviso de conteo ciego (el cajero no ve el esperado hasta cerrar) #}
+                <template x-if="desglose.ocultar_efectivo">
+                    <div class="card bg-amber-50 border border-amber-200">
+                        <div class="card-body py-3 text-sm text-amber-800 flex items-start gap-2">
+                            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                            <span>Conteo ciego activo: el <strong>efectivo esperado</strong> se revela al cerrar el turno, después de ingresar el conteo físico.</span>
+                        </div>
+                    </div>
+                </template>
+
+                {# Desglose por metodo en vivo (ventas incl. credito + cobros CxC) #}
+                <div class="card">
+                    <div class="card-header"><h3 class="font-semibold text-gray-900 text-sm">Desglose por método</h3></div>
+                    <div class="card-body grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Ventas (<span x-text="desglose.cantidad_ventas || 0"></span>)</p>
+                            <template x-for="[metodo, monto] in Object.entries(desglose.pagos_por_metodo || {})" :key="'v'+metodo">
+                                <div class="flex justify-between py-0.5">
+                                    <span class="text-gray-500" x-text="metodoLabel(metodo)"></span>
+                                    <span x-text="'$' + fmt(monto)"></span>
+                                </div>
+                            </template>
+                            <template x-if="!Object.keys(desglose.pagos_por_metodo || {}).length">
+                                <div class="text-gray-400">Sin ventas aún</div>
+                            </template>
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Cobros CxC</p>
+                            <template x-for="[metodo, monto] in Object.entries(desglose.cobros_cxc_por_metodo || {})" :key="'c'+metodo">
+                                <div class="flex justify-between py-0.5">
+                                    <span class="text-gray-500" x-text="metodoLabel(metodo)"></span>
+                                    <span x-text="'$' + fmt(monto)"></span>
+                                </div>
+                            </template>
+                            <template x-if="!Object.keys(desglose.cobros_cxc_por_metodo || {}).length">
+                                <div class="text-gray-400">Sin cobros</div>
+                            </template>
+                        </div>
                     </div>
                 </div>
 
@@ -305,6 +351,42 @@
                         </div>
                     </div>
 
+                    {# Ventas por metodo (incl. credito) #}
+                    <div class="border-t border-gray-100 pt-4">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Ventas por método (<span x-text="resultadoCierre.cantidad_ventas"></span>)</p>
+                        <div class="space-y-1 text-sm">
+                            <template x-for="[metodo, monto] in Object.entries(resultadoCierre.pagos_por_metodo || {})" :key="'rv'+metodo">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-500" x-text="metodoLabel(metodo)"></span>
+                                    <span x-text="'$' + fmt(monto)"></span>
+                                </div>
+                            </template>
+                            <div class="flex justify-between font-semibold border-t border-gray-100 pt-1">
+                                <span>Total ventas</span>
+                                <span x-text="'$' + fmt(resultadoCierre.total_ventas)"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Cobros CxC por metodo #}
+                    <template x-if="Object.keys(resultadoCierre.cobros_cxc_por_metodo || {}).length">
+                    <div class="border-t border-gray-100 pt-4">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cobros CxC</p>
+                        <div class="space-y-1 text-sm">
+                            <template x-for="[metodo, monto] in Object.entries(resultadoCierre.cobros_cxc_por_metodo || {})" :key="'rc'+metodo">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-500" x-text="metodoLabel(metodo)"></span>
+                                    <span x-text="'$' + fmt(monto)"></span>
+                                </div>
+                            </template>
+                            <div class="flex justify-between font-semibold border-t border-gray-100 pt-1">
+                                <span>Total cobros</span>
+                                <span x-text="'$' + fmt(resultadoCierre.cobros_cxc_total)"></span>
+                            </div>
+                        </div>
+                    </div>
+                    </template>
+
                     <div class="border-t border-gray-100 pt-4 space-y-2 text-sm">
                         <div class="flex justify-between">
                             <span class="text-gray-500">Fondo Apertura</span>
@@ -345,7 +427,21 @@
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4">
+                    <div class="border-t border-gray-100 pt-4 space-y-2">
+                        <div class="flex gap-2">
+                            <button @click="imprimirDocumento(resultadoCierre.turno_id)"
+                                    class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors inline-flex items-center justify-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                                Imprimir documento
+                            </button>
+                            {% if config.modulo_impresion_termica %}
+                            <button @click="imprimirCuadreTermica(resultadoCierre.turno_id)" :disabled="cargando"
+                                    class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M7 4h10M7 4H5m2 0h10m0 0v16m0-16h2M9 8h6m-6 4h6m-5 4h4"></path></svg>
+                                Imprimir en térmica
+                            </button>
+                            {% endif %}
+                        </div>
                         <button @click="resultadoCierre = null; location.reload()" class="btn-primary w-full">
                             Aceptar
                         </button>
@@ -471,7 +567,8 @@
                     </button>
                 </div>
 
-                {# Resumen desglose #}
+                {# Resumen desglose (oculto con conteo ciego: se revela al cerrar) #}
+                <template x-if="!desglose.ocultar_efectivo">
                 <div class="bg-gray-50 rounded-xl p-4 mb-5 text-sm space-y-1.5">
                     <div class="flex justify-between">
                         <span class="text-gray-500">Fondo inicial</span>
@@ -502,6 +599,14 @@
                         <span class="font-bold text-primary-700">$<span x-text="fmt(desglose.esperado)"></span></span>
                     </div>
                 </div>
+                </template>
+
+                {# Conteo ciego: sin desglose, solo se pide el conteo fisico #}
+                <template x-if="desglose.ocultar_efectivo">
+                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-sm text-amber-800">
+                        Conteo ciego: ingresá el <strong>efectivo contado</strong>. La diferencia se muestra al confirmar el cierre.
+                    </div>
+                </template>
 
                 {# Formulario #}
                 <div class="space-y-4">
@@ -510,12 +615,39 @@
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                             <input type="number" x-model="formCierre.monto_contado" min="0" step="0.01"
+                                   name="efectivo_contado" autocomplete="off"
                                    class="form-input w-full pl-7 text-lg font-semibold" placeholder="0.00">
                         </div>
                     </div>
 
-                    {# Preview diferencia en vivo #}
-                    <template x-if="formCierre.monto_contado">
+                    {# Ayudante de denominacion (opcional): suma billetes/monedas al contado #}
+                    <div class="border border-gray-200 rounded-xl">
+                        <button type="button" @click="mostrarDenominacion = !mostrarDenominacion"
+                                class="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700">
+                            <span>Contar por denominación</span>
+                            <svg class="w-4 h-4 transition-transform" :class="mostrarDenominacion ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div x-show="mostrarDenominacion" class="px-4 pb-3 pt-1 border-t border-gray-100">
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                                <template x-for="den in denominaciones" :key="den">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-500 w-12 text-right" x-text="'$' + den"></span>
+                                        <span class="text-gray-300">×</span>
+                                        <input type="number" min="0" step="1" inputmode="numeric" autocomplete="off"
+                                               x-model.number="conteoDenominacion[den]" @input="aplicarDenominacion()"
+                                               class="form-input w-full py-1 text-sm" placeholder="0">
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="flex justify-between mt-3 pt-2 border-t border-gray-100 text-sm">
+                                <span class="text-gray-500">Total contado</span>
+                                <span class="font-semibold">$<span x-text="fmt(totalDenominacion())"></span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Preview diferencia en vivo (oculto con conteo ciego) #}
+                    <template x-if="formCierre.monto_contado && !desglose.ocultar_efectivo">
                         <div class="p-4 rounded-xl text-center"
                              :class="(parseFloat(formCierre.monto_contado) - parseFloat(desglose.esperado)) >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
                             <p class="text-xs font-medium mb-1"
@@ -616,6 +748,11 @@ function cajaApp() {
         formApertura: { caja_id: '', fondo: 0, notas: '' },
         formMov: { tipo: '', monto: '', descripcion: '' },
         formCierre: { monto_contado: '', notas: '' },
+
+        // Ayudante de denominacion (conteo de billetes/monedas -> contado)
+        mostrarDenominacion: false,
+        denominaciones: [2000, 1000, 500, 200, 100, 50, 25, 10, 5, 1],
+        conteoDenominacion: {},
 
         // Soft-login admin
         mostrarModalAdmin: false,
@@ -816,6 +953,46 @@ function cajaApp() {
         fmt(val) {
             const num = parseFloat(val) || 0;
             return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+
+        // Etiqueta legible del metodo de pago/cobro
+        metodoLabel(m) {
+            const L = { EFECTIVO: 'Efectivo', TRANSFERENCIA: 'Transferencia', TARJETA: 'Tarjeta', CREDITO: 'Crédito' };
+            return L[m] || m;
+        },
+
+        // ---- Ayudante de denominacion ----
+        totalDenominacion() {
+            return this.denominaciones.reduce(
+                (t, den) => t + den * (parseInt(this.conteoDenominacion[den]) || 0), 0
+            );
+        },
+        aplicarDenominacion() {
+            this.formCierre.monto_contado = this.totalDenominacion().toFixed(2);
+        },
+
+        // ---- Impresion del cuadre ----
+        imprimirDocumento(turnoId, formato) {
+            const f = formato || 'carta';
+            window.open('/caja/turno/' + turnoId + '/cuadre/?formato=' + f + '&print=1', '_blank');
+        },
+        async imprimirCuadreTermica(turnoId) {
+            this.cargando = true;
+            try {
+                const res = await fetch('/caja/api/turno/' + turnoId + '/cuadre/termica/', {
+                    method: 'POST', headers: jsonHeaders(), body: '{}',
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', data.mensaje || 'Cuadre enviado a la impresora');
+                } else {
+                    showToast('error', data.mensaje || data.error || 'No se pudo imprimir el cuadre');
+                }
+            } catch (e) {
+                showToast('error', 'Error de conexión con la impresora');
+            } finally {
+                this.cargando = false;
+            }
         },
 
 

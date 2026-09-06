@@ -163,6 +163,19 @@ class ConfiguracionNegocio(models.Model):
     )
 
     # =========================================================================
+    # CONTROL DE CAJA / ARQUEO
+    # =========================================================================
+    conteo_ciego_caja = models.BooleanField(
+        'Conteo ciego de caja',
+        default=False,
+        help_text='Si esta activo, el cajero NO ve el efectivo esperado hasta '
+                  'ingresar su conteo fisico (control interno: evita que ajuste '
+                  'el conteo al numero esperado). El admin siempre lo ve. '
+                  'Apagado por defecto: una instalacion existente se comporta '
+                  'igual que antes.'
+    )
+
+    # =========================================================================
     # CONTROL DE DESCUENTOS
     # =========================================================================
     # Gate opcional. Con `descuento_requiere_autorizacion` activo, un descuento
