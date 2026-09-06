@@ -64,10 +64,13 @@ def force_tenancy(enabled=True):
 
 
 @contextmanager
-def tenant_context(tenant_or_key):
+def tenant_context(tenant_or_key, *, permitir_inactivo=False):
     from .registry import configure_tenant_database
 
-    tenant, alias = configure_tenant_database(tenant_or_key)
+    tenant, alias = configure_tenant_database(
+        tenant_or_key,
+        permitir_inactivo=permitir_inactivo,
+    )
     tokens = set_current_tenant(tenant.tenant_key, alias)
     try:
         yield tenant

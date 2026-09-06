@@ -167,7 +167,7 @@ class Command(BaseCommand):
             raise
 
         with force_tenancy(True):
-            with tenant_context(tenant):
+            with tenant_context(tenant, permitir_inactivo=True):
                 result = self._seed_tenant(
                     tenant=tenant,
                     nombre=nombre,
