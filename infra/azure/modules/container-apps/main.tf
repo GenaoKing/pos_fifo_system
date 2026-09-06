@@ -571,7 +571,7 @@ resource "azurerm_container_app_job" "notifications" {
       # el primer tenant.
       env {
         name  = "ALLOWED_HOSTS"
-        value = var.api_allowed_hosts
+        value = var.allowed_hosts
       }
 
       env {
