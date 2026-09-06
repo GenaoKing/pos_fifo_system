@@ -139,6 +139,7 @@ jobs:
             azure_acr_login_server_var: AZURE_ACR_LOGIN_SERVER
             azure_container_app_name_var: AZURE_CONTAINER_APP_NAME
             azure_migrate_job_name_var: AZURE_MIGRATE_JOB_NAME
+            azure_notifications_job_name_var: AZURE_NOTIFICATIONS_JOB_NAME
             azure_api_base_url_var: AZURE_API_BASE_URL
             run_migrations_var: RUN_MIGRATIONS_ON_DEPLOY
           - environment: staging
@@ -151,6 +152,7 @@ jobs:
             azure_acr_login_server_var: STAGING_AZURE_ACR_LOGIN_SERVER
             azure_container_app_name_var: STAGING_AZURE_CONTAINER_APP_NAME
             azure_migrate_job_name_var: STAGING_AZURE_MIGRATE_JOB_NAME
+            azure_notifications_job_name_var: STAGING_AZURE_NOTIFICATIONS_JOB_NAME
             azure_api_base_url_var: STAGING_AZURE_API_BASE_URL
             run_migrations_var: STAGING_RUN_MIGRATIONS_ON_DEPLOY
           - environment: prod
@@ -163,6 +165,7 @@ jobs:
             azure_acr_login_server_var: PROD_AZURE_ACR_LOGIN_SERVER
             azure_container_app_name_var: PROD_AZURE_CONTAINER_APP_NAME
             azure_migrate_job_name_var: PROD_AZURE_MIGRATE_JOB_NAME
+            azure_notifications_job_name_var: PROD_AZURE_NOTIFICATIONS_JOB_NAME
             azure_api_base_url_var: PROD_AZURE_API_BASE_URL
             run_migrations_var: PROD_RUN_MIGRATIONS_ON_DEPLOY
 
@@ -175,6 +178,7 @@ jobs:
       AZURE_ACR_LOGIN_SERVER: ${{ vars[matrix.azure_acr_login_server_var] }}
       AZURE_CONTAINER_APP_NAME: ${{ vars[matrix.azure_container_app_name_var] }}
       AZURE_MIGRATE_JOB_NAME: ${{ vars[matrix.azure_migrate_job_name_var] }}
+      AZURE_NOTIFICATIONS_JOB_NAME: ${{ vars[matrix.azure_notifications_job_name_var] }}
       AZURE_API_BASE_URL: ${{ vars[matrix.azure_api_base_url_var] }}
       RUN_MIGRATIONS_ON_DEPLOY: ${{ vars[matrix.run_migrations_var] }}
       IMAGE_TAG: ${{ github.sha }}
@@ -343,6 +347,24 @@ jobs:
 
           echo "Timed out waiting for migration execution to finish."
           exit 1
+
+      - name: Update notifications job image if present
+        if: steps.target.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          if [ -z "$AZURE_NOTIFICATIONS_JOB_NAME" ]; then
+            echo "Notifications job variable is not configured for '${{ matrix.environment }}'; skipping image update."
+            exit 0
+          fi
+
+          if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_NOTIFICATIONS_JOB_NAME" >/dev/null 2>&1; then
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          else
+            echo "::warning::Container Apps job '$AZURE_NOTIFICATIONS_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping notifications job image update."
+          fi
 
       - name: Capture current API image (for rollback)
         if: steps.target.outputs.deploy == 'true'

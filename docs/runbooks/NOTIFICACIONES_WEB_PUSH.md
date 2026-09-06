@@ -114,6 +114,8 @@ dispositivo.
 
 6. Activar `enable_notifications_job=true` en Terraform y aplicar. La
    precondicion exige Key Vault, Web Push habilitado y clave publica no vacia.
+   El job tambien debe recibir `ALLOWED_HOSTS`, porque `settings_cloud` lo
+   valida al importar incluso para comandos de gestion.
 7. Hacer el smoke fisico. Solo despues activar otros tenants, uno por uno, o
    con `--todos-los-tenants` durante una ventana controlada.
 8. Actualizar los POS. `CIERRE_CAJA` nuevo lleva `schema_version=2` y
@@ -147,6 +149,52 @@ entregas pendientes y proyecciones en reintento/fallidas. Los reintentos de
 dispositivo; red, 429 y 5xx reintentan; otros 4xx terminan esa entrega. Los
 leases vencidos se recuperan tras cinco minutos. No imprimir payloads ni
 suscripciones al diagnosticar.
+
+### Ver logs remotos en Azure
+
+Primero confirmar la suscripcion y fijarla de forma explicita:
+
+```powershell
+az account show --query "{name:name,id:id}" --output table
+az account set --subscription e88372f6-b224-4d73-bf17-c61f32559c45
+```
+
+Para un 500 de la API, ver consola reciente o seguirla en vivo:
+
+```powershell
+az containerapp logs show `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-api `
+  --type console `
+  --tail 100
+
+az containerapp logs show `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-api `
+  --type console `
+  --follow
+```
+
+Si una revision no inicia, cambiar `--type console` por `--type system`. Para el
+procesador programado, listar ejecuciones y consultar la ultima sin mostrar
+secretos ni payloads:
+
+```powershell
+az containerapp job execution list `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-notifications `
+  --output table
+
+az containerapp job logs show `
+  --resource-group posfifo-dev-rg `
+  --name posfifo-dev-notifications `
+  --container notifications `
+  --tail 100 `
+  --format text
+```
+
+`Ctrl+C` detiene solamente el seguimiento local de `--follow`; no apaga el
+servidor ni el job.
 
 La **proyeccion** de un `EventoSync` que revienta al construirse (p.ej. un
 payload malformado) no bloquea los hechos posteriores del tenant: se reintenta

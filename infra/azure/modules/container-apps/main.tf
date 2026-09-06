@@ -566,6 +566,14 @@ resource "azurerm_container_app_job" "notifications" {
         value = var.cloud_environment
       }
 
+      # settings_cloud valida ALLOWED_HOSTS incluso en comandos de gestion.
+      # Sin esta variable el job termina al importar Django, antes de procesar
+      # el primer tenant.
+      env {
+        name  = "ALLOWED_HOSTS"
+        value = var.api_allowed_hosts
+      }
+
       env {
         name  = "DB_NAME"
         value = var.db_name

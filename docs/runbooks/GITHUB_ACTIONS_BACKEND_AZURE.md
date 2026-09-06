@@ -45,6 +45,8 @@ Job `deploy-backend`:
 - Push a ACR.
 - Actualiza imagen del job `migrate` si existe.
 - Opcionalmente ejecuta migraciones y espera resultado.
+- Actualiza la imagen del job de notificaciones si su variable esta configurada
+  y el recurso ya existe.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
 - Si el smoke falla despues del cambio de imagen, intenta rollback a la imagen
@@ -84,7 +86,9 @@ Django:
 4. GitHub tiene las Variables `<PREFIX>AZURE_RESOURCE_GROUP`,
    `<PREFIX>AZURE_ACR_NAME`, `<PREFIX>AZURE_ACR_LOGIN_SERVER`,
    `<PREFIX>AZURE_CONTAINER_APP_NAME`, `<PREFIX>AZURE_MIGRATE_JOB_NAME`,
-   `<PREFIX>AZURE_API_BASE_URL` y `<PREFIX>RUN_MIGRATIONS_ON_DEPLOY`.
+   `<PREFIX>AZURE_API_BASE_URL` y `<PREFIX>RUN_MIGRATIONS_ON_DEPLOY`. Cuando el
+   ambiente tenga el job Web Push, agregar tambien la variable opcional
+   `<PREFIX>AZURE_NOTIFICATIONS_JOB_NAME`.
 
 El prefix dev historicamente no usa `DEV_`; staging y prod si usan
 `STAGING_`/`PROD_`.
@@ -148,6 +152,7 @@ AZURE_ACR_NAME=posfifodevacr
 AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 AZURE_CONTAINER_APP_NAME=posfifo-dev-api
 AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
+AZURE_NOTIFICATIONS_JOB_NAME=posfifo-dev-notifications
 AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
 RUN_MIGRATIONS_ON_DEPLOY=true
 ```
@@ -172,6 +177,7 @@ AZURE_ACR_NAME=posfifodevacr
 AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 AZURE_CONTAINER_APP_NAME=posfifo-dev-api
 AZURE_MIGRATE_JOB_NAME=posfifo-dev-migrate
+AZURE_NOTIFICATIONS_JOB_NAME=posfifo-dev-notifications
 AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
 RUN_MIGRATIONS_ON_DEPLOY=true
 ```
@@ -595,6 +601,11 @@ En cada ambiente, la frontera queda asi:
 - Terraform gestiona infraestructura, env vars, secrets, identities, RBAC y
   probes.
 - GitHub Actions gestiona la imagen desplegada en API/job.
+
+El job de notificaciones es opcional por ambiente. Si existe, su nombre vive en
+`AZURE_NOTIFICATIONS_JOB_NAME` (o el equivalente con prefijo) y el pipeline lo
+actualiza despues de migrar, antes de cambiar la API. Si la variable no existe,
+ese ambiente continua desplegando normalmente sin intentar tocar el job.
 
 Por eso el modulo de Container Apps ignora cambios en:
 
