@@ -623,6 +623,71 @@ class EntregaPushTests(BaseNotificacionesTest):
         self.assertFalse(contexto.exception.reintentable)
         self.assertEqual(str(contexto.exception), 'WebPushException HTTP 410')
 
+    def test_adaptador_convierte_pem_de_key_vault_solo_en_memoria(self):
+        capturado = {}
+        clave_convertida = object()
+
+        class WebPushException(Exception):
+            pass
+
+        class Vapid:
+            @classmethod
+            def from_pem(cls, valor):
+                capturado['pem_bytes'] = valor
+                return clave_convertida
+
+        def webpush(**kwargs):
+            capturado['clave'] = kwargs['vapid_private_key']
+
+        modulo_push = SimpleNamespace(
+            WebPushException=WebPushException,
+            webpush=webpush,
+        )
+        modulo_vapid = SimpleNamespace(Vapid=Vapid)
+        pem = '-----BEGIN PRIVATE KEY-----\\nabc123\\n-----END PRIVATE KEY-----'
+
+        with override_settings(WEB_PUSH_VAPID_PRIVATE_KEY=pem), patch.dict(
+            sys.modules,
+            {'pywebpush': modulo_push, 'py_vapid': modulo_vapid},
+        ):
+            push.enviar(self.entrega.suscripcion, self.entrega.destinatario)
+
+        self.assertIs(capturado['clave'], clave_convertida)
+        self.assertEqual(
+            capturado['pem_bytes'],
+            b'-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----',
+        )
+
+    def test_pem_invalido_no_filtra_el_contenido_en_el_error(self):
+        class WebPushException(Exception):
+            pass
+
+        class Vapid:
+            @classmethod
+            def from_pem(cls, valor):
+                raise ValueError('material-privado-no-debe-salir')
+
+        modulo_push = SimpleNamespace(
+            WebPushException=WebPushException,
+            webpush=lambda **kwargs: None,
+        )
+        modulo_vapid = SimpleNamespace(Vapid=Vapid)
+
+        with override_settings(
+            WEB_PUSH_VAPID_PRIVATE_KEY=(
+                '-----BEGIN PRIVATE KEY-----\\nsecreto\\n'
+                '-----END PRIVATE KEY-----'
+            ),
+        ), patch.dict(
+            sys.modules,
+            {'pywebpush': modulo_push, 'py_vapid': modulo_vapid},
+        ):
+            with self.assertRaises(ErrorEntregaPush) as contexto:
+                push.enviar(self.entrega.suscripcion, self.entrega.destinatario)
+
+        self.assertEqual(str(contexto.exception), 'ValueError')
+        self.assertNotIn('material-privado', str(contexto.exception))
+
 
 class ApiNotificacionesTests(BaseNotificacionesTest):
     def setUp(self):
