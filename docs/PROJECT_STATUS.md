@@ -35,7 +35,7 @@ bitacoras y exploraciones viven en subcarpetas.
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 10 bugs etiquetados (BUG-A..J) | `BUGS.md` | BUG-I/J quedaron documentados como pendientes de UX durante el piloto de notificaciones del 2026-09-06; no bloquearon la apertura de caja ni el sync. |
+| Bugs/hallazgos | 11 bugs etiquetados (BUG-A..K) | `BUGS.md` | BUG-I/J siguen pendientes de UX. BUG-K corrige el ACK falso observado durante el piloto de notificaciones; pendiente de CI/despliegue a dev. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
