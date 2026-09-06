@@ -40,7 +40,14 @@ existing_container_apps_environment_name = null
 
 enable_api_container_app = false
 enable_migrate_job       = false
+enable_notifications_job = false
 enable_db_per_tenant     = true
+
+# Web Push: la privada nunca va aqui; cargarla en Key Vault con el nombre
+# web-push-vapid-private-key. Cada ambiente usa un par distinto.
+web_push_enabled           = false
+web_push_vapid_public_key  = ""
+web_push_vapid_subject     = "mailto:operaciones@example.com"
 
 container_image_repository = "pos-fifo-backend"
 container_image_tag        = "dev"

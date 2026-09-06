@@ -128,9 +128,21 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'apps.api',
     'apps.sync',
+    'apps.notificaciones',
     'apps.facturacion_electronica',
     
 ]
+
+# Web Push (solo cloud). La privada llega de Key Vault; la publica se expone
+# autenticada al navegador para crear la suscripcion Push API.
+WEB_PUSH_ENABLED = _env_bool('WEB_PUSH_ENABLED', False)
+WEB_PUSH_VAPID_PUBLIC_KEY = _env_text('WEB_PUSH_VAPID_PUBLIC_KEY')
+WEB_PUSH_VAPID_PRIVATE_KEY = _env_text('WEB_PUSH_VAPID_PRIVATE_KEY')
+WEB_PUSH_VAPID_SUBJECT = _env_text(
+    'WEB_PUSH_VAPID_SUBJECT', 'mailto:admin@example.com',
+)
+WEB_PUSH_TIMEOUT_SECONDS = _env_int('WEB_PUSH_TIMEOUT_SECONDS', 10)
+WEB_PUSH_TTL_SECONDS = _env_int('WEB_PUSH_TTL_SECONDS', 14400)
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

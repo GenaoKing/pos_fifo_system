@@ -451,15 +451,20 @@ def api_cerrar_turno(request):
                     'error': 'El turno ya fue cerrado.',
                 }, status=409)
 
-            # Cerrar turno
+            # Cerrar turno. `cerrar()` ya calcula el esperado; se reutiliza
+            # para el resumen y evitar recomputarlo bajo el lock del turno.
             calculo = turno.cerrar(
                 monto_contado=monto_contado,
                 cerrado_por=request.user,
                 notas=notas
             )
 
+            # Mismo snapshot para la respuesta local y el payload de sync: el
+            # cajero y el destinatario remoto ven exactamente las mismas cifras.
+            resumen = turno.resumen_operativo(efectivo=calculo)
+
             # Outbox transaccional: atomico con el cierre del turno.
-            sync_events.evento_cierre_caja(turno)
+            sync_events.evento_cierre_caja(turno, resumen=resumen)
 
             return JsonResponse({
                 'success': True,
@@ -469,15 +474,25 @@ def api_cerrar_turno(request):
                     'cajero': turno.usuario.get_short_name() or turno.usuario.username,
                     'apertura': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
                     'cierre': turno.fecha_cierre.strftime('%d/%m/%Y %H:%M'),
-                    'fondo_apertura': str(calculo['fondo_apertura']),
-                    'efectivo_ventas': str(calculo['efectivo_ventas']),
-                    'efectivo_cxc': str(calculo['efectivo_cxc']),
-                    'retiros': str(calculo['retiros']),
-                    'gastos': str(calculo['gastos']),
-                    'ingresos': str(calculo['ingresos']),
-                    'esperado': str(calculo['esperado']),
-                    'contado': str(turno.monto_contado),
-                    'diferencia': str(turno.diferencia),
+                    'cantidad_ventas': resumen['cantidad_ventas'],
+                    'total_ventas': str(resumen['total_ventas']),
+                    'pagos_por_metodo': {
+                        metodo: str(monto)
+                        for metodo, monto in resumen['pagos_por_metodo'].items()
+                    },
+                    'cobros_cxc_total': str(resumen['cobros_cxc_total']),
+                    'cobros_cxc_por_metodo': {
+                        metodo: str(monto)
+                        for metodo, monto in resumen['cobros_cxc_por_metodo'].items()
+                    },
+                    **{
+                        clave: str(resumen[clave])
+                        for clave in (
+                            'fondo_apertura', 'efectivo_ventas', 'efectivo_cxc',
+                            'retiros', 'gastos', 'ingresos', 'esperado',
+                            'contado', 'diferencia',
+                        )
+                    },
                 }
             })
 

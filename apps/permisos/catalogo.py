@@ -111,6 +111,10 @@ CATALOGO = [
     ('permisos.administrar', 'Administrar roles y permisos', 'permisos',
      'Crear/editar roles y asignar permisos a usuarios del negocio.'),
 
+    # --- Notificaciones -----------------------------------------------------
+    ('notificaciones.administrar', 'Administrar notificaciones', 'notificaciones',
+     'Configurar eventos, roles, excepciones de usuario y umbrales.'),
+
     # --- Administracion de suscripcion/modulos (operador SaaS) ---------------
     ('suscripciones.administrar', 'Administrar suscripcion y modulos', 'suscripciones',
      'Asignar planes y modulos (entitlements) a los negocios.'),
