@@ -636,3 +636,40 @@ Plast/SK Performance -- actualizar el paquete local para que el punto 5
 **Deuda relacionada.** Cierra la brecha que la nota de BUG-C dejaba abierta
 ("el cloud sigue siendo la autoridad para editar maestros; aqui solo se crea
 lo que no existe") -- ahora aplica igual a productos.
+
+---
+
+### BUG-I — Chrome ofrece credenciales guardadas en el fondo de apertura
+
+- Fecha de hallazgo: 2026-09-06, durante el smoke local de Web Push.
+- Severidad: **baja / UX**. No altera el monto enviado ni la apertura, pero
+  confunde al operador y puede superponer sugerencias sensibles sobre un campo
+  monetario.
+- **Estado: PENDIENTE.** Documentado durante el piloto; no se corrigio para no
+  desviar la prueba de notificaciones.
+- Reproduccion: en Chrome para Windows, abrir el modal de caja y enfocar
+  `Fondo de Apertura`; el navegador ofrece completar credenciales almacenadas.
+- Evidencia: `templates/caja/index.html`, input numerico enlazado a
+  `formApertura.fondo` (linea aproximada 53), sin atributo `autocomplete` ni
+  nombre semantico que desambigue el campo ante las heuristicas del navegador.
+- Correccion a evaluar: marcar el campo como no autenticable mediante
+  atributos de autocomplete/nombre apropiados y comprobar el resultado en
+  Chrome con credenciales guardadas. Agregar prueba de plantilla para evitar
+  la regresion; no asumir que todos los navegadores honran
+  `autocomplete="off"` de la misma manera.
+
+### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
+
+- Fecha de hallazgo: 2026-09-06, durante el smoke local de Web Push.
+- Severidad: **baja / presentacion**. Expone una nota interna de implementacion
+  en el sidebar, sin comprometer el POST ni la proteccion CSRF del logout.
+- **Estado: PENDIENTE.** Documentado durante el piloto; no se corrigio para no
+  desviar la prueba de notificaciones.
+- Reproduccion: abrir cualquier pantalla autenticada con sidebar y observar el
+  texto `{# POST, no enlace: ... #}` encima de `Cerrar Sesion`.
+- Causa confirmada: `templates/base.html` usa `{# ... #}` a traves de varias
+  lineas. Esa forma es para comentarios cortos; el contenido multilínea no se
+  consume como se esperaba y termina renderizado.
+- Correccion propuesta: reemplazarlo por `{% comment %}...{% endcomment %}` o
+  dejar el comentario completo en una sola linea, y cubrir que ninguna nota
+  interna aparezca en el HTML renderizado.
