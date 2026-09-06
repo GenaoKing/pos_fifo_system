@@ -30,12 +30,12 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Notificaciones portal | **V1 desplegada en dev; piloto preparado** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend, migraciones y PWA dev desplegados (2026-09-05); VAPID dev configurado y tenant descartable `demo` aprovisionado con `SD-001`. Motor y job siguen apagados hasta registrar el primer dispositivo y fijar el corte "desde ahora". Falta el smoke fisico antes de habilitar el job. |
+| Notificaciones portal | **V1 activa en dev; piloto en curso** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Motor activo solo para `demo`, un dispositivo Win32 real y job por minuto habilitado (2026-09-06). Cuatro operaciones produjeron una fila de bandeja y una entrega `ENVIADA` cada una; el ultimo cierre recorrio POS→sync→job en 98 s. Falta confirmacion visual y ampliar el smoke a movimientos, otros dispositivos y reglas negativas. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 11 bugs etiquetados (BUG-A..K) | `BUGS.md` | BUG-I/J siguen pendientes de UX. BUG-K corrige el ACK falso observado durante el piloto de notificaciones; pendiente de CI/despliegue a dev. |
+| Bugs/hallazgos | 11 bugs etiquetados (BUG-A..K) | `BUGS.md` | BUG-I/J siguen pendientes de UX. BUG-K (ACK falso del sync) esta corregido y desplegado en dev; no promovido a produccion. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -54,10 +54,14 @@ Estado actual contrastado con el repo:
   state.
 - `apps/notificaciones` y el portal React implementan bandeja, reglas RBAC,
   Web Push y un job programado por minuto. Un code review (2026-09-05) endurecio
-  8 puntos antes de desplegar. El backend y el portal ya estan en dev; VAPID y
-  el tenant descartable `demo` estan listos. El motor del tenant y el job global
-  permanecen apagados hasta registrar el dispositivo del piloto. El smoke
-  fisico sigue pendiente; usar `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`.
+  8 puntos antes de desplegar. El backend, portal, VAPID y tenant descartable
+  `demo` estan en dev. El motor se activo con corte temporal solo para `demo` y
+  el job `posfifo-dev-notifications` corre cada minuto con identidad propia y
+  secretos desde Key Vault. El smoke manual confirmo bandeja y aceptacion Web
+  Push para apertura/cierre/reapertura; un segundo cierre confirmo el circuito
+  automatico en 98 segundos, sin errores ni reintentos. Falta confirmar la
+  presentacion visual y completar la matriz de dispositivos/movimientos/reglas
+  del runbook.
 - `docs/runbooks/AZURE_DEV_RESOURCES.md` lista recursos reales de Azure dev.
 
 Discrepancias resueltas o visibles:

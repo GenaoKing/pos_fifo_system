@@ -680,7 +680,8 @@ lo que no existe") -- ahora aplica igual a productos.
   Web Push en el tenant demo.
 - Severidad: **alta**. El POS recibía un ACK terminal aunque el hecho no se
   hubiera aplicado ni persistido en cloud, por lo que dejaba de reintentarlo.
-- **Estado: CORREGIDO EN CÓDIGO; pendiente de CI y despliegue a dev.**
+- **Estado: CORREGIDO Y DESPLEGADO EN DEV** (desde la revisión de API
+  `posfifo-dev-api--0000056`, 2026-09-06); todavía no promovido a producción.
 - Reproducción observada: `APERTURA_CAJA` llegó con un operador que todavía no
   existía en cloud. El handler produjo `IntegrityError`, no se creó el turno ni
   `EventoSync`, pero la respuesta se clasificó como `DUPLICADO` y el cliente
