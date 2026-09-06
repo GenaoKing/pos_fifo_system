@@ -295,6 +295,51 @@ class ProyeccionTests(BaseNotificacionesTest):
         self.assertEqual(EventoNotificable.objects.count(), 1)
         self.assertEqual(DestinatarioNotificacion.objects.count(), 2)
 
+    def test_proyeccion_abre_atomic_en_la_base_resuelta_del_tenant(self):
+        ReglaNotificacionRol.objects.create(
+            rol=self.rol_admin, tipo_evento='caja.apertura',
+        )
+        motor = MotorNotificaciones.actual()
+        motor.activo = True
+        motor.activado_desde = timezone.now() - timedelta(seconds=1)
+        motor.save()
+        self.evento(
+            tipo='APERTURA_CAJA',
+            hash_payload='tenant-atomic-proyeccion',
+            payload={
+                'fecha_apertura': timezone.now().isoformat(),
+                'fondo_apertura': '100.00',
+            },
+        )
+
+        with patch(
+            'apps.notificaciones.services.get_current_tenant_alias',
+            return_value='default',
+        ), patch(
+            'apps.notificaciones.services.transaction.atomic',
+            wraps=transaction.atomic,
+        ) as atomic:
+            resultado = proyectar_pendientes()
+
+        self.assertEqual(resultado['generados'], 1)
+        self.assertGreaterEqual(atomic.call_count, 1)
+        self.assertTrue(
+            all(
+                llamada.kwargs.get('using') == 'default'
+                for llamada in atomic.call_args_list
+            ),
+            atomic.call_args_list,
+        )
+
+    def test_alias_transaccional_usa_el_contexto_tenant(self):
+        from apps.notificaciones.services import _database_alias
+
+        with patch(
+            'apps.notificaciones.services.get_current_tenant_alias',
+            return_value='tnt_demo',
+        ):
+            self.assertEqual(_database_alias(), 'tnt_demo')
+
     def test_dos_dispositivos_crean_dos_entregas_y_una_fila_de_bandeja(self):
         ReglaNotificacionRol.objects.create(
             rol=self.rol_admin, tipo_evento=CAJA_CIERRE,
@@ -525,6 +570,27 @@ class EntregaPushTests(BaseNotificacionesTest):
         self.assertEqual(resultado['enviadas'], 1)
         self.assertEqual(self.entrega.estado, EntregaPush.ENVIADA)
         self.assertIsNone(self.entrega.lease_hasta)
+
+    @patch('apps.notificaciones.services.push.enviar')
+    def test_reclamo_abre_atomic_en_la_base_resuelta_del_tenant(self, enviar):
+        with patch(
+            'apps.notificaciones.services.get_current_tenant_alias',
+            return_value='default',
+        ), patch(
+            'apps.notificaciones.services.transaction.atomic',
+            wraps=transaction.atomic,
+        ) as atomic:
+            resultado = despachar_push()
+
+        self.assertEqual(resultado['enviadas'], 1)
+        self.assertGreaterEqual(atomic.call_count, 1)
+        self.assertTrue(
+            all(
+                llamada.kwargs.get('using') == 'default'
+                for llamada in atomic.call_args_list
+            ),
+            atomic.call_args_list,
+        )
 
     @patch('apps.notificaciones.services.push.enviar')
     def test_429_programa_primer_reintento(self, enviar):

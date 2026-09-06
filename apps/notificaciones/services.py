@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.permisos.models import AsignacionRol
 from apps.sync.models import EventoSync
+from apps.tenancy.context import get_current_tenant_alias
 
 from . import push
 from .catalogo import (
@@ -34,6 +35,11 @@ LEASE_MINUTOS = 5
 RETENCION_DIAS = 90
 PURGA_LOTE = 1000
 logger = logging.getLogger('notificaciones')
+
+
+def _database_alias():
+    """Base donde viven evento, bandeja y entregas del tenant actual."""
+    return get_current_tenant_alias() or 'default'
 
 
 @dataclass
@@ -147,7 +153,7 @@ def _marcar_procesado(evento_sync, *, genero_evento):
 
 def proyectar_evento_sync(evento_sync_id):
     """Convierte un evento confirmado una sola vez, aun bajo concurrencia."""
-    with transaction.atomic():
+    with transaction.atomic(using=_database_alias()):
         evento_sync = (
             EventoSync.objects.select_for_update()
             .get(pk=evento_sync_id)
@@ -217,7 +223,7 @@ def _registrar_fallo_proyeccion(evento_sync_id, exc):
     """
     ahora = timezone.now()
     try:
-        with transaction.atomic():
+        with transaction.atomic(using=_database_alias()):
             marcador, _ = EventoSyncNotificacionProcesado.objects.get_or_create(
                 evento_sync_id=evento_sync_id,
                 defaults={'genero_evento': False},
@@ -308,7 +314,7 @@ def _recuperar_leases_vencidos(ahora):
 
 def _reclamar_entrega():
     ahora = timezone.now()
-    with transaction.atomic():
+    with transaction.atomic(using=_database_alias()):
         entrega = (
             EntregaPush.objects.select_for_update(skip_locked=True)
             .select_related('suscripcion', 'destinatario__evento')
