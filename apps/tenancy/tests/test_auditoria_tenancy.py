@@ -145,6 +145,22 @@ class RegistryTests(TestCase):
         self.assertEqual(resuelto.pk, tenant.pk)
         self.assertEqual(alias, 'tnt_provisionando')
 
+    def test_el_contexto_de_aprovisionamiento_acepta_un_inactivo(self):
+        """Migrar y sembrar ocurre antes de publicar el tenant."""
+        from apps.tenancy.context import (
+            get_current_tenant_alias,
+            get_current_tenant_key,
+            tenant_context,
+        )
+
+        tenant = Tenant.objects.create(
+            tenant_key='provisionando', slug='prov', nombre='Prov', activo=False,
+        )
+
+        with tenant_context(tenant, permitir_inactivo=True):
+            self.assertEqual(get_current_tenant_key(), 'provisionando')
+            self.assertEqual(get_current_tenant_alias(), 'tnt_provisionando')
+
     def test_cambiar_db_name_descarta_la_conexion_cacheada(self):
         """
         La reproduccion de la auditoria: se configuraba `tenant_old`, se
