@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -611,6 +611,37 @@ class ApiNotificacionesTests(BaseNotificacionesTest):
             204,
         )
         self.assertFalse(SuscripcionPush.objects.get(pk=pk).activa)
+
+    def test_alta_push_abre_atomic_en_la_base_resuelta_del_tenant(self):
+        payload = {
+            'endpoint': 'https://push.example/tenant-atomic',
+            'keys': {'p256dh': 'p', 'auth': 'a'},
+        }
+        with patch(
+            'apps.api.views.notificaciones.get_current_tenant_alias',
+            return_value='default',
+        ), patch(
+            'apps.api.views.notificaciones.transaction.atomic',
+            wraps=transaction.atomic,
+        ) as atomic:
+            response = self.client.post(
+                '/api/v1/notificaciones/push/suscripciones/', payload,
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 201)
+        atomic.assert_called_once_with(using='default')
+
+    def test_alias_transaccional_usa_el_contexto_tenant(self):
+        from apps.api.views.notificaciones import SuscripcionPushViewSet
+
+        with patch(
+            'apps.api.views.notificaciones.get_current_tenant_alias',
+            return_value='tnt_demo',
+        ):
+            self.assertEqual(
+                SuscripcionPushViewSet._database_alias(), 'tnt_demo',
+            )
 
     def test_crud_regla_valida_dinero_y_negocio(self):
         payload = {
