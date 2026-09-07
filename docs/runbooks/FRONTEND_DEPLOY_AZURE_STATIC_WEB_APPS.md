@@ -12,8 +12,8 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
 - Build frontend: Vite/React, salida `dist/`.
 - Config SPA: `staticwebapp.config.json` ya existe.
 - CORS local Vite validado en dev/staging para `http://localhost:5173`.
-- ASWA en Azure for Students esta bloqueado por policy/regiones; se evalua
-  crear ASWA Free desde una suscripcion Pay-As-You-Go.
+- Los tres ASWA Free viven en la suscripcion Pay-As-You-Go; Azure for Students
+  no se usa para estos recursos por sus restricciones de policy/regiones.
 - ASWA dev creado el 2026-06-13:
   `https://agreeable-moss-051bc0010.7.azurestaticapps.net`
   (`posfifo-dev-portal-swa`, RG `posfifo-dev-frontend-rg`, Free, branch
@@ -22,7 +22,7 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
 - ASWA staging creado el 2026-06-13:
   `https://salmon-rock-01cc45c10.7.azurestaticapps.net`
   (`posfifo-staging-portal-swa`, RG `posfifo-staging-frontend-rg`, Free,
-  workflow en branch `main`).
+  workflow en branch `staging`).
 - CORS staging aplicado para el origen ASWA staging.
 
 ## Modelo mental
@@ -80,7 +80,7 @@ En Azure Portal:
 10. Repository: `pos-cloud-dashboard`.
 11. Branch:
     - dev: `develop`
-    - staging: `main` o rama/tag release cuando formalicemos promocion.
+    - staging: `staging`.
 12. Build preset: React/Vite o Custom.
 13. App location: `/`
 14. API location: dejar vacio.
@@ -110,7 +110,19 @@ Importante para Vite:
 - Para Vite, poner `VITE_API_URL` en el workflow de GitHub Actions o como
   GitHub Actions Variable usada por el workflow.
 
-## Workflow ASWA esperado
+## Workflows ASWA
+
+El portal mantiene cuatro workflows separados:
+
+- `ci.yml`: lint, Vitest y build para PR/push comunes;
+- `azure-static-web-apps-agreeable-moss-051bc0010.yml`: `develop` a dev;
+- `azure-static-web-apps-salmon-rock-01cc45c10.yml`: `staging` a staging;
+- `azure-static-web-apps-prod.yml`: `main` a produccion.
+
+Los tres deploys reaccionan solo al push de su rama o a `workflow_dispatch`
+ejecutado seleccionando esa misma rama; cada job valida `github.ref_name` para
+no cruzar ambientes. Los PR ejecutan CI pero **no** crean previews ASWA ni jobs
+de cierre. Esto evita previews huerfanos cuando el token/recurso no coincide.
 
 Si Azure genera automaticamente el workflow, revisar que tenga estos valores:
 
@@ -165,11 +177,11 @@ with:
 Si el workflow muestra `Unexpected input(s) 'github_id_token'`, eliminar ese
 input y el paso que obtiene el GitHub Id Token.
 
-Staging temporal Royal Plast:
+Staging:
 
 - Workflow: `.github/workflows/azure-static-web-apps-salmon-rock-01cc45c10.yml`
   en `pos-cloud-dashboard`.
-- Branch: `main`.
+- Branch: `staging`.
 - API horneada en build desde GitHub Actions Variable:
   `VITE_API_URL_STAGING`.
 - Secret requerido en GitHub Actions:
@@ -202,6 +214,31 @@ Settings -> Secrets and variables -> Actions -> Variables -> New repository vari
 Name: VITE_API_URL_STAGING
 Value: https://posfifo-staging-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
 ```
+
+### Limpiar previews antiguos
+
+Primero confirmar que `default` sigue `Ready` y apunta al branch del ambiente:
+
+```powershell
+az staticwebapp environment list `
+  --name posfifo-dev-portal-swa `
+  --resource-group posfifo-dev-frontend-rg `
+  --output table
+```
+
+Despues borrar por nombre **solo** el preview confirmado; nunca borrar
+`default`:
+
+```powershell
+az staticwebapp environment delete `
+  --name posfifo-dev-portal-swa `
+  --resource-group posfifo-dev-frontend-rg `
+  --environment-name <preview> `
+  --yes
+```
+
+El 2026-09-07 se retiraron los previews huerfanos `1` y `2` de dev y se
+reverifico que `default/develop` permaneciera `Ready`.
 
 ## Node/Oryx
 

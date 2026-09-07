@@ -43,14 +43,16 @@ Job `deploy-backend`:
 - Build de Docker image.
 - Tags con SHA de commit, `<ambiente>-<sha>` y tag estable del ambiente.
 - Push a ACR.
+- Captura las imagenes actuales de API y job de notificaciones.
 - Actualiza imagen del job `migrate` si existe.
 - Opcionalmente ejecuta migraciones y espera resultado.
-- Actualiza la imagen del job de notificaciones si su variable esta configurada
-  y el recurso ya existe.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
-- Si el smoke falla despues del cambio de imagen, intenta rollback a la imagen
-  anterior.
+- Solo despues de una API sana actualiza el job de notificaciones, ejecuta un
+  ciclo manual con esa imagen y espera su resultado.
+- Un fallo de API revierte y verifica solo la API. Un fallo del procesador
+  revierte y ejecuta solo el job con su imagen anterior. El fallo de uno nunca
+  sustituye la imagen sana del otro.
 
 El deploy se decide por branch:
 
@@ -157,9 +159,11 @@ AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azu
 RUN_MIGRATIONS_ON_DEPLOY=true
 ```
 
-`RUN_MIGRATIONS_ON_DEPLOY=true` hace que cada push a `develop` corra el job de
-migraciones antes del deploy de API. En staging/prod lo mantenemos en `false`
-para ejecutar migraciones solo bajo decision manual.
+`RUN_MIGRATIONS_ON_DEPLOY=true` hace que cada push a la rama del ambiente corra
+el job de migraciones antes del deploy de API. Dev y staging lo mantienen en
+`true`; una promocion a staging solo se fusiona despues de auditar migraciones y
+respaldar las bases afectadas. Produccion permanece en `false` y requiere una
+decision manual.
 
 ### Crear las variables en la UI de GitHub
 
@@ -195,8 +199,9 @@ STAGING_AZURE_ACR_NAME=posfifodevacr
 STAGING_AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 STAGING_AZURE_CONTAINER_APP_NAME=posfifo-staging-api
 STAGING_AZURE_MIGRATE_JOB_NAME=posfifo-staging-migrate
+STAGING_AZURE_NOTIFICATIONS_JOB_NAME=posfifo-staging-notifications
 STAGING_AZURE_API_BASE_URL=https://posfifo-staging-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
-STAGING_RUN_MIGRATIONS_ON_DEPLOY=false
+STAGING_RUN_MIGRATIONS_ON_DEPLOY=true
 ```
 
 Secrets actuales de staging:
@@ -604,8 +609,9 @@ En cada ambiente, la frontera queda asi:
 
 El job de notificaciones es opcional por ambiente. Si existe, su nombre vive en
 `AZURE_NOTIFICATIONS_JOB_NAME` (o el equivalente con prefijo) y el pipeline lo
-actualiza despues de migrar, antes de cambiar la API. Si la variable no existe,
-ese ambiente continua desplegando normalmente sin intentar tocar el job.
+actualiza despues de migrar, cambiar la API y validar `/health/`. Luego inicia y
+espera una ejecucion con el mismo SHA. Si la variable no existe, ese ambiente
+continua desplegando normalmente sin intentar tocar el job.
 
 Por eso el modulo de Container Apps ignora cambios en:
 
@@ -730,7 +736,23 @@ Usa esa salida para comparar GitHub vs local.
 El workflow actualiza primero la imagen del job de migraciones si existe. Si
 `run_migrations=true`, el job debe existir, se ejecuta antes del cambio de API y
 el deploy falla si la migracion no termina en `Succeeded`. Despues de ese gate
-se cambia la imagen de la API y se valida `/api/v1/health/`.
+se cambia la imagen de la API, se valida `/api/v1/health/` y por ultimo se
+actualiza/ejecuta el job de notificaciones.
+
+## CI de Terraform
+
+`.github/workflows/terraform-ci.yml` valida cambios de infraestructura sin
+credenciales ni acceso al remote state:
+
+```text
+terraform fmt -check -recursive infra/azure
+terraform init -backend=false
+terraform validate
+```
+
+La matriz cubre `platform`, `dev`, `staging` y `prod`. El workflow no ejecuta
+`plan` ni `apply`; esas operaciones siguen siendo deliberadas y usan el state
+remoto de cada ambiente.
 
 ## Deuda pendiente para endurecer prod
 

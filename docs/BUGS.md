@@ -645,34 +645,50 @@ lo que no existe") -- ahora aplica igual a productos.
 - Severidad: **baja / UX**. No altera el monto enviado ni la apertura, pero
   confunde al operador y puede superponer sugerencias sensibles sobre un campo
   monetario.
-- **Estado: PENDIENTE.** Documentado durante el piloto; no se corrigio para no
-  desviar la prueba de notificaciones.
+- **Estado: CORREGIDO EN CODIGO (2026-09-07); pendiente de confirmacion visual
+  final en Chrome.** `fondo_apertura`, `monto_movimiento` y
+  `efectivo_contado` tienen nombre semantico y `autocomplete="off"`; el conteo
+  por denominacion usa `cantidad_denominacion` con el mismo bloqueo.
 - Reproduccion: en Chrome para Windows, abrir el modal de caja y enfocar
   `Fondo de Apertura`; el navegador ofrece completar credenciales almacenadas.
-- Evidencia: `templates/caja/index.html`, input numerico enlazado a
-  `formApertura.fondo` (linea aproximada 53), sin atributo `autocomplete` ni
-  nombre semantico que desambigue el campo ante las heuristicas del navegador.
-- Correccion a evaluar: marcar el campo como no autenticable mediante
-  atributos de autocomplete/nombre apropiados y comprobar el resultado en
-  Chrome con credenciales guardadas. Agregar prueba de plantilla para evitar
-  la regresion; no asumir que todos los navegadores honran
-  `autocomplete="off"` de la misma manera.
+- Evidencia automatica: prueba de plantilla en
+  `apps/caja/tests/test_auditoria_caja.py`. Como `autocomplete="off"` es una
+  indicacion y Chrome conserva heuristicas propias, el gate final sigue siendo
+  repetir el caso con credenciales guardadas en la laptop.
 
 ### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
 
 - Fecha de hallazgo: 2026-09-06, durante el smoke local de Web Push.
 - Severidad: **baja / presentacion**. Expone una nota interna de implementacion
   en el sidebar, sin comprometer el POST ni la proteccion CSRF del logout.
-- **Estado: PENDIENTE.** Documentado durante el piloto; no se corrigio para no
-  desviar la prueba de notificaciones.
+- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07).**
 - Reproduccion: abrir cualquier pantalla autenticada con sidebar y observar el
   texto `{# POST, no enlace: ... #}` encima de `Cerrar Sesion`.
 - Causa confirmada: `templates/base.html` usa `{# ... #}` a traves de varias
   lineas. Esa forma es para comentarios cortos; el contenido multilínea no se
   consume como se esperaba y termina renderizado.
-- Correccion propuesta: reemplazarlo por `{% comment %}...{% endcomment %}` o
-  dejar el comentario completo en una sola linea, y cubrir que ninguna nota
-  interna aparezca en el HTML renderizado.
+- Correccion: bloque `{% comment %}...{% endcomment %}`. La regresion renderiza
+  una pantalla autenticada, comprueba que la nota no salga y conserva el
+  formulario de logout como POST con token CSRF.
+
+### BUG-L — El portal mostraba HTML crudo de un 500 y declaraba push suscrito sin backend
+
+- Fecha de hallazgo: 2026-09-07, durante el alta Web Push en Chrome/Windows.
+- Severidad: **media / UX y exposicion de diagnostico**. El usuario veia el
+  documento `Server Error (500)` completo y, si el navegador habia creado la
+  suscripcion antes del fallo del POST, una recarga podia afirmar que el equipo
+  estaba vinculado aunque el backend no tuviera un dispositivo activo.
+- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07); pendiente de deploy.**
+- Causa 1: `extractApiError` devolvia cualquier body string sin distinguir
+  HTML, traceback, longitud ni status 5xx.
+- Causa 2: `PushDeviceCard` inferia `suscrito` solo con
+  `PushManager.getSubscription()`, sin cruzar el endpoint con
+  `GET /api/v1/notificaciones/push/suscripciones/`.
+- Correccion: cualquier 5xx usa un mensaje generico y accionable; HTML,
+  tracebacks y cuerpos mayores de 300 caracteres nunca se muestran. El estado
+  `suscrito` exige el mismo endpoint activo en navegador y backend. Si el POST
+  previo fallo, el boton reutiliza la suscripcion local y reintenta el alta
+  idempotente, sin pedir permiso ni crear otra suscripcion.
 
 ### BUG-K — El receptor sync confirmaba fallos de integridad como duplicados
 

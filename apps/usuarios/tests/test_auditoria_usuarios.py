@@ -130,6 +130,17 @@ class LogoutSeguroTests(UsuariosTestCase):
         respuesta = self.client.get(reverse('pos:punto_venta'))
         self.assertEqual(respuesta.status_code, 302)
 
+    def test_sidebar_oculta_comentario_y_conserva_logout_post_con_csrf(self):
+        respuesta = self.client.get(reverse('pos:punto_venta'))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, 'POST, no enlace')
+        self.assertContains(
+            respuesta,
+            f'method="post" action="{reverse("usuarios:logout")}"',
+        )
+        self.assertContains(respuesta, 'name="csrfmiddlewaretoken"')
+
     def test_la_sesion_se_cierra_aunque_la_auditoria_falle(self):
         """
         La reproduccion de la auditoria: forzando el fallo del sink, `/logout/`
