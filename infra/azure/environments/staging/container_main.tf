@@ -24,12 +24,13 @@ module "container_apps" {
   registry_server = local.container_registry_login_server
   image           = local.container_image
 
-  enable_api               = var.enable_api_container_app
-  enable_migrate_job       = var.enable_migrate_job
-  enable_notifications_job = var.enable_notifications_job
-  api_name                 = local.api_container_app_name
-  migrate_job_name         = local.migrate_job_name
-  notifications_job_name   = local.notifications_job_name
+  enable_api                  = var.enable_api_container_app
+  enable_migrate_job          = var.enable_migrate_job
+  enable_notifications_job    = var.enable_notifications_job
+  api_name                    = local.api_container_app_name
+  migrate_job_name            = local.migrate_job_name
+  notifications_job_name      = local.notifications_job_name
+  notifications_schedule_cron = var.notifications_schedule_cron
 
   django_secret_key    = var.django_secret_key
   allowed_hosts        = var.api_allowed_hosts

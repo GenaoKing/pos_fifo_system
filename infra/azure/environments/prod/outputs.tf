@@ -23,6 +23,11 @@ output "notifications_job_id" {
   value = module.container_apps.notifications_job_id
 }
 
+output "notifications_monitoring" {
+  description = "Action Group y alerta del job; null cuando estan deshabilitados."
+  value       = var.enable_notifications_alerts ? module.notifications_monitoring[0] : null
+}
+
 output "postgres" {
   description = "Datos no secretos de PostgreSQL consumidos desde platform."
   value = {

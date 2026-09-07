@@ -49,6 +49,9 @@ existing_container_apps_environment_name = "posfifo-dev-aca-env"
 enable_api_container_app = false
 enable_migrate_job       = false
 enable_notifications_job = false
+notifications_schedule_cron = "*/1 * * * *"
+enable_notifications_alerts = false
+notifications_alert_email   = "genaosantiago001@gmail.com"
 enable_db_per_tenant     = true
 
 web_push_enabled          = false

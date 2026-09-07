@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-05** · Rama: `develop`
+Última actualización: **2026-09-07** · Rama: `develop`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -39,7 +39,8 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 1111 tests, OK.**
+**Suite completa, serial: 1160 tests, OK** (base de pruebas recreada el
+2026-09-07; 1008 s).
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -50,6 +51,10 @@ en [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md).
 ---
 
 ## 2. Despliegue
+
+La auditoría operativa de la promoción completa `staging..develop`, sus
+preflights y respaldos vive en
+[`docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`](handoffs/STAGING_NOTIFICACIONES_2026-09-07.md).
 
 ### 2.1 Migraciones
 

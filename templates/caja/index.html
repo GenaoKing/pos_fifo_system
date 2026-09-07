@@ -302,6 +302,7 @@
                             <div class="relative">
                                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                                 <input type="number" x-model="formMov.monto" min="0" step="0.01"
+                                       name="monto_movimiento" autocomplete="off"
                                        class="form-input w-full pl-7" placeholder="0.00">
                             </div>
                         </div>
@@ -633,7 +634,8 @@
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-gray-500 w-12 text-right" x-text="'$' + den"></span>
                                         <span class="text-gray-300">×</span>
-                                        <input type="number" min="0" step="1" inputmode="numeric" autocomplete="off"
+                                        <input type="number" min="0" step="1" inputmode="numeric"
+                                               name="cantidad_denominacion" autocomplete="off"
                                                x-model.number="conteoDenominacion[den]" @input="aplicarDenominacion()"
                                                class="form-input w-full py-1 text-sm" placeholder="0">
                                     </div>

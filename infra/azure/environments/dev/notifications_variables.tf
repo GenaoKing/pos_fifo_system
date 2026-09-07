@@ -11,6 +11,24 @@ variable "notifications_job_name" {
   default     = null
 }
 
+variable "notifications_schedule_cron" {
+  description = "Cron UTC de cinco campos para el job de notificaciones."
+  type        = string
+  default     = "*/1 * * * *"
+}
+
+variable "enable_notifications_alerts" {
+  description = "Crea Action Group y alerta si el job no completa con exito en cinco minutos."
+  type        = bool
+  default     = false
+}
+
+variable "notifications_alert_email" {
+  description = "Correo operativo del Action Group; obligatorio al habilitar alertas."
+  type        = string
+  default     = ""
+}
+
 variable "web_push_enabled" {
   description = "Habilita registro y entrega Web Push."
   type        = bool

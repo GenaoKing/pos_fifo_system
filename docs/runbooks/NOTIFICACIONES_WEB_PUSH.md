@@ -116,6 +116,13 @@ dispositivo.
    precondicion exige Key Vault, Web Push habilitado y clave publica no vacia.
    El job tambien debe recibir `ALLOWED_HOSTS`, porque `settings_cloud` lo
    valida al importar incluso para comandos de gestion.
+   Mantener el SLA de la V1 con:
+
+   ```hcl
+   notifications_schedule_cron = "*/1 * * * *"
+   ```
+
+   El cron es UTC y el job conserva `0.5 CPU / 1 GiB` hasta medir staging.
 7. Hacer el smoke fisico. Solo despues activar otros tenants, uno por uno, o
    con `--todos-los-tenants` durante una ventana controlada.
 8. Actualizar los POS. `CIERRE_CAJA` nuevo lleva `schema_version=2` y
@@ -205,6 +212,52 @@ la excepcion, nunca el payload. La purga de historial avanza en lotes de 1000
 por ciclo (cada minuto) mientras el lote venga lleno, sin esperar 24 h entre
 lotes; solo cierra la ventana diaria cuando el backlog quedo drenado.
 
+## Alerta de salud del job
+
+Cada ambiente puede crear un Action Group y una alerta de Log Analytics:
+
+```hcl
+enable_notifications_alerts = true
+notifications_alert_email   = "genaosantiago001@gmail.com"
+```
+
+Solo habilitarla junto con `enable_notifications_job=true`. La regla se evalua
+cada minuto y alerta cuando no encuentra una ejecucion `Completed` exitosa en
+cinco minutos. Si staging reutiliza el Container Apps Environment de dev, sus
+system logs viven en el workspace de ese runtime compartido; Terraform lo
+resuelve desde el Environment en vez de consultar el workspace logico de
+staging.
+
+Consulta sana (debe devolver cero filas mientras el job corre):
+
+```kusto
+ContainerAppSystemLogs_CL
+| where TimeGenerated > ago(5m)
+| where JobName_s == 'posfifo-dev-notifications'
+| where Reason_s == 'Completed'
+| where Log_s has 'Execution' and Log_s has 'successfully completed'
+| summarize successful_executions = count()
+| where successful_executions == 0
+```
+
+Para probar la condicion sin apagar nada, sustituir temporalmente el nombre por
+uno inexistente en una consulta manual: debe devolver una fila. No cambiar la
+regla real para esa prueba.
+
+El primer correo de Azure exige confirmar el opt-in/OTP del receptor. Despues,
+probar el Action Group:
+
+```powershell
+az monitor action-group test-notifications create `
+  --resource-group posfifo-dev-rg `
+  --action-group posfifo-dev-notifications-ag `
+  --alert-type logalertv2 `
+  --add-action email notifications-operations genaosantiago001@gmail.com usecommonalertschema
+```
+
+En un mantenimiento planificado, **deshabilitar la alerta antes de detener el
+job** y rehabilitarla solo despues de observar una ejecucion exitosa.
+
 ## Desactivar
 
 ```powershell
@@ -212,7 +265,8 @@ python manage.py activar_notificaciones --tenant demo --desactivar --settings=co
 ```
 
 Para detener toda la plataforma, aplicar Terraform con
-`enable_notifications_job=false`. La bandeja existente sigue disponible.
+`enable_notifications_job=false`. Antes, deshabilitar
+`enable_notifications_alerts`; la bandeja existente sigue disponible.
 
 El usuario desvincula su dispositivo desde `/notificaciones`. Operaciones:
 

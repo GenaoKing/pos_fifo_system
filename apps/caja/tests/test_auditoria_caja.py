@@ -508,6 +508,19 @@ class UnSoloModeloDeAdminTests(CajaTestCase):
         self.assertNotIn("'{{ request.user.rol }}' === 'ADMIN'", fuente)
         self.assertIn('puede_administrar_caja', fuente)
 
+    def test_importes_de_caja_no_ofrecen_autocompletar_credenciales(self):
+        import pathlib
+
+        from django.conf import settings
+
+        plantilla = pathlib.Path(settings.BASE_DIR) / 'templates' / 'caja' / 'index.html'
+        fuente = plantilla.read_text(encoding='utf-8')
+
+        self.assertIn('name="fondo_apertura" autocomplete="off"', fuente)
+        self.assertIn('name="monto_movimiento" autocomplete="off"', fuente)
+        self.assertIn('name="efectivo_contado" autocomplete="off"', fuente)
+        self.assertIn('name="cantidad_denominacion" autocomplete="off"', fuente)
+
 
 class CeroNoEsAusenciaTests(CajaTestCase):
     """CAJA-013: un turno que cerro en cero se ve como cerrado en cero."""

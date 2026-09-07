@@ -296,9 +296,53 @@ jobs:
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG"
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG"
 
-      # --- Orden: migrar ANTES de cambiar la imagen de la API ---
-      # Asi el codigo nuevo nunca corre contra un schema viejo, y una migracion
-      # fallida aborta el deploy sin haber tocado la API.
+      - name: Capture current API image
+        if: steps.target.outputs.deploy == 'true'
+        id: current_api_image
+        shell: bash
+        run: |
+          previous_image=$(az containerapp show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --query "properties.template.containers[0].image" -o tsv)
+          if [ -z "$previous_image" ]; then
+            echo "Could not resolve the current API image."
+            exit 1
+          fi
+          echo "previous_image=$previous_image" >> "$GITHUB_OUTPUT"
+          echo "Previous API image: $previous_image"
+
+      - name: Capture current notifications job image
+        if: steps.target.outputs.deploy == 'true'
+        id: current_notifications_image
+        shell: bash
+        run: |
+          if [ -z "$AZURE_NOTIFICATIONS_JOB_NAME" ]; then
+            echo "job_exists=false" >> "$GITHUB_OUTPUT"
+            echo "Notifications job variable is not configured for '${{ matrix.environment }}'."
+            exit 0
+          fi
+
+          if ! az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_NOTIFICATIONS_JOB_NAME" >/dev/null 2>&1; then
+            echo "job_exists=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Notifications job '$AZURE_NOTIFICATIONS_JOB_NAME' does not exist yet; skipping its deployment."
+            exit 0
+          fi
+
+          previous_image=$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --query "properties.template.containers[0].image" -o tsv)
+          if [ -z "$previous_image" ]; then
+            echo "Could not resolve the current notifications job image."
+            exit 1
+          fi
+          echo "job_exists=true" >> "$GITHUB_OUTPUT"
+          echo "previous_image=$previous_image" >> "$GITHUB_OUTPUT"
+          echo "Previous notifications job image: $previous_image"
+
+      # El codigo nuevo nunca corre contra un schema viejo. Si la migracion
+      # falla, API y job conservan sus imagenes anteriores.
 
       - name: Update migrate job image if present
         if: steps.target.outputs.deploy == 'true'
@@ -348,36 +392,6 @@ jobs:
           echo "Timed out waiting for migration execution to finish."
           exit 1
 
-      - name: Update notifications job image if present
-        if: steps.target.outputs.deploy == 'true'
-        shell: bash
-        run: |
-          if [ -z "$AZURE_NOTIFICATIONS_JOB_NAME" ]; then
-            echo "Notifications job variable is not configured for '${{ matrix.environment }}'; skipping image update."
-            exit 0
-          fi
-
-          if az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_NOTIFICATIONS_JOB_NAME" >/dev/null 2>&1; then
-            az containerapp job update \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
-              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
-          else
-            echo "::warning::Container Apps job '$AZURE_NOTIFICATIONS_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping notifications job image update."
-          fi
-
-      - name: Capture current API image (for rollback)
-        if: steps.target.outputs.deploy == 'true'
-        id: current_image
-        shell: bash
-        run: |
-          prev=$(az containerapp show \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_CONTAINER_APP_NAME" \
-            --query "properties.template.containers[0].image" -o tsv 2>/dev/null || echo "")
-          echo "previous_image=$prev" >> "$GITHUB_OUTPUT"
-          echo "Previous API image: ${prev:-<none>}"
-
       - name: Update API image
         if: steps.target.outputs.deploy == 'true'
         id: update_api
@@ -389,6 +403,7 @@ jobs:
 
       - name: Smoke test health
         if: steps.target.outputs.deploy == 'true'
+        id: api_health
         run: |
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 20 "$AZURE_API_BASE_URL/api/v1/health/"; then
@@ -401,12 +416,103 @@ jobs:
 
           exit 1
 
-      - name: Rollback API image on failure
-        if: failure() && steps.target.outputs.deploy == 'true' && steps.update_api.outcome == 'success' && steps.current_image.outputs.previous_image != ''
+      - name: Rollback and verify API image on failure
+        if: failure() && steps.target.outputs.deploy == 'true' && steps.current_api_image.outputs.previous_image != '' && (steps.update_api.outcome == 'failure' || steps.api_health.outcome == 'failure')
         shell: bash
         run: |
-          echo "::warning::Verificacion post-deploy fallo tras el swap de imagen; revirtiendo la API a la imagen previa."
+          echo "::warning::API deployment failed; restoring its previous image."
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_CONTAINER_APP_NAME" \
-            --image "${{ steps.current_image.outputs.previous_image }}"
+            --image "${{ steps.current_api_image.outputs.previous_image }}"
+
+          restored=$(az containerapp show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --query "properties.template.containers[0].image" -o tsv)
+          test "$restored" = "${{ steps.current_api_image.outputs.previous_image }}"
+
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --max-time 20 "$AZURE_API_BASE_URL/api/v1/health/"; then
+              echo "API rollback verified."
+              exit 0
+            fi
+            echo "Waiting for the restored API ($attempt/12)..."
+            sleep 10
+          done
+          echo "Restored image did not pass health verification."
+          exit 1
+
+      - name: Update notifications job image
+        if: steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.job_exists == 'true'
+        id: update_notifications
+        shell: bash
+        run: |
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+      - name: Run and wait for one notifications cycle
+        if: steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.job_exists == 'true'
+        id: notifications_smoke
+        shell: bash
+        run: |
+          execution=$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --query "name" -o tsv)
+          echo "Notifications execution: $execution"
+
+          for attempt in $(seq 1 60); do
+            status=$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+              --job-execution-name "$execution" \
+              --query "properties.status" -o tsv 2>/dev/null || echo "Unknown")
+            echo "Notifications status ($attempt/60): $status"
+            case "$status" in
+              Succeeded) echo "Notifications cycle OK."; exit 0 ;;
+              Failed|Degraded|Cancelled) echo "Notifications execution ended as '$status'."; exit 1 ;;
+            esac
+            sleep 10
+          done
+
+          echo "Timed out waiting for notifications execution."
+          exit 1
+
+      - name: Rollback and verify notifications job on failure
+        if: failure() && steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.previous_image != '' && (steps.update_notifications.outcome == 'failure' || steps.notifications_smoke.outcome == 'failure')
+        shell: bash
+        run: |
+          echo "::warning::Notifications deployment failed; restoring only the job image."
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --image "${{ steps.current_notifications_image.outputs.previous_image }}"
+
+          restored=$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --query "properties.template.containers[0].image" -o tsv)
+          test "$restored" = "${{ steps.current_notifications_image.outputs.previous_image }}"
+
+          execution=$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+            --query "name" -o tsv)
+          for attempt in $(seq 1 60); do
+            status=$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+              --job-execution-name "$execution" \
+              --query "properties.status" -o tsv 2>/dev/null || echo "Unknown")
+            echo "Rollback verification ($attempt/60): $status"
+            case "$status" in
+              Succeeded) echo "Notifications rollback verified."; exit 0 ;;
+              Failed|Degraded|Cancelled) echo "Restored job ended as '$status'."; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out verifying notifications rollback."
+          exit 1
