@@ -64,6 +64,59 @@ def turnos_en_alcance(request):
     return TurnoCaja.objects.filter(caja__in=cajas_en_alcance(request))
 
 
+def _desglose_serializable(resumen, ocultar_efectivo=False):
+    """Convierte el snapshot de `TurnoCaja.resumen_operativo()` a JSON.
+
+    Reune el flujo de efectivo (lo que ya consumia el panel) con el desglose por
+    metodo — ventas incl. CREDITO, y cobros CxC por metodo — para que el panel
+    y el modal de cierre muestren EN VIVO el mismo desglose que el cierre.
+
+    `ocultar_efectivo` (conteo ciego, no-admin): no viaja al cliente la
+    expectativa de efectivo en caja ni sus componentes, para que el conteo
+    fisico no se ajuste al numero esperado. El desglose no-efectivo permanece.
+    """
+    pagos = {k: str(v) for k, v in resumen['pagos_por_metodo'].items()}
+    cobros = {k: str(v) for k, v in resumen['cobros_cxc_por_metodo'].items()}
+    data = {
+        'fondo_apertura': str(resumen['fondo_apertura']),
+        'efectivo_ventas': str(resumen['efectivo_ventas']),
+        'efectivo_cxc': str(resumen['efectivo_cxc']),
+        'retiros': str(resumen['retiros']),
+        'gastos': str(resumen['gastos']),
+        'ingresos': str(resumen['ingresos']),
+        'esperado': str(resumen['esperado']),
+        'cantidad_ventas': resumen['cantidad_ventas'],
+        'total_ventas': str(resumen['total_ventas']),
+        'pagos_por_metodo': pagos,
+        'cobros_cxc_total': str(resumen['cobros_cxc_total']),
+        'cobros_cxc_por_metodo': cobros,
+        'ocultar_efectivo': bool(ocultar_efectivo),
+    }
+    if ocultar_efectivo:
+        for clave in (
+            'fondo_apertura', 'efectivo_ventas', 'efectivo_cxc',
+            'retiros', 'gastos', 'ingresos', 'esperado', 'cobros_cxc_total',
+        ):
+            data[clave] = None
+        data['pagos_por_metodo'] = {k: v for k, v in pagos.items() if k != 'EFECTIVO'}
+        data['cobros_cxc_por_metodo'] = {k: v for k, v in cobros.items() if k != 'EFECTIVO'}
+    return data
+
+
+def _oculta_efectivo_por_conteo_ciego(request):
+    """Conteo ciego activo para ESTE usuario: config ON y no es admin de caja.
+
+    El admin siempre ve el esperado (necesita conciliar). El cajero solo lo ve
+    tras cerrar, cuando su conteo ya quedo registrado.
+    """
+    from apps.configuracion.utils import get_config
+    try:
+        activo = bool(getattr(get_config(), 'conteo_ciego_caja', False))
+    except Exception:
+        activo = False
+    return activo and not es_admin(request.user, getattr(request, 'sucursal', None))
+
+
 # ============================================================================
 # SOFT-LOGIN: Validar credenciales de admin sin cambiar sesion
 # ============================================================================
@@ -239,11 +292,17 @@ def caja_index(request):
             usuario=request.user
         ).select_related('caja', 'usuario')
 
-    # Desglose y movimientos del turno activo (si existe)
+    # Desglose y movimientos del turno activo (si existe). Se usa el snapshot
+    # completo `resumen_operativo()` (ventas por metodo incl. credito + cobros
+    # CxC por metodo) para que el panel muestre el desglose EN VIVO, no solo el
+    # flujo de efectivo.
+    oculta_efectivo = _oculta_efectivo_por_conteo_ciego(request)
     desglose = None
     movimientos = []
     if turno_activo:
-        desglose = turno_activo.calcular_esperado()
+        desglose = _desglose_serializable(
+            turno_activo.resumen_operativo(), ocultar_efectivo=oculta_efectivo
+        )
         movimientos = turno_activo.movimientos.all().select_related(
             'registrado_por', 'autorizado_por'
         ).order_by('-fecha')
@@ -261,6 +320,9 @@ def caja_index(request):
         # boton a un admin por permiso y se lo mostraba a un ADMIN legacy sin
         # permiso, que despues chocaba contra un 403.
         'puede_administrar_caja': puede_administrar,
+        # Conteo ciego activo para este usuario (config ON y no-admin): el
+        # template oculta el efectivo esperado hasta cerrar.
+        'conteo_ciego_activo': oculta_efectivo,
     }
 
     # Datos hidratados para Alpine.js (se renderiza con |json_script en template)
@@ -275,7 +337,7 @@ def caja_index(request):
             'apertura': turno_activo.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
             'fondo_apertura': str(turno_activo.fondo_apertura),
         }
-        init_data['desglose'] = {k: str(v) for k, v in desglose.items()}
+        init_data['desglose'] = desglose  # ya serializado por _desglose_serializable
         init_data['movimientos'] = [{
             'id': m.id,
             'tipo': m.tipo,
@@ -642,8 +704,12 @@ def api_registrar_movimiento(request):
                 autorizado_por=autorizado_por,
             )
 
-            # Recalcular esperado
-            desglose = turno.calcular_esperado()
+            # Recalcular desglose (mismo snapshot que el panel: efectivo +
+            # ventas por metodo + cobros CxC).
+            desglose = _desglose_serializable(
+                turno.resumen_operativo(),
+                ocultar_efectivo=_oculta_efectivo_por_conteo_ciego(request),
+            )
             # Outbox transaccional: atomico con el movimiento.
             sync_events.evento_movimiento_caja(movimiento)
 
@@ -657,15 +723,7 @@ def api_registrar_movimiento(request):
                     'fecha': movimiento.fecha.strftime('%d/%m/%Y %H:%M'),
                     'autorizado_por': autorizado_por.get_short_name() if autorizado_por else None,
                 },
-                'desglose': {
-                    'fondo_apertura': str(desglose['fondo_apertura']),
-                    'efectivo_ventas': str(desglose['efectivo_ventas']),
-                    'efectivo_cxc': str(desglose['efectivo_cxc']),
-                    'retiros': str(desglose['retiros']),
-                    'gastos': str(desglose['gastos']),
-                    'ingresos': str(desglose['ingresos']),
-                    'esperado': str(desglose['esperado']),
-                }
+                'desglose': desglose,
             })
 
     except Http404:
@@ -708,7 +766,10 @@ def api_estado_turno(request):
     if not turno:
         return JsonResponse({'tiene_turno': False})
 
-    desglose = turno.calcular_esperado()
+    desglose = _desglose_serializable(
+        turno.resumen_operativo(),
+        ocultar_efectivo=_oculta_efectivo_por_conteo_ciego(request),
+    )
     movimientos = turno.movimientos.select_related(
         'registrado_por', 'autorizado_por'
     ).order_by('-fecha')[:20]
@@ -721,15 +782,7 @@ def api_estado_turno(request):
             'apertura': turno.fecha_apertura.strftime('%d/%m/%Y %H:%M'),
             'fondo_apertura': str(turno.fondo_apertura),
         },
-        'desglose': {
-            'fondo_apertura': str(desglose['fondo_apertura']),
-            'efectivo_ventas': str(desglose['efectivo_ventas']),
-            'efectivo_cxc': str(desglose['efectivo_cxc']),
-            'retiros': str(desglose['retiros']),
-            'gastos': str(desglose['gastos']),
-            'ingresos': str(desglose['ingresos']),
-            'esperado': str(desglose['esperado']),
-        },
+        'desglose': desglose,
         'movimientos': [{
             'id': m.id,
             'tipo': m.tipo,
@@ -822,3 +875,99 @@ def api_detalle_turno(request, turno_id):
             'autorizado_por': (m.autorizado_por.get_short_name() or m.autorizado_por.username) if m.autorizado_por else None,
         } for m in movimientos],
     })
+
+
+# ============================================================================
+# TICKET / COMPROBANTE DE CUADRE DE CAJA (imprimible por navegador)
+# ============================================================================
+
+# Etiquetas legibles y orden estable para el desglose por metodo del cuadre.
+_METODO_LABELS = {
+    'EFECTIVO': 'Efectivo',
+    'TRANSFERENCIA': 'Transferencia',
+    'TARJETA': 'Tarjeta',
+    'CREDITO': 'Credito',
+}
+_ORDEN_VENTAS = ('EFECTIVO', 'TRANSFERENCIA', 'TARJETA', 'CREDITO')
+_ORDEN_COBROS = ('EFECTIVO', 'TRANSFERENCIA', 'TARJETA')
+
+
+def _lineas_por_metodo(por_metodo, orden):
+    """Lista ordenada [{'label', 'monto'}] de los metodos con monto > 0."""
+    lineas = []
+    for metodo in orden:
+        monto = por_metodo.get(metodo)
+        if monto:
+            lineas.append({'label': _METODO_LABELS.get(metodo, metodo), 'monto': monto})
+    return lineas
+
+
+@login_required
+@requiere_permiso_local('caja.operar', redirect_to='pos:punto_venta')
+def cuadre_ticket(request, turno_id):
+    """Comprobante imprimible del cuadre de un turno (abierto o cerrado).
+
+    Sirve tanto al boton "Imprimir" del cierre como a la reimpresion desde el
+    historial. Fuente unica de cifras: `TurnoCaja.resumen_operativo()`. Se
+    imprime por el navegador (window.print) -> vale para la Epson L4260 en papel
+    normal (?formato=carta) o como tira 80mm (?formato=ticket).
+    """
+    from django.shortcuts import redirect
+    from apps.configuracion.utils import get_config
+
+    turno = get_object_or_404(turnos_en_alcance(request), id=turno_id)
+
+    # Solo admin o el propio cajero pueden ver/imprimir el cuadre.
+    if (not es_admin(request.user, getattr(request, 'sucursal', None))
+            and turno.usuario != request.user):
+        return redirect('caja:index')
+
+    resumen = turno.resumen_operativo()
+
+    formato = request.GET.get('formato', 'carta')
+    if formato not in ('carta', 'ticket'):
+        formato = 'carta'
+
+    context = {
+        'turno': turno,
+        'resumen': resumen,
+        'ventas_lineas': _lineas_por_metodo(resumen['pagos_por_metodo'], _ORDEN_VENTAS),
+        'cobros_lineas': _lineas_por_metodo(resumen['cobros_cxc_por_metodo'], _ORDEN_COBROS),
+        'movimientos': turno.movimientos.select_related(
+            'registrado_por', 'autorizado_por'
+        ).order_by('fecha'),
+        'config': get_config(),
+        'formato': formato,
+        'auto_print': request.GET.get('print') == '1',
+    }
+    return render(request, 'caja/cuadre_ticket.html', context)
+
+
+@login_required
+@requiere_permiso_json('caja.operar')
+def api_imprimir_cuadre_termica(request, turno_id):
+    """POST: Imprime el cuadre del turno en la impresora termica (ESC/POS).
+
+    Reutiliza el conector existente (`print_manager`), como los tickets de
+    venta. Best-effort: el turno ya quedo cerrado; un fallo de impresora no
+    altera ningun dato.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Metodo no permitido'}, status=405)
+
+    turno = get_object_or_404(turnos_en_alcance(request), id=turno_id)
+    if (not es_admin(request.user, getattr(request, 'sucursal', None))
+            and turno.usuario != request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    try:
+        from utils.impresoras.manager import print_manager
+        resultado = print_manager.print_cuadre_caja(turno, request.user)
+    except Exception as exc:
+        logger.exception('Error imprimiendo cuadre en termica')
+        return JsonResponse(
+            {'success': False, 'error': 'No se pudo imprimir el cuadre.',
+             'detalle': str(exc)},
+            status=500,
+        )
+    return JsonResponse(resultado)

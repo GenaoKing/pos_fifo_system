@@ -261,6 +261,104 @@ class PrintManager:
                 'error': str(e)
             }
 
+    def print_cuadre_caja(self, turno, usuario, reimpresion=False):
+        """
+        Imprime el ticket de cuadre/arqueo de un turno de caja (best-effort: el
+        turno ya esta cerrado; un fallo de impresora no revierte nada).
+        """
+        if not self.enabled:
+            return {
+                'success': False,
+                'mensaje': 'Sistema de impresión deshabilitado',
+                'error': 'DISABLED'
+            }
+
+        try:
+            cuadre_data = self._prepare_cuadre_data(turno)
+            cuadre_data['reimpresion'] = reimpresion
+        except Exception as e:
+            error_msg = f"Error preparando datos del cuadre: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'mensaje': error_msg,
+                'error': 'DATA_PREPARATION_ERROR'
+            }
+
+        try:
+            printer = self.printer_class()
+            printer.print_cuadre_caja(cuadre_data)
+
+            # El cierre del turno ya queda auditado y sincronizado; la impresion
+            # del cuadre es best-effort y se registra solo en el log (no hay una
+            # TipoAccion dedicada y se evita tocar el modelo de auditoria).
+            logger.info(
+                "✓ Cuadre de caja impreso: turno %s (caja %s)",
+                turno.id, turno.caja.nombre,
+            )
+            mensaje = "Cuadre reimpreso exitosamente" if reimpresion else "Cuadre impreso exitosamente"
+            return {'success': True, 'mensaje': mensaje}
+
+        except Exception as e:
+            error_msg = f"Error imprimiendo cuadre de caja: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'mensaje': 'No se pudo imprimir el cuadre',
+                'error': str(e)
+            }
+
+    def _prepare_cuadre_data(self, turno):
+        """Prepara el diccionario para el ticket de cuadre desde el turno.
+
+        Fuente unica de cifras: `TurnoCaja.resumen_operativo()` (el mismo que
+        alimenta el panel del POS y el evento de sync).
+        """
+        resumen = turno.resumen_operativo()
+
+        santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
+        apertura = turno.fecha_apertura.astimezone(santo_domingo_tz)
+        cierre = turno.fecha_cierre.astimezone(santo_domingo_tz) if turno.fecha_cierre else None
+
+        labels = {
+            'EFECTIVO': 'Efectivo', 'TRANSFERENCIA': 'Transferencia',
+            'TARJETA': 'Tarjeta', 'CREDITO': 'Credito',
+        }
+
+        def lineas(por_metodo, orden):
+            return [
+                (labels.get(m, m), float(por_metodo[m]))
+                for m in orden if por_metodo.get(m)
+            ]
+
+        return {
+            'caja': turno.caja.nombre,
+            'cajero': turno.usuario.get_full_name() or turno.usuario.username,
+            'apertura': apertura.strftime('%d/%m/%Y %I:%M %p'),
+            'cierre': cierre.strftime('%d/%m/%Y %I:%M %p') if cierre else None,
+            'estado': turno.estado,
+            'ventas_lineas': lineas(
+                resumen['pagos_por_metodo'],
+                ('EFECTIVO', 'TRANSFERENCIA', 'TARJETA', 'CREDITO'),
+            ),
+            'total_ventas': float(resumen['total_ventas']),
+            'cantidad_ventas': resumen['cantidad_ventas'],
+            'cobros_lineas': lineas(
+                resumen['cobros_cxc_por_metodo'],
+                ('EFECTIVO', 'TRANSFERENCIA', 'TARJETA'),
+            ),
+            'cobros_total': float(resumen['cobros_cxc_total']),
+            'fondo_apertura': float(resumen['fondo_apertura']),
+            'efectivo_ventas': float(resumen['efectivo_ventas']),
+            'efectivo_cxc': float(resumen['efectivo_cxc']),
+            'ingresos': float(resumen['ingresos']),
+            'retiros': float(resumen['retiros']),
+            'gastos': float(resumen['gastos']),
+            'esperado': float(resumen['esperado']),
+            'contado': float(resumen['contado']),
+            'diferencia': float(resumen['diferencia']),
+        }
+
     def _prepare_recibo_cxc_data(self, pago, reimpresion=False):
         """Prepara el diccionario de datos para el recibo de abono CxC"""
         cuenta = pago.cuenta

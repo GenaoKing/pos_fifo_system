@@ -581,6 +581,103 @@ class ThermalPrinter2Connect:
         finally:
             self.disconnect()
 
+    def print_cuadre_caja(self, cuadre_data):
+        """
+        Imprime el ticket de cuadre/arqueo de un turno de caja.
+
+        Args:
+            cuadre_data (dict): caja, cajero, apertura, cierre, estado,
+                ventas_lineas [(label, monto)], total_ventas, cantidad_ventas,
+                cobros_lineas [(label, monto)], cobros_total, fondo_apertura,
+                efectivo_ventas, efectivo_cxc, ingresos, retiros, gastos,
+                esperado, contado, diferencia, reimpresion (bool).
+        """
+        if not self.connect():
+            raise ThermalPrinterException("No se pudo conectar con la impresora")
+
+        ancho = self.config['PAPER_WIDTH']
+        try:
+            self._print_header()
+
+            self.printer.set(align='center', bold=True)
+            self.printer.text("CUADRE DE CAJA\n")
+            if cuadre_data.get('reimpresion'):
+                self.printer.text("(REIMPRESION)\n")
+            self.printer.set(align='left', bold=False)
+            self.printer.text("-" * ancho + "\n")
+
+            self.printer.text(f"Caja: {cuadre_data['caja']}\n")
+            self.printer.text(f"Cajero: {cuadre_data['cajero']}\n")
+            self.printer.text(f"Apertura: {cuadre_data['apertura']}\n")
+            if cuadre_data.get('cierre'):
+                self.printer.text(f"Cierre: {cuadre_data['cierre']}\n")
+            else:
+                self.printer.text("Turno ABIERTO (parcial)\n")
+
+            # --- VENTAS ---
+            self.printer.text("-" * ancho + "\n")
+            self.printer.set(bold=True)
+            self.printer.text(f"VENTAS ({cuadre_data.get('cantidad_ventas', 0)})\n")
+            self.printer.set(bold=False)
+            for label, monto in cuadre_data.get('ventas_lineas', []):
+                self._print_total_line(f"  {label}:", monto)
+            self._print_total_line("Total ventas:", cuadre_data.get('total_ventas', 0))
+
+            # --- COBROS CxC ---
+            if cuadre_data.get('cobros_lineas'):
+                self.printer.text("-" * ancho + "\n")
+                self.printer.set(bold=True)
+                self.printer.text("COBROS CxC\n")
+                self.printer.set(bold=False)
+                for label, monto in cuadre_data['cobros_lineas']:
+                    self._print_total_line(f"  {label}:", monto)
+                self._print_total_line("Total cobros:", cuadre_data.get('cobros_total', 0))
+
+            # --- ARQUEO DE EFECTIVO ---
+            self.printer.text("=" * ancho + "\n")
+            self.printer.set(bold=True)
+            self.printer.text("ARQUEO DE EFECTIVO\n")
+            self.printer.set(bold=False)
+            self._print_total_line("Fondo apertura:", cuadre_data['fondo_apertura'])
+            self._print_total_line("+ Ventas efectivo:", cuadre_data['efectivo_ventas'])
+            self._print_total_line("+ Cobros efectivo:", cuadre_data['efectivo_cxc'])
+            self._print_total_line("+ Ingresos:", cuadre_data['ingresos'])
+            self._print_total_line("- Retiros:", cuadre_data['retiros'])
+            self._print_total_line("- Gastos:", cuadre_data['gastos'])
+            self.printer.text("-" * ancho + "\n")
+            self.printer.set(bold=True)
+            self._print_total_line("ESPERADO:", cuadre_data['esperado'])
+            self._print_total_line("CONTADO:", cuadre_data['contado'])
+            self.printer.set(bold=False)
+
+            diferencia = cuadre_data['diferencia']
+            etiqueta = "SOBRANTE:" if diferencia >= 0 else "FALTANTE:"
+            self.printer.set(bold=True)
+            self._print_total_line(etiqueta, abs(diferencia))
+            self.printer.set(bold=False)
+            self.printer.text("=" * ancho + "\n")
+
+            # Pie neutro (no es una venta: no lleva "gracias por su compra").
+            self.printer.set(align='center')
+            self.printer.text("Documento interno - arqueo de caja\n")
+            self.printer.set(align='left')
+
+            if self.config['AUTO_CUT']:
+                self.printer.cut()
+            else:
+                self.printer.text("\n\n\n")
+
+            logger.info("✓ Cuadre de caja impreso (caja %s)", cuadre_data.get('caja'))
+            return True
+
+        except Exception as e:
+            error_msg = f"Error imprimiendo cuadre de caja: {str(e)}"
+            logger.error(error_msg)
+            raise ThermalPrinterException(error_msg)
+
+        finally:
+            self.disconnect()
+
     def _print_total_line(self, label, amount):
         """Helper para imprimir líneas de totales alineadas a la derecha"""
         amount_str = f"${abs(amount):.2f}"
