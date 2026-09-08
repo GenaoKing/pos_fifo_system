@@ -277,12 +277,20 @@
                     <p class="text-xs text-gray-500">{{ user.get_rol_display|default:"Usuario" }}</p>
                 </div>
             </div>
-            <a href="{% url 'usuarios:logout' %}" class="flex items-center justify-center w-full px-3 py-2 text-sm text-danger-600 bg-danger-50 hover:bg-danger-100 rounded-lg transition-colors">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-                </svg>
-                Cerrar Sesion
-            </a>
+            {% comment %}
+            POST, no enlace: con GET cualquier sitio externo podia cerrar la
+            sesion del operador con una imagen o un enlace, sin token CSRF
+            que verificar (USR-009).
+            {% endcomment %}
+            <form method="post" action="{% url 'usuarios:logout' %}" class="w-full">
+                {% csrf_token %}
+                <button type="submit" class="flex items-center justify-center w-full px-3 py-2 text-sm text-danger-600 bg-danger-50 hover:bg-danger-100 rounded-lg transition-colors">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                    Cerrar Sesion
+                </button>
+            </form>
         </div>
     </aside>
     {% endif %}
@@ -309,6 +317,18 @@
         <!-- Acciones navbar -->
         <div class="flex items-center space-x-3">
             {% if user.is_authenticated %}
+                {% if estado_conciliacion.alerta %}
+                    <!-- Fase 3: la conciliacion diaria encontro algo, o no ha corrido -->
+                    <div
+                        class="hidden md:flex items-center px-3 py-1.5 text-sm font-medium text-warning-700 bg-warning-50 rounded-lg"
+                        title="{{ estado_conciliacion.motivo }}"
+                    >
+                        <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        Sync: revisar
+                    </div>
+                {% endif %}
                 <!-- Acceso rapido al POS -->
                 <a href="{% url 'pos:punto_venta' %}" 
                    class="hidden md:flex items-center px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors">

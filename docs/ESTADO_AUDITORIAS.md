@@ -1,19 +1,22 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-08-21** · Rama: `develop`
+Última actualización: **2026-09-07** · Rama: `develop`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
 quedó fuera de alcance a propósito**. El detalle técnico de cada hallazgo vive
 en su documento de `docs/exploracion/`; acá está lo que hace falta para operar.
 
+> **Lista accionable:** [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md) — los mismos
+> pendientes en formato de checklist, ordenados por urgencia.
+
 ---
 
 ## 1. Resumen de avance
 
-**103 hallazgos verificados y mitigados en 7 módulos.** En todos los casos se
-releyó cada hallazgo contra el código antes de tocar nada: no hubo falsos
-positivos ni hallazgos obsoletos.
+**191 hallazgos verificados y mitigados en 18 módulos** — la serie completa.
+En todos los casos se releyó cada hallazgo contra el código antes de tocar
+nada: no hubo falsos positivos ni hallazgos obsoletos.
 
 | Módulo | Hallazgos | Estado | Documento |
 |---|---:|---|---|
@@ -24,31 +27,38 @@ positivos ni hallazgos obsoletos.
 | `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
+| `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
+| `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
+| `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
+| `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
+| `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
+| `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
+| `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
+| `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
+| `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
+| `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
+| `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 721 tests, OK.**
+**Suite completa, serial: 1160 tests, OK** (base de pruebas recreada el
+2026-09-07; 1008 s).
 
 ### Auditorías escritas pero todavía sin procesar
 
-Estos documentos existen y describen hallazgos reales, pero **nadie los verificó
-ni los corrigió todavía**:
-
-| Módulo | Hallazgos documentados |
-|---|---:|
-| `apps/auditoria` | 22 |
-| `apps/productos` | 22 |
-| `apps/configuracion` | 21 |
-| `apps/permisos` | 21 |
-| `apps/usuarios` | 19 |
-| `apps/cotizaciones` | 18 |
-| `apps/api` | 8 |
+**Ninguna.** La serie quedó cerrada el 2026-08-30 con `apps/api`. Lo que
+sigue abierto son hallazgos P2/P3 dentro de módulos ya procesados, listados
+en [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md).
 
 ---
 
 ## 2. Despliegue
 
+La auditoría operativa de la promoción completa `staging..develop`, sus
+preflights y respaldos vive en
+[`docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`](handoffs/STAGING_NOTIFICACIONES_2026-09-07.md).
+
 ### 2.1 Migraciones
 
-**18 migraciones** en total (13 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
+**19 migraciones** en total (14 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
 transforman datos y merecen leerse antes de correrlas en producción.
 
 | Migración | Qué hace | Riesgo |
@@ -71,6 +81,17 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `permisos.0007_permiso_autorizar_descuento` | Data migration: agrega `ventas.autorizar_descuento` al rol Administrador | Ninguno; idempotente |
 | `ventas.0008_venta_descuento_autorizacion` | 2 campos nullable en `Venta` (quién autorizó, motivo) | Ninguno |
 | `auditoria.0004_alter_auditoria_accion` | Nueva opción `DESC_AUTH` en `TipoAccion` | Ninguno: solo cambia `choices` |
+| `productos.0011_producto_imagen_origen_url_producto_origen_sucursal_and_more` | 3 campos nuevos en `Producto` (`origen_sucursal`, `pendiente_revision`, `imagen_origen_url`) para el patrón de stub — ver BUG-H en `docs/BUGS.md` | Ninguno: todos con default inocuo |
+| `auditoria.0005_auditoria_inmutable_y_actor` | Snapshot del actor + hash de integridad | No transforma datos. Los registros previos quedan **sin hash**: el verificador los reporta como no verificables, no como buenos |
+| `auditoria.0006_alter_auditoria_fecha_hora` | `fecha_hora` deja de ser `auto_now_add` (pasa a `default=now`, `editable=False`) — corrige el hash de integridad de 0005 | No transforma datos. **Desplegar junto con 0005**: el hash de 0005 quedaba mal firmado y en producción esa migración aún no corrió, así que ningún registro real llegó a firmarse con el hash roto. Ver la nota de `verificar_auditoria` en §2.5 |
+| `clientes.0006_cliente_contado_singleton` | ⚠️ Singleton del cliente CONTADO | **ABORTA** si hay un cliente REAL marcado CONTADO (reasignar sus ventas al generico falsificaria la historia). Los duplicados limpios del generico se consolidan repuntando ventas, CxC y cotizaciones |
+| `usuarios.0004_usuario_negocio_protect` | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT` | No transforma datos. **Borrar un negocio con usuarios ahora falla** con `ProtectedError` |
+| `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
+| `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
+| `permisos.0010_notificaciones_administrar` | Agrega el permiso al rol Administrador de sistema | No modifica roles personalizados |
+| `notificaciones.0001_initial` | Tablas de reglas, eventos, bandeja, dispositivos, entregas y marcador durable | Ninguno; el motor nace apagado |
+| `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
+| `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
@@ -89,6 +110,18 @@ cierre. Por defecto `BASE_DIR/private/reportes`.
   PDF. Ya está en `.gitignore`.
 - Bajo tenancy, los archivos se separan solos por prefijo de tenant.
 
+**Backend de cache compartido (Redis) para el cloud** — recomendado, no
+obligatorio. El motor de permisos detecta que `LocMemCache` no se comparte
+entre los tres workers de Gunicorn y, para no autorizar con datos revocados,
+**deja de cachear entre requests**: funciona correctamente pero paga una
+consulta por request y usuario. Con Redis configurado recupera el cache y la
+invalidacion por version alcanza a los tres workers a la vez.
+
+**`AUDITORIA_CONFIAR_EN_PROXY`** (opcional, default `False`). Ponerlo en
+`True` **solo** si hay un proxy delante que reescribe `X-Forwarded-For` y
+descarta la cabecera del cliente. Es una afirmacion sobre el despliegue: sin
+el, la IP de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
+
 ### 2.3 Permisos nuevos en el catálogo RBAC
 
 Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos).
@@ -101,12 +134,22 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
 | `reportes.ver` | Dashboard personal | **Sí** |
 | `reportes.sucursal.ver` | Reportes on-demand de las sucursales asignadas | No |
 | `ventas.autorizar_descuento` | Autorizar un descuento sobre la tolerancia (§2.6) | No, y es el punto |
+| `productos.fotografiar` | Subir/cambiar la foto de un producto desde el portal cloud (no precio/categoría) | **Sí** |
+| `auditoria.consolidado.ver` | Ver el historial de TODAS las sucursales | No, y es el punto |
+| `cotizaciones.ver` / `cotizaciones.crear` | Emitir y consultar cotizaciones | **Si** |
+| `cotizaciones.precio_negociado` | Cotizar por debajo del precio vigente | No, y es el punto |
+| `notificaciones.administrar` | Configurar eventos, roles, usuarios y umbrales | No; solo Administrador de sistema por migracion |
 
 > **Revisá los roles existentes después de desplegar.** `caja.operar` y
 > `reportes.ver` entran en `PERMISOS_CAJERO_DEFAULT` para que ninguna
 > instalación pierda pantallas, pero **un rol custom que hayas creado a mano no
 > los tiene**. Sin `caja.operar` el módulo de caja da 403; sin `reportes.ver`,
 > el dashboard redirige al POS.
+>
+> `productos.fotografiar` (+ `productos.ver`, que ya existía pero no estaba en
+> el rol cajero) es distinto: la data migration `permisos.0008` ya se lo agrega
+> al rol Cajero **de sistema** en cada negocio existente, no solo a los nuevos.
+> Sigue sin tocar roles custom creados a mano — mismo caveat de arriba.
 
 ### 2.4 Cambios de contrato que rompen clientes viejos
 
@@ -121,8 +164,107 @@ Se agregan solos con `sembrar_catalogo` (corre en la data migration de permisos)
    etiqueta. Si alguien venía usando el endpoint como "stock de hoy con fecha
    bonita", las cifras van a cambiar — correctamente. Una fecha futura ahora da
    400.
-4. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
+4. **Un ADMIN de tenant ya no administra suscripciones.** Los endpoints de
+   planes, modulos, suscripciones y overrides exigen ahora un principal
+   global (SYSADMIN, superusuario o identidad global del control plane). El
+   catalogo ya describia esa capacidad como del operador del SaaS; el acceso
+   total legacy se la concedia igual, y en una BD por tenant eso permitia
+   editarse el propio plan. **Si el portal React muestra esa seccion a un
+   ADMIN, ahora recibira 403.**
+5. **Llamar a `tiene_permiso` sin sucursal cambio de significado.** Antes
+   unia las asignaciones de TODAS las sucursales; ahora consulta solo las
+   globales. La union sigue disponible como `sucursal=TODAS`. En una
+   instalacion de una sola sucursal no cambia nada.
+6. **Un codigo de permiso con typo deniega**, incluso para ADMIN.
+7. **El logout solo acepta POST.** `GET /logout/` devuelve **405**;
+   cualquier integracion o marcador que lo use hay que cambiarlo.
+8. **Desactivar un usuario retira el acceso de inmediato** en todos los
+   caminos: sesion abierta, Django Admin, token DRF y JWT. Antes solo lo
+   frenaba el login local, y solo al iniciar sesion.
+9. **`Auditoria.objects.update()` y `.delete()` lanzan `AuditoriaInmutable`.**
+   Si algun script hacia limpieza asi, va a fallar — a proposito. La via es
+   `Auditoria.objects.purgar_hasta(fecha, motivo=...)`, que registra su
+   propia ejecucion.
+10. **Las fechas del dashboard de auditoria se mueven a hora local.** Hasta
+    ahora se mostraban en UTC: cuatro horas corridas en Santo Domingo.
+11. **`negocio_actual()` ya no decide alcance global.** Sigue devolviendo
+    `Negocio | None`, pero `None` significa "no hay tenant", nunca "todos".
+    Quien necesite distinguir usa `resolver_negocio()`. Los builders de
+    reportes reciben `resolucion=` y sin scope devuelven vacio.
+12. **Un `?negocio=` invalido o inactivo devuelve 403** en vez de ampliar la
+    consulta a todos los negocios.
+13. **Las lecturas de clientes exigen `clientes.ver`.** Listado, busqueda y
+    detalle entregaban cedula/RNC, telefono, direccion, notas internas,
+    limite y saldo a cualquier autenticado. Si un rol operativo los usaba
+    sin el permiso, hay que agregarselo.
+14. **Subir el limite de credito por el portal exige el permiso
+    financiero.** Un PATCH que mezcle telefono y limite se rechaza entero.
+15. **Con sync activo, editar un cliente del cloud devuelve 409** en el POS
+    local: antes se confirmaba y el siguiente pull lo pisaba.
+16. **El cliente CONTADO no se edita ni se borra desde el portal.**
+17. **El CRUD de productos y categorias exige permisos.** Una cajera sin
+    ellos pierde el listado y recibe 403 en crear, editar, desactivar,
+    imagenes y etiquetas. Los roles de sistema ya los tienen; un rol custom
+    creado a mano, no.
+18. **Un producto de categoria inactiva deja de venderse** en las tres
+    busquedas del POS, en los accesos rapidos y en la confirmacion de la
+    venta. Si el negocio usaba categorias inactivas como agrupacion sin
+    intencion de retirar sus productos, esos productos desaparecen.
+19. **La subida de imagen solo acepta JPEG/PNG/WEBP** de hasta 8 MB, y
+    renombra el archivo del lado servidor.
+20. **`get_config()` puede lanzar `ConfiguracionNoResuelta`**, pero solo
+    cuando `SUCURSAL_CODIGO` no resuelve Y hay mas de una configuracion:
+    el escenario donde antes se servia la de otra tienda en silencio.
+21. **Un staff con permisos Django sobre la configuracion ya no entra al
+    Admin sin `configuracion.administrar`**, y solo ve las sucursales de
+    su alcance. Ese permiso existia en el catalogo pero no habilitaba
+    nada, asi que es probable que nadie lo tenga asignado.
+22. **`migrar_env_cliente --dry-run` ya no imprime credenciales.**
+23. **Suspender un negocio ahora suspende.** Antes le habilitaba TODOS los
+    modulos, igual que `plan=null`. Si alguna instalacion tiene hoy
+    `activa=False` y opera con funciones premium, esas funciones
+    desapareceran al desplegar.
+24. **Un override de sucursal apagado bloquea los endpoints API** de ese
+    modulo, y un token de servicio con usuario sin negocio deja de ser
+    fail-open.
+25. **Bajar de plan, suspender o borrar un override pueden devolver 400**
+    si hay datos en vuelo o dependientes activos.
+26. **Cotizar por debajo del precio vigente exige
+    `cotizaciones.precio_negociado`**, que NO esta en ningun rol por
+    defecto. Antes, cotizar barato era la puerta trasera del permiso de
+    descuentos: la cotizacion se vuelve fuente autorizada de precio.
+27. **Una cotizacion de mas de 15 dias ya no se convierte.** El PDF lo
+    afirmaba desde siempre; ahora el backend lo sostiene.
+28. **La conversion falla si cambia el cliente, la sucursal o si se piden
+    mas unidades de las cotizadas.**
+29. **Todos los importes de PDF pasan de `$` a `RD$`.** `$1,234.50` no
+    distinguia DOP de USD en un documento que alguien usa para cobrar.
+    Es visible para el cliente final; la constante es `SIMBOLO_MONEDA`.
+30. **Un importe corrupto o no finito impide emitir el documento**
+    (`ImporteInvalido`) en vez de imprimirse como `$0.00`. Un PDF bien
+    formado y materialmente falso es peor que no emitirlo.
+31. **Cada documento se encabeza con la identidad fiscal de SU sucursal.**
+    Si una instalacion venia imprimiendo todo con la del `settings`, los
+    documentos de otras sucursales cambian de encabezado.
+32. **Los errores de reportes traen `codigo`** y los 500 ya no incluyen el texto
    de la excepción.
+33. **Un usuario sin negocio deja de verlo todo** (NEG-001), y esto se
+    observa sobre todo en la API: cartera CxC, reportes cloud y
+    `sucursales/status`. Antes, `negocio_id=NULL` en una cuenta activa se
+    leía como "sin filtro" y entregaba los datos de **todos** los negocios.
+    Solo aplica donde hay más de un negocio activo: la instalación local de
+    un negocio único sigue funcionando igual. **Revisar antes de desplegar:**
+
+    ```sql
+    SELECT id, username, rol FROM usuarios_usuario
+    WHERE negocio_id IS NULL AND activo AND NOT is_superuser;
+    ```
+
+    Si alguna de esas cuentas está en uso, asignarle su negocio **antes** de
+    desplegar o se queda sin cartera ni reportes. Esta regla reemplaza una
+    decisión explícita de junio de 2026 en la auditoría de `apps/api` ("el
+    solicitante sin negocio resoluble ve todo por defecto"), que confundía
+    "es un principal global" con "no pude resolver el negocio".
 
 ### 2.6 Feature nuevo: descuentos con autorización
 
@@ -198,6 +340,14 @@ python manage.py generar_cierre_diario                    # local
 python manage.py generar_cierre_diario --tenant demo      # un tenant
 python manage.py generar_cierre_diario --todos-los-tenants
 ```
+
+**`verificar_auditoria` en entornos que ya corrieron un `0005` pre-fix.** Si una
+base de dev/staging registró auditoría entre `0005` y `0006` (código con el hash
+mal firmado), esos registros aparecerán como **alterados** al verificar — fueron
+firmados por el código defectuoso, no manipulados. En producción no pasa: `0005`
+y `0006` entran juntos. Para una base así, la vía limpia es purgar el tramo
+afectado con `Auditoria.objects.purgar_hasta(fecha, motivo=...)` o aceptar que
+ese corte quede marcado.
 
 ---
 
@@ -301,6 +451,12 @@ Ninguno bloquea el despliegue.
 - **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
   sin sucursal en varios puntos de esa app.
 - **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- **Guards RBAC duplicados en notificaciones.**
+  `notificaciones.services._asignaciones_en_alcance` replica a mano los filtros
+  `activo` de `permisos.engine._resolver_permisos` (rol, negocio y sucursal).
+  Hoy están sincronizados y con comentario cruzado en ambos lados; extraer un
+  único helper compartido evitaría que puedan divergir. Surgió del code review
+  de notificaciones (2026-09-05); no bloquea el despliegue.
 
 ### Presentación y rendimiento
 

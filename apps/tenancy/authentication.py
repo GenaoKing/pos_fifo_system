@@ -115,11 +115,13 @@ class TenantJWTAuthentication(JWTAuthentication):
         if user is None:
             raise AuthenticationFailed('Usuario operativo inactivo o inexistente.', code='user_not_found')
 
-        # El gate de portal se reaplica contra el rol ACTUAL del usuario, no
-        # contra el `rol` que quedo grabado en el token al hacer login.
-        if getattr(user, 'rol', None) not in ('ADMIN', 'SYSADMIN'):
+        # Mismo gate RBAC del login, revalidado en cada request. Una regla de
+        # notificacion no participa: solo cuentan permisos efectivos de roles.
+        from apps.permisos.engine import TODAS, permisos_de_usuario
+        if not permisos_de_usuario(user, sucursal=TODAS):
             raise AuthenticationFailed(
-                'El usuario ya no tiene rol de portal.', code='rol_no_autorizado',
+                'El usuario ya no tiene permisos para el portal.',
+                code='sin_permisos_portal',
             )
 
         user.identity_id = identity.pk

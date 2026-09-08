@@ -143,6 +143,22 @@
                                     </template>
                                 </div>
                             </template>
+
+                            {# Reimprimir el cuadre de este turno #}
+                            <div class="flex gap-2 pt-1">
+                                <a href="{% url 'caja:cuadre_ticket' t.id %}?print=1" target="_blank"
+                                   class="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                                    Reimprimir documento
+                                </a>
+                                {% if config.modulo_impresion_termica %}
+                                <button type="button" @click="imprimirTermica({{ t.id }})"
+                                        class="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M7 4h10M7 4H5m2 0h10m0 0v16m0-16h2M9 8h6m-6 4h6m-5 4h4"></path></svg>
+                                    En térmica
+                                </button>
+                                {% endif %}
+                            </div>
                         </div>
                     </template>
 
@@ -189,6 +205,19 @@ function historialApp() {
                 this.detalle = data;
             } catch (e) {
                 console.error('Error cargando detalle:', e);
+            }
+        },
+
+        async imprimirTermica(turnoId) {
+            try {
+                const res = await fetch(`/caja/api/turno/${turnoId}/cuadre/termica/`, {
+                    method: 'POST', headers: jsonHeaders(), body: '{}',
+                });
+                const data = await res.json();
+                showToast(data.success ? 'success' : 'error',
+                          data.mensaje || data.error || (data.success ? 'Cuadre impreso' : 'No se pudo imprimir'));
+            } catch (e) {
+                showToast('error', 'Error de conexión con la impresora');
             }
         },
 

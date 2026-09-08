@@ -12,7 +12,7 @@ from apps.common.pdf.standard import (
     standard_table,
     totals_table,
 )
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import config_para_documento
 
 from .almacenamiento import ruta_cierre
 from .models import CierreCaja
@@ -44,7 +44,9 @@ class PDFGenerator:
         """Genera PDF del cierre de caja."""
         cierre = CierreCaja.objects.get(id=cierre_id)
         filepath = PDFGenerator._build_path(cierre)
-        config = get_config()
+        # COM-001. Un resumen CONSOLIDADO (sucursal nula) cae al contexto
+        # actual, que es lo correcto: no documenta una tienda sino todas.
+        config = config_para_documento(cierre.sucursal)
 
         total_flujo = (
             cierre.total_efectivo

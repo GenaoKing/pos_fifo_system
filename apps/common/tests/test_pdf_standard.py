@@ -24,8 +24,10 @@ class DummyConfig:
 
 class PdfStandardTests(SimpleTestCase):
     def test_helpers_formatean_valores_basicos(self):
-        self.assertEqual(money(None), '$0.00')
-        self.assertEqual(money(Decimal('1234.5')), '$1,234.50')
+        # COM-003: el simbolo era `$` a secas, indistinguible de dolares en un
+        # documento comercial o fiscal dominicano.
+        self.assertEqual(money(None), 'RD$0.00')
+        self.assertEqual(money(Decimal('1234.5')), 'RD$1,234.50')
         self.assertEqual(date(None), '-')
 
     def test_standard_table_y_header_generan_pdf_sin_datos(self):

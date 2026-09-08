@@ -34,6 +34,14 @@ from .views.suscripciones import (
     SuscripcionNegocioViewSet,
 )
 from .views.health import health_check, health_live
+from .views.notificaciones import (
+    CatalogoNotificacionesView,
+    DestinatariosNotificacionesView,
+    NotificacionViewSet,
+    PushConfigView,
+    ReglasNotificacionesView,
+    SuscripcionPushViewSet,
+)
 
 # ============================================
 # ROUTER DRF — ViewSets de datos maestros
@@ -69,6 +77,13 @@ router_v1.register(
 router_v1.register(
     r'suscripciones/overrides', NegocioModuloViewSet, basename='negocio-modulo'
 )
+router_v1.register(
+    r'notificaciones/push/suscripciones', SuscripcionPushViewSet,
+    basename='suscripcion-push',
+)
+router_v1.register(
+    r'notificaciones', NotificacionViewSet, basename='notificacion',
+)
 
 # ============================================
 # URL PATTERNS
@@ -80,6 +95,27 @@ urlpatterns_v1 = [
 
     # Autenticación (tokens JWT)
     path('auth/', include('apps.api.auth_urls')),
+
+    path(
+        'notificaciones/catalogo/', CatalogoNotificacionesView.as_view(),
+        name='notificaciones-catalogo',
+    ),
+    path(
+        'notificaciones/destinatarios/', DestinatariosNotificacionesView.as_view(),
+        name='notificaciones-destinatarios',
+    ),
+    path(
+        'notificaciones/reglas/', ReglasNotificacionesView.as_view(),
+        name='notificaciones-reglas',
+    ),
+    path(
+        'notificaciones/reglas/<str:pk>/', ReglasNotificacionesView.as_view(),
+        name='notificaciones-regla-detalle',
+    ),
+    path(
+        'notificaciones/push/config/', PushConfigView.as_view(),
+        name='notificaciones-push-config',
+    ),
 
     # Sucursales (Fase 5)
     path('sucursales/', include('apps.api.sucursales_urls')),

@@ -252,6 +252,7 @@ class TurnoCaja(models.Model):
             'venta__estado': 'COMPLETADA',
             'metodo': 'EFECTIVO',
             'venta__usuario': self.usuario,
+            'venta__sucursal': self.caja.sucursal,
         }
         if self.fecha_cierre:
             filtro_turno['venta__fecha_venta__lte'] = self.fecha_cierre
@@ -274,6 +275,7 @@ class TurnoCaja(models.Model):
             'estado': 'APLICADO',
             'metodo': 'EFECTIVO',
             'registrado_por': self.usuario,
+            'cuenta__sucursal': self.caja.sucursal,
         }
         if self.fecha_cierre:
             filtro_cxc['fecha_pago__lte'] = self.fecha_cierre
@@ -318,6 +320,86 @@ class TurnoCaja(models.Model):
             'gastos': movimientos['gastos'] or Decimal('0.00'),
             'ingresos': movimientos['ingresos'] or Decimal('0.00'),
             'esperado': esperado,
+        }
+
+    def resumen_operativo(self, efectivo=None):
+        """Snapshot unico para la respuesta local y el evento de sync.
+
+        Separa ventas de cobros CxC y conserva todos los metodos de pago. Los
+        registros nuevos usan el FK exacto al turno; el rango temporal queda
+        solo como compatibilidad para datos anteriores a ese contrato.
+
+        `efectivo` permite reutilizar el `calcular_esperado()` que ya hizo
+        `cerrar()`, evitando recomputar las agregaciones bajo el lock del
+        cierre. Si no se pasa, se calcula aqui.
+        """
+        from apps.cuentas_por_cobrar.models import PagoCxC
+        from apps.ventas.models import Pago, Venta
+
+        fin = self.fecha_cierre or timezone.now()
+        pagos = Pago.objects.filter(
+            models.Q(turno_caja=self)
+            | models.Q(
+                turno_caja__isnull=True,
+                venta__fecha_venta__gte=self.fecha_apertura,
+                venta__fecha_venta__lte=fin,
+                venta__usuario=self.usuario,
+                venta__sucursal=self.caja.sucursal,
+            ),
+            venta__estado='COMPLETADA',
+        )
+        pagos_por_metodo = {
+            fila['metodo']: fila['total'] or Decimal('0.00')
+            for fila in pagos.values('metodo').annotate(total=models.Sum('monto'))
+        }
+        ventas = Venta.objects.filter(id__in=pagos.values('venta_id').distinct())
+        ventas_agg = ventas.aggregate(
+            cantidad=models.Count('id'), total=models.Sum('total'),
+        )
+
+        cobros = PagoCxC.objects.filter(
+            models.Q(turno_caja=self)
+            | models.Q(
+                turno_caja__isnull=True,
+                fecha_pago__gte=self.fecha_apertura,
+                fecha_pago__lte=fin,
+                registrado_por=self.usuario,
+                cuenta__sucursal=self.caja.sucursal,
+            ),
+            estado=PagoCxC.ESTADO_APLICADO,
+        )
+        cobros_por_metodo = {
+            fila['metodo']: fila['total'] or Decimal('0.00')
+            for fila in cobros.values('metodo').annotate(total=models.Sum('monto'))
+        }
+        cobros_total = sum(cobros_por_metodo.values(), Decimal('0.00'))
+
+        if efectivo is None:
+            efectivo = self.calcular_esperado()
+        esperado = self.monto_esperado
+        if esperado is None:
+            esperado = efectivo['esperado']
+        contado = self.monto_contado if self.monto_contado is not None else Decimal('0.00')
+        diferencia = self.diferencia
+        if diferencia is None:
+            diferencia = contado - esperado
+
+        return {
+            'cantidad_ventas': ventas_agg['cantidad'] or 0,
+            'total_ventas': ventas_agg['total'] or Decimal('0.00'),
+            'pagos_por_metodo': pagos_por_metodo,
+            'cobros_cxc_total': cobros_total,
+            'cobros_cxc_por_metodo': cobros_por_metodo,
+            'fondo_apertura': efectivo['fondo_apertura'],
+            'efectivo_ventas': efectivo['efectivo_ventas'],
+            'efectivo_cxc': efectivo['efectivo_cxc'],
+            'retiros': efectivo['retiros'],
+            'gastos': efectivo['gastos'],
+            'ingresos': efectivo['ingresos'],
+            'esperado': esperado,
+            'contado': contado,
+            'diferencia': diferencia,
+            'fuente_resumen': 'pos_snapshot',
         }
 
     def cerrar(self, monto_contado, cerrado_por, notas=None):

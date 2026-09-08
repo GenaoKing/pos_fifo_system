@@ -102,16 +102,23 @@ def _parse_single_date(params, name='fecha'):
     return _parse_date(params.get(name), name, timezone.localdate())
 
 
-def _active_sucursales(codigo=None, negocio=None):
+def _active_sucursales(codigo=None, resolucion=None):
     """Sucursales activas que alimentan los reportes consolidados.
 
-    `negocio` acota al tenant del solicitante (aislamiento multi-negocio); None
-    = usuario global/SYSADMIN -> todas las sucursales activas. `codigo` acota
-    DENTRO del scope (un codigo de otro negocio devuelve 404).
+    `resolucion` es el resultado tipado de `resolver_negocio()`. Antes llegaba
+    un `Negocio | None` y `None` se leia como "todas las sucursales activas" —
+    pero `None` tambien era lo que devolvia el resolver ante un usuario
+    huerfano o un `?negocio=` inexistente. Los dos casos de FALLO terminaban en
+    el scope mas amplio del sistema (NEG-001, NEG-002).
+
+    `codigo` acota DENTRO del scope (un codigo de otro negocio devuelve 404).
     """
     queryset = Sucursal.objects.filter(activa=True).order_by('codigo')
-    if negocio is not None:
-        queryset = queryset.filter(negocio=negocio)
+    if resolucion is None:
+        # Sin resolucion no hay a quien atribuirle el pedido: fail-closed.
+        queryset = queryset.none()
+    else:
+        queryset = resolucion.filtrar(queryset)
     if codigo:
         queryset = queryset.filter(codigo=codigo)
         if not queryset.exists():
@@ -271,10 +278,10 @@ def _aggregate_sales_by_sucursal(periodo: Periodo, codigos):
     return data
 
 
-def build_ventas_hoy(params, codigo_sucursal=None, negocio=None):
+def build_ventas_hoy(params, codigo_sucursal=None, resolucion=None):
     hoy = timezone.localdate()
     periodo = Periodo(hoy, hoy)
-    sucursales = _active_sucursales(codigo_sucursal, negocio)
+    sucursales = _active_sucursales(codigo_sucursal, resolucion)
     codigos = [s.codigo for s in sucursales]
     metrics_by_sucursal = _aggregate_sales_by_sucursal(periodo, codigos)
 
@@ -346,7 +353,7 @@ def build_ventas_hoy(params, codigo_sucursal=None, negocio=None):
     }
 
 
-def build_comparativo(params, negocio=None):
+def build_comparativo(params, resolucion=None):
     periodo = _parse_period(params)
     agrupacion = params.get('agrupacion') or 'dia'
     if agrupacion not in ('dia', 'semana', 'mes'):
@@ -368,7 +375,7 @@ def build_comparativo(params, negocio=None):
             status_code=400,
         )
 
-    sucursales = _active_sucursales(params.get('sucursal'), negocio)
+    sucursales = _active_sucursales(params.get('sucursal'), resolucion)
     codigos = [s.codigo for s in sucursales]
     totals = _aggregate_sales_by_sucursal(periodo, codigos)
     series = defaultdict(lambda: defaultdict(_empty_metrics))
@@ -421,9 +428,9 @@ def build_comparativo(params, negocio=None):
     }
 
 
-def build_ventas_por_cajero(params, negocio=None):
+def build_ventas_por_cajero(params, resolucion=None):
     periodo = _parse_period(params)
-    sucursales = _active_sucursales(params.get('sucursal'), negocio)
+    sucursales = _active_sucursales(params.get('sucursal'), resolucion)
     codigos = [s.codigo for s in sucursales]
     rows = defaultdict(lambda: {**_empty_metrics(), **_empty_payment_metrics(), 'usuario': None, 'sucursal': None})
 
@@ -494,9 +501,9 @@ def build_ventas_por_cajero(params, negocio=None):
     }
 
 
-def build_top_productos(params, negocio=None):
+def build_top_productos(params, resolucion=None):
     periodo = _parse_period(params)
-    sucursales = _active_sucursales(params.get('sucursal'), negocio)
+    sucursales = _active_sucursales(params.get('sucursal'), resolucion)
     codigos = [s.codigo for s in sucursales]
     try:
         limit = int(params.get('limit', 10))
@@ -541,10 +548,10 @@ def build_top_productos(params, negocio=None):
     }
 
 
-def build_cierre_consolidado(params, negocio=None):
+def build_cierre_consolidado(params, resolucion=None):
     fecha = _parse_single_date(params)
     periodo = Periodo(fecha, fecha)
-    sucursales = _active_sucursales(params.get('sucursal'), negocio)
+    sucursales = _active_sucursales(params.get('sucursal'), resolucion)
     codigos = [s.codigo for s in sucursales]
     totals = _aggregate_sales_by_sucursal(periodo, codigos)
     payments = defaultdict(_empty_payment_metrics)
@@ -575,7 +582,7 @@ def build_cierre_consolidado(params, negocio=None):
         'desde': str(fecha),
         'hasta': str(fecha),
         **({'sucursal': params.get('sucursal')} if params.get('sucursal') else {}),
-    }, negocio=negocio)['cajeros']
+    }, resolucion=resolucion)['cajeros']
     por_cajero_by_sucursal = defaultdict(list)
     for row in por_cajero:
         por_cajero_by_sucursal[row['sucursal_codigo']].append(row)
@@ -630,8 +637,13 @@ def build_cierre_consolidado(params, negocio=None):
     }
 
 
-def build_inventario_consolidado(params):
+def build_inventario_consolidado(params, resolucion=None):
     """Snapshot de inventario LOCAL (single-source), NO consolidado por sucursal.
+
+    `resolucion` se acepta por uniformidad de la firma pero NO se usa: `Producto`
+    no tiene FK a negocio, y su aislamiento es DB-per-tenant, no por queryset.
+    Que este explicito evita que alguien lo agregue "por si acaso" sobre un
+    campo que no existe.
 
     Hoy el stock vive en `Producto.stock_actual` (replicado del POS), no hay un
     modelo de stock por sucursal en cloud: por eso `stock_por_sucursal` trae una

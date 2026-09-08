@@ -489,6 +489,7 @@ class LogSync(models.Model):
         ('PULL', 'Pull de maestros'),
         ('PING', 'Verificar conexion'),
         ('FULL', 'Ciclo completo'),
+        ('CONCILIACION', 'Conciliacion (anti-entropia)'),
     ]
 
     RESULTADO_CHOICES = [
@@ -535,6 +536,11 @@ class LogSync(models.Model):
     eventos_fallidos = models.IntegerField(default=0, verbose_name='Eventos fallidos')
     registros_descargados = models.IntegerField(default=0, verbose_name='Registros descargados')
     mensaje = models.TextField(blank=True, default='', verbose_name='Mensaje')
+    # Solo lo usa tipo=CONCILIACION: la lista de divergencias de
+    # `apps/sync/resumen.py::comparar_resumenes`. Un JSONField aparte, no
+    # texto en `mensaje`, porque el panel POS necesita leerlo estructurado
+    # (cuantas, de que tipo) sin parsear una cadena libre.
+    detalle = models.JSONField(null=True, blank=True, verbose_name='Detalle')
 
     class Meta:
         verbose_name = 'Log de sync'

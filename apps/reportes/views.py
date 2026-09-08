@@ -237,24 +237,28 @@ def dashboard(request):
         # Antes esto era un SUM por producto dentro de un for: el numero de
         # queries del dashboard crecia linealmente con el catalogo. Ahora es
         # una sola agregacion filtrada.
+        # El nombre de la anotacion NO puede ser `stock_actual`: `Producto`
+        # ya tiene una @property de solo lectura con ese nombre, y el ORM
+        # crashea al hidratar la fila (`setattr` sobre una property sin
+        # setter -- AttributeError).
         productos_activos = Producto.objects.filter(
             activo=True, stock_minimo__gt=0,
         ).annotate(
-            stock_actual=Coalesce(
+            stock_actual_anotado=Coalesce(
                 Sum(
                     'lotes__cantidad_actual',
                     filter=Q(lotes__activo=True, lotes__cantidad_actual__gt=0),
                 ),
                 0,
             ),
-        ).filter(stock_actual__lte=F('stock_minimo'))
+        ).filter(stock_actual_anotado__lte=F('stock_minimo'))
 
         productos_bajo_stock = [{
             'producto': prod,
-            'stock_actual': prod.stock_actual,
+            'stock_actual': prod.stock_actual_anotado,
             'stock_minimo': prod.stock_minimo,
             'porcentaje': (
-                int((prod.stock_actual / prod.stock_minimo) * 100)
+                int((prod.stock_actual_anotado / prod.stock_minimo) * 100)
                 if prod.stock_minimo > 0 else 0
             ),
         } for prod in productos_activos]

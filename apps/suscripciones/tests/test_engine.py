@@ -31,11 +31,37 @@ class ResolverTests(TestCase):
             negocio=self.negocio, plan=plan, activa=True
         )
 
-    def test_negocio_sin_suscripcion_solo_core(self):
+    def test_negocio_sin_aprovisionar_falla_abierto(self):
+        """
+        BUG-D / la trampa documentada en docs/ARQUITECTURA_MODULOS.md: un
+        negocio recien creado, antes de `bootstrap_suscripciones`, no tiene ni
+        suscripcion ni una sola fila de NegocioModulo. Antes esto resolvia
+        SOLO core y dejaba el POS sin imprimir en silencio -- la asimetria
+        con el fail-open de `negocio=None` era exactamente la trampa. Ahora
+        un negocio sin aprovisionar se trata igual que un negocio sin
+        resolver: todos los modulos activos.
+        """
         activos = engine.modulos_negocio(self.negocio)
-        self.assertEqual(activos, registry.core_keys())
-        self.assertNotIn('ecf', activos)
-        self.assertNotIn('cuentas_por_cobrar', activos)
+        self.assertEqual(activos, set(registry.keys()))
+        self.assertIn('ecf', activos)
+        self.assertIn('cuentas_por_cobrar', activos)
+
+    def test_negocio_con_override_pero_sin_suscripcion_respeta_el_override(self):
+        """
+        La trampa solo aplica a "nadie configuro nada". En cuanto existe UNA
+        fila de NegocioModulo -- aunque sea una sola exclusion, sin
+        suscripcion -- ya hay una decision explicita y hay que respetarla:
+        no es fail-open indiscriminado.
+        """
+        ecf = Modulo.objects.get(key='ecf')
+        NegocioModulo.objects.create(negocio=self.negocio, modulo=ecf, incluido=False)
+
+        activos = engine.modulos_negocio(self.negocio)
+        self.assertNotIn('ecf', activos, 'la exclusion explicita se respeta')
+        self.assertNotIn(
+            'cuentas_por_cobrar', activos,
+            'sin plan y sin incluirlo a mano, el resto sigue sin aparecer',
+        )
 
     def test_plan_define_modulos_con_cierre(self):
         self._suscribir('empresarial')
@@ -85,6 +111,10 @@ class ResolverTests(TestCase):
         self.assertTrue(ok)
 
     def test_invalidacion_cache_al_cambiar_override(self):
+        # Provisionado (plan 'basico', sin ecf) para no caer en el fail-open
+        # de negocio sin aprovisionar: se quiere probar la invalidacion de
+        # cache, no la trampa de BUG-D.
+        self._suscribir('basico')
         self.assertNotIn('ecf', engine.modulos_negocio(self.negocio))  # cachea
         ecf = Modulo.objects.get(key='ecf')
         NegocioModulo.objects.create(negocio=self.negocio, modulo=ecf, incluido=True)

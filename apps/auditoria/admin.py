@@ -113,8 +113,15 @@ class AuditoriaAdmin(admin.ModelAdmin):
         return False
     
     def has_delete_permission(self, request, obj=None):
-        # Solo superusuarios pueden eliminar auditoría
-        return request.user.is_superuser
+        # Nadie borra auditoria desde el Admin (AUD-002).
+        #
+        # Antes lo permitia a cualquier superusuario, es decir: la misma cuenta
+        # de alto privilegio que ejecuta una accion podia borrar su rastro desde
+        # la interfaz, sin dejar constancia del borrado.
+        #
+        # La purga por retencion existe, pero es un proceso explicito
+        # (`Auditoria.objects.purgar_hasta()`) que registra su propia ejecucion.
+        return False
     
     # === MÉTODOS PERSONALIZADOS PARA DISPLAY ===
     

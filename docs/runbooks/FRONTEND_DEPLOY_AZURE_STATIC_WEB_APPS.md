@@ -1,8 +1,9 @@
 # Deploy Frontend En Azure Static Web Apps
 
 Guia practica para publicar `pos-cloud-dashboard` como portal cloud usando
-Azure Static Web Apps (ASWA), preferiblemente en una suscripcion Pay-As-You-Go
-si Azure for Students mantiene bloqueado el recurso por policy/regiones.
+Azure Static Web Apps (ASWA). Los tres ambientes actuales estan en Azure for
+Students; para un recurso nuevo hay que verificar primero las policy/regiones
+vigentes de la suscripcion elegida.
 
 ## Estado actual
 
@@ -12,8 +13,8 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
 - Build frontend: Vite/React, salida `dist/`.
 - Config SPA: `staticwebapp.config.json` ya existe.
 - CORS local Vite validado en dev/staging para `http://localhost:5173`.
-- ASWA en Azure for Students esta bloqueado por policy/regiones; se evalua
-  crear ASWA Free desde una suscripcion Pay-As-You-Go.
+- Los tres ASWA Free (`dev`, `staging` y `prod`) fueron reverificados el
+  2026-09-07 en la suscripcion Azure for Students.
 - ASWA dev creado el 2026-06-13:
   `https://agreeable-moss-051bc0010.7.azurestaticapps.net`
   (`posfifo-dev-portal-swa`, RG `posfifo-dev-frontend-rg`, Free, branch
@@ -22,7 +23,7 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
 - ASWA staging creado el 2026-06-13:
   `https://salmon-rock-01cc45c10.7.azurestaticapps.net`
   (`posfifo-staging-portal-swa`, RG `posfifo-staging-frontend-rg`, Free,
-  workflow en branch `main`).
+  workflow en branch `staging`).
 - CORS staging aplicado para el origen ASWA staging.
 
 ## Modelo mental
@@ -46,9 +47,9 @@ GitHub pos-cloud-dashboard
   -> HTTPS API Azure Container Apps
 ```
 
-## Decision recomendada
+## Decision vigente
 
-Primero probar ASWA Free en Pay-As-You-Go:
+Mantener ASWA Free mientras alcance para el portal:
 
 - mantiene el frontend dentro del ecosistema Azure,
 - conserva el roadmap original,
@@ -64,7 +65,8 @@ En Azure Portal:
 
 1. Buscar **Static Web Apps**.
 2. `Create`.
-3. Subscription: Pay-As-You-Go.
+3. Subscription: verificar la suscripcion objetivo; los tres recursos actuales
+   usan Azure for Students.
 4. Resource group:
    - dev: `posfifo-dev-frontend-rg`
    - staging: `posfifo-staging-frontend-rg`
@@ -80,7 +82,7 @@ En Azure Portal:
 10. Repository: `pos-cloud-dashboard`.
 11. Branch:
     - dev: `develop`
-    - staging: `main` o rama/tag release cuando formalicemos promocion.
+    - staging: `staging`.
 12. Build preset: React/Vite o Custom.
 13. App location: `/`
 14. API location: dejar vacio.
@@ -110,7 +112,19 @@ Importante para Vite:
 - Para Vite, poner `VITE_API_URL` en el workflow de GitHub Actions o como
   GitHub Actions Variable usada por el workflow.
 
-## Workflow ASWA esperado
+## Workflows ASWA
+
+El portal mantiene cuatro workflows separados:
+
+- `ci.yml`: lint, Vitest y build para PR/push comunes;
+- `azure-static-web-apps-agreeable-moss-051bc0010.yml`: `develop` a dev;
+- `azure-static-web-apps-salmon-rock-01cc45c10.yml`: `staging` a staging;
+- `azure-static-web-apps-prod.yml`: `main` a produccion.
+
+Los tres deploys reaccionan solo al push de su rama o a `workflow_dispatch`
+ejecutado seleccionando esa misma rama; cada job valida `github.ref_name` para
+no cruzar ambientes. Los PR ejecutan CI pero **no** crean previews ASWA ni jobs
+de cierre. Esto evita previews huerfanos cuando el token/recurso no coincide.
 
 Si Azure genera automaticamente el workflow, revisar que tenga estos valores:
 
@@ -149,8 +163,8 @@ VITE_API_URL_STAGING=https://posfifo-staging-api.calmflower-b43e72c3.canadacentr
 ASWA normalmente crea un secret/token de deploy. Si lo crea el portal, no
 renombrarlo sin actualizar el workflow.
 
-Nota importante: `Azure/static-web-apps-deploy@v1` no acepta
-`github_id_token`. Para estos ASWA el contrato usado es deployment token:
+`Azure/static-web-apps-deploy@v1` siempre recibe el deployment token en
+`azure_static_web_apps_api_token`:
 
 ```yaml
 with:
@@ -162,14 +176,18 @@ with:
   app_build_command: "npm run build"
 ```
 
-Si el workflow muestra `Unexpected input(s) 'github_id_token'`, eliminar ese
-input y el paso que obtiene el GitHub Id Token.
+No pasar `github_id_token` dentro de `with`: esa entrada no esta soportada. Dev
+fue aprovisionado ademas con federacion GitHub y requiere conservar
+`permissions.id-token: write`, el paso `core.getIDToken()` y
+`INPUT_GITHUB_ID_TOKEN` como variable de entorno del action. Esa combinacion se
+revalido con un deploy exitoso el 2026-09-07. Staging y prod usan sus deployment
+tokens propios.
 
-Staging temporal Royal Plast:
+Staging:
 
 - Workflow: `.github/workflows/azure-static-web-apps-salmon-rock-01cc45c10.yml`
   en `pos-cloud-dashboard`.
-- Branch: `main`.
+- Branch: `staging`.
 - API horneada en build desde GitHub Actions Variable:
   `VITE_API_URL_STAGING`.
 - Secret requerido en GitHub Actions:
@@ -202,6 +220,31 @@ Settings -> Secrets and variables -> Actions -> Variables -> New repository vari
 Name: VITE_API_URL_STAGING
 Value: https://posfifo-staging-api.calmflower-b43e72c3.canadacentral.azurecontainerapps.io
 ```
+
+### Limpiar previews antiguos
+
+Primero confirmar que `default` sigue `Ready` y apunta al branch del ambiente:
+
+```powershell
+az staticwebapp environment list `
+  --name posfifo-dev-portal-swa `
+  --resource-group posfifo-dev-frontend-rg `
+  --output table
+```
+
+Despues borrar por nombre **solo** el preview confirmado; nunca borrar
+`default`:
+
+```powershell
+az staticwebapp environment delete `
+  --name posfifo-dev-portal-swa `
+  --resource-group posfifo-dev-frontend-rg `
+  --environment-name <preview> `
+  --yes
+```
+
+El 2026-09-07 se retiraron los previews huerfanos `1` y `2` de dev y se
+reverifico que `default/develop` permaneciera `Ready`.
 
 ## Node/Oryx
 

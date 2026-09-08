@@ -339,15 +339,42 @@ def serializar_movimiento_caja(movimiento):
     }
 
 
-def serializar_cierre_caja(turno):
+def serializar_cierre_caja(turno, resumen=None):
     """
     Payload de cierre de turno.
 
     En el cloud, este evento actualiza el TurnoCaja que ya fue creado por
     APERTURA_CAJA (en Opcion 3 del diseno). Si por alguna razon el turno
     no existe, el cloud lo creara como fallback.
+
+    `resumen` permite pasar el snapshot que ya calculo la vista de cierre, para
+    que el cajero y el destinatario remoto vean exactamente las mismas cifras
+    sin recomputarlas. Si no se pasa, se calcula aqui.
     """
+    if resumen is None:
+        resumen = turno.resumen_operativo()
+    resumen_serializado = {
+        **resumen,
+        'total_ventas': _d(resumen['total_ventas']),
+        'pagos_por_metodo': {
+            metodo: _d(monto) for metodo, monto in resumen['pagos_por_metodo'].items()
+        },
+        'cobros_cxc_total': _d(resumen['cobros_cxc_total']),
+        'cobros_cxc_por_metodo': {
+            metodo: _d(monto)
+            for metodo, monto in resumen['cobros_cxc_por_metodo'].items()
+        },
+        **{
+            clave: _d(resumen[clave])
+            for clave in (
+                'fondo_apertura', 'efectivo_ventas', 'efectivo_cxc',
+                'retiros', 'gastos', 'ingresos', 'esperado', 'contado',
+                'diferencia',
+            )
+        },
+    }
     return {
+        'schema_version': 2,
         'turno_id_local': turno.id,
         'sucursal_codigo': (
             turno.caja.sucursal.codigo if turno.caja.sucursal_id else None
@@ -368,6 +395,7 @@ def serializar_cierre_caja(turno):
             turno.cerrado_por.username if getattr(turno, 'cerrado_por_id', None) else None
         ),
         'notas_cierre': getattr(turno, 'notas_cierre', '') or '',
+        'resumen_turno': resumen_serializado,
     }
 
 

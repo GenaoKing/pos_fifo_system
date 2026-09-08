@@ -166,6 +166,15 @@ class Cliente(models.Model):
                 ),
                 name='cliente_origen_unico_por_sucursal',
             ),
+            # El generico CONTADO es singleton (CLI-007). El modelo admitia
+            # cualquier numero de filas `tipo='CONTADO'`, y con dos exactas
+            # `get_cliente_contado()` levantaba `MultipleObjectsReturned`: las
+            # cotizaciones y todo lo que llama al helper devolvian 500.
+            models.UniqueConstraint(
+                fields=['tipo'],
+                condition=models.Q(tipo='CONTADO'),
+                name='cliente_contado_singleton',
+            ),
         ]
 
     def __str__(self):
@@ -191,13 +200,30 @@ class Cliente(models.Model):
 
     @classmethod
     def get_cliente_contado(cls):
-        """Obtiene o crea el cliente generico CONTADO"""
-        cliente, created = cls.objects.get_or_create(
-            tipo='CONTADO',
-            nombre='CLIENTE CONTADO',
-            defaults={
-                'activo': True,
-                'notas': 'Cliente generico para ventas de contado'
-            }
-        )
-        return cliente
+        """
+        El cliente generico CONTADO. Uno solo, siempre el mismo.
+
+        La version anterior hacia `get_or_create(tipo, nombre)`: si alguien
+        habia creado un segundo generico —la vista local lo permitia— el helper
+        levantaba `MultipleObjectsReturned` y todo lo que lo llama devolvia 500.
+        Ahora la unicidad la garantiza un indice parcial, y la busqueda es por
+        `tipo` unicamente: el nombre es un atributo, no la identidad.
+        """
+        cliente = cls.objects.filter(tipo='CONTADO').first()
+        if cliente is not None:
+            return cliente
+
+        from django.db import IntegrityError, transaction
+
+        try:
+            with transaction.atomic():
+                return cls.objects.create(
+                    tipo='CONTADO',
+                    nombre='CLIENTE CONTADO',
+                    activo=True,
+                    notas='Cliente generico para ventas de contado',
+                )
+        except IntegrityError:
+            # Dos requests simultaneos en una instalacion nueva: la constraint
+            # resuelve el empate y el perdedor lee el que gano.
+            return cls.objects.get(tipo='CONTADO')

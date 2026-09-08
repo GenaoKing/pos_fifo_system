@@ -59,6 +59,12 @@ variable "enable_migrate_job" {
   default     = false
 }
 
+variable "enable_notifications_job" {
+  description = "Crea el job programado que proyecta y entrega notificaciones."
+  type        = bool
+  default     = false
+}
+
 variable "api_name" {
   description = "Nombre de la Container App API."
   type        = string
@@ -67,6 +73,17 @@ variable "api_name" {
 variable "migrate_job_name" {
   description = "Nombre del Container App Job de migraciones."
   type        = string
+}
+
+variable "notifications_job_name" {
+  description = "Nombre del Container App Job de notificaciones."
+  type        = string
+}
+
+variable "notifications_schedule_cron" {
+  description = "Cron UTC de cinco campos para el job de notificaciones."
+  type        = string
+  default     = "*/1 * * * *"
 }
 
 variable "django_secret_key" {
@@ -196,6 +213,30 @@ variable "db_user_secret_name" {
   description = "Nombre del secreto en Key Vault para DB_USER."
   type        = string
   default     = "db-user"
+}
+
+variable "web_push_enabled" {
+  description = "Expone la clave publica y habilita el envio Web Push."
+  type        = bool
+  default     = false
+}
+
+variable "web_push_vapid_public_key" {
+  description = "Clave publica VAPID, distinta por ambiente."
+  type        = string
+  default     = ""
+}
+
+variable "web_push_vapid_private_key_secret_name" {
+  description = "Nombre del secreto Key Vault con la clave privada VAPID."
+  type        = string
+  default     = "web-push-vapid-private-key"
+}
+
+variable "web_push_vapid_subject" {
+  description = "Contacto VAPID, por ejemplo mailto:operaciones@example.com."
+  type        = string
+  default     = "mailto:admin@example.com"
 }
 
 variable "enable_blob_media" {

@@ -4,6 +4,14 @@ Fecha: 2026-08-20
 Revisión de cierre: `3f22385`
 Modo: lectura, pruebas y documentación; no se aplicaron correcciones funcionales.
 
+> **Estado (2026-08-27): P1 MITIGADO (6/6).** Los seis hallazgos P1 se
+> verificaron contra el código y los seis resultaron reales; los seis están
+> corregidos, con pruebas de regresión. **P2 y P3 siguen abiertos** salvo
+> USR-008, USR-009 y USR-018, que se cerraron de paso. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Incluye 1 migración, un cambio de método HTTP en logout** (GET → POST) y un
+> gate nuevo sobre Django Admin bajo tenancy.
+
 ## Resumen ejecutivo
 
 `apps/usuarios` es pequeño, pero define la identidad operativa que atraviesa el
@@ -766,3 +774,94 @@ La app puede considerarse cerrada cuando:
 - las credenciales Identity/Usuario tienen una autoridad y rotación definidas;
 - todas las mutaciones producen auditoría sin secretos;
 - una suite propia cubre sesiones, Admin, JWT/token, tenant y provisioning.
+
+---
+
+# Estado de mitigación
+
+Fecha: 2026-08-27. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los seis son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| USR-001 | Sí | Corregido | `Usuario.is_active` pasa a ser una propiedad ligada a `activo`, con setter para los flujos de Django que lo escriben. Con eso el backend estándar, la recarga de sesión, Django Admin, los tokens DRF y SimpleJWT dejan de autenticar a una cuenta desactivada — todos consultan `is_active`. El motor RBAC además comprueba `activo` en cada resolución (ver PER-010). |
+| USR-002 | Sí | Corregido (parcial por diseño) | `PosAdminSite.has_permission`: bajo tenancy, `/admin/` exige una **identidad global** del control plane (`is_global_identity`, `identity.is_global`, o una `Identity` global y activa con el mismo email). Sin tenancy, Admin sigue siendo la herramienta de la instalación. Lo que **no** cubre: restricción por red, MFA y auditoría como frontera aparte — son decisiones de despliegue. |
+| USR-003 | Sí | Corregido | `Usuario.negocio` pasa de `SET_NULL` a `PROTECT`: borrar un negocio con usuarios ahora falla en vez de convertirlos en cuentas "global-looking". El admin además **expone `negocio`** en alta y edición, donde antes lo omitía por completo. La otra mitad —que `negocio=NULL` habilitara elegir tenant— se cerró en PER-005. |
+| USR-004 | Sí | Corregido | En logout se invalida **primero** la sesión y se audita después; en login y logout la auditoría va dentro de `_auditar()`, que registra el fallo con `logger.exception` en vez de propagarlo. La auditoría vuelve a ser observabilidad y deja de controlar la disponibilidad de lo que observa. |
+| USR-005 | Sí | Corregido | El instalador pasa un email válido (`INITIAL_SYSADMIN_EMAIL` o uno derivado del username), **comprueba `errorlevel`** después de cada paso de la fase 8 y agrega una **postcondición** que verifica que quedó un SYSADMIN activo con contraseña utilizable. Cualquier fallo aborta con código no cero, antes del banner de éxito. |
+| USR-006 | Sí | Corregido | `apps/usuarios/throttling.py`: dos ventanas (ráfaga y sostenida) sobre la clave `(IP, username)`. Un login exitoso limpia el contador; el bloqueo responde 429 con el mismo texto exista o no la cuenta. |
+| USR-008 | Sí | Corregido | `next` se valida con `url_has_allowed_host_and_scheme` contra el host del request. |
+| USR-009 | Sí | Corregido | `logout_view` es `@require_POST`; `templates/base.html` pasó de enlace a formulario con `{% csrf_token %}`. |
+| USR-018 | Sí | Corregido | La app no tenía cobertura propia. Ahora tiene 27 pruebas. |
+
+## Cambios de conducta observables
+
+1. **Desactivar un usuario retira el acceso de inmediato**, en todos los
+   caminos: login nuevo, sesión ya abierta, Django Admin, token DRF y JWT.
+   Antes solo lo frenaba el login local, y únicamente al iniciar sesión.
+2. **El logout solo acepta POST.** Cualquier integración o marcador que use
+   `GET /logout/` recibirá **405**. El único enlace del proyecto ya es un
+   formulario.
+3. **Cinco intentos fallidos por (IP, usuario) bloquean el login un minuto**, y
+   veinte en quince minutos lo bloquean por ese período. Con `LocMemCache` el
+   conteo es por worker, así que el límite efectivo se multiplica por el número
+   de procesos: sigue frenando, pero un backend compartido lo hace exacto —
+   es la misma recomendación de Redis de la auditoría de permisos.
+4. **`?next=` a un host externo se ignora** y el usuario va a su destino normal.
+5. **No se puede borrar un negocio que tenga usuarios.** Hay que reasignarlos o
+   desactivarlos primero, que es la decisión que antes se tomaba sola y en
+   silencio.
+6. **Bajo tenancy, un `Usuario` con `is_staff` pero sin identidad global ya no
+   abre `/admin/`.**
+
+## Despliegue: 1 migración
+
+**`usuarios.0004_usuario_negocio_protect`** — cambia el `on_delete` de la FK.
+No transforma datos ni toca filas; solo cambia el comportamiento futuro del
+borrado.
+
+> **Verificar antes de desplegar:** si hay algún proceso o script que borre
+> negocios, ahora fallará con `ProtectedError` cuando queden usuarios colgando.
+> Es el punto: obliga a decidir qué pasa con esas cuentas.
+
+## Lo que no se tocó
+
+Los P2 y P3 restantes siguen abiertos: USR-007 (flujo autoritativo de
+provisión de usuarios tenant), USR-010 (`Identity` y `Usuario` son credenciales
+independientes), USR-011 (el manager omite validación de password/rol),
+USR-012 (tres fuentes de privilegio sin invariantes comunes), USR-013
+(mutaciones de usuario sin auditoría de dominio), USR-014 (la IP de auditoría
+confía en cualquier `X-Forwarded-For`), USR-015 (`last_login` y `ultimo_acceso`
+cuentan historias distintas), USR-016 (unicidad sensible a mayúsculas),
+USR-017 (sesión deslizante sin máximo absoluto) y USR-019 (rutas de desarrollo).
+
+**USR-014 merece una nota:** el nuevo freno de fuerza bruta **no** lee
+`X-Forwarded-For` justamente por ese hallazgo — confiar en una cabecera que
+cualquiera puede enviar convertiría el contador en algo que el atacante
+reinicia a voluntad. Detrás de un proxy eso cuesta resolución en la parte IP de
+la clave; la parte del username sigue aplicando, y es la que corta el ataque
+dirigido. Cerrar USR-014 (definir proxies confiables) mejoraría también el
+freno.
+
+## Pruebas
+
+Suite completa, serial: **937 tests, OK.**
+
+Módulo de regresión nuevo: `apps/usuarios/tests/test_auditoria_usuarios.py`
+(27 pruebas). La app no aportaba ninguna.
+
+**Verificación por mutación.** Revertidos los dos hallazgos centrales:
+
+- Desligando `is_active` de `activo` (USR-001), fallan cinco pruebas a la vez:
+  `authenticate` vuelve a devolver la cuenta desactivada, la sesión ya abierta
+  sigue sirviendo y el staff desactivado vuelve a abrir `/admin/`.
+- Auditando antes de `logout()` y aceptando GET (USR-004 y USR-009), fallan
+  `test_la_sesion_se_cierra_aunque_la_auditoria_falle` y
+  `test_logout_por_get_no_cierra_la_sesion`.
+
+**Un detalle del propio trabajo:** el test que verifica que el instalador ya no
+pasa `email=''` falló al principio porque **mi propio comentario explicativo en
+el `.bat` contenía ese literal**. El test estaba bien; el comentario se
+reformuló.

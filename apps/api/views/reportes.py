@@ -20,14 +20,32 @@ from apps.api.services.reporting import (
     build_ventas_hoy,
     build_ventas_por_cajero,
 )
-from apps.negocios.utils import negocio_actual
+from apps.negocios.utils import resolver_negocio
+
+from rest_framework import status
 
 from ..permissions import requiere_permiso
 
 
 def _service_response(builder, request, *args, **kwargs):
+    """
+    Resuelve el tenant UNA vez y lo pasa tipado al builder.
+
+    Antes cada vista pasaba el negocio ya resuelto (o `None`), y el builder
+    trataba `None` como "todas las sucursales". Como el resolver devolvia `None`
+    tambien ante un usuario huerfano o un `?negocio=` inexistente, un fallo de
+    resolucion se convertia en el reporte consolidado de todos los negocios
+    (NEG-001, NEG-002). Ahora un fallo es un 403 explicito.
+    """
+    resolucion = resolver_negocio(request)
+    if not resolucion.permitido:
+        return Response(
+            {'error': resolucion.motivo or 'Sin acceso.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     try:
-        data = builder(request.query_params, *args, **kwargs)
+        data = builder(request.query_params, *args, resolucion=resolucion, **kwargs)
     except ReportingError as exc:
         return Response(exc.detail, status=exc.status_code)
     return Response(data)
@@ -37,33 +55,32 @@ def _service_response(builder, request, *args, **kwargs):
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def ventas_hoy(request, codigo_sucursal=None):
     return _service_response(
-        build_ventas_hoy, request,
-        codigo_sucursal=codigo_sucursal, negocio=negocio_actual(request),
+        build_ventas_hoy, request, codigo_sucursal=codigo_sucursal,
     )
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.consolidado.ver')])
 def comparativo_sucursales(request):
-    return _service_response(build_comparativo, request, negocio=negocio_actual(request))
+    return _service_response(build_comparativo, request)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def ventas_por_cajero(request):
-    return _service_response(build_ventas_por_cajero, request, negocio=negocio_actual(request))
+    return _service_response(build_ventas_por_cajero, request)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.ver')])
 def top_productos(request):
-    return _service_response(build_top_productos, request, negocio=negocio_actual(request))
+    return _service_response(build_top_productos, request)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, requiere_permiso('reportes.consolidado.ver')])
 def cierre_consolidado(request):
-    return _service_response(build_cierre_consolidado, request, negocio=negocio_actual(request))
+    return _service_response(build_cierre_consolidado, request)
 
 
 @api_view(['GET'])

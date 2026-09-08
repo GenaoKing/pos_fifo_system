@@ -144,8 +144,29 @@ class Cotizacion(models.Model):
 
     @property
     def puede_convertirse(self):
-        """Solo se puede convertir si esta pendiente"""
-        return self.estado == 'PENDIENTE'
+        """Pendiente y dentro de la vigencia que el propio PDF afirma."""
+        return self.estado == 'PENDIENTE' and not self.esta_vencida
+
+    # El PDF dice "valida por 15 dias" desde siempre, pero el modelo solo
+    # miraba el estado (COT-007): un precio historico quedaba convertible
+    # indefinidamente, aunque el documento entregado al cliente afirmara lo
+    # contrario. Si el papel promete una vigencia, el backend tiene que
+    # sostenerla.
+    DIAS_VALIDEZ = 15
+
+    @property
+    def fecha_vencimiento(self):
+        from datetime import timedelta
+
+        return self.fecha_creacion + timedelta(days=self.DIAS_VALIDEZ)
+
+    @property
+    def esta_vencida(self):
+        from django.utils import timezone
+
+        if self.fecha_creacion is None:
+            return False
+        return timezone.now() > self.fecha_vencimiento
 
 
 class DetalleCotizacion(models.Model):

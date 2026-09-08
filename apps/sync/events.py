@@ -248,11 +248,15 @@ def evento_movimiento_caja(movimiento):
     )
 
 
-def evento_cierre_caja(turno):
-    """Encola un evento CIERRE_CAJA."""
+def evento_cierre_caja(turno, resumen=None):
+    """Encola un evento CIERRE_CAJA.
+
+    `resumen` reutiliza el snapshot que la vista de cierre ya calculo, para no
+    recomputarlo dentro de la serializacion bajo el lock del turno.
+    """
     return _crear_evento(
         tipo='CIERRE_CAJA',
-        serializar=lambda: serializers.serializar_cierre_caja(turno),
+        serializar=lambda: serializers.serializar_cierre_caja(turno, resumen=resumen),
         referencia=f'Turno-{turno.pk}',
         objeto_id_local=turno.pk,
         sucursal=turno.caja.sucursal if turno.caja.sucursal_id else None,

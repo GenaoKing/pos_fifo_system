@@ -175,7 +175,8 @@ class Command(TenantCommandMixin, BaseCommand):
         # lo revertia.
         self._preflight(options, Sucursal, (Venta, Compra, Lote, Caja))
 
-        negocio = Negocio.objects.order_by('id').first()
+        # Misma regla que bootstrap: si hay mas de una fila, detenerse (NEG-005).
+        negocio = Negocio.self_row()
         if negocio is None:
             if dry_run:
                 negocio_id = '(nuevo)'
@@ -239,6 +240,8 @@ class Command(TenantCommandMixin, BaseCommand):
                 AsignacionRolModel=AsignacionRol,
                 nombre=options['nombre'],
             )
+            from apps.notificaciones.seed import crear_reglas_default
+            crear_reglas_default(negocio)
             suscripciones_seed.bootstrap(
                 ModuloModel=Modulo,
                 PlanModel=Plan,

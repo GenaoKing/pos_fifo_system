@@ -92,7 +92,10 @@ class Command(BaseCommand):
                         tenant, permitir_inactivo=options.get('incluir_inactivos', False),
                     )
                     self.stdout.write(f'Migrando {tenant.tenant_key} ({alias})...')
-                    with tenant_context(tenant):
+                    with tenant_context(
+                        tenant,
+                        permitir_inactivo=options.get('incluir_inactivos', False),
+                    ):
                         call_command(
                             'migrate',
                             database=alias,

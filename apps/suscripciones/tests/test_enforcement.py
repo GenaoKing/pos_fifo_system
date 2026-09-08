@@ -24,8 +24,13 @@ class ModuloActivoTenantTests(TestCase):
             codigo='SD-001', nombre='SD', activa=True, negocio=self.negocio
         )
 
-    def test_sin_suscripcion_solo_core(self):
-        self.assertFalse(modulo_activo('ecf'))
+    def test_negocio_sin_aprovisionar_falla_abierto(self):
+        """
+        BUG-D: negocio recien creado, sin suscripcion y sin overrides, es el
+        mismo estado que "negocio sin resolver" -- fail-open. Ver el
+        docstring de `apps.suscripciones.engine` y ARQUITECTURA_MODULOS.md.
+        """
+        self.assertTrue(modulo_activo('ecf'))
         self.assertTrue(modulo_activo('ventas'))  # core
 
     def test_plan_empresarial_activa_vendibles(self):

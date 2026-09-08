@@ -44,7 +44,74 @@ class PlanViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Plan.objects.prefetch_related('modulos').all()
 
 
-class SuscripcionNegocioViewSet(viewsets.ModelViewSet):
+# ---------------------------------------------------------------------------
+# Guard de degradacion (SUS-004)
+# ---------------------------------------------------------------------------
+#
+# `_validar()` solo actuaba si `validated_data` traia SIMULTANEAMENTE
+# `incluido=False`, `modulo` y `negocio`. Un PATCH parcial de solo `incluido`
+# retornaba sin validar; `destroy` no estaba sobrescrito; y cambiar el plan o
+# `activa` usaba el `ModelViewSet` sin calcular que modulos se retiraban. Es
+# decir: el guard existia y las tres rutas oficiales del operador lo esquivaban.
+#
+# La correccion no es agregar tres validaciones sino UNA: comparar el set
+# efectivo antes y despues, y validar cada modulo que desaparece. Asi da igual
+# por donde llegue el cambio.
+
+
+def _validar_degradacion(negocio, antes, despues):
+    """Bloquea si alguna transicion retira un modulo que no puede irse."""
+    retirados = antes - despues
+    for key in sorted(retirados):
+        ok, motivo = puede_desactivarse(negocio, key)
+        if not ok:
+            raise ValidationError({'modulo': motivo})
+
+
+class GuardDegradacionMixin:
+    """
+    Envuelve create/update/destroy comparando el entitlement efectivo.
+
+    El calculo se hace DENTRO de una transaccion y la escritura se revierte si
+    el guard rechaza: sin eso, la comprobacion pasaria sobre datos que ya
+    cambiaron.
+    """
+
+    def _negocio_de(self, instance):
+        raise NotImplementedError
+
+    def _aplicar(self, guardar, negocio):
+        from django.db import transaction
+
+        from apps.suscripciones.engine import invalidar_cache, modulos_negocio
+
+        with transaction.atomic():
+            antes = modulos_negocio(negocio)
+            guardar()
+            # El cache se invalida para que `modulos_negocio` recalcule con el
+            # estado nuevo dentro de la misma transaccion.
+            invalidar_cache()
+            despues = modulos_negocio(negocio)
+            _validar_degradacion(negocio, antes, despues)
+        invalidar_cache()
+
+    def perform_create(self, serializer):
+        negocio = serializer.validated_data.get('negocio')
+        if negocio is None:
+            serializer.save()
+            return
+        self._aplicar(serializer.save, negocio)
+
+    def perform_update(self, serializer):
+        negocio = self._negocio_de(serializer.instance)
+        self._aplicar(serializer.save, negocio)
+
+    def perform_destroy(self, instance):
+        negocio = self._negocio_de(instance)
+        self._aplicar(instance.delete, negocio)
+
+
+class SuscripcionNegocioViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
     """Consulta y cambia el plan/estado de la suscripción de cada negocio."""
     permission_classes = ADMIN_SUSCRIP
     serializer_class = SuscripcionNegocioSerializer
@@ -52,31 +119,48 @@ class SuscripcionNegocioViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'patch', 'head', 'options']
     queryset = SuscripcionNegocio.objects.select_related('negocio', 'plan').all()
 
+    def _negocio_de(self, instance):
+        return instance.negocio
 
-class NegocioModuloViewSet(viewsets.ModelViewSet):
-    """Overrides à la carte. Al excluir un módulo se valida `puede_desactivarse`."""
+
+class NegocioModuloViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
+    """Overrides à la carte. Toda transicion pasa por `puede_desactivarse`."""
     permission_classes = ADMIN_SUSCRIP
     serializer_class = NegocioModuloSerializer
     pagination_class = None
     queryset = NegocioModulo.objects.select_related('negocio', 'modulo').all()
 
-    def perform_create(self, serializer):
-        self._validar(serializer.validated_data)
-        serializer.save()
+    def _negocio_de(self, instance):
+        return instance.negocio
 
-    def perform_update(self, serializer):
-        self._validar(serializer.validated_data)
-        serializer.save()
+    # La comparacion de sets no alcanza sola aca, y el motivo es interesante:
+    # excluir `ventas` mientras `cuentas_por_cobrar` sigue activo NO retira
+    # `ventas` del set efectivo, porque el cierre de dependencias vuelve a
+    # agregarlo. O sea que la exclusion no produce ninguna baja... y tampoco
+    # tiene efecto. Rechazarla con un motivo claro es mejor que aceptarla y que
+    # no haga nada.
+    #
+    # Por eso se valida la INTENCION ademas del EFECTO: la primera cubre la
+    # exclusion explicita, la segunda cubre el cambio de plan y el DELETE.
 
-    def _validar(self, data):
-        # Si se está quitando un módulo (incluido=False), respetar el bloqueo por
-        # dependientes activos / datos.
-        if data.get('incluido', True):
+    def _validar_intencion(self, data, instance=None):
+        incluido = data.get(
+            'incluido', getattr(instance, 'incluido', True),
+        )
+        if incluido:
             return
-        modulo = data.get('modulo')
-        negocio = data.get('negocio')
+        modulo = data.get('modulo') or getattr(instance, 'modulo', None)
+        negocio = data.get('negocio') or getattr(instance, 'negocio', None)
         if modulo is None or negocio is None:
             return
         ok, motivo = puede_desactivarse(negocio, modulo.key)
         if not ok:
             raise ValidationError({'modulo': motivo})
+
+    def perform_create(self, serializer):
+        self._validar_intencion(serializer.validated_data)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._validar_intencion(serializer.validated_data, serializer.instance)
+        super().perform_update(serializer)

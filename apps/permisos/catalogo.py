@@ -26,6 +26,11 @@ CATALOGO = [
     ('productos.crear', 'Crear productos', 'productos', 'Registrar nuevos productos.'),
     ('productos.editar', 'Editar productos', 'productos', 'Modificar productos.'),
     ('productos.eliminar', 'Eliminar productos', 'productos', 'Dar de baja productos.'),
+    ('productos.fotografiar', 'Subir foto de producto', 'productos',
+     'Subir o cambiar la foto de un producto, sin poder tocar precio, '
+     'categoria ni el resto de sus datos. Separado de `productos.editar` '
+     'para que la cajera pueda fotografiar desde el celular sin ganar '
+     'permiso de editar el catalogo.'),
 
     # --- Categorias ---------------------------------------------------------
     ('categorias.ver', 'Ver categorias', 'categorias', 'Listar y consultar categorias.'),
@@ -47,7 +52,12 @@ CATALOGO = [
      'Ver historial/turnos de otros, registrar movimientos de caja (retiros/ingresos).'),
 
     # --- Auditoria ----------------------------------------------------------
-    ('auditoria.ver', 'Ver auditoria', 'auditoria', 'Consultar el registro de auditoria.'),
+    ('auditoria.ver', 'Ver auditoria', 'auditoria',
+     'Consultar el registro de auditoria de las sucursales asignadas.'),
+    ('auditoria.consolidado.ver', 'Ver auditoria consolidada', 'auditoria',
+     'Consultar el registro de TODAS las sucursales. Solo consolida si la '
+     'asignacion del rol es global (sin sucursal); acotada a una, vale por '
+     'esa sucursal unicamente.'),
 
     # --- Configuracion ------------------------------------------------------
     ('configuracion.administrar', 'Administrar configuracion', 'configuracion',
@@ -75,6 +85,16 @@ CATALOGO = [
      'Emitir la autorizacion puntual que permite superar el limite de credito '
      'de un cliente en una venta.'),
 
+    # --- Cotizaciones ---------------------------------------------------
+    ('cotizaciones.ver', 'Ver cotizaciones', 'cotizaciones',
+     'Listar y consultar cotizaciones de las sucursales asignadas.'),
+    ('cotizaciones.crear', 'Crear cotizaciones', 'cotizaciones',
+     'Emitir una cotizacion.'),
+    ('cotizaciones.precio_negociado', 'Cotizar por debajo del precio', 'cotizaciones',
+     'Emitir una cotizacion con un precio menor al vigente. Es una decision '
+     'financiera equivalente a un descuento: la cotizacion se convierte en '
+     'fuente autorizada de precio para la venta.'),
+
     # --- Reportes -----------------------------------------------------------
     ('reportes.ver', 'Ver reportes', 'reportes', 'Acceder a reportes y dashboard.'),
     ('reportes.sucursal.ver', 'Ver reportes de su sucursal', 'reportes',
@@ -90,6 +110,10 @@ CATALOGO = [
     # --- Administracion de permisos (meta) ----------------------------------
     ('permisos.administrar', 'Administrar roles y permisos', 'permisos',
      'Crear/editar roles y asignar permisos a usuarios del negocio.'),
+
+    # --- Notificaciones -----------------------------------------------------
+    ('notificaciones.administrar', 'Administrar notificaciones', 'notificaciones',
+     'Configurar eventos, roles, excepciones de usuario y umbrales.'),
 
     # --- Administracion de suscripcion/modulos (operador SaaS) ---------------
     ('suscripciones.administrar', 'Administrar suscripcion y modulos', 'suscripciones',
@@ -119,7 +143,31 @@ PERMISOS_CAJERO_DEFAULT = [
     # este permiso en vez de con el flag legacy `es_cajera`. Va en el default
     # para que una instalacion existente no pierda la pantalla de inicio.
     'reportes.ver',
+    # Portal cloud (ver docs/BUGS.md BUG-G): la cajera puede entrar a ver el
+    # catalogo y fotografiar productos desde el celular -- no crear, editar
+    # precios ni borrar.
+    'productos.ver',
+    'productos.fotografiar',
+    # El POS ya emitia cotizaciones sin ningun permiso (COT-001): incluirlas en
+    # el default evita que una instalacion existente pierda la funcion.
+    # `cotizaciones.precio_negociado` NO va aca a proposito: cotizar por debajo
+    # del precio vigente es la decision financiera que el hallazgo pide separar,
+    # porque la cotizacion se vuelve fuente autorizada de precio para la venta.
+    'cotizaciones.ver',
+    'cotizaciones.crear',
 ]
+
+
+# Capacidades del OPERADOR del SaaS, no del dueno de un negocio.
+#
+# El catalogo ya describia `suscripciones.administrar` como capacidad del
+# operador, pero `es_acceso_total` se la concedia a cualquier ADMIN — y un ADMIN
+# es el administrador de UN tenant. En una BD por tenant eso le permitia editar
+# su propia suscripcion y sus entitlements. `tiene_permiso` trata estos codigos
+# aparte: solo los aprueba un principal global (SYSADMIN o superusuario).
+PERMISOS_OPERADOR_SAAS = frozenset({
+    'suscripciones.administrar',
+})
 
 
 def codigos_catalogo():

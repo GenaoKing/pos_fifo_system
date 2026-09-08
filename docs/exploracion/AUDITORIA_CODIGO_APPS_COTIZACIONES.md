@@ -51,6 +51,13 @@ Se documentan **18 hallazgos**:
 | P2 | 8 | Debilita integridad matemática, estados, numeración, trazabilidad, bajas distribuidas y manejo de errores. |
 | P3 | 3 | Deuda de cobertura, rendimiento y contratos HTTP que eleva el riesgo de regresión. |
 
+> **Estado (2026-08-30): P1 MITIGADO (7/7).** Los siete hallazgos P1 se
+> verificaron contra el código y los siete resultaron reales; los siete están
+> corregidos, con pruebas de regresión. Se cerró además COT-016. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Sin migraciones.** Incluye tres permisos nuevos y un cambio de contrato de
+> la conversión.
+
 La suite seleccionada terminó con **41/41 pruebas existentes aprobadas**. La
 aplicación aportó solo una prueba propia, dedicada al PDF. Una batería
 adversarial temporal terminó con **14/14 reproducciones confirmadas** y fue
@@ -696,16 +703,132 @@ La aplicación puede considerarse cerrada cuando, como mínimo:
   permanentes con expectativas de rechazo/convergencia;
 - listados y carga POS mantienen consultas y respuestas acotadas.
 
-## Conclusión
+---
 
-El riesgo central de `apps/cotizaciones` es una inversión de confianza: ventas
-trata el precio cotizado como legítimo, pero cotizaciones lo obtiene del
-navegador sin autorización ni validación. A eso se suman un contrato de
-conversión que no vincula cliente/cantidad/sucursal y un handler de sync capaz de
-regresar el estado. La combinación permite crear una autorización de precio,
-transferirla y reutilizarla después de una conversión.
+# Estado de mitigación
 
-La corrección debe diseñarse como un único flujo comercial: emisión autorizada,
-snapshot inmutable/versionado, vigencia, conversión transaccional exacta y
-eventos monotónicos. Corregir esos contratos produce mucho más valor que
-endurecer aisladamente la pantalla o el PDF.
+Fecha: 2026-08-30. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los siete son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| COT-001 | Sí | Corregido | Tres permisos nuevos —`cotizaciones.ver`, `.crear`, `.precio_negociado`— aplicados en los seis endpoints. Los dos primeros entran en `PERMISOS_CAJERO_DEFAULT`; el tercero **no**, y ese es el punto. |
+| COT-002 | Sí | Corregido | `_precio_autorizado()` resuelve el precio en el servidor. Igual o mayor al vigente pasa; **por debajo** exige `cotizaciones.precio_negociado`. |
+| COT-003 | Sí | Corregido | `_validar_alcance_cotizacion()` exige coincidencia de **cliente**, **sucursal** y **cantidad** antes de convertir. |
+| COT-004 | Sí | Corregido | El handler `COTIZACION_CREADA` es create-only en lo que hace al ciclo de vida: sobre una cotización existente refresca importes y textos, pero nunca retrocede el estado. |
+| COT-005 | Sí | Corregido | `_cotizaciones_en_alcance()` acota las **cuatro** superficies: listado, detalle, PDF y —la más sensible— la que carga el carrito del POS. |
+| COT-006 | Sí | Corregido | El endpoint legacy bloquea la fila, **exige** la venta, y verifica que sea del mismo cliente, la misma sucursal y que no esté ya vinculada a otra cotización. |
+| COT-007 | Sí | Corregido | `DIAS_VALIDEZ = 15` y `esta_vencida` participan en `puede_convertirse`. |
+| COT-016 | Sí | Corregido | La app solo tenía una prueba, del PDF. Ahora tiene 25 más. |
+
+## COT-002: la cotización como puerta trasera del permiso de descuentos
+
+Es el hallazgo que más me importa de este módulo, porque **anula una
+corrección anterior**. En la mitigación de `apps/ventas` se separó
+`ventas.aplicar_descuento` para que bajar un precio fuera una decisión con
+permiso, motivo y auditoría. Pero:
+
+- `guardar_cotizacion` aceptaba `precio_unitario` del JSON y lo persistía sin
+  compararlo con nada;
+- `_validar_precios` de ventas trata el precio de la cotización como **fuente
+  autorizada**;
+- el permiso de descuento solo se exige si el campo explícito `descuento` es
+  mayor que cero.
+
+Encadenado: una cajera con `ventas.crear` y **sin** `ventas.aplicar_descuento`
+cotizaba una unidad a RD$0.01 y después vendía cinco a ese precio. El descuento
+real quedaba disfrazado de «precio cotizado» y el permiso no se tocaba nunca.
+La cotización funcionaba como un mecanismo de autorización creado por el mismo
+cliente no confiable que propone el valor.
+
+**Cotizar por encima del precio vigente sigue sin requerir permiso.** Un
+recargo no es un descuento encubierto, y el precio queda igualmente autorizado
+de forma explícita.
+
+## COT-003: una oferta vale para quien, dónde y cuánto se emitió
+
+La conversión solo miraba id y estado. Con eso, una oferta especial —personal,
+de volumen o de una tienda— se transfería a otro comprador, otra caja u otro
+volumen, y la venta quedaba ligada a una cotización cuyos datos no explican lo
+que se vendió.
+
+Se decidió **no** permitir conversiones parciales con más unidades: vender
+menos de lo cotizado pasa, vender más no. El excedente necesita su propia
+cotización o el precio vigente. Si el negocio quiere otra política —por ejemplo
+tolerancia de un 10%— es un `if` en `_validar_alcance_cotizacion`.
+
+## Cambios de conducta observables
+
+1. **El módulo exige permisos.** `cotizaciones.ver` y `.crear` entran en el rol
+   cajero por defecto, así que una instalación existente no pierde la función.
+   **Un rol custom creado a mano sí necesita que se los agreguen.**
+2. **Cotizar por debajo del precio vigente exige `cotizaciones.precio_negociado`**,
+   que **no** está en ningún rol por defecto. Quien negocie precios necesita que
+   se lo asignen explícitamente.
+3. **Una cotización de más de 15 días ya no se convierte.** El PDF lo afirmaba
+   desde siempre; ahora el backend lo sostiene. **Las cotizaciones pendientes
+   con más de 15 días dejarán de ser convertibles al desplegar.**
+4. **La conversión falla si cambia el cliente, la sucursal o si se piden más
+   unidades de las cotizadas.**
+5. **Marcar convertida por el endpoint legacy exige la venta**, y esa venta debe
+   ser del mismo cliente y sucursal, y no estar ya vinculada.
+6. **Una cotización de otra sucursal devuelve 404** en las cuatro superficies.
+
+## Despliegue
+
+**Sin migraciones.**
+
+> **Revisar antes de desplegar:**
+> 1. **Cotizaciones pendientes vencidas.**
+>    `Cotizacion.objects.filter(estado='PENDIENTE', fecha_creacion__lt=timezone.now()-timedelta(days=15)).count()`
+>    Esas dejan de ser convertibles. Si el negocio venía convirtiendo ofertas
+>    viejas, conviene avisarle o revisar la ventana de 15 días —está en
+>    `Cotizacion.DIAS_VALIDEZ`—.
+> 2. **Quién necesita `cotizaciones.precio_negociado`.** No está en ningún rol
+>    por defecto a propósito: es la decisión financiera que el hallazgo pide
+>    separar.
+> 3. **Roles custom**: los de sistema reciben `cotizaciones.ver` y `.crear`; un
+>    rol creado a mano no.
+
+## Lo que no se tocó
+
+P2: COT-008 (cantidades e importes comercialmente imposibles), COT-009 (acepta
+clientes y productos inactivos — **parcialmente cubierto**: la creación ahora
+usa `productos_vendibles()`, falta el cliente), COT-010 (la numeración por
+`count()+1` no es estable ni segura), COT-011 (cabecera y detalles pueden
+quedar con totales distintos), COT-012 (sin auditoría de negocio del ciclo),
+COT-013 (borrar no converge entre local y cloud), COT-014 (**parcialmente
+cubierto**: los errores de creación y de marcado ya no exponen el interior;
+faltan otras rutas), COT-015 (estado y vínculo a venta no son una invariante de
+base).
+
+P3: COT-017 (listados sin límite y con consultas de stock por línea), COT-018
+(contratos de vista con caminos ambiguos y flotantes).
+
+**COT-010 conviene pronto:** la numeración por `count()+1` es el mismo defecto
+que ya se corrigió en ventas y en lotes —un borrado deja huecos y el siguiente
+número colisiona—, y aquí sigue vivo.
+
+## Pruebas
+
+Suite completa, serial: **1078 tests, OK.**
+
+Módulo de regresión nuevo:
+`apps/cotizaciones/tests/test_auditoria_cotizaciones.py` (25 pruebas).
+
+**Verificación por mutación.** Revertidos los tres hallazgos centrales, siete
+pruebas fallan:
+
+- Con el precio del navegador (COT-002), `200 != 403` — la cotización a RD$0.01
+  vuelve a guardarse.
+- Sin validar el alcance (COT-003), las tres transferencias —más unidades, otro
+  cliente, otra sucursal— vuelven a pasar.
+- Con la vigencia sin efecto (COT-007), la cotización de 20 días se convierte.
+
+**Un detalle de implementación que costó un ciclo.** El endpoint legacy
+devolvía 500 al bloquear la fila: `select_related('venta')` produce un LEFT JOIN
+—la FK es nullable— y PostgreSQL no admite `FOR UPDATE` sobre el lado nullable
+de un outer join. El helper de alcance tiene ahora una variante sin
+`select_related` para el camino que bloquea.

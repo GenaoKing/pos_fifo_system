@@ -21,7 +21,9 @@ from rest_framework.response import Response
 
 from apps.api.permissions import requiere_permiso
 from apps.api.views.reportes import _estado_sync  # ver "Decisiones" abajo
-from apps.negocios.utils import negocio_actual
+from rest_framework import status
+
+from apps.negocios.utils import resolver_negocio
 from apps.sucursales.models import Sucursal
 from apps.sync.models import EventoSync
 
@@ -61,10 +63,15 @@ def sucursales_status(request):
     # multi-negocio: un usuario con negocio solo ve sus sucursales; global/SYSADMIN
     # (negocio None) las ve todas y puede acotar con ?negocio=. Los counts de
     # EventoSync se scopean solos al filtrar por sucursal__codigo__in=codigos.
-    sucursales_qs = Sucursal.objects.filter(activa=True).order_by('codigo')
-    negocio = negocio_actual(request)
-    if negocio is not None:
-        sucursales_qs = sucursales_qs.filter(negocio=negocio)
+    resolucion = resolver_negocio(request)
+    if not resolucion.permitido:
+        return Response(
+            {'error': resolucion.motivo or 'Sin acceso.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    sucursales_qs = resolucion.filtrar(
+        Sucursal.objects.filter(activa=True).order_by('codigo')
+    )
     sucursales = list(sucursales_qs)
 
     if not sucursales:

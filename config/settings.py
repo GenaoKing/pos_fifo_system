@@ -92,7 +92,9 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    # AdminSite propio: bajo tenancy exige identidad global del control
+    # plane, para que /admin/ no sea una puerta paralela al portal (USR-002).
+    'apps.usuarios.admin_site.PosAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -126,9 +128,21 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'apps.api',
     'apps.sync',
+    'apps.notificaciones',
     'apps.facturacion_electronica',
     
 ]
+
+# Web Push (solo cloud). La privada llega de Key Vault; la publica se expone
+# autenticada al navegador para crear la suscripcion Push API.
+WEB_PUSH_ENABLED = _env_bool('WEB_PUSH_ENABLED', False)
+WEB_PUSH_VAPID_PUBLIC_KEY = _env_text('WEB_PUSH_VAPID_PUBLIC_KEY')
+WEB_PUSH_VAPID_PRIVATE_KEY = _env_text('WEB_PUSH_VAPID_PRIVATE_KEY')
+WEB_PUSH_VAPID_SUBJECT = _env_text(
+    'WEB_PUSH_VAPID_SUBJECT', 'mailto:admin@example.com',
+)
+WEB_PUSH_TIMEOUT_SECONDS = _env_int('WEB_PUSH_TIMEOUT_SECONDS', 10)
+WEB_PUSH_TTL_SECONDS = _env_int('WEB_PUSH_TTL_SECONDS', 14400)
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -136,6 +150,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Acota el memo de permisos a un request. Va DESPUES de Authentication
+    # (necesita request.user resuelto) y ANTES de cualquier cosa que consulte
+    # permisos.
+    'apps.permisos.middleware.PermisosRequestCacheMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'apps.tenancy.middleware.ClearTenantContextMiddleware',
@@ -162,6 +180,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'apps.configuracion.context_processors.config_negocio',
                 'apps.sucursales.context_processors.sucursal_actual',
+                'apps.sync.context_processors.estado_sync',
             ],
         },
     },
@@ -475,3 +494,11 @@ SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
 SYNC_BATCH_SIZE = int(os.environ.get('SYNC_BATCH_SIZE', '50'))
 SYNC_MAX_RETRIES = int(os.environ.get('SYNC_MAX_RETRIES', '10'))
 SYNC_HTTP_TIMEOUT = int(os.environ.get('SYNC_HTTP_TIMEOUT', '10'))
+
+# Conciliacion diaria (Fase 3, anti-entropia). El daemon la corre como mucho
+# una vez por dia, a partir de esta hora local: la PC de una sucursal suele
+# apagarse de noche, asi que "6 AM" en la practica significa "en el primer
+# ciclo del dia", no a una hora exacta.
+SYNC_CONCILIACION_ENABLED = _env_bool('SYNC_CONCILIACION_ENABLED', True)
+SYNC_CONCILIACION_HORA = _env_int('SYNC_CONCILIACION_HORA', 6)
+SYNC_CONCILIACION_DIAS = _env_int('SYNC_CONCILIACION_DIAS', 30)

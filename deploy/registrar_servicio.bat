@@ -23,6 +23,11 @@ if %errorlevel% neq 0 (
 )
 
 set "PROJECT_DIR=%~dp0.."
+REM Resolver el ".." a una ruta canonica: sin esto, cada ruta construida con
+REM %PROJECT_DIR% (POS_ENV_FILE, logs, AppDirectory...) queda con
+REM "\deploy\..\deploy\" literal. Windows lo resuelve igual, pero ensucia
+REM cualquier diagnostico que imprima esas rutas (Task Scheduler, nssm dump).
+for %%I in ("%PROJECT_DIR%") do set "PROJECT_DIR=%%~fI"
 cd /d "%PROJECT_DIR%"
 REM --- Verificar que exista la configuracion ---
 if not exist "%PROJECT_DIR%\deploy\env_cliente.env" (

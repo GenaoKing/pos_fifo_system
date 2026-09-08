@@ -128,10 +128,65 @@ class AsignacionRol(models.Model):
         verbose_name = 'Asignacion de rol'
         verbose_name_plural = 'Asignaciones de rol'
         db_table = 'asignaciones_rol'
-        unique_together = ('usuario', 'rol', 'sucursal')
+        constraints = [
+            # `unique_together` no protegia la asignacion GLOBAL (PER-008):
+            # en PostgreSQL y SQLite dos NULL no colisionan, asi que podian
+            # coexistir dos filas identicas con `sucursal=NULL`. Revocar una
+            # devolvia 204 y el usuario conservaba el permiso por la otra; y
+            # `update_or_create` del pull podia levantar
+            # `MultipleObjectsReturned` y congelar el cursor de sync.
+            #
+            # Dos indices parciales cubren los dos casos por separado.
+            models.UniqueConstraint(
+                fields=['usuario', 'rol'],
+                condition=models.Q(sucursal__isnull=True),
+                name='asignacion_unica_global',
+            ),
+            models.UniqueConstraint(
+                fields=['usuario', 'rol', 'sucursal'],
+                condition=models.Q(sucursal__isnull=False),
+                name='asignacion_unica_por_sucursal',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.usuario} -> {self.rol}'
+
+    def clean(self):
+        """
+        Usuario, rol y sucursal tienen que ser del mismo negocio (PER-004).
+
+        El modelo declaraba tres FK independientes y ninguna relacion entre sus
+        negocios. `full_clean()` aceptaba una asignacion con usuario del negocio
+        B y rol del A, y el motor la convertia en privilegio efectivo — se
+        reprodujo en la auditoria. El motor ahora tambien filtra por negocio,
+        pero esa es la ultima linea: la fila no deberia poder existir.
+        """
+        from django.core.exceptions import ValidationError
+
+        errores = {}
+        negocio_rol = getattr(self.rol, 'negocio_id', None)
+
+        negocio_usuario = getattr(self.usuario, 'negocio_id', None)
+        if negocio_rol and negocio_usuario and negocio_usuario != negocio_rol:
+            errores['usuario'] = (
+                'El usuario pertenece a otro negocio que el rol asignado.'
+            )
+        elif negocio_rol and not negocio_usuario:
+            errores['usuario'] = (
+                'El usuario no tiene negocio: vincularlo antes de asignarle un '
+                'rol de tenant.'
+            )
+
+        if self.sucursal_id is not None:
+            negocio_sucursal = getattr(self.sucursal, 'negocio_id', None)
+            if negocio_rol and negocio_sucursal and negocio_sucursal != negocio_rol:
+                errores['sucursal'] = (
+                    'La sucursal pertenece a otro negocio que el rol asignado.'
+                )
+
+        if errores:
+            raise ValidationError(errores)
 
 
 class AutorizacionOverride(models.Model):

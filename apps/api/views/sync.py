@@ -45,10 +45,16 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.response import Response
 
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
+from apps.tenancy.context import get_current_tenant_alias
 from ..permissions import EsSucursalAutenticada
 from ..serializers.sync import EventoBatchSerializer
 
 logger = logging.getLogger('pos_system')
+
+
+def _database_alias():
+    """Base del tenant activo; ``default`` conserva el modo POS/local."""
+    return get_current_tenant_alias() or 'default'
 
 
 # ============================================================================
@@ -78,6 +84,7 @@ def recibir_eventos(request):
     recibidos = 0
     duplicados = 0
     errores = 0
+    database_alias = _database_alias()
 
     for evento_data in eventos:
         hash_payload = evento_data['hash_payload']
@@ -88,7 +95,9 @@ def recibir_eventos(request):
         # posterior). NO es suficiente por si solo — dos requests concurrentes
         # pasan los dos por aca. El respaldo real es la constraint unica sobre
         # `hash_payload`, que se ejerce en el INSERT de mas abajo.
-        if EventoSync.objects.filter(hash_payload=hash_payload).exists():
+        if EventoSync.objects.using(database_alias).filter(
+            hash_payload=hash_payload,
+        ).exists():
             duplicados += 1
             resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
             continue
@@ -104,14 +113,14 @@ def recibir_eventos(request):
             continue
 
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=database_alias):
                 handler(sucursal, payload)
                 # Este INSERT es la RESERVA del hecho, no solo su bitacora:
                 # corre en la misma transaccion que el handler, asi que si otro
                 # request concurrente ya reservo el hash, falla aca y revierte
                 # tambien el efecto del handler. Sin esto, dos daemons
                 # solapados duplicaban pagos CxC y movimientos de caja.
-                EventoSync.objects.create(
+                EventoSync.objects.using(database_alias).create(
                     sucursal=sucursal,
                     tipo_evento=tipo_evento,
                     payload=payload,
@@ -129,16 +138,33 @@ def recibir_eventos(request):
                 _extraer_referencia(tipo_evento, payload),
                 hash_payload[:12],
             )
-        except IntegrityError:
-            # Perdio la carrera contra otro request con el mismo hash. El otro
-            # aplico el efecto y esta transaccion ya revirtio la duplicada:
-            # para la sucursal el hecho esta entregado.
-            duplicados += 1
-            resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
-            logger.info(
-                '[SYNC] %s hash=%s aplicado por otra request concurrente',
-                tipo_evento, hash_payload[:12],
-            )
+        except IntegrityError as exc:
+            # Un IntegrityError solo prueba una carrera idempotente si, una vez
+            # revertida esta transaccion, el hash reservado por el otro request
+            # realmente existe. El handler tambien puede fallar por integridad
+            # de sus propios datos; confirmarlo como DUPLICADO perderia el hecho
+            # en la sucursal sin haberlo aplicado en cloud.
+            aplicado_por_otro = EventoSync.objects.using(database_alias).filter(
+                hash_payload=hash_payload,
+            ).exists()
+            if aplicado_por_otro:
+                duplicados += 1
+                resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+                logger.info(
+                    '[SYNC] %s hash=%s aplicado por otra request concurrente',
+                    tipo_evento, hash_payload[:12],
+                )
+            else:
+                errores += 1
+                resultados.append({
+                    'hash': hash_payload,
+                    'estado': 'ERROR',
+                    'error': 'Error de integridad al aplicar el evento.',
+                })
+                logger.error(
+                    '[SYNC] Error de integridad aplicando %s hash=%s (%s)',
+                    tipo_evento, hash_payload[:12], type(exc).__name__,
+                )
         except Exception as exc:
             errores += 1
             resultados.append({
@@ -452,6 +478,63 @@ def configuracion_para_sucursal(request):
 
 
 # ============================================================================
+# GET /api/v1/sync/resumen/     (Fase 3 -- anti-entropia)
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+def resumen_para_sucursal(request):
+    """
+    Agregados diarios (ventas, CxC, pagos) para que la sucursal compare su
+    propio estado local contra lo que el cloud realmente tiene.
+
+    Ver `apps/sync/resumen.py` para el diseno completo. Aditivo: un cloud
+    anterior a esta fase simplemente no tiene esta ruta (404), y el comando
+    `conciliar` del lado sucursal esta preparado para degradar limpio ante eso.
+    """
+    from apps.sync import resumen as resumen_mod
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+
+    desde_raw = request.query_params.get('desde')
+    hasta_raw = request.query_params.get('hasta')
+    tz_raw = request.query_params.get('tz')
+
+    if not (desde_raw and hasta_raw and tz_raw):
+        return Response(
+            {'detail': 'desde, hasta y tz son requeridos.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    desde = parse_date(desde_raw)
+    hasta = parse_date(hasta_raw)
+    if desde is None or hasta is None:
+        return Response(
+            {'detail': 'desde/hasta deben ser fechas ISO (YYYY-MM-DD).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if hasta < desde:
+        return Response({'detail': 'hasta no puede ser anterior a desde.'}, status=status.HTTP_400_BAD_REQUEST)
+    if (hasta - desde).days > 366:
+        return Response({'detail': 'rango maximo: 366 dias.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        datos = resumen_mod.calcular_resumen(desde, hasta, tz_raw, sucursal=sucursal)
+    except resumen_mod.TZInvalidaError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'version': 1,
+        'sucursal_codigo': getattr(sucursal, 'codigo', None),
+        'tz': tz_raw,
+        'desde': desde.isoformat(),
+        'hasta': hasta.isoformat(),
+        'generado': timezone.now().isoformat(),
+        **datos,
+    })
+
+
+# ============================================================================
 # HANDLERS por tipo de evento
 # ============================================================================
 
@@ -675,14 +758,10 @@ def _handler_venta_creada(sucursal, payload):
         _reparar_lineas_venta(existente, payload, numero_venta)
         return
 
-    # Todas las dependencias ANTES de crear nada. Antes, un SKU que todavia no
-    # existia en cloud solo generaba un warning y esa linea se omitia: la venta
-    # quedaba con cabecera y pagos completos pero detalles incompletos, y el
-    # evento se confirmaba, asi que ese reenvio ya no podia repararla nunca.
-    # Fallar el evento entero lo deja reintentable: cuando el producto llegue,
-    # el mismo evento se aplica completo. Es el criterio que ya usaba el
-    # handler de cotizaciones.
-    productos_por_sku = _resolver_productos_venta(payload, numero_venta)
+    # Todas las dependencias ANTES de crear nada. Un SKU que no existe en
+    # cloud ya no rechaza la venta (ver BUG-G en docs/BUGS.md): nace como
+    # stub minimo y sellado -- ver _resolver_productos_venta.
+    productos_por_sku = _resolver_productos_venta(payload, numero_venta, sucursal)
 
     # Venta.usuario es NOT NULL: si el cajero no existe en cloud (username no
     # resuelto), caer al usuario de servicio de la sucursal en vez de reventar
@@ -736,27 +815,70 @@ def _handler_venta_creada(sucursal, payload):
         )
 
 
-def _resolver_productos_venta(payload, numero_venta):
+def _resolver_productos_venta(payload, numero_venta, sucursal=None):
     """
     Mapa {sku: Producto} con TODOS los productos que la venta necesita.
 
-    Levanta si falta alguno: una venta a medias no es una venta. El evento
-    queda reintentable y se aplica completo cuando el producto llegue al cloud.
-    """
-    from apps.productos.models import Producto
+    Un SKU que no existe en cloud YA NO rechaza la venta entera (BUG-G,
+    docs/BUGS.md): dos ventas de produccion murieron DESCARTADAS -- tras 10
+    reintentos, sin que nadie las viera -- porque el producto habia nacido en
+    el POS local y nunca se creaba en el cloud por ningun otro camino
+    (no hay replicacion local->cloud de maestros).
 
-    skus = [d.get('producto_sku') for d in payload.get('detalles', [])]
+    En vez de eso, el producto nace como stub minimo: nombre y precio de la
+    propia linea de venta, categoria generica (`Categoria.get_sin_clasificar`),
+    sellado con `origen_sucursal` + `pendiente_revision=True` -- mismo patron
+    que `_resolver_o_crear_cliente` para clientes nacidos en sucursal. El
+    dueno lo completa desde el portal (categoria real, foto); mientras tanto
+    `ProductoViewSet.get_base_queryset` lo excluye del pull hacia la sucursal
+    de origen, para no pisarle con este stub pobre los datos reales que ya
+    tiene para el mismo SKU.
+
+    Una linea SIN sku (payload corrupto o de una version muy vieja) sigue
+    siendo error: no hay con que crear ni el stub.
+    """
+    from apps.productos.models import Categoria, Producto
+
+    detalles = payload.get('detalles', [])
+    if any(not d.get('producto_sku') for d in detalles):
+        raise ValueError(
+            f'Venta {numero_venta}: hay linea(s) de detalle sin producto_sku.'
+        )
+
+    skus = {d['producto_sku'] for d in detalles}
     encontrados = {
-        p.sku: p
-        for p in Producto.objects.filter(sku__in=[s for s in skus if s])
+        p.sku: p for p in Producto.objects.filter(sku__in=skus)
     }
 
-    faltantes = sorted({s for s in skus if s not in encontrados})
+    faltantes = skus - encontrados.keys()
     if faltantes:
-        raise ValueError(
-            f'Venta {numero_venta}: los productos {faltantes} no existen en '
-            f'cloud todavia. El evento se reintenta cuando lleguen.'
-        )
+        primera_ocurrencia = {}
+        for d in detalles:
+            sku = d['producto_sku']
+            if sku in faltantes:
+                primera_ocurrencia.setdefault(sku, d)
+
+        categoria = Categoria.get_sin_clasificar()
+        for sku in sorted(faltantes):
+            d = primera_ocurrencia[sku]
+            producto, creado = Producto.objects.get_or_create(
+                sku=sku,
+                defaults={
+                    'nombre': d.get('producto_nombre') or sku,
+                    'precio_venta': Decimal(d.get('precio_unitario') or '0'),
+                    'categoria': categoria,
+                    'activo': True,
+                    'origen_sucursal': sucursal,
+                    'pendiente_revision': True,
+                },
+            )
+            if creado:
+                logger.warning(
+                    'Producto %s creado como stub desde venta %s (sucursal %s); '
+                    'pendiente de revision en el portal.',
+                    sku, numero_venta, getattr(sucursal, 'codigo', None),
+                )
+            encontrados[sku] = producto
 
     return encontrados
 
@@ -775,7 +897,7 @@ def _reparar_lineas_venta(venta, payload, numero_venta):
     pagos_payload = payload.get('pagos', [])
 
     if venta.detalles.count() != len(detalles_payload):
-        productos_por_sku = _resolver_productos_venta(payload, numero_venta)
+        productos_por_sku = _resolver_productos_venta(payload, numero_venta, venta.sucursal)
         venta.detalles.all().delete()
         for d in detalles_payload:
             DetalleVenta.objects.create(
@@ -1198,20 +1320,50 @@ def _handler_cotizacion_creada(sucursal, payload):
         if payload.get('fecha_creacion') else timezone.now()
     )
 
-    cotizacion, _ = Cotizacion.objects.update_or_create(
-        sucursal=sucursal,
-        numero_cotizacion=numero,
-        defaults={
-            'cliente': cliente,
-            'usuario': usuario,
-            'fecha_creacion': fecha_creacion,
-            'subtotal': Decimal(payload.get('subtotal', '0')),
-            'descuento_total': Decimal(payload.get('descuento_total', '0')),
-            'total': Decimal(payload.get('total', '0')),
-            'estado': payload.get('estado', 'PENDIENTE'),
-            'notas': payload.get('notas', '') or '',
-        },
-    )
+    # COT-004: este handler copiaba `estado` del payload sin mirar el estado
+    # actual, asi que un evento COTIZACION_CREADA ATRASADO reabria una
+    # cotizacion ya CONVERTIDA. Se reproducio: se capturo el payload inicial, se
+    # convirtio la cotizacion normalmente y despues se aplico ese evento viejo;
+    # el cloud la dejo PENDIENTE conservando la primera venta, y una segunda
+    # llamada al servicio creo OTRA venta contra la misma oferta — duplicando
+    # cobro y consumo FIFO.
+    #
+    # "Creada" es create-only en lo que hace al ciclo de vida: sobre una
+    # cotizacion que ya existe puede refrescar importes y textos, pero nunca
+    # retroceder su estado ni desvincular su venta.
+    existente = Cotizacion.objects.filter(
+        sucursal=sucursal, numero_cotizacion=numero,
+    ).first()
+
+    campos = {
+        'cliente': cliente,
+        'usuario': usuario,
+        'fecha_creacion': fecha_creacion,
+        'subtotal': Decimal(payload.get('subtotal', '0')),
+        'descuento_total': Decimal(payload.get('descuento_total', '0')),
+        'total': Decimal(payload.get('total', '0')),
+        'notas': payload.get('notas', '') or '',
+    }
+
+    if existente is None:
+        campos['estado'] = payload.get('estado', 'PENDIENTE')
+        cotizacion = Cotizacion.objects.create(
+            sucursal=sucursal, numero_cotizacion=numero, **campos,
+        )
+    else:
+        if existente.estado == 'PENDIENTE':
+            # Todavia no hubo una transicion que proteger.
+            campos['estado'] = payload.get('estado', 'PENDIENTE')
+        else:
+            logger.info(
+                '[SYNC] COTIZACION_CREADA atrasada para %s: se conserva el '
+                'estado %s en vez de retroceder a %s.',
+                numero, existente.estado, payload.get('estado', 'PENDIENTE'),
+            )
+        for campo, valor in campos.items():
+            setattr(existente, campo, valor)
+        existente.save()
+        cotizacion = existente
     cotizacion.detalles.all().delete()
     for item in payload.get('detalles', []):
         sku = item.get('producto_sku')

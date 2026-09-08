@@ -10,33 +10,41 @@ Funcionalidades:
 """
 
 
-from apps.configuracion.decorators import requiere_modulo
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.db import transaction
-from decimal import Decimal
 import json
+import logging
+from decimal import Decimal, InvalidOperation
 
-from apps.cotizaciones.pdf_generator import generar_pdf_cotizacion
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_http_methods
 
-from .models import Cotizacion, DetalleCotizacion
 from apps.clientes.models import Cliente
-from apps.productos.models import Producto
+from apps.configuracion.decorators import requiere_modulo
+from apps.cotizaciones.pdf_generator import generar_pdf_cotizacion
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+)
+from apps.productos.models import Producto, productos_vendibles
 from apps.sucursales.models import get_sucursal_actual
 from apps.sync import events as sync_events
+
+from .models import Cotizacion, DetalleCotizacion
+
+logger = logging.getLogger('cotizaciones')
 
 
 @login_required
 @requiere_modulo('cotizaciones')
+@requiere_permiso_local('cotizaciones.ver')
 def lista_cotizaciones(request):
     """Lista de cotizaciones"""
 
-    cotizaciones = Cotizacion.objects.select_related(
-        'cliente', 'usuario', 'venta'
-    ).all()
+    cotizaciones = _cotizaciones_en_alcance(request)
 
     estado = request.GET.get('estado')
     if estado:
@@ -51,6 +59,7 @@ def lista_cotizaciones(request):
 
 @login_required
 @requiere_modulo('cotizaciones')
+@requiere_permiso_local('cotizaciones.crear')
 def crear_cotizacion(request):
     """
     Formulario para crear cotizacion.
@@ -67,7 +76,86 @@ def crear_cotizacion(request):
         return render(request, 'cotizaciones/crear_cotizacion.html', context)
 
 
+def _cotizaciones_en_alcance(request, *, para_bloquear=False):
+    """
+    Cotizaciones que este operador puede ver (COT-005).
+
+    Los listados partian de `.all()` y las consultas por id no filtraban nada:
+    un operador de una sucursal podia listar, abrir, descargar en PDF y cargar
+    en el POS la cotizacion de otra — con su cliente, sus precios negociados y
+    sus condiciones.
+
+    Las cotizaciones sin sucursal (anteriores a la Fase 2) quedan visibles: darlas
+    por ajenas volveria invisible la historia de una instalacion sin migrar.
+    """
+    from django.db.models import Q
+
+    # `select_related('venta')` produce un LEFT JOIN —la FK es nullable— y
+    # PostgreSQL no admite `FOR UPDATE` sobre el lado nullable de un outer
+    # join. Para el camino que bloquea la fila se omite.
+    base = Cotizacion.objects.all()
+    if not para_bloquear:
+        base = base.select_related('cliente', 'usuario', 'venta')
+
+    sucursal = getattr(request, 'sucursal', None) or get_sucursal_actual()
+    if sucursal is None:
+        return base
+    return base.filter(Q(sucursal=sucursal) | Q(sucursal__isnull=True))
+
+
+def _precio_autorizado(producto, item, *, puede_negociar):
+    """
+    Precio de una linea de cotizacion, decidido en el servidor.
+
+    El endpoint aceptaba `precio_unitario` del JSON y lo persistia sin
+    compararlo con nada (COT-002). Y ese numero no se queda en el documento:
+    `_validar_precios` de ventas lo trata como **fuente autorizada de precio**.
+    O sea que la cotizacion funcionaba como un mecanismo de autorizacion creado
+    por el mismo cliente no confiable que propone el valor.
+
+    Se reprodujo: una cajera con `ventas.crear` y SIN
+    `ventas.aplicar_descuento` guardo una cotizacion de una unidad a RD$0.01 y
+    despues vendio cinco a ese precio. El descuento real quedaba disfrazado de
+    "precio cotizado" y esquivaba por completo el permiso de descuentos.
+
+    Reglas:
+      - Sin precio en el payload, o igual al vigente -> el vigente.
+      - Por ENCIMA del vigente -> se acepta: cotizar mas caro no es un descuento
+        encubierto (recargos, condiciones especiales), y el gate de ventas lo
+        cubre igual porque el precio queda autorizado explicitamente.
+      - Por DEBAJO -> exige `cotizaciones.precio_negociado`.
+    """
+    from django.core.exceptions import PermissionDenied
+
+    vigente = Decimal(str(producto.precio_venta)).quantize(Decimal('0.01'))
+
+    crudo = item.get('precio_unitario')
+    if crudo in (None, ''):
+        return vigente
+
+    try:
+        pedido = Decimal(str(crudo)).quantize(Decimal('0.01'))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(f'Precio invalido para "{producto.nombre}".')
+
+    if pedido < Decimal('0'):
+        raise ValueError(f'El precio de "{producto.nombre}" no puede ser negativo.')
+
+    if pedido >= vigente or pedido == vigente:
+        return pedido
+
+    if not puede_negociar:
+        raise PermissionDenied(
+            f'Cotizar "{producto.nombre}" a ${pedido} (vigente ${vigente}) '
+            f'requiere el permiso "cotizaciones.precio_negociado": una '
+            f'cotizacion por debajo del precio se convierte en precio '
+            f'autorizado de venta.'
+        )
+    return pedido
+
+
 @login_required
+@requiere_permiso_json('cotizaciones.crear')
 @require_http_methods(["POST"])
 @requiere_modulo('cotizaciones')
 def guardar_cotizacion(request):
@@ -118,10 +206,19 @@ def guardar_cotizacion(request):
             subtotal_cotizacion = Decimal('0')
             descuento_cotizacion = Decimal('0')
 
+            puede_negociar = request.user.tiene_permiso(
+                'cotizaciones.precio_negociado',
+                sucursal=cotizacion.sucursal,
+            )
+
             for item in productos_data:
-                producto = Producto.objects.get(id=item['producto_id'])
+                producto = productos_vendibles(
+                    Producto.objects.select_related('categoria')
+                ).get(id=item['producto_id'])
                 cantidad = int(item['cantidad'])
-                precio_unitario = Decimal(str(item['precio_unitario']))
+                precio_unitario = _precio_autorizado(
+                    producto, item, puede_negociar=puede_negociar,
+                )
                 descuento_monto = Decimal(str(item.get('descuento', 0)))
 
                 detalle = DetalleCotizacion.objects.create(
@@ -154,26 +251,34 @@ def guardar_cotizacion(request):
                 'total': float(total_cotizacion),
             })
 
+    except PermissionDenied as exc:
+        return JsonResponse({'success': False, 'error': str(exc)}, status=403)
     except Producto.DoesNotExist:
         return JsonResponse({
             'success': False,
-            'error': 'Uno de los productos no existe'
+            'error': 'Uno de los productos no existe o no esta disponible para la venta'
         }, status=400)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': f'Error al crear cotizacion: {str(e)}'
-        }, status=500)
+    except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError) as exc:
+        return JsonResponse(
+            {'success': False, 'error': f'Datos invalidos: {exc}'}, status=400,
+        )
+    except Exception:
+        # COT-014: el texto de la excepcion iba literal al navegador.
+        logger.exception('Error creando una cotizacion')
+        return JsonResponse(
+            {'success': False, 'error': 'No se pudo crear la cotizacion.'},
+            status=500,
+        )
 
 
 @login_required
 @requiere_modulo('cotizaciones')
+@requiere_permiso_local('cotizaciones.ver')
 def detalle_cotizacion(request, cotizacion_id):
     """Detalle de una cotizacion"""
 
     cotizacion = get_object_or_404(
-        Cotizacion.objects.select_related('cliente', 'usuario', 'venta'),
-        id=cotizacion_id
+        _cotizaciones_en_alcance(request), id=cotizacion_id,
     )
     detalles = cotizacion.detalles.select_related('producto').all()
 
@@ -186,6 +291,7 @@ def detalle_cotizacion(request, cotizacion_id):
 
 
 @login_required
+@requiere_permiso_json('cotizaciones.ver')
 @require_http_methods(["GET"])
 @requiere_modulo('cotizaciones')
 def obtener_datos_cotizacion(request, cotizacion_id):
@@ -193,7 +299,11 @@ def obtener_datos_cotizacion(request, cotizacion_id):
     API: Devuelve los datos de una cotizacion en formato JSON
     para cargar en el POS y convertir a venta.
     """
-    cotizacion = get_object_or_404(Cotizacion, id=cotizacion_id)
+    # La superficie mas sensible de COT-005: esta es la que CARGA el carrito
+    # del POS con los precios negociados de la cotizacion.
+    cotizacion = get_object_or_404(
+        _cotizaciones_en_alcance(request), id=cotizacion_id,
+    )
 
     if not cotizacion.puede_convertirse:
         return JsonResponse({
@@ -231,6 +341,7 @@ def obtener_datos_cotizacion(request, cotizacion_id):
 
 
 @login_required
+@requiere_permiso_json('cotizaciones.crear')
 @require_http_methods(["POST"])
 @requiere_modulo('cotizaciones')
 def marcar_convertida(request, cotizacion_id):
@@ -243,40 +354,102 @@ def marcar_convertida(request, cotizacion_id):
     request desde el navegador: si se perdia, la cotizacion quedaba PENDIENTE y
     podia venderse otra vez, duplicando inventario consumido.
 
-    Se conserva para clientes externos y para conversiones manuales; sigue
-    validando `puede_convertirse`, asi que una cotizacion ya convertida no se
-    puede re-vincular.
+    Se conserva para clientes externos y para conversiones manuales.
+
+    COT-006: tres agujeros que tenia esta ruta, todos por confiar en el payload:
+
+      - **No bloqueaba la fila.** Dos llamadas simultaneas veian ambas
+        `PENDIENTE` y las dos convertian.
+      - **Aceptaba marcar convertida SIN venta.** Una cotizacion podia quedar
+        `CONVERTIDA` con `venta=NULL`: la oferta se cerraba sin que existiera la
+        operacion que supuestamente la consumio.
+      - **Aceptaba una venta AJENA.** `Venta.objects.get(id=venta_id)` no
+        comprobaba ni el cliente, ni la sucursal, ni que esa venta no estuviera
+        ya vinculada a otra cotizacion.
     """
     try:
         data = json.loads(request.body)
         venta_id = data.get('venta_id')
 
-        cotizacion = get_object_or_404(Cotizacion, id=cotizacion_id)
-
-        if not cotizacion.puede_convertirse:
+        if not venta_id:
             return JsonResponse({
                 'success': False,
-                'error': 'Cotizacion ya fue convertida'
-            })
+                'error': (
+                    'Marcar una cotizacion como convertida requiere la venta '
+                    'que la consumio.'
+                ),
+            }, status=400)
 
-        cotizacion.estado = 'CONVERTIDA'
-        if venta_id:
-            from apps.ventas.models import Venta
-            cotizacion.venta = Venta.objects.get(id=venta_id)
-        cotizacion.save()
+        from apps.ventas.models import Venta
 
-        sync_events.evento_cotizacion_convertida(cotizacion)
+        with transaction.atomic():
+            cotizacion = get_object_or_404(
+                _cotizaciones_en_alcance(request, para_bloquear=True)
+                .select_for_update(),
+                id=cotizacion_id,
+            )
+
+            if not cotizacion.puede_convertirse:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Cotizacion ya fue convertida o esta vencida',
+                }, status=409)
+
+            venta = Venta.objects.filter(id=venta_id).first()
+            if venta is None:
+                return JsonResponse(
+                    {'success': False, 'error': 'La venta indicada no existe.'},
+                    status=400,
+                )
+
+            if venta.cliente_id != cotizacion.cliente_id:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'La venta indicada es de otro cliente.',
+                }, status=409)
+
+            if (
+                cotizacion.sucursal_id is not None
+                and venta.sucursal_id is not None
+                and venta.sucursal_id != cotizacion.sucursal_id
+            ):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'La venta indicada es de otra sucursal.',
+                }, status=409)
+
+            ya_vinculada = Cotizacion.objects.filter(
+                venta_id=venta.id,
+            ).exclude(pk=cotizacion.pk).exists()
+            if ya_vinculada:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Esa venta ya esta vinculada a otra cotizacion.',
+                }, status=409)
+
+            cotizacion.estado = 'CONVERTIDA'
+            cotizacion.venta = venta
+            cotizacion.save()
+
+            sync_events.evento_cotizacion_convertida(cotizacion)
 
         return JsonResponse({
             'success': True,
             'message': 'Cotizacion marcada como convertida'
         })
 
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=400)
+    except Http404:
+        raise
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        return JsonResponse(
+            {'success': False, 'error': f'Datos invalidos: {exc}'}, status=400,
+        )
+    except Exception:
+        logger.exception('Error marcando una cotizacion como convertida')
+        return JsonResponse(
+            {'success': False, 'error': 'No se pudo marcar la cotizacion.'},
+            status=400,
+        )
     
 
 @login_required
@@ -287,8 +460,7 @@ def descargar_pdf_cotizacion(request, cotizacion_id):
     """
     try:
         cotizacion = get_object_or_404(
-            Cotizacion.objects.select_related('cliente', 'usuario'),
-            id=cotizacion_id
+            _cotizaciones_en_alcance(request), id=cotizacion_id,
         )
 
         # Generar PDF

@@ -41,6 +41,8 @@ class Command(BaseCommand):
             AsignacionRolModel=AsignacionRol,
             nombre=nombre,
         )
+        from apps.notificaciones.seed import crear_reglas_default
+        crear_reglas_default(negocio)
 
         self.stdout.write(
             self.style.SUCCESS(

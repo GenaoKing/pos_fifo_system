@@ -27,8 +27,29 @@ if %errorlevel% neq 0 (
 )
 
 set "PROJECT_DIR=%~dp0.."
+REM Resolver el ".." a una ruta canonica: sin esto, cada ruta construida con
+REM %PROJECT_DIR% (POS_ENV_FILE, logs, AppDirectory...) queda con
+REM "\deploy\..\deploy\" literal. Windows lo resuelve igual, pero ensucia
+REM cualquier diagnostico que imprima esas rutas (Task Scheduler, nssm dump).
+for %%I in ("%PROJECT_DIR%") do set "PROJECT_DIR=%%~fI"
 cd /d "%PROJECT_DIR%"
 REM La configuracion la lee la aplicacion desde env_cliente.env.
+
+REM --- Verificar que exista la configuracion (igual que registrar_servicio.bat) ---
+REM Sin esto, el servicio se registra apuntando a un env_cliente.env que
+REM todavia no existe: nssm arranca el proceso igual, `POS_ENV_FILE` no
+REM resuelve nada, y el daemon muere en loop con "SYNC_ENABLED=False en
+REM settings" -- aparece como RUNNING porque nssm lo relanza sin parar.
+REM Reproducido en Royal Plast (2026-08-24): la FASE 8 de actualizar.bat
+REM llamaba a este script antes de que el .env existiera.
+if not exist "%PROJECT_DIR%\deploy\env_cliente.env" (
+    echo [ERROR] Falta deploy\env_cliente.env
+    echo         Copie env_cliente.env.template y complete los valores, o
+    echo         convierta un env_cliente.bat existente con:
+    echo             python manage.py migrar_env_cliente
+    pause
+    exit /b 1
+)
 
 REM --- Validar que el sync este configurado ---
 if /i not "%SYNC_ENABLED%"=="true" (

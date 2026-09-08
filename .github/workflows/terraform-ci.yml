@@ -1,0 +1,48 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    branches: [develop, staging, main]
+    paths:
+      - "infra/azure/**"
+      - ".github/workflows/terraform-ci.yml"
+  push:
+    branches: [develop, staging, main]
+    paths:
+      - "infra/azure/**"
+      - ".github/workflows/terraform-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Terraform format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # platform usa atributos write-only, soportados desde Terraform 1.11.
+          terraform_version: "1.15.5"
+      - run: terraform fmt -check -recursive infra/azure
+
+  validate:
+    name: Validate ${{ matrix.root }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        root: [platform, dev, staging, prod]
+    defaults:
+      run:
+        working-directory: infra/azure/environments/${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.5"
+      - name: Initialize providers without remote state
+        run: terraform init -backend=false -input=false
+      - name: Validate configuration
+        run: terraform validate -no-color

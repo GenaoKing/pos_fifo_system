@@ -527,6 +527,7 @@
                     :disabled="panelPagoActivo"
                     placeholder="Buscar por nombre, SKU o codigo de barras..."
                     class="form-input search-input w-full"
+                    autocomplete="off"
                 >
             </div>
 
@@ -708,6 +709,7 @@
                                 @focus="if(clientesResultados.length) mostrarClientesDropdown = true"
                                 placeholder="Contado (buscar cliente...)"
                                 class="bg-transparent border-none outline-none w-full text-gray-900 placeholder-gray-400 p-0"
+                                autocomplete="off"
                             >
                         </div>
 
@@ -919,11 +921,12 @@
                                 </div>
                                 <div class="mt-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
-                                    <input 
+                                    <input
                                         type="text"
                                         x-model="referenciaTarjeta"
                                         placeholder="Últimos 4 dígitos o autorización..."
                                         class="form-input w-full text-sm"
+                                        autocomplete="off"
                                     >
                                 </div>
                             </div>
@@ -1146,6 +1149,7 @@
                         x-model="descuentoAuth.motivo"
                         class="form-input w-full text-sm"
                         :placeholder="descuentoMotivoObligatorio() ? 'Motivo (obligatorio)' : 'Motivo (opcional)'"
+                        autocomplete="off"
                     >
                 </template>
 
@@ -1298,9 +1302,9 @@
                         <p class="text-sm font-medium text-danger-800">Requiere autorizacion ADMIN</p>
                         <template x-if="!credito.override_token">
                             <div class="space-y-2">
-                                <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin">
-                                <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena">
-                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo (obligatorio)" required>
+                                <input type="text" x-model="credito.auth_username" class="form-input w-full text-sm" placeholder="Usuario admin" autocomplete="off">
+                                <input type="password" x-model="credito.auth_password" class="form-input w-full text-sm" placeholder="Contrasena" autocomplete="off">
+                                <input type="text" x-model="credito.motivo_override" class="form-input w-full text-sm" placeholder="Motivo (obligatorio)" required autocomplete="off">
                                 <button type="button" class="btn-outline btn-sm w-full" @click="validarAdminCredito()" :disabled="credito.auth_validando">Autorizar</button>
                                 <p class="text-xs text-danger-700" x-show="credito.auth_error" x-text="credito.auth_error"></p>
                             </div>

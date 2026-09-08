@@ -45,13 +45,45 @@ class EngineTests(TestCase):
         u = User.objects.create_superuser('root', 'root@example.com', 'x')
         self.assertTrue(u.tiene_permiso('ventas.anular'))
 
-    def test_acceso_total_no_depende_del_catalogo(self):
-        """Robustez: un admin no queda bloqueado aunque el catalogo este vacio
-        o el codigo no exista (corto-circuito en tiene_permiso)."""
+    def test_acceso_total_no_depende_de_la_tabla_de_permisos(self):
+        """
+        Robustez: un admin no queda bloqueado aunque la tabla `permisos` este
+        vacia (seed pendiente, base recien migrada). El catalogo declarativo
+        —`catalogo.CATALOGO`— es la fuente de verdad de que codigos existen, y
+        no depende del estado de la BD.
+        """
         Permiso.objects.all().delete()
         admin = _user('admin_sin_catalogo', rol='ADMIN')
         self.assertTrue(admin.tiene_permiso('clientes.crear'))
-        self.assertTrue(admin.tiene_permiso('codigo.inexistente'))
+
+    def test_un_codigo_fuera_del_catalogo_deniega_incluso_al_admin(self):
+        """
+        PER-009. Antes ADMIN aprobaba cualquier string: un gate nuevo con un
+        typo no protegia nada frente a un administrador, y el error era
+        invisible. Este test afirmaba la conducta vieja; ahora afirma la
+        correcta.
+        """
+        admin = _user('admin_typo', rol='ADMIN')
+        self.assertFalse(admin.tiene_permiso('codigo.inexistente'))
+
+        sysadmin = _user('sys_typo', rol='SYSADMIN')
+        self.assertFalse(sysadmin.tiene_permiso('ventas.anulr'))
+
+    def test_las_capacidades_del_operador_saas_no_son_del_admin_del_tenant(self):
+        """
+        PER-009. El catalogo describe `suscripciones.administrar` como
+        capacidad del operador del SaaS, pero el acceso total se la concedia a
+        cualquier ADMIN — que en una BD por tenant podia entonces editar su
+        propia suscripcion.
+        """
+        admin = _user('admin_tenant', rol='ADMIN')
+        self.assertFalse(admin.tiene_permiso('suscripciones.administrar'))
+
+        sysadmin = _user('sys_operador', rol='SYSADMIN')
+        self.assertTrue(sysadmin.tiene_permiso('suscripciones.administrar'))
+
+        root = User.objects.create_superuser('root_ops', 'root_ops@example.com', 'x')
+        self.assertTrue(root.tiene_permiso('suscripciones.administrar'))
 
     def test_mismo_rol_distinto_negocio_distintos_permisos(self):
         """El nucleo del requerimiento: 'Cajero' configurado distinto por negocio."""

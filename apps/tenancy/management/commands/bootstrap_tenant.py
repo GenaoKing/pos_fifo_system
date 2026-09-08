@@ -167,7 +167,7 @@ class Command(BaseCommand):
             raise
 
         with force_tenancy(True):
-            with tenant_context(tenant):
+            with tenant_context(tenant, permitir_inactivo=True):
                 result = self._seed_tenant(
                     tenant=tenant,
                     nombre=nombre,
@@ -294,7 +294,9 @@ class Command(BaseCommand):
             SuscripcionNegocio,
         )
 
-        negocio = Negocio.objects.order_by('id').first()
+        # `self_row()` falla si hay mas de una fila, en vez de retitular la
+        # de menor PK y dejar el resto colgando (NEG-005).
+        negocio = Negocio.self_row()
         if negocio is None:
             negocio = Negocio.objects.create(nombre=nombre, slug=slug, rnc=rnc, activo=True)
         else:
@@ -365,6 +367,8 @@ class Command(BaseCommand):
             AsignacionRolModel=AsignacionRol,
             nombre=nombre,
         )
+        from apps.notificaciones.seed import crear_reglas_default
+        crear_reglas_default(negocio)
 
         suscripciones_seed.bootstrap(
             ModuloModel=Modulo,

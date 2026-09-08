@@ -19,7 +19,7 @@ from apps.common.pdf.standard import (
     standard_table,
     totals_table,
 )
-from apps.configuracion.utils import get_config
+from apps.configuracion.utils import config_para_documento
 
 
 class CotizacionPDF:
@@ -27,7 +27,10 @@ class CotizacionPDF:
 
     def __init__(self, cotizacion):
         self.cotizacion = cotizacion
-        self.config = get_config()
+        # COM-001: el encabezado sale de la sucursal del OBJETO, no de
+        # `SUCURSAL_CODIGO`. Con settings apuntando a A, un documento de B
+        # se imprimia con el nombre, el RNC, la direccion y el logo de A.
+        self.config = config_para_documento(cotizacion.sucursal)
         self.buffer = BytesIO()
 
     def _header(self):

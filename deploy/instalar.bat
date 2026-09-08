@@ -300,16 +300,24 @@ REM FASE 8: Usuario SYSADMIN + ConfiguracionNegocio + Caja
 REM ============================================================================
 echo [FASE 8/10] Configurando sistema...
 
-REM --- Crear usuario SYSADMIN (Santiago) ---
+REM --- Crear usuario SYSADMIN ---
+REM El manager exige email no vacio, y esta fase lo pasaba vacio.
+REM Levantaba ValueError, nadie miraba %errorlevel% y la instalacion
+REM terminaba imprimiendo "COMPLETADA EXITOSAMENTE" sin cuenta administrativa
+REM (USR-005). Ahora hay email por defecto, se comprueba el codigo de salida y
+REM se verifica la postcondicion.
 echo   Creando usuario SYSADMIN...
 python manage.py shell --settings=config.settings_production -c "
-import os
+import os, sys
 from django.contrib.auth import get_user_model
 User = get_user_model()
 username = os.environ.get('INITIAL_SYSADMIN_USERNAME', 'Santiago')
 password = os.environ.get('INITIAL_SYSADMIN_PASSWORD')
+email = os.environ.get('INITIAL_SYSADMIN_EMAIL') or f'{username.lower()}@local.pos'
+if not password:
+    sys.exit('  [ERROR] Falta INITIAL_SYSADMIN_PASSWORD.')
 if not User.objects.filter(username=username).exists():
-    u = User.objects.create_superuser(username=username, password=password, email='')
+    u = User.objects.create_superuser(username=username, password=password, email=email)
     u.rol = 'SYSADMIN'
     u.save()
     print(f'  [OK] Usuario {username} (SYSADMIN) creado')
@@ -318,13 +326,42 @@ else:
     u.rol = 'SYSADMIN'
     u.is_superuser = True
     u.is_staff = True
+    u.activo = True
+    if not u.email:
+        u.email = email
     u.save()
     print(f'  [OK] Usuario {username} ya existe, rol actualizado a SYSADMIN')
 "
+if errorlevel 1 (
+    echo   [ERROR] No se pudo crear el usuario SYSADMIN. Instalacion abortada.
+    exit /b 1
+)
+
+REM --- Postcondicion: el SYSADMIN existe, esta activo y es usable ---
+python manage.py shell --settings=config.settings_production -c "
+import os, sys
+from django.contrib.auth import get_user_model
+User = get_user_model()
+username = os.environ.get('INITIAL_SYSADMIN_USERNAME', 'Santiago')
+u = User.objects.filter(username=username, rol='SYSADMIN', activo=True).first()
+if u is None:
+    sys.exit('  [ERROR] No quedo un SYSADMIN activo tras la instalacion.')
+if not u.has_usable_password():
+    sys.exit('  [ERROR] El SYSADMIN quedo sin contrasena utilizable.')
+print(f'  [OK] Verificado: {username} es SYSADMIN activo')
+"
+if errorlevel 1 (
+    echo   [ERROR] Verificacion del SYSADMIN fallida. Instalacion abortada.
+    exit /b 1
+)
 
 REM --- Crear ConfiguracionNegocio con preset ---
 echo   Configurando datos del negocio (preset: %NEGOCIO_PRESET%)...
 python manage.py crear_config_inicial --nombre "%NEGOCIO_NOMBRE%" --preset %NEGOCIO_PRESET% --settings=config.settings_production
+if errorlevel 1 (
+    echo   [ERROR] No se pudo crear la configuracion del negocio. Instalacion abortada.
+    exit /b 1
+)
 
 REM --- Crear Caja Principal ---
 echo   Creando Caja Principal...

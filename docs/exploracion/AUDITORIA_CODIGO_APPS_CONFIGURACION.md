@@ -45,6 +45,13 @@ Se documentan **21 hallazgos**:
 | P2 | 12 | Debilita invariantes, sync, diagnóstico, lifecycle, trazabilidad y consistencia entre flags, entitlement y administración. |
 | P3 | 4 | Deuda de archivos, contratos, consumidores y cobertura que aumenta el costo de operar el control plane. |
 
+> **Estado (2026-08-30): P1 MITIGADO (5/5).** Los cinco hallazgos P1 se
+> verificaron contra el código y los cinco resultaron reales; los cinco están
+> corregidos, con pruebas de regresión. Ver
+> [Estado de mitigación](#estado-de-mitigación) al final.
+> **Sin migraciones.** Incluye un cambio de contrato: `get_config()` puede
+> lanzar `ConfiguracionNoResuelta`.
+
 La suite seleccionada terminó con **91/91 pruebas existentes aprobadas**.
 `apps/configuracion` aporta **37 pruebas propias**. Una batería adversarial
 temporal terminó con **17/17 reproducciones confirmadas** y fue retirada del
@@ -758,17 +765,119 @@ La aplicación puede considerarse cerrada cuando, como mínimo:
 - las diecisiete reproducciones adversariales se convierten en pruebas de
   rechazo, aislamiento o convergencia.
 
-## Conclusión
+---
 
-El mayor riesgo de `apps/configuracion` no está en un campo aislado, sino en la
-identidad de la configuración efectiva. Hoy tenant, sucursal y proceso no forman
-parte completa de esa identidad: una clave puede cruzar negocios, un código
-inválido puede caer en otra fila y un worker puede conservar reglas obsoletas
-para siempre. Dado que esas reglas autorizan pagos, inventario y documentos, el
-impacto es transversal.
+# Estado de mitigación
 
-La solución de mayor retorno es construir un resolutor estricto y versionado,
-con caché particionado e invalidación distribuida, y hacer que todas las
-mutaciones pasen por un servicio RBAC/auditado. Después de eso, validaciones,
-diagnóstico y workflow fiscal pueden apoyarse en una fuente de verdad realmente
-confiable.
+Fecha: 2026-08-30. Verificación previa: se releyó cada hallazgo P1 contra el
+código citado. **Los cinco son reales** — ninguno resultó falso positivo.
+
+## Resumen por hallazgo
+
+| ID | Real | Estado | Dónde quedó la corrección |
+|---|---|---|---|
+| CFG-001 | Sí | Corregido | `cache_key_config()` incluye el `tenant_key` activo, y bajo tenancy sin contexto **falla fuerte** (`TenantContextError`) — igual que el router, el prefijo de media y el motor de permisos. La clave pasa de `config_negocio_<codigo>` a `config_negocio:<tenant>:<codigo>`. |
+| CFG-002 | Sí | Corregido (con matiz) | Ver abajo. |
+| CFG-003 | Sí | Corregido | `ConfiguracionNegocioAdmin` exige **ambos**: el permiso Django que ya pedía **y** `configuracion.administrar`. Además `get_queryset()` se acota a las sucursales del alcance, así que un administrador de A no lista ni edita la configuración de B. |
+| CFG-004 | Sí | Corregido | El `--dry-run` enmascara por **nombre de variable** (`PASSWORD`, `SECRET`, `TOKEN`, `KEY`, `API`, `PIN`, `CERT`, `CREDENTIAL`, `AUTH`): muestra dos caracteres de cada punta y la longitud, y nada si el valor tiene menos de 8. |
+| CFG-005 | Sí | Corregido | El caché deja de ser eterno: 30 s con backend local, 600 s con uno compartido. La invalidación de `save()` usa **la misma función** que construye la clave del lector, para que no puedan desincronizarse. |
+
+## CFG-002: la regla que quedó, y por qué no es "no resuelve ⇒ fallar"
+
+La primera versión levantaba `ConfiguracionNoResuelta` siempre que
+`SUCURSAL_CODIGO` no resolviera. **Rompió una parte grande de la suite**, y el
+motivo es sustantivo, no un detalle de fixtures: `SUCURSAL_CODIGO` trae
+`SD-001` **por defecto** en toda instalación. «El operador proporcionó un
+código» no es cierto — puede ser simplemente que nadie lo tocó.
+
+La regla final es la misma que se aplicó a la resolución de tenant (NEG-001):
+**fallar donde hay algo que confundir.**
+
+- **Una sola configuración en la base:** no hay otra tienda con la cual
+  confundirse. Se usa esa y se registra un `warning`. Fallar aquí dejaría sin
+  arrancar una instalación nueva o de una sola sucursal por un dato que no
+  cambia nada.
+- **Varias configuraciones:** devolver `.objects.first()` es exactamente el
+  hallazgo — la caja opera con la identidad fiscal, los medios de pago y los
+  módulos de una tienda arbitraria, y el error queda cacheado bajo el código
+  inválido. Ahí sí se levanta la excepción.
+
+En los dos casos queda registro: un código que no resuelve siempre es un
+síntoma, aunque a veces sea inocuo.
+
+## Cambios de conducta observables
+
+1. **`get_config()` puede lanzar `ConfiguracionNoResuelta`.** Solo cuando el
+   código no resuelve **y** hay más de una configuración. Es el escenario donde
+   antes se servía la de otra tienda en silencio.
+2. **Un `SUCURSAL_CODIGO` que no resuelve deja un `warning` en el log**, aunque
+   la instalación siga operando.
+3. **Un staff con permisos Django sobre la configuración ya no entra al Admin
+   sin `configuracion.administrar`.** Y con él, solo ve las sucursales de su
+   alcance. **Revisar antes de desplegar**: quien administre configuración
+   necesita ese permiso RBAC, que hasta ahora no habilitaba nada.
+4. **`migrar_env_cliente --dry-run` ya no imprime credenciales.**
+5. **Un cambio de configuración se propaga a los demás workers en ≤30 s** en vez
+   de quedar fijo hasta el reinicio. El costo es una consulta cada 30 s por
+   worker y sucursal; con un backend compartido (Redis) el TTL sube a 600 s y la
+   invalidación de `save()` alcanza a todos de inmediato.
+
+## Despliegue
+
+**Sin migraciones.**
+
+> **Revisar antes de desplegar:**
+> 1. Que `SUCURSAL_CODIGO` en `deploy/env_cliente.env` corresponda a una
+>    `Sucursal` existente. Si no, y hay más de una configuración, la aplicación
+>    ahora se detiene en vez de operar con datos de otra tienda.
+> 2. Que quien administre la configuración tenga `configuracion.administrar`.
+>    El permiso existía en el catálogo pero no habilitaba nada, así que es
+>    probable que **nadie lo tenga asignado**.
+
+**Recomendación de infraestructura (compartida con permisos):** configurar Redis
+como caché en el cloud. El motor de permisos y esta configuración pagan hoy el
+mismo precio —consultas repetidas para no discrepar entre los tres workers de
+Gunicorn— y ambos lo recuperan con un backend compartido.
+
+## Lo que no se tocó
+
+P2: CFG-006 (el modelo acepta combinaciones operativas y fiscales inseguras),
+CFG-007 (el pull omite validadores y `choices`), CFG-008 (los controles e-CF no
+se administran como unidad), CFG-009 (plantillas y gates consultan dos fuentes
+de verdad), CFG-010 (`AccesoRapidoPOS` sin ámbito ni invariantes), **CFG-011 (la
+protección contra borrar configuración es ilusoria: `delete()` del modelo no
+hace nada, pero `QuerySet.delete()` no pasa por ahí)**, CFG-012 (leer
+configuración puede crearla), CFG-013 (el verificador declara sano el modo
+legacy con módulos apagados), CFG-014 (el diagnóstico puede mostrar la
+configuración de otra sucursal y termina con exit 0), CFG-015
+(`crear_config_inicial` sin `--sucursal` pisa la primera), CFG-016 (la migración
+`.bat` a `.env` no garantiza round-trip), CFG-017 (los cambios de configuración
+no dejan auditoría de dominio uniforme).
+
+P3: CFG-018 a CFG-021.
+
+**CFG-012 y CFG-017 conviene tomarlos juntos:** leer la configuración puede
+crearla (`load()` hace `get_or_create`), y ningún cambio deja auditoría de
+dominio. O sea que hoy no hay forma de reconstruir quién activó el inventario
+negativo ni cuándo.
+
+## Pruebas
+
+Suite completa, serial: **1032 tests, OK.**
+
+Módulo de regresión nuevo:
+`apps/configuracion/tests/test_auditoria_configuracion.py` (17 pruebas), sobre
+las 45 que la app ya tenía.
+
+**Verificación por mutación.** Revertidos los tres hallazgos centrales, cinco
+pruebas fallan:
+
+- Sin el namespace de tenant (CFG-001), `1 != 2`: dos tenants con `SD-001`
+  vuelven a compartir clave — la reproducción literal.
+- Con el fallback silencioso (CFG-002), `ConfiguracionNoResuelta not raised`.
+- Sin el gate RBAC del Admin (CFG-003), `True is not false`.
+
+**Una corrección de mi propio test.** El caso que verifica el acotamiento del
+queryset usaba un usuario `is_superuser=True` para pasar el gate de Django — y
+un superusuario tiene alcance RBAC **global**, así que el test no probaba nada.
+Se cambió por un staff con los permisos Django explícitos.
