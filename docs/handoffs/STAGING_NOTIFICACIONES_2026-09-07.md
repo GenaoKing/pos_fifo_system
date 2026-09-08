@@ -144,7 +144,11 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
 - [x] Rig local dedicado conectado a staging con `SYNC_INTERVAL=60`.
 - [x] Correo de prueba del Action Group recibido en
   `genaosantiago001@gmail.com` y confirmado por el receptor (2026-09-08).
+- [x] BUG-M de Safari-tab corregido y desplegado en el portal staging
+  (`e0a2302`); 95 pruebas, lint y build verdes.
 - [ ] Smoke físico Windows de BUG-I/J y Web Push.
+- [ ] Repetir iPhone desde la PWA añadida a Inicio y confirmar que no aparece
+  el error técnico de `pushManager`.
 - [ ] Matriz física Windows, Android e iPhone.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene

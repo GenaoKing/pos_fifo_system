@@ -690,6 +690,27 @@ lo que no existe") -- ahora aplica igual a productos.
   previo fallo, el boton reutiliza la suscripcion local y reintenta el alta
   idempotente, sin pedir permiso ni crear otra suscripcion.
 
+### BUG-M — Safari en iPhone mostraba incompatibilidad y un error de `pushManager`
+
+- Fecha de hallazgo: 2026-09-08, durante el smoke físico de Web Push en iPhone.
+- Severidad: **media / onboarding**. La bandeja seguía disponible, pero el
+  usuario no recibía la guía de instalación requerida por iOS y veía el error
+  técnico `undefined is not an object` al entrar desde una pestaña de Safari.
+- **Estado: CORREGIDO, CUBIERTO Y DESPLEGADO EN DEV/STAGING (2026-09-08);
+  pendiente de confirmación física desde el icono instalado.**
+- Reproducción: abrir directamente `/notificaciones` en Safari sin añadir el
+  portal a Inicio. Safari expone `serviceWorker`, pero no las APIs Push en esa
+  ventana; el portal la rotulaba incompatible y luego intentaba evaluar
+  `registration.pushManager.getSubscription()`.
+- Causa: `currentPushCapability()` trataba de registrar el service worker antes
+  de resolver el estado especial `ios-no-instalada`, y
+  `currentPushSubscription()` no protegía la ausencia de `PushManager`.
+- Corrección frontend (`e0a2302`): detectar primero iPhone/iPad fuera de modo
+  standalone, no tocar el service worker en estados incompatibles, proteger
+  `registration.pushManager` y mostrar el flujo Safari → Compartir → Añadir a
+  Inicio → abrir el icono → activar. La guía aclara que instalar Chrome no evita
+  el requisito de ejecutar la PWA desde Inicio.
+
 ### BUG-K — El receptor sync confirmaba fallos de integridad como duplicados
 
 - Fecha de hallazgo: 2026-09-06, durante el smoke de apertura de caja para
