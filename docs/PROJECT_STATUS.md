@@ -1,6 +1,6 @@
 # Estado maestro del proyecto
 
-Estado consolidado al 2026-06-09, con parches puntuales al 2026-09-05 (ver notas
+Estado consolidado al 2026-06-09, con parches puntuales al 2026-09-07 (ver notas
 inline). Este documento es la puerta de entrada para leer el proyecto sin
 perderse entre roadmaps, runbooks y bitacoras historicas -- pero varias filas
 de la tabla llevan semanas sin una revision completa; verificar contra el
@@ -30,12 +30,12 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Notificaciones portal | **V1 activa en dev; piloto en curso** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Motor activo solo para `demo`, un dispositivo Win32 real y job por minuto habilitado (2026-09-06). Cuatro operaciones produjeron una fila de bandeja y una entrega `ENVIADA` cada una; el ultimo cierre recorrio POS→sync→job en 98 s. Falta confirmacion visual y ampliar el smoke a movimientos, otros dispositivos y reglas negativas. |
+| Notificaciones portal | **V1 activa y endurecida en dev; staging en promocion** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job y portal dev desplegados el 2026-09-07; alerta de cinco minutos activa y prueba del Action Group aceptada. Falta confirmacion del correo, smoke visual BUG-I/J y matriz fisica de staging. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 11 bugs etiquetados (BUG-A..K) | `BUGS.md` | BUG-I/J siguen pendientes de UX. BUG-K (ACK falso del sync) esta corregido y desplegado en dev; no promovido a produccion. |
+| Bugs/hallazgos | 12 bugs etiquetados (BUG-A..L) | `BUGS.md` | BUG-I/J/L corregidos y desplegados en dev; falta confirmacion visual de BUG-I/J. BUG-K (ACK falso del sync) sigue fuera de produccion. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -62,6 +62,9 @@ Estado actual contrastado con el repo:
   automatico en 98 segundos, sin errores ni reintentos. Falta confirmar la
   presentacion visual y completar la matriz de dispositivos/movimientos/reglas
   del runbook.
+- El 2026-09-07 se desplegaron en dev las correcciones BUG-I/J/L, el pipeline
+  con rollback independiente y los iconos PWA. Terraform agrego el Action Group
+  y la alerta Kusto del job; la prueba de Azure termino `Succeeded`.
 - `docs/runbooks/AZURE_DEV_RESOURCES.md` lista recursos reales de Azure dev.
 
 Discrepancias resueltas o visibles:
@@ -71,8 +74,9 @@ Discrepancias resueltas o visibles:
 - Azure Static Web Apps dev ya existe:
   `https://agreeable-moss-051bc0010.7.azurestaticapps.net`. El frontend tiene
   preparacion y runbook operativo
-  (`docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`). Pendiente:
-  redeployar con `VITE_API_URL` en el workflow ASWA y smoke de login publicado.
+  (`docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`). El deploy del
+  2026-09-07 valido OIDC, `VITE_API_URL` y la publicacion de manifest, service
+  worker e iconos PNG.
 - Floci sigue siendo laboratorio opcional, no staging.
 
 ## RBAC y modulos

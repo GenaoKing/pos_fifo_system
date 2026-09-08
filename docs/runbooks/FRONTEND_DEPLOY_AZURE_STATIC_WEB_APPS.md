@@ -1,8 +1,9 @@
 # Deploy Frontend En Azure Static Web Apps
 
 Guia practica para publicar `pos-cloud-dashboard` como portal cloud usando
-Azure Static Web Apps (ASWA), preferiblemente en una suscripcion Pay-As-You-Go
-si Azure for Students mantiene bloqueado el recurso por policy/regiones.
+Azure Static Web Apps (ASWA). Los tres ambientes actuales estan en Azure for
+Students; para un recurso nuevo hay que verificar primero las policy/regiones
+vigentes de la suscripcion elegida.
 
 ## Estado actual
 
@@ -12,8 +13,8 @@ si Azure for Students mantiene bloqueado el recurso por policy/regiones.
 - Build frontend: Vite/React, salida `dist/`.
 - Config SPA: `staticwebapp.config.json` ya existe.
 - CORS local Vite validado en dev/staging para `http://localhost:5173`.
-- Los tres ASWA Free viven en la suscripcion Pay-As-You-Go; Azure for Students
-  no se usa para estos recursos por sus restricciones de policy/regiones.
+- Los tres ASWA Free (`dev`, `staging` y `prod`) fueron reverificados el
+  2026-09-07 en la suscripcion Azure for Students.
 - ASWA dev creado el 2026-06-13:
   `https://agreeable-moss-051bc0010.7.azurestaticapps.net`
   (`posfifo-dev-portal-swa`, RG `posfifo-dev-frontend-rg`, Free, branch
@@ -46,9 +47,9 @@ GitHub pos-cloud-dashboard
   -> HTTPS API Azure Container Apps
 ```
 
-## Decision recomendada
+## Decision vigente
 
-Primero probar ASWA Free en Pay-As-You-Go:
+Mantener ASWA Free mientras alcance para el portal:
 
 - mantiene el frontend dentro del ecosistema Azure,
 - conserva el roadmap original,
@@ -64,7 +65,8 @@ En Azure Portal:
 
 1. Buscar **Static Web Apps**.
 2. `Create`.
-3. Subscription: Pay-As-You-Go.
+3. Subscription: verificar la suscripcion objetivo; los tres recursos actuales
+   usan Azure for Students.
 4. Resource group:
    - dev: `posfifo-dev-frontend-rg`
    - staging: `posfifo-staging-frontend-rg`
@@ -161,8 +163,8 @@ VITE_API_URL_STAGING=https://posfifo-staging-api.calmflower-b43e72c3.canadacentr
 ASWA normalmente crea un secret/token de deploy. Si lo crea el portal, no
 renombrarlo sin actualizar el workflow.
 
-Nota importante: `Azure/static-web-apps-deploy@v1` no acepta
-`github_id_token`. Para estos ASWA el contrato usado es deployment token:
+`Azure/static-web-apps-deploy@v1` siempre recibe el deployment token en
+`azure_static_web_apps_api_token`:
 
 ```yaml
 with:
@@ -174,8 +176,12 @@ with:
   app_build_command: "npm run build"
 ```
 
-Si el workflow muestra `Unexpected input(s) 'github_id_token'`, eliminar ese
-input y el paso que obtiene el GitHub Id Token.
+No pasar `github_id_token` dentro de `with`: esa entrada no esta soportada. Dev
+fue aprovisionado ademas con federacion GitHub y requiere conservar
+`permissions.id-token: write`, el paso `core.getIDToken()` y
+`INPUT_GITHUB_ID_TOKEN` como variable de entorno del action. Esa combinacion se
+revalido con un deploy exitoso el 2026-09-07. Staging y prod usan sus deployment
+tokens propios.
 
 Staging:
 
