@@ -155,8 +155,10 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   dispositivos: esperado RD$1,000, contado RD$900 y diferencia RD$-100.
 - [x] Ingreso, gasto y retiro recibidos en los tres dispositivos, con una fila
   de bandeja por hecho y tres entregas push por hecho.
-- [ ] Completar la matriz física restante: umbral, regla apagada, usuario fuera
-  de sucursal y
+- [x] Umbral inferior aplicado: con mínimo RD$100, un gasto de RD$25 fue
+  confirmado por sync y procesado sin crear aviso ni entrega.
+- [ ] Completar la matriz física restante: borde exacto del umbral, regla
+  apagada, usuario fuera de sucursal y
   suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
@@ -214,3 +216,9 @@ confirmó los cuatro hechos generados (dos ingresos, un gasto y un retiro) sin
 error. Cloud conservó una fila de destinatario por hecho y el job terminó con
 doce entregas `ENVIADA`, exactamente tres por movimiento y sin duplicados ni
 reintentos.
+
+Luego se cambió el mínimo de `caja.gasto` a RD$100 y se registró un gasto de
+RD$25. Tras dos minutos no hubo aviso visible. La comprobación cloud confirmó
+que el `EventoSync` sí estaba `CONFIRMADO` y su marcador quedó `PROCESADO`, con
+`genero_evento=False`, cero intentos fallidos y sin nuevas filas de bandeja o
+entrega. Esto descarta un falso positivo causado por un sync interrumpido.
