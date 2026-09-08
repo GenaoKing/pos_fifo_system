@@ -119,8 +119,9 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
 - [x] Terraform `fmt -check`, `init -backend=false` y `validate` en los cuatro roots.
 - [x] Suite Django completa sobre base recreada: 1,160 pruebas OK (1,008 s).
 - [x] Kusto: job sano devuelve 0 filas y nombre inexistente devuelve 1.
-- [ ] CI y despliegue dev con API/job en el mismo SHA.
-- [ ] Action Group dev probado y correo confirmado por el receptor.
+- [x] CI y despliegue dev con API/job en el mismo SHA (`39ec1fc`).
+- [x] Action Group dev creado y prueba Azure `Succeeded`.
+- [ ] Correo del Action Group recibido/confirmado por el receptor.
 - [ ] Smoke fisico Windows de BUG-I/J y Web Push.
 - [ ] Promocion backend y migraciones staging.
 - [ ] Terraform y portal staging.
