@@ -151,8 +151,10 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   el error técnico de `pushManager`.
 - [x] Apertura y cierre reales recibidos en iPhone, Android y Windows: dos
   filas de bandeja y seis entregas push `ENVIADA` (2026-09-08).
-- [ ] Completar la matriz física restante: cierre con diferencia, retiro,
-  gasto, ingreso, umbral, regla apagada, usuario fuera de sucursal y
+- [x] Cierre con diferencia recibido con nivel y detalle correctos en los tres
+  dispositivos: esperado RD$1,000, contado RD$900 y diferencia RD$-100.
+- [ ] Completar la matriz física restante: retiro, gasto, ingreso, umbral,
+  regla apagada, usuario fuera de sucursal y
   suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
@@ -199,3 +201,8 @@ reencolaron de forma idempotente. El sync confirmó ambos, el job creó una fila
 de bandeja por evento y seis entregas push quedaron `ENVIADA` (dos eventos por
 tres dispositivos). El receptor confirmó visualmente ambos avisos en los tres
 dispositivos. La cola local quedó limpia y el daemon continuó saludable.
+
+En un segundo turno se abrió con RD$1,000 y se cerró contando RD$900. El
+receptor confirmó en iPhone, Android y Windows tanto la apertura como el cierre
+con diferencia, incluido su detalle: esperado RD$1,000, contado RD$900 y
+diferencia RD$-100.
