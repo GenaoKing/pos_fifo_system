@@ -159,8 +159,9 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   confirmado por sync y procesado sin crear aviso ni entrega.
 - [x] Borde exacto del umbral aplicado: gasto de RD$100 con mínimo RD$100 creó
   un aviso y tres entregas, recibidas correctamente.
-- [ ] Completar la matriz física restante: regla apagada, usuario fuera de
-  sucursal y
+- [x] Regla apagada aplicada: ingreso de RD$25 confirmado y procesado sin
+  crear aviso ni entrega.
+- [ ] Completar la matriz física restante: usuario fuera de sucursal y
   suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
@@ -230,3 +231,9 @@ confirmó en los tres dispositivos y cloud mostró el evento `CONFIRMADO`, el
 marcador `PROCESADO` con `genero_evento=True`, un destinatario y exactamente
 tres entregas `ENVIADA`. La comparación del umbral incluye correctamente el
 valor igual al límite.
+
+Para probar el interruptor se desactivó la regla `caja.ingreso` y se registró
+un ingreso de RD$25. No hubo aviso visible. Cloud confirmó que la regla estaba
+inactiva, el sync estaba `CONFIRMADO` y el marcador quedó `PROCESADO` con
+`genero_evento=False`; los totales permanecieron en dos avisos y seis entregas
+de ingreso.
