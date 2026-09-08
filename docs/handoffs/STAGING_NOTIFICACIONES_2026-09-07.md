@@ -153,8 +153,10 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   filas de bandeja y seis entregas push `ENVIADA` (2026-09-08).
 - [x] Cierre con diferencia recibido con nivel y detalle correctos en los tres
   dispositivos: esperado RD$1,000, contado RD$900 y diferencia RD$-100.
-- [ ] Completar la matriz física restante: retiro, gasto, ingreso, umbral,
-  regla apagada, usuario fuera de sucursal y
+- [x] Ingreso, gasto y retiro recibidos en los tres dispositivos, con una fila
+  de bandeja por hecho y tres entregas push por hecho.
+- [ ] Completar la matriz física restante: umbral, regla apagada, usuario fuera
+  de sucursal y
   suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
@@ -206,3 +208,9 @@ En un segundo turno se abrió con RD$1,000 y se cerró contando RD$900. El
 receptor confirmó en iPhone, Android y Windows tanto la apertura como el cierre
 con diferencia, incluido su detalle: esperado RD$1,000, contado RD$900 y
 diferencia RD$-100.
+
+Con el tercer turno abierto se probaron ingreso, gasto y retiro. El sync local
+confirmó los cuatro hechos generados (dos ingresos, un gasto y un retiro) sin
+error. Cloud conservó una fila de destinatario por hecho y el job terminó con
+doce entregas `ENVIADA`, exactamente tres por movimiento y sin duplicados ni
+reintentos.
