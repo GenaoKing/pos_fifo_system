@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-07** · Rama: `develop`
+Última actualización: **2026-09-08** · Rama: `develop`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -55,6 +55,11 @@ en [TODO_AUDITORIAS.md](TODO_AUDITORIAS.md).
 La auditoría operativa de la promoción completa `staging..develop`, sus
 preflights y respaldos vive en
 [`docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`](handoffs/STAGING_NOTIFICACIONES_2026-09-07.md).
+
+Las 13 migraciones que estaban pendientes para esta promoción se aplicaron el
+2026-09-08 tanto al control plane de staging como a `staging_royalplast`. La
+tabla siguiente sigue siendo obligatoria antes de producción, que permanece
+fuera de este despliegue.
 
 ### 2.1 Migraciones
 
