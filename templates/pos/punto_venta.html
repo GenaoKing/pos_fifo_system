@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load permisos %}
 
 {% block title %}Punto de Venta - Sistema POS{% endblock %}
 
@@ -250,6 +251,25 @@
     .scanner-toast.visible {
         transform: translateX(0);
     }
+
+    /* Barra "ultima venta": comprobante PDF / detalle de la venta recien
+       cobrada. Fixed y fuera del flujo del flex de .pos-container, igual
+       que .scanner-toast, para no robarle ancho a los paneles de 30/45/25%. */
+    .ultima-venta-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 1.25rem;
+        transform: translateX(-50%);
+        z-index: 9998;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 0.5rem;
+        background-color: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+    }
     
     .scanner-toast.success {
         background-color: #f0fdf4;
@@ -317,6 +337,37 @@
         :class="[scannerToastType, scannerToastVisible ? 'visible' : '']"
     >
         <span x-text="scannerToastMessage"></span>
+    </div>
+
+    <!-- Barra de la ultima venta: comprobante PDF / ver detalle, sin
+         forzar una redireccion (el ticket termico ya se imprimio solo). -->
+    <div x-show="ultimaVenta" x-cloak class="ultima-venta-bar">
+        <span class="text-sm text-success-800">
+            Venta <span class="font-mono font-semibold" x-text="ultimaVenta && ultimaVenta.numero"></span> registrada
+        </span>
+        {% if request.user|puede:'ventas.reimprimir' %}
+        <a
+            :href="'/pos/venta/' + (ultimaVenta ? ultimaVenta.id : '') + '/comprobante/'"
+            target="_blank"
+            class="btn-outline btn-sm"
+        >
+            Comprobante (PDF)
+        </a>
+        {% endif %}
+        <a
+            :href="'/pos/venta/' + (ultimaVenta ? ultimaVenta.id : '') + '/exito/'"
+            class="btn-outline btn-sm"
+        >
+            Ver detalle
+        </a>
+        <button
+            type="button"
+            @click="ultimaVenta = null"
+            class="text-success-700 hover:text-success-900 text-lg leading-none"
+            aria-label="Cerrar"
+        >
+            &times;
+        </button>
     </div>
 
     <!-- ============================================

@@ -245,7 +245,7 @@ class EncabezadoPorSucursalTests(TestCase):
 
     def test_los_generadores_ya_no_resuelven_por_settings(self):
         """
-        El invariante: ninguno de los cuatro generadores puede volver a llamar
+        El invariante: ningun generador de PDF puede volver a llamar
         `get_config()` para armar su encabezado.
         """
         import inspect
@@ -253,9 +253,10 @@ class EncabezadoPorSucursalTests(TestCase):
         from apps.cotizaciones import pdf_generator as cot
         from apps.cuentas_por_cobrar import pdf_generator as cxc
         from apps.reportes import pdf_generator as rep
+        from apps.ventas import pdf_comprobante as comp
         from apps.ventas import pdf_financiacion as fin
 
-        for modulo in (cot, cxc, rep, fin):
+        for modulo in (cot, cxc, rep, fin, comp):
             with self.subTest(modulo=modulo.__name__):
                 fuente = inspect.getsource(modulo)
                 self.assertNotIn('get_config()', fuente)
