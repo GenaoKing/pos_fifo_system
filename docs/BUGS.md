@@ -678,8 +678,7 @@ lo que no existe") -- ahora aplica igual a productos.
   documento `Server Error (500)` completo y, si el navegador habia creado la
   suscripcion antes del fallo del POST, una recarga podia afirmar que el equipo
   estaba vinculado aunque el backend no tuviera un dispositivo activo.
-- **Estado: CORREGIDO, CUBIERTO Y DESPLEGADO EN DEV (2026-09-07); staging
-  pendiente.**
+- **Estado: CORREGIDO, CUBIERTO Y DESPLEGADO EN DEV/STAGING (2026-09-08).**
 - Causa 1: `extractApiError` devolvia cualquier body string sin distinguir
   HTML, traceback, longitud ni status 5xx.
 - Causa 2: `PushDeviceCard` inferia `suscrito` solo con

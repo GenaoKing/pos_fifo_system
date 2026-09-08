@@ -1,7 +1,9 @@
 # Handoff de promocion a staging — notificaciones
 
-Fecha de corte: **2026-09-07**  
-Base auditada: `origin/staging@1e20a70..origin/develop@2e8fcb6`  
+Fecha de corte: **2026-09-08**
+
+Base auditada: `origin/staging@1e20a70..origin/develop@0c6cbff`
+
 Produccion: **fuera de alcance**
 
 ## Resultado ejecutivo
@@ -20,11 +22,18 @@ son compatibles con los datos actuales de staging:
 - `auditoria.0005` y `0006`: viajan juntas, por lo que ningun registro se firma
   con el instante incorrecto corregido por `0006`.
 
-El control plane registra un tenant activo, `staging_royalplast`, con base
-`tnt_staging_royalplast`. El tenant descartable `demo` se aprovisionara despues
-de que el schema nuevo y la API esten sanos.
+La promoción terminó correctamente. El backend staging quedó en
+`bb37b2f361fbb643aaef2d12fee47c4c5865b9fc`; el pipeline aplicó las 13
+migraciones al control plane y a `tnt_staging_royalplast` antes de actualizar
+la API. La suite, el health check y un ciclo real del job terminaron sanos.
 
-## Migraciones pendientes
+El control plane conserva `staging_royalplast` y se aprovisionó un tenant de
+prueba realmente aislado: `staging_demo`, base `tnt_staging_demo`, sucursal
+`01`. Su motor se activó con corte desde
+`2026-09-08 04:12:31.348488+00:00`; no hizo backfill y arrancó sin entregas ni
+proyecciones pendientes.
+
+## Migraciones promovidas
 
 | Aplicacion | Migracion | Efecto / verificacion |
 |---|---|---|
@@ -88,10 +97,10 @@ drill completo en otra instancia.
 El detalle exhaustivo de contratos y migraciones sigue centralizado en
 `docs/ESTADO_AUDITORIAS.md` y `docs/BUGS.md`.
 
-## Infraestructura esperada
+## Infraestructura aplicada
 
-El plan de staging del 2026-09-07 dio **6 altas, 1 cambio in-place y 0
-destrucciones**:
+El plan de staging del 2026-09-07 dio, y el apply del 2026-09-08 ejecutó,
+**6 altas, 1 cambio in-place y 0 destrucciones**:
 
 - job `posfifo-staging-notifications`;
 - identidad administrada del job;
@@ -103,6 +112,12 @@ destrucciones**:
 
 Staging reutiliza el Container Apps Environment de dev; por eso la alerta debe
 consultar el Log Analytics Workspace asociado a ese runtime compartido.
+
+El plan posterior al apply devolvió `No changes`. API y job usan la misma
+imagen inmutable `bb37b2f`; el job corre `*/1 * * * *` con `0.5 CPU / 1 GiB`.
+Una ejecución manual (`posfifo-staging-notifications-7pl2mg1`) terminó exitosa
+y la consulta Kusto sana devolvió cero filas. La misma consulta con un nombre
+de job inexistente devolvió una fila, validando la condición negativa.
 
 La privada VAPID exclusiva de staging ya esta en
 `posfifostagingkv/web-push-vapid-private-key`. La clave privada no se imprimio ni
@@ -119,13 +134,44 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
 - [x] Terraform `fmt -check`, `init -backend=false` y `validate` en los cuatro roots.
 - [x] Suite Django completa sobre base recreada: 1,160 pruebas OK (1,008 s).
 - [x] Kusto: job sano devuelve 0 filas y nombre inexistente devuelve 1.
-- [x] CI y despliegue dev con API/job en el mismo SHA (`39ec1fc`).
+- [x] CI y despliegue dev con API/job en el mismo SHA (`0c6cbff`).
 - [x] Action Group dev creado y prueba Azure `Succeeded`.
-- [ ] Correo del Action Group recibido/confirmado por el receptor.
-- [ ] Smoke fisico Windows de BUG-I/J y Web Push.
-- [ ] Promocion backend y migraciones staging.
-- [ ] Terraform y portal staging.
-- [ ] Tenant `demo`, corte temporal y matriz fisica multiplataforma.
+- [x] Promocion backend y 13 migraciones staging.
+- [x] Terraform staging aplicado sin destrucciones y sin drift posterior.
+- [x] Portal staging publicado; CI, Vitest, lint y build verdes.
+- [x] Action Group staging probado: Azure reportó `Email: Succeeded`.
+- [x] Tenant aislado `staging_demo`, sucursal `01` y corte temporal.
+- [x] Rig local dedicado conectado a staging con `SYNC_INTERVAL=60`.
+- [ ] Confirmación visual del correo enviado a `genaosantiago001@gmail.com`.
+- [ ] Smoke físico Windows de BUG-I/J y Web Push.
+- [ ] Matriz física Windows, Android e iPhone.
 
-Si la matriz falla, desactivar primero el motor del tenant `demo`. Esto detiene
+Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
 nuevas proyecciones sin borrar bandeja, eventos ni diagnostico.
+
+## Contención durante el aprovisionamiento
+
+El slug inicialmente previsto, `demo`, ya apuntaba a `tnt_demo`, una base
+descartable compartida históricamente con producción. Se detuvo ese camino al
+detectarlo: el motor `demo` quedó desactivado y, solo en el control plane de
+staging, se desactivaron tenant, membresía y token. No se usará `demo` para esta
+matriz.
+
+La primera credencial autogenerada de ese bootstrap apareció en la salida del
+job. Se rotó inmediatamente mediante Key Vault y dejó de ser válida. Durante
+la contención se rotó además la contraseña administrativa operativa de la base
+compartida `tnt_demo`; no se tocaron los tenants de clientes. La solución
+definitiva para la prueba es `staging_demo`, que sí tiene base propia.
+
+## Smoke automatizado posterior
+
+- Login JWT de `staging_demo` correcto; el Administrador tiene
+  `notificaciones.administrar` y recibe configuración VAPID.
+- Portal, `/notificaciones`, manifest, service worker e iconos 180/192/512
+  responden 200 y el bundle apunta a la API staging, no a dev.
+- El token de la sucursal `01` está en Key Vault y autentica
+  `/api/v1/sync/status/`; una regla temporal de firewall usada para validarlo se
+  eliminó y se verificó ausente.
+- La base local `pos_fifo_demo_branch` está migrada y aislada. Un ciclo push/pull
+  real contra staging terminó sin fallos ni pérdida; el daemon quedó probado
+  con heartbeat, push y pull cada 60 segundos.
