@@ -36,8 +36,8 @@ fino (una pantalla): qué hace la app, entrypoints ("necesito → voy a"), model
 clave e invariantes. Solo faneá el código si el mapa no alcanza — está para que
 llegues al archivo correcto en un salto, no para reemplazar la lectura del código.
 
-- No todas las apps lo tienen aún. Si trabajás una que no lo tiene y te sirvió
-  entender su estructura, dejá el mapa creado (mismo formato que los existentes).
+- Todas las apps de `apps/` tienen el suyo. Si aparece una app nueva, dejá su
+  mapa creado en el mismo PR (mismo formato que los existentes).
 - **El mapa apunta a código; la verdad del *cómo* está en el código.** Si algo del
   mapa no cuadra con lo que ves, gana el código.
 - **Al terminar un cambio que toca una app con mapa, si modificaste algo que el

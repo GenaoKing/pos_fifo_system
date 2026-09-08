@@ -1,6 +1,6 @@
 # apps/ventas — mapa para agentes
 
-<!-- Última revisión: 2026-09-07 -->
+<!-- Última revisión: 2026-09-08 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -21,7 +21,9 @@ stock **FIFO**), pagos, anulaciones, financiación cooperativa y PDFs.
 | Consumir/devolver stock FIFO | delega en `apps/inventario/fifo_logic.py` → `procesar_venta_fifo` |
 | Errores de dominio | `apps/ventas/services/exceptions.py` |
 | Rutas / APIs del POS | `apps/ventas/urls.py` |
-| PDFs | `apps/ventas/pdf_comprobante.py`, `pdf_financiacion.py` |
+| Comprobante de venta formal (PDF Carta, `pos:comprobante_pdf`) | `apps/ventas/views.py` → `comprobante_venta_pdf` (permiso `ventas.reimprimir`, alcance `_ventas_en_alcance`) → `pdf_comprobante.py` |
+| PDFs | `apps/ventas/pdf_comprobante.py`, `pdf_financiacion.py` (kit en `apps/common/pdf/standard.py`) |
+| Reimprimir ticket térmico | `utils/impresoras/` (`/impresion/reimprimir/<id>/`), no aquí |
 
 `views.procesar_venta` es una capa fina: valida request y llama al service. **La
 lógica de negocio vive en `services/`, no en las vistas.**
