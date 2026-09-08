@@ -157,8 +157,10 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   de bandeja por hecho y tres entregas push por hecho.
 - [x] Umbral inferior aplicado: con mínimo RD$100, un gasto de RD$25 fue
   confirmado por sync y procesado sin crear aviso ni entrega.
-- [ ] Completar la matriz física restante: borde exacto del umbral, regla
-  apagada, usuario fuera de sucursal y
+- [x] Borde exacto del umbral aplicado: gasto de RD$100 con mínimo RD$100 creó
+  un aviso y tres entregas, recibidas correctamente.
+- [ ] Completar la matriz física restante: regla apagada, usuario fuera de
+  sucursal y
   suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
@@ -222,3 +224,9 @@ RD$25. Tras dos minutos no hubo aviso visible. La comprobación cloud confirmó
 que el `EventoSync` sí estaba `CONFIRMADO` y su marcador quedó `PROCESADO`, con
 `genero_evento=False`, cero intentos fallidos y sin nuevas filas de bandeja o
 entrega. Esto descarta un falso positivo causado por un sync interrumpido.
+
+Sin cambiar el mínimo se registró después un gasto de RD$100. El receptor lo
+confirmó en los tres dispositivos y cloud mostró el evento `CONFIRMADO`, el
+marcador `PROCESADO` con `genero_evento=True`, un destinatario y exactamente
+tres entregas `ENVIADA`. La comparación del umbral incluye correctamente el
+valor igual al límite.
