@@ -37,6 +37,14 @@ class ConfiguracionNegocioAdmin(admin.ModelAdmin):
                 'cantidad_copias_ticket',
             )
         }),
+        ('Control de Caja / Arqueo', {
+            'fields': ('conteo_ciego_caja',),
+            'description': (
+                'Conteo ciego: el cajero no ve el efectivo esperado hasta '
+                'ingresar su conteo fisico al cerrar el turno. El admin '
+                'siempre lo ve.'
+            ),
+        }),
     )
 
     # -----------------------------------------------------------------

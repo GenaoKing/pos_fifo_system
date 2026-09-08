@@ -715,12 +715,23 @@ def api_registrar_movimiento(request):
 
             return JsonResponse({
                 'success': True,
+                # Mismo shape que `api_estado_turno`: el JS hace un `unshift`
+                # de este objeto directo a la lista, que colorea/icona por el
+                # codigo crudo (`tipo`) y muestra el label via `tipo_display`.
+                # Antes `tipo` viajaba ya "displayado" ("Retiro de Efectivo"),
+                # asi que nunca matcheaba RETIRO/GASTO/INGRESO y el item nuevo
+                # quedaba con el icono/color generico hasta el refresh manual.
                 'movimiento': {
                     'id': movimiento.id,
-                    'tipo': movimiento.get_tipo_display(),
+                    'tipo': movimiento.tipo,
+                    'tipo_display': movimiento.get_tipo_display(),
                     'monto': str(movimiento.monto),
                     'descripcion': movimiento.descripcion,
                     'fecha': movimiento.fecha.strftime('%d/%m/%Y %H:%M'),
+                    'registrado_por': (
+                        movimiento.registrado_por.get_short_name()
+                        or movimiento.registrado_por.username
+                    ),
                     'autorizado_por': autorizado_por.get_short_name() if autorizado_por else None,
                 },
                 'desglose': desglose,

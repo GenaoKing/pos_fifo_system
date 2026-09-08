@@ -1,10 +1,28 @@
 # Estado maestro del proyecto
 
-Estado consolidado al 2026-06-09, con parches puntuales al 2026-09-08 (ver notas
-inline). Este documento es la puerta de entrada para leer el proyecto sin
-perderse entre roadmaps, runbooks y bitacoras historicas -- pero varias filas
-de la tabla llevan semanas sin una revision completa; verificar contra el
-roadmap especifico antes de accionar algo con fecha vieja.
+Ultima revision: **2026-09-08** (inventario de docs, conteo de tests, mapas de
+agentes y estado de despliegue contrastados contra el repo).
+
+Este documento es la puerta de entrada para leer el proyecto sin perderse entre
+roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
+antes de accionar:** lo que toca infraestructura de Azure (prod, imagenes,
+Terraform) se verifico por ultima vez contra la nube el 2026-09-08 durante la
+promocion a staging; el resto de esta revision se contrasto contra el codigo.
+
+## Si sos un agente, empeza por el mapa de tu app
+
+El punto de entrada para entender **codigo** no es este documento ni las
+auditorias: es `apps/<app>/AGENTS.md`. Las 21 apps tienen el suyo -- que hace,
+entrypoints ("necesito -> voy a"), modelos clave e invariantes -- y cada uno
+lleva su `Ultima revision`. El contrato completo esta en `AGENTS.md` (raiz) y en
+`CLAUDE.md`.
+
+**Las auditorias de `docs/exploracion/` NO son base de conocimiento.** Son
+snapshots historicos de hallazgos del 2026-08-20, muchos ya mitigados; cada una
+abre con un banner que lo dice. Sirven para entender *por que* algo esta escrito
+como esta, nunca como estado actual. Lo vivo de cada app es su `AGENTS.md`, y lo
+vivo de las auditorias es `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md`
+(pendientes accionables).
 
 ## Como leer estos docs
 
@@ -23,7 +41,7 @@ bitacoras y exploraciones viven en subcarpetas.
 | Area | Estado | Fuente viva | Siguiente accion |
 | --- | --- | --- | --- |
 | Vision/producto | En progreso | `VISION_PRODUCTO_2026.md` | Elegir la proxima apuesta de producto luego de cerrar deploy dev/staging. |
-| POS local | En produccion en 2 clientes | `ROADMAP_CLOUD.md` | Desplegar Fases 1-4 de sync (visita RP sabado, SK semana siguiente). |
+| POS local | En produccion en 2 clientes | `ROADMAP_CLOUD.md` | Desplegar Fases 1-4 de sync (visita RP sabado, SK semana siguiente). Nuevo (2026-09-08, sin desplegar): comprobante de venta formal en PDF, `apps/ventas/pdf_comprobante.py` + migracion `auditoria.0007`. |
 | Deploy POS local | Update in-place + `.env` (Fase 4) | `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Desplegar el paquete nuevo; rotar SECRET_KEY (#9) en la misma ventana. |
 | Portal cloud | **En produccion** | `ROADMAP_PORTAL.md` | ASWA prod vivo (`red-bay-07331a710`) apuntando a la API de prod. Imagenes de RP subidas (2026-08-23); grilla de productos pinta miniatura, no el original (2026-08-24, falta desplegar a prod). |
 | Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
@@ -33,7 +51,9 @@ bitacoras y exploraciones viven en subcarpetas.
 | Notificaciones portal | **V1 desplegada en dev y staging** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job, portal, VAPID, alerta y tenant aislado `staging_demo` operativos. Falta confirmacion humana del correo, smoke visual BUG-I/J y matriz fisica multiplataforma. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
+| Testing | Convenciones activas | `TESTING.md` | 1.226 metodos de test en 101 archivos (conteo estatico 2026-09-08). Ultima suite completa medida: 1.160 verdes en serial, 1.008 s (2026-09-07). Subir cobertura critica cloud/RBAC/sync. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos, mitigados | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | **2 bloqueantes de seguridad abiertos**: PER-006 (mover una asignacion no revoca la anterior en el POS local) y PER-007 (borrar un rol custom no se propaga). Los snapshots por modulo viven en `docs/exploracion/` y son historicos. |
+| KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
 | Bugs/hallazgos | 12 bugs etiquetados (BUG-A..L) | `BUGS.md` | BUG-I/J/L corregidos y desplegados en dev/staging; falta confirmacion visual de BUG-I/J. BUG-K (ACK falso del sync) sigue fuera de produccion. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
@@ -136,74 +156,112 @@ Frontera actual:
 
 Fuente viva: `TESTING.md`.
 
-Estado:
+Estado (2026-09-08):
 
-- Hay tests activos en `apps/api`, `apps/permisos`, `apps/suscripciones`,
-  `apps/sync`, `apps/cuentas_por_cobrar`, `apps/facturacion_electronica` y
-  `apps/ventas`.
+- **1.226 metodos de test en 101 archivos.** La unica app sin ningun archivo de
+  test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
+  Con un solo archivo, y por lo tanto candidatas a reforzar:
+  `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
+- Ultima corrida completa medida: **1.160 tests verdes en serial, 1.008 s**
+  (2026-09-07, con la base de pruebas recreada). El delta hasta 1.226 son
+  archivos agregados despues de esa corrida; no se volvio a correr la suite
+  entera desde entonces.
+- `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->
+  `testpaths`), no con `manage.py test`.
 - Para este repo, el interprete probado historicamente es
   `C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe`.
+- `--parallel` da ruido falso en Windows: medir en serial.
 
 Siguiente foco:
 
-- Tests criticos antes de staging: auth/API, sync, CxC, reportes cloud,
+- Tests criticos antes de promover a prod: auth/API, sync, CxC, reportes cloud,
   RBAC/modulos y smoke contra backend dev.
 
 ## Clasificacion de documentos
 
-### Fuentes vivas en la raiz de `docs/`
+Inventario verificado contra el arbol de `docs/` el 2026-09-08.
 
-- `PROJECT_STATUS.md`
+### Fuentes vivas en la raiz de `docs/` (18)
+
+- `PROJECT_STATUS.md` -- este documento
 - `VISION_PRODUCTO_2026.md`
 - `ROADMAP_CLOUD.md`
 - `DEPLOY_POS_LOCAL.md`
 - `ROADMAP_PORTAL.md`
 - `ROADMAP_DEPLOY_AZURE.md`
 - `ROADMAP_ECF_FASE_INICIAL.md`
+- `ROADMAP_SYNC_CONFIABLE.md`
+- `ROADMAP_TENANCY_DBPERTENANT.md`
 - `RBAC_PERMISOS.md`
 - `RBAC_LOCAL_CUTOVER_PENDIENTE.md`
 - `ARQUITECTURA_MODULOS.md`
 - `TESTING.md`
 - `BUGS.md`
 - `TENANCY_DB_PER_TENANT.md`
-- `ROADMAP_SYNC_CONFIABLE.md`
+- `TENANCY_CLOUD_DESIGN.md`
+- `ESTADO_AUDITORIAS.md` -- punto unico del estado de las auditorias
+- `TODO_AUDITORIAS.md` -- checklist accionable de lo que queda abierto
 
-### Runbooks operativos
+### Runbooks operativos (19)
+
+Instalacion y operacion de clientes:
+
+- `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md`
+- `docs/runbooks/ACTUALIZACION_CLIENTE_EXISTENTE.md`
+- `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`
+- `docs/runbooks/ROYAL_PLAST_IMPORT_DB_PER_TENANT.md`
+
+Sync:
+
+- `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
+- `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`
+
+Cloud, deploy y notificaciones:
 
 - `docs/runbooks/DOCKER_BACKEND_AZURE.md`
 - `docs/runbooks/GITHUB_ACTIONS_BACKEND_AZURE.md`
+- `docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`
+- `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`
+- `docs/runbooks/AZURE_DEV_RESOURCES.md`
+- `docs/runbooks/AZURE_BLOB_MEDIA.md`
+- `docs/runbooks/D0_SECRET_ROTATION.md`
+
+Terraform:
+
 - `docs/runbooks/TERRAFORM_PRIMER.md`
 - `docs/runbooks/TERRAFORM_AZURE_D2_FOUNDATION.md`
 - `docs/runbooks/TERRAFORM_AZURE_D2_CONTAINER_APPS.md`
 - `docs/runbooks/TERRAFORM_AZURE_D3_KEY_VAULT.md`
+- `docs/runbooks/TERRAFORM_AZURE_F3_PLATFORM_PROD.md`
 - `docs/runbooks/TERRAFORM_AZURE_REMOTE_STATE.md`
-- `docs/runbooks/AZURE_DEV_RESOURCES.md`
-- `docs/runbooks/D0_SECRET_ROTATION.md`
-- `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
-- `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md`
-- `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`
 
-### Handoffs y deuda
+### Handoffs y deuda (4)
 
 - `docs/handoffs/D2_DEV_HANDOFF_DEBT.md`
 - `docs/handoffs/D3_CICD_MVP_HANDOFF.md`
 - `docs/handoffs/HANDOFF_ECF.md`
+- `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md` -- promocion completa a
+  staging: preflights, respaldos, 13 migraciones y gates
 
-### Historicos / bitacoras
+### Historicos / bitacoras (4)
 
 - `docs/historico/TESTING_ECF_2026-05-09.md`
 - `docs/historico/TESTING_ECF_AUTOMATIZADO_2026-05-18.md`
 - `docs/historico/TERRAFORM_AZURE_D2_REGION_DESTROY_NOTES.md`
 - `docs/historico/latency_results_azure_pg_20260419_1941.json`
 
-### Exploracion
+### Exploracion (20 archivos)
 
-- `docs/exploracion/OPORTUNIDADES_INNOVACION.md`
+- `docs/exploracion/OPORTUNIDADES_INNOVACION.md` -- unica exploracion viva.
+- `docs/exploracion/AUDITORIA_CODIGO_APPS_*.md` (19): **snapshots historicos del
+  2026-08-20, no estado actual.** Cada uno abre con su banner. No usarlos como
+  KB: para eso estan los `apps/<app>/AGENTS.md`.
 
-## Nota de actualizacion 2026-08-20
+## Nota historica 2026-08-20 (parcialmente superada)
 
-Estado **verificado contra Azure y las BDs de produccion**, no contra los docs.
-Lo que sigue reemplaza lo que digan las secciones de abajo:
+Estado verificado contra Azure y las BDs de produccion **en esa fecha**. Se
+conserva por trazabilidad, pero tres puntos ya no son ciertos y estan marcados
+abajo. Lo que manda hoy es el resumen ejecutivo y la seccion de cloud/deploy.
 
 - **Royal Plast y SK Performance estan EN PRODUCCION cloud y sincronizando a
   diario** (tenants `royalplast` desde 2026-06-20 y `skperformance` desde
@@ -219,17 +277,37 @@ Lo que sigue reemplaza lo que digan las secciones de abajo:
   perdiendo eventos, y **RD$240,435 de cuentas por cobrar de Royal Plast siguen
   invisibles** en el portal.
 - **Portal de produccion vivo:** `red-bay-07331a710.7.azurestaticapps.net`,
-  apuntando a la API de prod. Pero **73 imagenes de productos de RP salen rotas**:
-  los archivos nunca se subieron a Blob (ver
-  `docs/runbooks/MIGRAR_IMAGENES_A_BLOB.md`).
-- Suite de tests: **407, todos verdes**.
+  apuntando a la API de prod. ~~73 imagenes de productos de RP salen rotas~~ ->
+  **SUPERADO:** la media de RP se subio a Blob el 2026-08-23.
+- ~~Suite de tests: 407, todos verdes.~~ -> **SUPERADO:** 1.160 verdes en la
+  ultima corrida completa (2026-09-07); 1.226 metodos de test hoy en el repo.
+- ~~Deuda de despliegue: prod corre una imagen del 19 de junio~~ -> **PARCIAL:**
+  el 2026-09-08 se promovio el backend completo a **staging** (imagen `bb37b2f`,
+  13 migraciones aplicadas). **Produccion sigue fuera de ese despliegue** y las
+  migraciones de la tabla de `ESTADO_AUDITORIAS.md` siguen siendo obligatorias
+  antes de tocarla.
 
 ## Proximo orden recomendado
 
-1. Cerrar commit de docs/infra dev actual.
-2. Merge a `develop` para validar GitHub Actions y deploy dev con imagen nueva.
-3. Crear `infra/azure/environments/staging` con backend remoto
-   `azure/staging.tfstate`.
-4. Aumentar tests criticos cloud/RBAC antes de promover staging.
-5. Decidir estrategia frontend dev si Azure Static Web Apps sigue bloqueado en
-   Azure for Students.
+Revisado 2026-09-08. Los cinco puntos anteriores (commit de docs/infra, merge a
+`develop`, crear `infra/azure/environments/staging`, y la estrategia de frontend
+dev) estan **hechos**: staging existe con su backend remoto, el frontend dev y
+staging estan publicados en Azure Static Web Apps, y el backend completo se
+promovio a staging el 2026-09-08.
+
+1. **Cerrar los 2 bloqueantes de seguridad de RBAC** (PER-006 y PER-007 en
+   `TODO_AUDITORIAS.md`): privilegio que persiste tras mover una asignacion o
+   borrar un rol. Es lo unico marcado como bloqueante en todo el backlog.
+2. **Completar la matriz del smoke de notificaciones en staging**: confirmacion
+   visual de BUG-I/J y la matriz fisica multiplataforma
+   (`docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`).
+3. **Preparar la promocion a produccion**: recorrer la tabla de migraciones y la
+   checklist "antes de desplegar" de `TODO_AUDITORIAS.md` (aviso del cambio de
+   `$` a `RD$`, sucursales sin configuracion propia, cotizaciones vencidas,
+   `SUCURSAL_CODIGO`, permisos nuevos). Prod exige `workflow_dispatch` manual +
+   job de migraciones aparte.
+4. **Desplegar al POS local lo que quedo pendiente**: Fase 3 de sync
+   (conciliacion diaria) y el comprobante de venta en PDF.
+5. **Backend de cache compartido (Redis) en el cloud**: ya son tres los
+   subsistemas (permisos, modulos, configuracion) cuyo cache no se comparte
+   entre los workers de Gunicorn.
