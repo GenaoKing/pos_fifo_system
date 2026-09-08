@@ -142,7 +142,8 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
 - [x] Action Group staging probado: Azure reportó `Email: Succeeded`.
 - [x] Tenant aislado `staging_demo`, sucursal `01` y corte temporal.
 - [x] Rig local dedicado conectado a staging con `SYNC_INTERVAL=60`.
-- [ ] Confirmación visual del correo enviado a `genaosantiago001@gmail.com`.
+- [x] Correo de prueba del Action Group recibido en
+  `genaosantiago001@gmail.com` y confirmado por el receptor (2026-09-08).
 - [ ] Smoke físico Windows de BUG-I/J y Web Push.
 - [ ] Matriz física Windows, Android e iPhone.
 
