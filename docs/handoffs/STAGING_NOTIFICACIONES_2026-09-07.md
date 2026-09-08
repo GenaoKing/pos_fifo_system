@@ -147,9 +147,13 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
 - [x] BUG-M de Safari-tab corregido y desplegado en el portal staging
   (`e0a2302`); 95 pruebas, lint y build verdes.
 - [ ] Smoke físico Windows de BUG-I/J y Web Push.
-- [ ] Repetir iPhone desde la PWA añadida a Inicio y confirmar que no aparece
+- [x] Repetir iPhone desde la PWA añadida a Inicio y confirmar que no aparece
   el error técnico de `pushManager`.
-- [ ] Matriz física Windows, Android e iPhone.
+- [x] Apertura y cierre reales recibidos en iPhone, Android y Windows: dos
+  filas de bandeja y seis entregas push `ENVIADA` (2026-09-08).
+- [ ] Completar la matriz física restante: cierre con diferencia, retiro,
+  gasto, ingreso, umbral, regla apagada, usuario fuera de sucursal y
+  suscripción caducada.
 
 Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
 nuevas proyecciones sin borrar bandeja, eventos ni diagnostico.
@@ -180,3 +184,18 @@ definitiva para la prueba es `staging_demo`, que sí tiene base propia.
 - La base local `pos_fifo_demo_branch` está migrada y aislada. Un ciclo push/pull
   real contra staging terminó sin fallos ni pérdida; el daemon quedó probado
   con heartbeat, push y pull cada 60 segundos.
+
+## Primera prueba física multiplataforma
+
+El 2026-09-08 se registraron tres suscripciones activas para el usuario cloud
+`admin`: iPhone como PWA instalada desde Safari, Android y Windows. La primera
+apertura no llegó a proyectarse porque el rig local identificaba al operador
+como `Santiago`, usuario inexistente en `staging_demo`; la API rechazó apertura
+y cierre por integridad antes de crear cualquier notificación.
+
+Se alineó solamente el usuario del rig aislado con `admin`, conservando su
+contraseña, sesión y rol local `SYSADMIN`. Los dos eventos se reserializaron y
+reencolaron de forma idempotente. El sync confirmó ambos, el job creó una fila
+de bandeja por evento y seis entregas push quedaron `ENVIADA` (dos eventos por
+tres dispositivos). El receptor confirmó visualmente ambos avisos en los tres
+dispositivos. La cola local quedó limpia y el daemon continuó saludable.

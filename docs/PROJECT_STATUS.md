@@ -30,12 +30,12 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Notificaciones portal | **V1 desplegada en dev y staging** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job, portal, VAPID, alerta y tenant aislado `staging_demo` operativos. Correo del Action Group confirmado; faltan smoke visual BUG-I/J y matriz fisica multiplataforma. |
+| Notificaciones portal | **V1 desplegada en dev y staging** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job, portal, VAPID, alerta y tenant aislado `staging_demo` operativos. Correo confirmado y apertura/cierre recibidos en iPhone, Android y Windows; faltan BUG-I/J y casos avanzados de la matriz. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | Subir cobertura critica cloud/RBAC/sync antes de staging. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-I/J/L/M corregidos y desplegados en dev/staging; faltan confirmaciones físicas de BUG-I/J/M. BUG-K (ACK falso del sync) sigue fuera de produccion. |
+| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-I/J/L/M corregidos y desplegados en dev/staging; BUG-M ya fue confirmado físicamente y faltan BUG-I/J. BUG-K (ACK falso del sync) sigue fuera de produccion. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
