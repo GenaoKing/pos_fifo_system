@@ -29,6 +29,28 @@ docs/           ← Roadmap, handoffs, contratos de API
 
 ---
 
+## Mapa por app: `apps/<app>/AGENTS.md`
+
+**Antes de explorar una app a fondo, leé su `apps/<app>/AGENTS.md`.** Es un mapa
+fino (una pantalla): qué hace la app, entrypoints ("necesito → voy a"), modelos
+clave e invariantes. Solo faneá el código si el mapa no alcanza — está para que
+llegues al archivo correcto en un salto, no para reemplazar la lectura del código.
+
+- No todas las apps lo tienen aún. Si trabajás una que no lo tiene y te sirvió
+  entender su estructura, dejá el mapa creado (mismo formato que los existentes).
+- **El mapa apunta a código; la verdad del *cómo* está en el código.** Si algo del
+  mapa no cuadra con lo que ves, gana el código.
+- **Al terminar un cambio que toca una app con mapa, si modificaste algo que el
+  mapa describe (entrypoints, modelos, invariantes, flujo), actualizá su línea
+  `Última revisión: <YYYY-MM-DD>` a la fecha de hoy en el mismo commit.** Un mapa
+  con fecha vieja avisa que hay que verificarlo; uno con fecha mentida alucina.
+
+Las auditorías en `docs/exploracion/AUDITORIA_CODIGO_APPS_*.md` **no** son mapas:
+son snapshots históricos de hallazgos. Útiles como referencia, nunca como estado
+actual — verificá contra el código.
+
+---
+
 ## Convenciones de tests
 
 Ver [docs/TESTING.md](docs/TESTING.md) para la referencia completa.
@@ -153,8 +175,28 @@ lo indica, está siguiendo el procedimiento anterior a la Fase 4.
 
 ---
 
+## Trabajo concurrente (dos agentes o dos flujos a la vez)
+
+Para trabajo secuencial de una sola persona/agente, una rama normal alcanza.
+Usar un git worktree aparte SOLO cuando dos agentes/flujos trabajan a la vez:
+
+- Un worktree por agente; cada uno en su rama.
+- Cada worktree con su propia BD: definir `DB_NAME` distinto en su
+  `deploy/env_cliente.env`. Compartir `pos_fifo_dev` entre worktrees hace que
+  las migraciones de uno rompan al otro.
+- Antes de mergear, revisar `git status` de ambos para no descartar trabajo
+  sin commitear del otro flujo.
+
 ## Datos de acceso de desarrollo
 
-- Portal admin: `Santiago / Prueba123`
-- DB local: `pos_fifo_dev` · user `pos_user` · password `Prueba123` · host `localhost:5432`
-- Azure DB (cloud): ver `config/settings_azure_pg.py` (no commitear credenciales)
+Las credenciales no se listan aquí: siguen el patrón de config por instalación
+(variables de entorno cargadas desde `deploy/env_cliente.env`; ver `.env.example`
+para la referencia de qué se configura y sus defaults de desarrollo).
+
+- **DB de desarrollo:** `config.settings_development` usa `pos_fifo_dev` por
+  defecto y hereda usuario/clave/host/puerto de `config/settings.py`, que los lee
+  del entorno (`DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`). Para pisarlos,
+  definir esas variables en `deploy/env_cliente.env` (gitignored) o en el entorno.
+- **Usuario admin inicial:** se crea desde `INITIAL_SYSADMIN_USERNAME` /
+  `INITIAL_SYSADMIN_PASSWORD` (ver `deploy/env_cliente.env.template`).
+- **Azure DB (cloud):** ver `config/settings_azure_pg.py` — no commitear credenciales.

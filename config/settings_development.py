@@ -3,20 +3,18 @@
 Configuración de desarrollo - BD experimental
 """
 
+import os
+
 from .settings import *
 
 DEBUG = True
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'pos_fifo_dev',  # ← BD de desarrollo
-        'USER': 'pos_user',
-        'PASSWORD': 'Prueba123',
-        'HOST': 'localhost',
-        'PORT': '5432',
-    }
-}
+# BD de desarrollo. Sigue el patrón de config por instalación: usuario, clave,
+# host y puerto se heredan de settings.py, que los lee del entorno / de
+# deploy/env_cliente.env (DB_USER, DB_PASSWORD, DB_HOST, DB_PORT). Aquí solo
+# cambia el nombre por defecto de la BD; definir DB_NAME en el entorno lo pisa.
+if not os.environ.get('DB_NAME'):
+    DATABASES['default']['NAME'] = 'pos_fifo_dev'
 
 ALLOWED_HOSTS = ['*']  # Desarrollo acepta todo
 

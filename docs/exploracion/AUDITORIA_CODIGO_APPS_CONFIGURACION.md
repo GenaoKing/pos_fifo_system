@@ -1,3 +1,10 @@
+<!-- SNAPSHOT-AUDITORIA-BANNER -->
+> ⚠️ **Snapshot de auditoría del 2026-08-20 — NO describe el estado actual del código.**
+> Documento histórico: muchos hallazgos ya fueron mitigados desde esa fecha.
+> Úsalo como referencia de contexto, nunca como fuente de verdad. **Verificá
+> siempre contra el código** antes de actuar. El mapa vivo de la app es
+> `apps/<app>/AGENTS.md` (si existe).
+
 # Auditoría profunda de código - `apps/configuracion`
 
 Fecha: 2026-08-20
