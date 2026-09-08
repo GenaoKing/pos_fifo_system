@@ -3,7 +3,7 @@
 Estado: **Fases 0/1/2/4 desplegadas en prod (2026-08-22, RP en sitio). Fase 3
 implementada (2026-08-24), pendiente de desplegar.** Fecha original: 2026-08-19.
 Fuentes relacionadas: `docs/BUGS.md` (BUG-A, BUG-B),
-`docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`, `docs/ROADMAP_TENANCY_DBPERTENANT.md`.
+`docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`, `docs/historico/ROADMAP_TENANCY_DBPERTENANT.md`.
 
 ---
 

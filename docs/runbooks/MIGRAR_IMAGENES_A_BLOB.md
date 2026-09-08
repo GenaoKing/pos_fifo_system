@@ -246,7 +246,7 @@ llega con las rutas crudas de la instalación local (`productos/xxx.jpg`) y sin
 ningún archivo, porque un dump de PostgreSQL **no incluye media**.
 
 Por eso todo import de un cliente existente necesita este paso. Está anotado
-como parte del onboarding en `docs/ROADMAP_TENANCY_DBPERTENANT.md`.
+como parte del onboarding en `docs/historico/ROADMAP_TENANCY_DBPERTENANT.md`.
 
 ---
 

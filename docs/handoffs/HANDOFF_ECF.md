@@ -2,7 +2,7 @@
 
 > Estado documental: handoff historico/profundo de la fase e-CF MSeller.
 > Para una lectura ejecutiva del estado actual del proyecto, ver
-> `PROJECT_STATUS.md`. Para plan e-CF vivo, ver `ROADMAP_ECF_FASE_INICIAL.md`.
+> `PROJECT_STATUS.md`. Para plan e-CF vivo, ver `docs/historico/ROADMAP_ECF_FASE_INICIAL.md`.
 
 **Última actualización:** 10 de mayo 2026
 **Autor original:** Santiago + Claude Opus 4.7 (sesiones de chat web)
@@ -716,7 +716,7 @@ Si esta sesión se transfiere a Codex u otro agente, puntos clave para mantener 
 
 ### 10.1 Antes de modificar código
 
-1. **Leer este handoff completo** + `ROADMAP_ECF_FASE_INICIAL.md`
+1. **Leer este handoff completo** + `docs/historico/ROADMAP_ECF_FASE_INICIAL.md`
 2. **Tomar la sección 2 como source of truth** de qué ya quedó aplicado y qué sigue pendiente en el repo actual
 3. **Verificar que las migraciones corrieron** con `python manage.py showmigrations facturacion_electronica configuracion`
 
@@ -851,7 +851,7 @@ ecf.save()
 
 ### 12.4 Documentos del proyecto
 
-- `ROADMAP_ECF_FASE_INICIAL.md` — roadmap original de la fase
+- `docs/historico/ROADMAP_ECF_FASE_INICIAL.md` — roadmap original de la fase
 - `arquitectura_completa.html` — diagrama de arquitectura (puede estar desactualizado respecto a este handoff)
 - `directorio_proyecto` — estructura de carpetas
 - `ROADMAP_CLOUD.md` — plan Azure/SaaS para Fase 3

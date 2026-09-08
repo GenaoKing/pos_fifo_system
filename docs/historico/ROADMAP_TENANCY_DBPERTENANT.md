@@ -1,3 +1,20 @@
+<!-- ROADMAP-ARCHIVADO-BANNER -->
+> 📦 **Roadmap ARCHIVADO el 2026-09-08 — objetivo cumplido, no es trabajo pendiente.**
+> Las Fases 1-5 estan cerradas: Royal Plast (2026-06-20) y SK Performance
+> (2026-06-23) llevan meses en produccion sobre DB-per-tenant, y la media de RP
+> se subio a Blob el 2026-08-23.
+>
+> Al archivarlo quedaba **un solo pendiente real**, y no se pierde: rotar
+> `SECRET_KEY` (#9) en la ventana del proximo despliegue del POS local, que ya
+> figura en `docs/PROJECT_STATUS.md` (fila "Deploy POS local"). Los demas
+> checkboxes sin marcar eran o bien tareas ya superadas por los hechos (import
+> de imagenes de RP, smoke de blob) o notas explicitamente no bloqueantes
+> (imagenes de SK: hoy no hay productos con imagen).
+>
+> Se conserva por trazabilidad del diseno y de la secuencia de fases. El diseno
+> de referencia sigue vivo en `docs/TENANCY_DB_PER_TENANT.md`; el mapa de la app
+> es `apps/tenancy/AGENTS.md`.
+
 # Roadmap — Implementación DB-per-tenant (esquema C)
 
 Estado: **fuente viva / plan de acción**. Fecha: 2026-06-16.

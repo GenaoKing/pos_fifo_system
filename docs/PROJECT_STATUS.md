@@ -45,12 +45,12 @@ bitacoras y exploraciones viven en subcarpetas.
 | Deploy POS local | Update in-place + `.env` (Fase 4) | `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` | Desplegar el paquete nuevo; rotar SECRET_KEY (#9) en la misma ventana. |
 | Portal cloud | **En produccion** | `ROADMAP_PORTAL.md` | ASWA prod vivo (`red-bay-07331a710`) apuntando a la API de prod. Imagenes de RP subidas (2026-08-23); grilla de productos pinta miniatura, no el original (2026-08-24, falta desplegar a prod). |
 | Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
-| Tenancy cloud | **Fases 1-5 CERRADAS** | `ROADMAP_TENANCY_DBPERTENANT.md` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
+| Tenancy cloud | **Fases 1-5 CERRADAS** | `TENANCY_DB_PER_TENANT.md` (diseno) + `apps/tenancy/AGENTS.md`; el roadmap se archivo en `docs/historico/` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
 | Notificaciones portal | **V1 desplegada en dev y staging** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job, portal, VAPID, alerta y tenant aislado `staging_demo` operativos. Falta confirmacion humana del correo, smoke visual BUG-I/J y matriz fisica multiplataforma. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
-| e-CF | Fase inicial/MSeller implementada | `ROADMAP_ECF_FASE_INICIAL.md` + `docs/handoffs/HANDOFF_ECF.md` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
+| e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Convenciones activas | `TESTING.md` | 1.226 metodos de test en 101 archivos (conteo estatico 2026-09-08). Ultima suite completa medida: 1.160 verdes en serial, 1.008 s (2026-09-07). Subir cobertura critica cloud/RBAC/sync. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos, mitigados | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | **2 bloqueantes de seguridad abiertos**: PER-006 (mover una asignacion no revoca la anterior en el POS local) y PER-007 (borrar un rol custom no se propaga). Los snapshots por modulo viven en `docs/exploracion/` y son historicos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
@@ -135,7 +135,7 @@ Discrepancia clave:
 
 Fuentes:
 
-- `ROADMAP_ECF_FASE_INICIAL.md` como roadmap.
+- `docs/historico/ROADMAP_ECF_FASE_INICIAL.md` como roadmap.
 - `docs/handoffs/HANDOFF_ECF.md` como handoff profundo.
 - `docs/historico/TESTING_ECF_2026-05-09.md` y `docs/historico/TESTING_ECF_AUTOMATIZADO_2026-05-18.md` como
   bitacoras historicas de validacion.
@@ -177,21 +177,46 @@ Siguiente foco:
 - Tests criticos antes de promover a prod: auth/API, sync, CxC, reportes cloud,
   RBAC/modulos y smoke contra backend dev.
 
+## Roadmaps: estado y prioridad
+
+Auditados uno por uno el 2026-09-08, contrastando sus checkboxes contra el
+codigo. **Dos se archivaron** por no tener trabajo pendiente real, y los cuatro
+vivos quedan en este orden.
+
+| # | Roadmap | Que queda | Por que ese lugar |
+| --- | --- | --- | --- |
+| **P1** | `ROADMAP_SYNC_CONFIABLE.md` | 7 items, **todos de despliegue**: desplegar Fase 3 (cloud primero), correr el rig contra `royalplastdemo`, `verificar_sync` en RP y SK, y el despliegue conjunto Fase 1+2 en una sola visita por cliente | Es lo unico donde el codigo ya esta escrito y probado y lo que falta es **ejecutar**. Ademas BUG-K (ACK falso del sync) sigue fuera de produccion |
+| **P2** | `ROADMAP_DEPLOY_AZURE.md` | La promocion a produccion: prod corre imagen de junio y exige `workflow_dispatch` + job de migraciones aparte | Es la puerta por la que pasa todo lo demas. **Necesita poda**: su Fase D2 sigue diciendo que Static Web Apps esta "bloqueado por Azure for Students" y hoy hay ASWA vivo en dev, staging y prod |
+| **P3** | `ROADMAP_PORTAL.md` | B11b (escrituras locales de maestros hacia el cloud), B12 (`inventario_consolidado` multi-sucursal real), UI de asignacion usuario->rol/sucursal, smoke RBAC completo | **Es el mas desfasado**: de sus 26 pendientes, al menos 6 ya estan hechos (`token_blacklist`, endpoint de logout, rate limiting de login, `SECURE_HSTS_SECONDS`, indice `EventoSync(sucursal, estado)`) y D8/D11 quedaron superados por el deploy real de ASWA. Podarlo antes de planificar sobre el |
+| **P4** | `ROADMAP_CLOUD.md` | Solo la Fase 6 sigue viva: segunda sucursal de prueba, `instalar.bat` con modo sucursal/nodo, heartbeat de sucursal y alerta por email si una lleva >1h sin sincronizar | El propio documento se declara superado como estado operativo desde 2026-06-09. Es vision de producto, no trabajo en curso. **Candidato a archivar** en cuanto la Fase 6 se extraiga a su propio roadmap |
+
+Archivados el 2026-09-08 (con banner explicando por que, en `docs/historico/`):
+
+- `ROADMAP_TENANCY_DBPERTENANT.md` -- Fases 1-5 cerradas; RP y SK en produccion
+  desde junio y media de RP en Blob desde el 2026-08-23. El unico pendiente real
+  era rotar `SECRET_KEY` (#9), que sigue trackeado en la fila "Deploy POS local".
+- `ROADMAP_ECF_FASE_INICIAL.md` -- la Fase Inicial (MSeller/PSFE) esta
+  implementada. Sus 6 checkboxes sin marcar no eran tareas: eran campos en
+  blanco de una plantilla de decisiones para una Fase 2 que hoy no existe como
+  proyecto.
+
+**Deuda transversal de estos documentos:** ninguno mantiene sus checkboxes al
+dia -- `ROADMAP_SYNC_CONFIABLE` y el de e-CF tienen 0 marcados pese a estar
+implementados, porque su estado real vive en prosa en la cabecera. Al tocar un
+roadmap, marcar los checkboxes de lo que ya se hizo en el mismo commit.
+
 ## Clasificacion de documentos
 
 Inventario verificado contra el arbol de `docs/` el 2026-09-08.
 
-### Fuentes vivas en la raiz de `docs/` (18)
+### Fuentes vivas en la raiz de `docs/` (16)
 
 - `PROJECT_STATUS.md` -- este documento
 - `VISION_PRODUCTO_2026.md`
-- `ROADMAP_CLOUD.md`
 - `DEPLOY_POS_LOCAL.md`
-- `ROADMAP_PORTAL.md`
-- `ROADMAP_DEPLOY_AZURE.md`
-- `ROADMAP_ECF_FASE_INICIAL.md`
-- `ROADMAP_SYNC_CONFIABLE.md`
-- `ROADMAP_TENANCY_DBPERTENANT.md`
+- Los 4 roadmaps vivos, priorizados en [Roadmaps: estado y prioridad](#roadmaps-estado-y-prioridad):
+  `ROADMAP_SYNC_CONFIABLE.md`, `ROADMAP_DEPLOY_AZURE.md`, `ROADMAP_PORTAL.md`,
+  `ROADMAP_CLOUD.md`
 - `RBAC_PERMISOS.md`
 - `RBAC_LOCAL_CUTOVER_PENDIENTE.md`
 - `ARQUITECTURA_MODULOS.md`
@@ -243,8 +268,12 @@ Terraform:
 - `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md` -- promocion completa a
   staging: preflights, respaldos, 13 migraciones y gates
 
-### Historicos / bitacoras (4)
+### Historicos / bitacoras (6)
 
+- `docs/historico/ROADMAP_TENANCY_DBPERTENANT.md` -- **archivado 2026-09-08**:
+  Fases 1-5 cerradas, dos clientes en produccion desde junio
+- `docs/historico/ROADMAP_ECF_FASE_INICIAL.md` -- **archivado 2026-09-08**: la
+  Fase Inicial (MSeller/PSFE) esta implementada
 - `docs/historico/TESTING_ECF_2026-05-09.md`
 - `docs/historico/TESTING_ECF_AUTOMATIZADO_2026-05-18.md`
 - `docs/historico/TERRAFORM_AZURE_D2_REGION_DESTROY_NOTES.md`
@@ -265,7 +294,7 @@ abajo. Lo que manda hoy es el resumen ejecutivo y la seccion de cloud/deploy.
 
 - **Royal Plast y SK Performance estan EN PRODUCCION cloud y sincronizando a
   diario** (tenants `royalplast` desde 2026-06-20 y `skperformance` desde
-  2026-06-23). Las Fases 4 y 5 de `ROADMAP_TENANCY_DBPERTENANT.md` estan
+  2026-06-23). Las Fases 4 y 5 de `docs/historico/ROADMAP_TENANCY_DBPERTENANT.md` estan
   cerradas de hecho.
 - Se detectaron 2 bugs de sync (BUG-A perdida silenciosa de eventos, BUG-B
   cursor de pull) documentados en `BUGS.md` y planificados en
