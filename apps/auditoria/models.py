@@ -145,6 +145,7 @@ class Auditoria(models.Model):
         TICKET_REIMPRESO = 'TICKET_REPRINT', 'Ticket reimpreso'
         DESCUENTO_AUTORIZADO = 'DESC_AUTH', 'Descuento autorizado'
         RECIBO_CXC_IMPRESO = 'RECIBO_CXC_PRINT', 'Recibo CxC impreso'
+        COMPROBANTE_EMITIDO = 'COMPROBANTE_PDF', 'Comprobante PDF emitido'
         TEST_IMPRESORA = 'PRINTER_TEST', 'Prueba de impresora'
 
         # Usuarios

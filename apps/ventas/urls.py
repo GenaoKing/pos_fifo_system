@@ -38,6 +38,9 @@ urlpatterns = [
     # Vista de confirmacion de venta
     path('venta/<int:venta_id>/exito/', views.venta_exitosa, name='venta_exitosa'),
 
+    # Comprobante de venta formal (PDF tamano Carta, para impresora de oficina)
+    path('venta/<int:venta_id>/comprobante/', views.comprobante_venta_pdf, name='comprobante_pdf'),
+
     # Financiacion Cooperativa
     path('financiacion/', views.lista_financiaciones, name='lista'),
     path('financiacion/api/registrar/', views.registrar_financiacion, name='api_registrar'),

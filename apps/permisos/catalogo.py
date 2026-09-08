@@ -71,7 +71,8 @@ CATALOGO = [
      'Emitir la autorizacion que habilita un descuento por encima de la '
      'tolerancia configurada. Quien lo tiene tambien descuenta sin pedir '
      'autorizacion a nadie: el gate solo aplica a quien NO lo tiene.'),
-    ('ventas.reimprimir', 'Reimprimir tickets', 'ventas', 'Reimprimir tickets de venta.'),
+    ('ventas.reimprimir', 'Reimprimir tickets', 'ventas',
+     'Reimprimir tickets de venta y emitir el comprobante PDF de una venta.'),
 
     # --- Cuentas por cobrar -------------------------------------------------
     ('cuentas_por_cobrar.ver', 'Ver cuentas por cobrar', 'cuentas_por_cobrar',

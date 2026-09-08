@@ -10,7 +10,9 @@ Este módulo maneja:
 
 
 
-from django.http import JsonResponse, HttpResponse
+import logging
+
+from django.http import JsonResponse, HttpResponse, HttpResponseServerError
 
 from apps.configuracion.models import AccesoRapidoPOS
 from apps.configuracion.utils import get_config
@@ -51,7 +53,11 @@ from apps.ventas.services import (
     anular_venta_service,
     ErrorVentaBase,
 )
-from apps.permisos.decorators import requiere_permiso_json
+from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
+from apps.sucursales.models import get_sucursal_actual
+from apps.common.pdf.standard import ImporteInvalido
+
+logger = logging.getLogger(__name__)
 
 # ============================================
 # VISTA PRINCIPAL DEL POS
@@ -624,6 +630,81 @@ def generar_pdf_financiacion(request, venta_id):
     response = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
     response['Content-Disposition'] = (
         f'inline; filename="factura_{venta.numero_venta}.pdf"'
+    )
+    return response
+
+
+def _ventas_en_alcance(request):
+    """
+    Ventas visibles para este operador, acotadas a su(s) sucursal(es).
+
+    Mismo criterio que `_cotizaciones_en_alcance` (apps.cotizaciones.views,
+    COT-005): sin este filtro, un operador de una sucursal podria abrir el
+    comprobante de una venta de otra sucursal con solo cambiar el id en la URL.
+
+    Las ventas sin sucursal (anteriores a la Fase 2) quedan visibles: darlas
+    por ajenas volveria invisible la historia de una instalacion sin migrar.
+    """
+    sucursal = getattr(request, 'sucursal', None) or get_sucursal_actual()
+    if sucursal is None:
+        return Venta.objects.all()
+    return Venta.objects.filter(Q(sucursal=sucursal) | Q(sucursal__isnull=True))
+
+
+@login_required
+@requiere_permiso_local('ventas.reimprimir')
+def comprobante_venta_pdf(request, venta_id):
+    """
+    Comprobante de venta formal en PDF tamano Carta, pensado para imprimir
+    en la impresora de oficina (no es el ticket termico ni un comprobante
+    fiscal: no desglosa ITBIS ni trae datos DGII).
+
+    Reusa el permiso `ventas.reimprimir`: es la misma clase de accion que
+    reimprimir el ticket -- volver a emitir el documento de una venta ya
+    registrada.
+    """
+    venta = get_object_or_404(
+        _ventas_en_alcance(request).select_related('usuario', 'cliente', 'sucursal'),
+        id=venta_id,
+    )
+
+    from .pdf_comprobante import generar_comprobante_venta
+
+    try:
+        pdf_buffer = generar_comprobante_venta(venta)
+    except ImporteInvalido:
+        logger.exception(
+            'No se pudo generar el comprobante de venta %s: importe invalido.',
+            venta.numero_venta,
+        )
+        return HttpResponseServerError(
+            'No se pudo generar el comprobante: hay un importe invalido en '
+            'esta venta. Contacte a soporte.'
+        )
+
+    # Best-effort: si la auditoria falla, no se le niega el documento al
+    # cajero por eso. Mismo criterio que la auditoria de impresion de
+    # tickets (utils/impresoras/manager.py).
+    try:
+        Auditoria.registrar(
+            accion=Auditoria.TipoAccion.COMPROBANTE_EMITIDO,
+            descripcion=f'Comprobante PDF emitido: venta {venta.numero_venta}',
+            usuario=request.user,
+            content_object=venta,
+            metadata={
+                'origen': 'documento',
+                'tipo': 'comprobante_pdf',
+                'numero_venta': venta.numero_venta,
+                'total': float(venta.total),
+            },
+            sucursal=get_sucursal_actual(),
+        )
+    except Exception:
+        logger.error('Error registrando auditoria de comprobante PDF', exc_info=True)
+
+    response = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = (
+        f'inline; filename="comprobante_{venta.numero_venta}.pdf"'
     )
     return response
 

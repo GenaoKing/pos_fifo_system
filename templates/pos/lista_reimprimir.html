@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load permisos %}
 
 {% block title %}Reimprimir Tickets{% endblock %}
 
@@ -118,12 +119,23 @@
                         ${{ venta.total|floatformat:2 }}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-center">
-                        <button 
-                            onclick="reimprimirTicket('{{ venta.id }}', '{{ venta.numero_venta }}')"
-                            class="inline-flex items-center px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                            🖨️ Reimprimir
-                        </button>
+                        <div class="inline-flex items-center gap-2">
+                            <button 
+                                onclick="reimprimirTicket('{{ venta.id }}', '{{ venta.numero_venta }}')"
+                                class="inline-flex items-center px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                            >
+                                🖨️ Reimprimir
+                            </button>
+                            {% if request.user|puede:'ventas.reimprimir' %}
+                            <a
+                                href="{% url 'pos:comprobante_pdf' venta.id %}"
+                                target="_blank"
+                                class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                📄 Comprobante
+                            </a>
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% empty %}

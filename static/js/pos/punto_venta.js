@@ -115,7 +115,13 @@ function posData() {
         },
 
         procesandoVenta: false,
-        
+
+        // Ultima venta procesada en esta sesion del POS: habilita el panel
+        // de "Comprobante (PDF)" / "Ver detalle" sin forzar una redireccion
+        // que interrumpiria el flujo de venta en venta (el ticket termico
+        // ya se imprime solo via el hook post-commit del servidor).
+        ultimaVenta: null,
+
         // ============================================
         // INICIALIZACIÓN
         // ============================================
@@ -1204,6 +1210,15 @@ function posData() {
                         `${data.mensaje}`
                     );
                     this.procesandoVenta = false;
+
+                    // Deja disponible el comprobante PDF / detalle de esta
+                    // venta sin forzar una redireccion (el ticket termico ya
+                    // se imprimio solo, server-side, via el hook post-commit).
+                    this.ultimaVenta = {
+                        id: data.venta.id,
+                        numero: data.venta.numero_venta,
+                    };
+
                     // Limpiar carrito
                     this.limpiarCarrito();
 

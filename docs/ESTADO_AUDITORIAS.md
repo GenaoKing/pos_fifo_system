@@ -97,6 +97,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `notificaciones.0001_initial` | Tablas de reglas, eventos, bandeja, dispositivos, entregas y marcador durable | Ninguno; el motor nace apagado |
 | `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
 | `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
+| `auditoria.0007_alter_auditoria_accion` | Nueva opción `COMPROBANTE_PDF` en `TipoAccion` (feature: comprobante de venta formal en PDF, `apps/ventas/pdf_comprobante.py`) | Ninguno: solo cambia `choices` |
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
