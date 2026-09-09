@@ -65,13 +65,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: pos_user
-          POSTGRES_PASSWORD: Prueba123
-          POSTGRES_DB: pos_fifo_dev
+          POSTGRES_USER: ci_check
+          POSTGRES_PASSWORD: ci_check
+          POSTGRES_DB: ci_check
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U pos_user -d pos_fifo_dev"
+          --health-cmd "pg_isready -U ci_check -d ci_check"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -101,10 +101,9 @@ jobs:
         run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
 
       - name: Run test suite
-        # settings_development hardcodea pos_fifo_dev/pos_user/Prueba123@localhost,
-        # que matchea el service postgres de arriba. pos_user es superuser del
-        # contenedor -> CREATEDB para test_pos_fifo_dev y para los tests de
-        # comandos de tenancy (CREATE DATABASE tnt_*).
+        # settings_development hereda DB_* del entorno del job. El usuario
+        # creado por el contenedor es superuser y puede crear test_ci_check y
+        # las bases tnt_* de los tests de comandos de tenancy.
         shell: bash
         run: |
           mapfile -t django_tests < <(

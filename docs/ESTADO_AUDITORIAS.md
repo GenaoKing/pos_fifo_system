@@ -56,6 +56,12 @@ La auditoría operativa de la promoción completa `staging..develop`, sus
 preflights y respaldos vive en
 [`docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`](handoffs/STAGING_NOTIFICACIONES_2026-09-07.md).
 
+La fase de validación staging de notificaciones se cerró por decisión del
+responsable del producto el 2026-09-09. El mismo handoff distingue los casos
+físicos aprobados de los diferidos; producción continúa fuera de alcance. El
+procedimiento para configurar reglas e incorporar eventos nuevos vive en
+[`docs/runbooks/EXTENDER_NOTIFICACIONES.md`](runbooks/EXTENDER_NOTIFICACIONES.md).
+
 Las 13 migraciones que estaban pendientes para esta promoción se aplicaron el
 2026-09-08 tanto al control plane de staging como a `staging_royalplast`. La
 tabla siguiente sigue siendo obligatoria antes de producción, que permanece

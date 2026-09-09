@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-07 -->
+<!-- Última revisión: 2026-09-09 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -50,6 +50,7 @@ mezclarlos:
 ## Antes de tocar el contrato de sync
 
 - Runbooks: `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`,
-  `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`.
+  `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md` y, para tipos que alimentan
+  avisos, `docs/runbooks/EXTENDER_NOTIFICACIONES.md`.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SYNC.md`) —
   **snapshot histórico de hallazgos, no estado actual**; verificar contra código.
