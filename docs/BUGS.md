@@ -645,8 +645,8 @@ lo que no existe") -- ahora aplica igual a productos.
 - Severidad: **baja / UX**. No altera el monto enviado ni la apertura, pero
   confunde al operador y puede superponer sugerencias sensibles sobre un campo
   monetario.
-- **Estado: CORREGIDO EN CODIGO (2026-09-07); pendiente de confirmacion visual
-  final en Chrome.** `fondo_apertura`, `monto_movimiento` y
+- **Estado: CORREGIDO EN CODIGO (2026-09-07); cierre staging aceptado con la
+  confirmación visual final diferida (2026-09-09).** `fondo_apertura`, `monto_movimiento` y
   `efectivo_contado` tienen nombre semantico y `autocomplete="off"`; el conteo
   por denominacion usa `cantidad_denominacion` con el mismo bloqueo.
 - Reproduccion: en Chrome para Windows, abrir el modal de caja y enfocar
@@ -654,14 +654,16 @@ lo que no existe") -- ahora aplica igual a productos.
 - Evidencia automatica: prueba de plantilla en
   `apps/caja/tests/test_auditoria_caja.py`. Como `autocomplete="off"` es una
   indicacion y Chrome conserva heuristicas propias, el gate final sigue siendo
-  repetir el caso con credenciales guardadas en la laptop.
+  repetir el caso con credenciales guardadas en la laptop. La matriz de cierre
+  no registra esa comprobación como aprobada.
 
 ### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
 
 - Fecha de hallazgo: 2026-09-06, durante el smoke local de Web Push.
 - Severidad: **baja / presentacion**. Expone una nota interna de implementacion
   en el sidebar, sin comprometer el POST ni la proteccion CSRF del logout.
-- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07).**
+- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07); reverificación visual
+  diferida al cerrar staging (2026-09-09).**
 - Reproduccion: abrir cualquier pantalla autenticada con sidebar y observar el
   texto `{# POST, no enlace: ... #}` encima de `Cerrar Sesion`.
 - Causa confirmada: `templates/base.html` usa `{# ... #}` a traves de varias
@@ -670,6 +672,9 @@ lo que no existe") -- ahora aplica igual a productos.
 - Correccion: bloque `{% comment %}...{% endcomment %}`. La regresion renderiza
   una pantalla autenticada, comprueba que la nota no salga y conserva el
   formulario de logout como POST con token CSRF.
+- La matriz física de staging validó Web Push en Windows, pero no volvió a
+  inspeccionar visualmente este comentario; queda registrado como diferido y
+  no como aprobado.
 
 ### BUG-L — El portal mostraba HTML crudo de un 500 y declaraba push suscrito sin backend
 
@@ -689,6 +694,27 @@ lo que no existe") -- ahora aplica igual a productos.
   `suscrito` exige el mismo endpoint activo en navegador y backend. Si el POST
   previo fallo, el boton reutiliza la suscripcion local y reintenta el alta
   idempotente, sin pedir permiso ni crear otra suscripcion.
+
+### BUG-M — Safari en iPhone mostraba incompatibilidad y un error de `pushManager`
+
+- Fecha de hallazgo: 2026-09-08, durante el smoke físico de Web Push en iPhone.
+- Severidad: **media / onboarding**. La bandeja seguía disponible, pero el
+  usuario no recibía la guía de instalación requerida por iOS y veía el error
+  técnico `undefined is not an object` al entrar desde una pestaña de Safari.
+- **Estado: CORREGIDO, CUBIERTO Y DESPLEGADO EN DEV/STAGING (2026-09-08);
+  pendiente de confirmación física desde el icono instalado.**
+- Reproducción: abrir directamente `/notificaciones` en Safari sin añadir el
+  portal a Inicio. Safari expone `serviceWorker`, pero no las APIs Push en esa
+  ventana; el portal la rotulaba incompatible y luego intentaba evaluar
+  `registration.pushManager.getSubscription()`.
+- Causa: `currentPushCapability()` trataba de registrar el service worker antes
+  de resolver el estado especial `ios-no-instalada`, y
+  `currentPushSubscription()` no protegía la ausencia de `PushManager`.
+- Corrección frontend (`e0a2302`): detectar primero iPhone/iPad fuera de modo
+  standalone, no tocar el service worker en estados incompatibles, proteger
+  `registration.pushManager` y mostrar el flujo Safari → Compartir → Añadir a
+  Inicio → abrir el icono → activar. La guía aclara que instalar Chrome no evita
+  el requisito de ejecutar la PWA desde Inicio.
 
 ### BUG-K — El receptor sync confirmaba fallos de integridad como duplicados
 

@@ -1,6 +1,6 @@
 # apps/notificaciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-09 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,6 +34,8 @@ Modelos (`models.py`): `MotorNotificaciones` (interruptor por tenant con corte
 - Entregas con *lease* de 5 min y reintentos 1/5/15/60/360 min; retención 90 días.
 - Permiso `notificaciones.administrar`. Job y comandos aíslan cada tenant
   (`tenant_context`).
-- Runbook: `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`; promoción a staging:
+- Runbooks: `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` para operación y
+  `docs/runbooks/EXTENDER_NOTIFICACIONES.md` para reglas/eventos nuevos;
+  promoción a staging:
   `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; infra en
   `infra/azure/modules/notifications-monitoring/`.

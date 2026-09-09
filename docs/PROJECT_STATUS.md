@@ -1,7 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-08** (inventario de docs, conteo de tests, mapas de
-agentes y estado de despliegue contrastados contra el repo).
+Ultima revision: **2026-09-09** (inventario de docs, conteo de tests, mapas de
+agentes, cierre de notificaciones y estado de despliegue contrastados contra
+el repo).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -48,14 +49,14 @@ bitacoras y exploraciones viven en subcarpetas.
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `TENANCY_DB_PER_TENANT.md` (diseno) + `apps/tenancy/AGENTS.md`; el roadmap se archivo en `docs/historico/` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
-| Notificaciones portal | **V1 desplegada en dev y staging** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Backend/API/job, portal, VAPID, alerta y tenant aislado `staging_demo` operativos. Falta confirmacion humana del correo, smoke visual BUG-I/J y matriz fisica multiplataforma. |
+| Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Convenciones activas | `TESTING.md` | 1.226 metodos de test en 101 archivos (conteo estatico 2026-09-08). Ultima suite completa medida: 1.160 verdes en serial, 1.008 s (2026-09-07). Subir cobertura critica cloud/RBAC/sync. |
+| Testing | Convenciones activas | `TESTING.md` | CI del PR #23: 1.167 pruebas Django + 72 de facturación verdes (2026-09-09). Subir cobertura critica cloud/RBAC/sync. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos, mitigados | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | **2 bloqueantes de seguridad abiertos**: PER-006 (mover una asignacion no revoca la anterior en el POS local) y PER-007 (borrar un rol custom no se propaga). Los snapshots por modulo viven en `docs/exploracion/` y son historicos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 12 bugs etiquetados (BUG-A..L) | `BUGS.md` | BUG-I/J/L corregidos y desplegados en dev/staging; falta confirmacion visual de BUG-I/J. BUG-K (ACK falso del sync) sigue fuera de produccion. |
+| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-I/J/L/M corregidos y desplegados en dev/staging; BUG-M se confirmó físicamente. La reverificación visual de BUG-I/J se difirió con cobertura automática. BUG-K (ACK falso del sync) sigue fuera de producción. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -79,9 +80,8 @@ Estado actual contrastado con el repo:
   el job `posfifo-dev-notifications` corre cada minuto con identidad propia y
   secretos desde Key Vault. El smoke manual confirmo bandeja y aceptacion Web
   Push para apertura/cierre/reapertura; un segundo cierre confirmo el circuito
-  automatico en 98 segundos, sin errores ni reintentos. Falta confirmar la
-  presentacion visual y completar la matriz de dispositivos/movimientos/reglas
-  del runbook.
+  automatico en 98 segundos, sin errores ni reintentos. La matriz física se
+  completó después en staging con las excepciones documentadas abajo.
 - El 2026-09-07 se desplegaron en dev las correcciones BUG-I/J/L, el pipeline
   con rollback independiente y los iconos PWA. Terraform agrego el Action Group
   y la alerta Kusto del job; la prueba de Azure termino `Succeeded`.
@@ -94,6 +94,13 @@ Estado actual contrastado con el repo:
   service worker, manifest e iconos PNG. El tenant realmente aislado para la
   matriz es `staging_demo` (sucursal `01`), con motor activado desde el corte y
   el POS local dedicado sincronizando cada 60 segundos.
+- El 2026-09-09 se cerró la validación staging de notificaciones por decisión
+  del responsable del producto. Pasaron físicamente iPhone PWA, Android y
+  Windows; apertura, cierres, diferencia, movimientos, umbral inferior/borde
+  y regla apagada. El cierre agregado final, usuario fuera de sucursal,
+  suscripción caducada y la reverificación visual de BUG-I/J no se ejecutaron:
+  quedan como riesgos aceptados y casos explícitos para la preparación a
+  producción, no como pruebas aprobadas.
 - `docs/runbooks/AZURE_DEV_RESOURCES.md` lista recursos reales de Azure dev.
 
 Discrepancias resueltas o visibles:
@@ -156,16 +163,16 @@ Frontera actual:
 
 Fuente viva: `TESTING.md`.
 
-Estado (2026-09-08):
+Estado (2026-09-09):
 
 - **1.226 metodos de test en 101 archivos.** La unica app sin ningun archivo de
   test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
   Con un solo archivo, y por lo tanto candidatas a reforzar:
   `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
-- Ultima corrida completa medida: **1.160 tests verdes en serial, 1.008 s**
-  (2026-09-07, con la base de pruebas recreada). El delta hasta 1.226 son
-  archivos agregados despues de esa corrida; no se volvio a correr la suite
-  entera desde entonces.
+- Última corrida completa medida: **1.167 pruebas Django verdes en 438 s** y
+  **72 pruebas pytest de facturación verdes en 20 s** (GitHub Actions del PR
+  #23, 2026-09-09). El conteo estático de métodos no es directamente
+  comparable con casos parametrizados y descubrimiento del runner.
 - `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->
   `testpaths`), no con `manage.py test`.
 - Para este repo, el interprete probado historicamente es
@@ -227,7 +234,7 @@ Inventario verificado contra el arbol de `docs/` el 2026-09-08.
 - `ESTADO_AUDITORIAS.md` -- punto unico del estado de las auditorias
 - `TODO_AUDITORIAS.md` -- checklist accionable de lo que queda abierto
 
-### Runbooks operativos (19)
+### Runbooks operativos (20)
 
 Instalacion y operacion de clientes:
 
@@ -247,6 +254,7 @@ Cloud, deploy y notificaciones:
 - `docs/runbooks/GITHUB_ACTIONS_BACKEND_AZURE.md`
 - `docs/runbooks/FRONTEND_DEPLOY_AZURE_STATIC_WEB_APPS.md`
 - `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`
+- `docs/runbooks/EXTENDER_NOTIFICACIONES.md`
 - `docs/runbooks/AZURE_DEV_RESOURCES.md`
 - `docs/runbooks/AZURE_BLOB_MEDIA.md`
 - `docs/runbooks/D0_SECRET_ROTATION.md`
@@ -265,8 +273,8 @@ Terraform:
 - `docs/handoffs/D2_DEV_HANDOFF_DEBT.md`
 - `docs/handoffs/D3_CICD_MVP_HANDOFF.md`
 - `docs/handoffs/HANDOFF_ECF.md`
-- `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md` -- promocion completa a
-  staging: preflights, respaldos, 13 migraciones y gates
+- `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md` -- promoción completa a
+  staging, matriz física y cierre de fase con riesgos diferidos
 
 ### Historicos / bitacoras (6)
 
@@ -308,8 +316,8 @@ abajo. Lo que manda hoy es el resumen ejecutivo y la seccion de cloud/deploy.
 - **Portal de produccion vivo:** `red-bay-07331a710.7.azurestaticapps.net`,
   apuntando a la API de prod. ~~73 imagenes de productos de RP salen rotas~~ ->
   **SUPERADO:** la media de RP se subio a Blob el 2026-08-23.
-- ~~Suite de tests: 407, todos verdes.~~ -> **SUPERADO:** 1.160 verdes en la
-  ultima corrida completa (2026-09-07); 1.226 metodos de test hoy en el repo.
+- ~~Suite de tests: 407, todos verdes.~~ -> **SUPERADO:** 1.167 pruebas Django
+  y 72 de facturación verdes en CI (2026-09-09).
 - ~~Deuda de despliegue: prod corre una imagen del 19 de junio~~ -> **PARCIAL:**
   el 2026-09-08 se promovio el backend completo a **staging** (imagen `bb37b2f`,
   13 migraciones aplicadas). **Produccion sigue fuera de ese despliegue** y las
@@ -318,7 +326,7 @@ abajo. Lo que manda hoy es el resumen ejecutivo y la seccion de cloud/deploy.
 
 ## Proximo orden recomendado
 
-Revisado 2026-09-08. Los cinco puntos anteriores (commit de docs/infra, merge a
+Revisado 2026-09-09. Los cinco puntos anteriores (commit de docs/infra, merge a
 `develop`, crear `infra/azure/environments/staging`, y la estrategia de frontend
 dev) estan **hechos**: staging existe con su backend remoto, el frontend dev y
 staging estan publicados en Azure Static Web Apps, y el backend completo se
@@ -327,16 +335,14 @@ promovio a staging el 2026-09-08.
 1. **Cerrar los 2 bloqueantes de seguridad de RBAC** (PER-006 y PER-007 en
    `TODO_AUDITORIAS.md`): privilegio que persiste tras mover una asignacion o
    borrar un rol. Es lo unico marcado como bloqueante en todo el backlog.
-2. **Completar la matriz del smoke de notificaciones en staging**: confirmacion
-   visual de BUG-I/J y la matriz fisica multiplataforma
-   (`docs/runbooks/NOTIFICACIONES_WEB_PUSH.md`).
-3. **Preparar la promocion a produccion**: recorrer la tabla de migraciones y la
+2. **Preparar la promocion a produccion**: recorrer la tabla de migraciones y la
    checklist "antes de desplegar" de `TODO_AUDITORIAS.md` (aviso del cambio de
    `$` a `RD$`, sucursales sin configuracion propia, cotizaciones vencidas,
    `SUCURSAL_CODIGO`, permisos nuevos). Prod exige `workflow_dispatch` manual +
-   job de migraciones aparte.
-4. **Desplegar al POS local lo que quedo pendiente**: Fase 3 de sync
+   job de migraciones aparte. Decidir como gates o riesgos aceptados los cuatro
+   casos físicos diferidos en el handoff de notificaciones.
+3. **Desplegar al POS local lo que quedo pendiente**: Fase 3 de sync
    (conciliacion diaria) y el comprobante de venta en PDF.
-5. **Backend de cache compartido (Redis) en el cloud**: ya son tres los
+4. **Backend de cache compartido (Redis) en el cloud**: ya son tres los
    subsistemas (permisos, modulos, configuracion) cuyo cache no se comparte
    entre los workers de Gunicorn.
