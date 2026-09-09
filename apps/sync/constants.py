@@ -5,12 +5,14 @@ UNICA fuente de verdad para los tipos de eventos de sincronizacion.
 
 Cuando agregues un tipo nuevo:
     1. Agregalo a TIPOS_EVENTO abajo
-    2. Define el handler en apps/api/views/sync.py HANDLERS
-    3. Define el serializer en apps/sync/serializers.py
-    4. Define el helper en apps/sync/events.py
-    5. Llamalo con transaction.on_commit() donde corresponda
+    2. Define el serializer en apps/sync/serializers.py
+    3. Define el helper en apps/sync/events.py
+    4. Emite el hecho dentro de la misma transaction.atomic() del negocio
+    5. Registralo en apps/sync/registry.py si es re-serializable
+    6. Define el handler en apps/api/views/sync.py HANDLERS
 
-El assert en apps/api/views/sync.py detecta si olvidaste el paso 2.
+El assert en apps/api/views/sync.py detecta si olvidaste el paso 6.
+El procedimiento completo vive en docs/runbooks/EXTENDER_NOTIFICACIONES.md.
 """
 
 TIPOS_EVENTO = [

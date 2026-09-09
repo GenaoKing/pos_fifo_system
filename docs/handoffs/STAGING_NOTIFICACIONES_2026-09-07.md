@@ -1,6 +1,8 @@
 # Handoff de promocion a staging — notificaciones
 
-Fecha de corte: **2026-09-08**
+Fecha de corte técnico: **2026-09-08**
+
+Cierre de validación: **2026-09-09**
 
 Base auditada: `origin/staging@1e20a70..origin/develop@0c6cbff`
 
@@ -146,7 +148,9 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   `genaosantiago001@gmail.com` y confirmado por el receptor (2026-09-08).
 - [x] BUG-M de Safari-tab corregido y desplegado en el portal staging
   (`e0a2302`); 95 pruebas, lint y build verdes.
-- [ ] Smoke físico Windows de BUG-I/J y Web Push.
+- [x] Web Push confirmado físicamente en Windows junto con iPhone y Android.
+- [ ] Reverificación visual de BUG-I/J en Windows no ejecutada; ambos tienen
+  prueba automática y están desplegados en staging.
 - [x] Repetir iPhone desde la PWA añadida a Inicio y confirmar que no aparece
   el error técnico de `pushManager`.
 - [x] Apertura y cierre reales recibidos en iPhone, Android y Windows: dos
@@ -161,11 +165,50 @@ se guardo en el repositorio; los archivos temporales de generacion se borraron.
   un aviso y tres entregas, recibidas correctamente.
 - [x] Regla apagada aplicada: ingreso de RD$25 confirmado y procesado sin
   crear aviso ni entrega.
-- [ ] Completar la matriz física restante: usuario fuera de sucursal y
-  suscripción caducada.
+- [ ] Casos físicos diferidos por decisión de cierre: usuario fuera de
+  sucursal y suscripción caducada.
 
-Si la matriz falla, desactivar primero el motor del tenant `staging_demo`. Esto detiene
-nuevas proyecciones sin borrar bandeja, eventos ni diagnostico.
+## Cierre de la fase y matriz de aceptación
+
+El responsable del producto dio por cerrada esta fase el **2026-09-09** con la
+evidencia siguiente. `NO EJECUTADA` significa exactamente eso: el caso no se
+convierte en aprobado por cerrar la fase. Su riesgo se acepta para iniciar en
+otro trabajo la evaluación de staging a producción.
+
+| Caso | Física staging | Cobertura automática / evidencia | Resultado de fase |
+| --- | --- | --- | --- |
+| Correo del Action Group | Recibido por el receptor | Prueba Azure `Email: Succeeded` | APROBADO |
+| iPhone desde PWA instalada | Push y navegación correctos; BUG-M ausente | Portal 95 pruebas, lint y build | APROBADO |
+| Android y Windows | Push recibido con el portal cerrado | Suscripciones activas verificadas en cloud | APROBADO |
+| Apertura y cierre normal | Recibidos en los tres dispositivos | Una fila por usuario y tres entregas por hecho | APROBADO |
+| Cierre con diferencia | RD$1,000 esperado, RD$900 contado, RD$-100 | Nivel y datos estructurados verificados | APROBADO |
+| Ingreso, gasto y retiro | Recibidos en los tres dispositivos | 4 hechos, 4 filas y 12 entregas sin duplicados | APROBADO |
+| Monto inferior al mínimo | Gasto RD$25 con mínimo RD$100 no avisó | Sync confirmado; marcador sin evento | APROBADO |
+| Valor igual al mínimo | Gasto RD$100 con mínimo RD$100 avisó | 1 fila y 3 entregas | APROBADO |
+| Regla apagada | Ingreso RD$25 no avisó | Sync confirmado; marcador sin evento | APROBADO |
+| Varios dispositivos | iPhone, Android y Windows | Dedupe físico y `test_dos_dispositivos_crean_dos_entregas_y_una_fila_de_bandeja` | APROBADO |
+| Cierre agregado final con ventas/CxC | No ejecutado sobre el último turno | `test_snapshot_separa_ventas_cxc_metodos_y_movimientos` y `test_resumen_reutiliza_el_calculo_de_cerrar` | DIFERIDO |
+| Usuario fuera de sucursal | No ejecutado físicamente | `test_alcance_local_global_dedupe_y_exclusion` y `test_inclusion_no_amplia_alcance_y_aplica_umbral` | DIFERIDO |
+| Suscripción expirada | No se caducó un endpoint real | `test_410_desactiva_dispositivo` y descarte de su cola | DIFERIDO |
+| BUG-I/J visual en Chrome Windows | No se repitió visualmente | 61 pruebas enfocadas; logout POST/CSRF y plantillas cubiertos | DIFERIDO |
+| Proveedor push caído | No se provocó una caída real | Reintento 429, leases y 404/410 cubiertos; la bandeja precede la entrega | AUTOMÁTICO |
+
+Decisión de cierre:
+
+- staging queda aceptado como base para planificar la promoción;
+- producción y el despliegue en los POS locales no están autorizados por este
+  documento;
+- el próximo análisis debe revisar prerrequisitos, rollback, migraciones y
+  compatibilidad durante la ventana cloud nuevo / POS antiguo;
+- los cuatro casos `DIFERIDO` deben decidirse explícitamente como gate de
+  producción o como riesgo aceptado antes de promover.
+
+El procedimiento para crear reglas existentes y desarrollar tipos nuevos está
+en [`docs/runbooks/EXTENDER_NOTIFICACIONES.md`](../runbooks/EXTENDER_NOTIFICACIONES.md).
+
+Ante una regresión futura, desactivar primero el motor del tenant
+`staging_demo`. Esto detiene nuevas proyecciones sin borrar bandeja, eventos ni
+diagnóstico.
 
 ## Contención durante el aprovisionamiento
 

@@ -4,6 +4,9 @@ Runbook para el framework de notificaciones del portal cloud. La V1 cubre
 apertura, cierre, retiro, gasto e ingreso de caja. La bandeja es la fuente
 durable; Web Push es un canal que puede fallar sin afectar el sync.
 
+Para configurar una regla existente o incorporar un tipo de evento nuevo,
+seguir [`EXTENDER_NOTIFICACIONES.md`](EXTENDER_NOTIFICACIONES.md).
+
 ## Contrato operativo
 
 - El cloud proyecta un `EventoSync` confirmado una sola vez.
