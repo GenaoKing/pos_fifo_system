@@ -185,6 +185,10 @@ class AutorizacionDeMovimientoTests(CajaTestCase):
         resp = self._registrar(override_token=token)
 
         self.assertEqual(resp.status_code, 200, resp.content)
+        respuesta = resp.json()['movimiento']
+        self.assertEqual(respuesta['tipo'], 'RETIRO')
+        self.assertEqual(respuesta['tipo_display'], 'Retiro de Efectivo')
+        self.assertEqual(respuesta['registrado_por'], self.cajera.username)
         movimiento = MovimientoCaja.objects.get()
         self.assertEqual(movimiento.autorizado_por, self.admin)
         self.assertIn('deposito bancario', movimiento.descripcion)
@@ -520,6 +524,19 @@ class UnSoloModeloDeAdminTests(CajaTestCase):
         self.assertIn('name="monto_movimiento" autocomplete="off"', fuente)
         self.assertIn('name="efectivo_contado" autocomplete="off"', fuente)
         self.assertIn('name="cantidad_denominacion" autocomplete="off"', fuente)
+
+    def test_enter_reutiliza_la_validacion_del_boton_de_movimiento(self):
+        import pathlib
+
+        from django.conf import settings
+
+        plantilla = pathlib.Path(settings.BASE_DIR) / 'templates' / 'caja' / 'index.html'
+        fuente = plantilla.read_text(encoding='utf-8')
+
+        guardia = '@keydown.enter="puedeRegistrarMovimiento() && registrarMovimiento()"'
+        self.assertEqual(fuente.count(guardia), 2)
+        self.assertIn(':disabled="!puedeRegistrarMovimiento()"', fuente)
+        self.assertIn('puedeRegistrarMovimiento() {', fuente)
 
 
 class CeroNoEsAusenciaTests(CajaTestCase):

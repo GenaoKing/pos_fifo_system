@@ -19,7 +19,7 @@
 
 Estado: **fuente viva / plan de acción**. Fecha: 2026-06-16.
 
-Diseño de referencia: [TENANCY_DB_PER_TENANT.md](TENANCY_DB_PER_TENANT.md) (decisión
+Diseño de referencia: [TENANCY_DB_PER_TENANT.md](../TENANCY_DB_PER_TENANT.md) (decisión
 cerrada: una BD PostgreSQL por tenant sobre un único servidor, con plano de
 control global).
 

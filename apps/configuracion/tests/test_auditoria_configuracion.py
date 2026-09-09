@@ -227,6 +227,15 @@ class AdminGateadoPorRbacTests(ConfiguracionTestCase):
 
         self.assertTrue(instancia.has_view_permission(peticion))
 
+    def test_conteo_ciego_se_puede_configurar_desde_el_admin(self):
+        campos = {
+            campo
+            for _, opciones in self._admin().fieldsets
+            for campo in opciones['fields']
+        }
+
+        self.assertIn('conteo_ciego_caja', campos)
+
     def test_el_queryset_se_acota_a_la_sucursal_del_alcance(self):
         """Un administrador de A no lista la configuracion de B."""
         # Staff con los permisos Django explicitos, NO superusuario: un
