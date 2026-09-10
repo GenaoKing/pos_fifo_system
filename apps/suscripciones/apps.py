@@ -7,4 +7,5 @@ class SuscripcionesConfig(AppConfig):
     verbose_name = 'Suscripciones y Modulos'
 
     def ready(self):
+        from . import checks  # noqa: F401  (registra los system checks)
         from . import signals  # noqa: F401

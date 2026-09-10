@@ -387,3 +387,102 @@ class GuardDeDegradacionTests(SuscripcionesTestCase):
 
         cache.clear()
         self.assertIn('cuentas_por_cobrar', modulos_negocio(self.negocio))
+
+
+class HooksDeDatosBloqueantesTests(SuscripcionesTestCase):
+    """SUS-010: un error al comprobar datos en vuelo NO autoriza la baja."""
+
+    def setUp(self):
+        super().setUp()
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.empresarial, activa=True,
+        )
+        cache.clear()
+
+    def test_una_excepcion_del_hook_bloquea_la_baja(self):
+        """
+        La reproduccion: un hook que lanzo `ZeroDivisionError` producia
+        `(True, '')` y autorizaba la baja. Un fallo de infra (tabla
+        indisponible, error de esquema) se leia como "no hay datos pendientes".
+        """
+        from unittest.mock import patch
+
+        from apps.suscripciones import engine
+
+        def revienta(_negocio):
+            raise ZeroDivisionError('tabla indisponible')
+
+        with patch.dict(engine._HOOKS_DATOS, {'cuentas_por_cobrar': revienta}):
+            with self.assertLogs('suscripciones', level='ERROR'):
+                ok, motivo = engine.puede_desactivarse(
+                    self.negocio, 'cuentas_por_cobrar',
+                )
+
+        self.assertFalse(ok)
+        self.assertIn('no se pudo verificar', motivo)
+
+    def test_sin_datos_ni_error_la_baja_procede(self):
+        """Sin CxC abiertas y sin fallo, el modulo si se puede apagar."""
+        from apps.suscripciones import engine
+
+        ok, _ = engine.puede_desactivarse(self.negocio, 'cuentas_por_cobrar')
+        self.assertTrue(ok)
+
+
+class KeyDesconocidaTests(SuscripcionesTestCase):
+    """SUS-018: una key fuera del catalogo deniega, aun en el camino fail-open."""
+
+    def test_key_desconocida_sin_negocio_deniega_y_avisa(self):
+        """
+        La reproduccion: `modulo_con_typo` no existia en el registro y aun asi
+        devolvia True sin negocio, sin ningun log que revelara el error.
+        """
+        with self.assertLogs('suscripciones', level='WARNING'):
+            self.assertFalse(modulo_activo('modulo_con_typo', negocio=None))
+
+    def test_key_real_sin_negocio_sigue_fail_open(self):
+        """El fail-open comercial se conserva para keys reales del catalogo."""
+        self.assertTrue(modulo_activo('ecf', negocio=None))
+
+
+class DriftDeCatalogoTests(SuscripcionesTestCase):
+    """SUS-012: el registro en codigo y el espejo DB no pueden divergir callados."""
+
+    def test_registro_real_es_valido(self):
+        from apps.suscripciones.checks import registro_de_modulos_es_valido
+
+        self.assertEqual(registro_de_modulos_es_valido(None), [])
+
+    def test_espejo_sembrado_no_reporta_nada(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        self.assertEqual(espejo_db_coincide_con_registro(None), [])
+
+    def test_modulo_fantasma_en_db_es_error(self):
+        """
+        La reproduccion: un modulo agregado solo en la DB se asignaba a un plan
+        y el resolutor lo descartaba en silencio.
+        """
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        Modulo.objects.create(key='fantasma', nombre='Fantasma')
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.E004', ids)
+
+    def test_modulo_faltante_en_db_es_warning(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        Modulo.objects.filter(key='ecf').delete()
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.W001', ids)
+
+    def test_core_divergente_es_warning(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        # 'ecf' es vendible en el registro; marcarlo core en la DB es drift.
+        Modulo.objects.filter(key='ecf').update(core=True)
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.W002', ids)
