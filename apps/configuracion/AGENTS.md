@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -35,6 +35,12 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 - `SUCURSAL_CODIGO` que no resuelve: con una sola config cae a ella con
   warning; con varias levanta `ConfiguracionNoResuelta` (CFG-002). Nunca
   `.objects.first()`.
+- `crear_config_inicial` sin `--sucursal` **aborta** si ya hay configs ligadas a
+  sucursal (no pisa la de menor PK — CFG-015); el modo legacy opera solo sobre
+  la fila `sucursal=NULL` y falla si hay más de una.
+- `verificar_instalacion`: `--strict` ⇒ exit ≠ 0 ante estado roto (gate de
+  deploy, CFG-014); reporta la config de la sucursal resuelta, no `.first()`
+  (CFG-014); el modo legacy enumera los flags reales (CFG-013).
 - Los datos del negocio **no** van en `deploy/env_cliente.env`: el env es
   infraestructura (BD, impresoras, sync, `SUCURSAL_CODIGO`).
 - Los flags `modulo_*` son legacy: la verdad de entitlements está en
