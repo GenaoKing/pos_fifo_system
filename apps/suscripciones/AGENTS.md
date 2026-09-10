@@ -27,6 +27,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 | Aprovisionar negocios existentes | `manage.py bootstrap_suscripciones` · `seed.py` |
 | Gate en vistas / DRF | `apps.configuracion.decorators.requiere_modulo` · `apps/api/permissions.RequiereModulo` |
 | Admin por API | `apps/api/views/suscripciones.py` (permiso `suscripciones.administrar`, solo operador global) |
+| ¿Quién cambió un plan/override? | `Auditoria` (CT-01), acción `suscripciones.suscripcion.*` / `suscripciones.override_negocio.*` — la registra `GuardDegradacionMixin._aplicar` en la misma transacción que la escritura (SUS-015) |
 
 ## Invariantes / trampas
 
@@ -47,7 +48,11 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
   rechaza asignar un plan inactivo salvo re-guardar a quien ya lo tiene (SUS-013).
 - Excluir un módulo core (`NegocioModulo incluido=False`) o apagarlo por sucursal
   (`SucursalModuloOverride`) es un no-op enganoso: ambos se rechazan (SUS-013).
+- Cambios comerciales (`SuscripcionNegocio`, `NegocioModulo` vía API) dejan
+  evento CT-01 **después** de que el guard de degradación pasa: un rechazo no
+  deja ni escritura ni evento. `suscripciones.suscripcion.creado`/`.eliminado`
+  no se emiten — ese viewset no permite POST ni DELETE.
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
   — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
-  -010, -012, -013, -016 (parcial), -018; abiertos SUS-006, -007, -011, -014,
-  -015, -017, -019.
+  -010, -012, -013, -015, -016 (parcial), -018; abiertos SUS-006, -007, -011,
+  -014, -017, -019.

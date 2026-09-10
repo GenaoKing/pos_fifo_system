@@ -28,6 +28,7 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | Gatear un menú/pantalla por módulo | `{% if 'key' in modulos_efectivos %}` — **no** `config.modulo_*` (CFG-009/SUS-007) |
 | ¿Este descuento pide autorización? | `ConfiguracionNegocio.descuento_requiere_token(subtotal=, descuento_total=)` |
 | Instalar / diagnosticar | `manage.py crear_config_inicial`, `migrar_env_cliente` (`.bat` → `.env`), `verificar_instalacion` (solo lectura) |
+| ¿Quién cambió esta config? | `Auditoria` (CT-01), acción `configuracion.negocio.creado`/`.actualizado` — la registra `ConfiguracionNegocioAdmin.save_model` (CFG-017; único punto de escritura, no hay viewset API) |
 
 ## Invariantes / trampas
 

@@ -305,13 +305,52 @@ mientras servicios y decoradores leen el engine. Propuesta:
 
 ---
 
+## Cierre de CFG-017 / SUS-015 (2026-09-10, tras integrar A02/CT-01)
+
+Con CT-01 en `develop`, se cerraron los dos hallazgos de auditoría de dominio
+que esperaban ese contrato — mismo patrón que `apps/negocios/admin.py` y
+`apps/usuarios/admin.py` (A02): evento CT-01 registrado dentro de la MISMA
+transacción que la escritura, así que un rechazo o un fallo del writer no
+deja ni escritura ni evento.
+
+- **CFG-017** — `ConfiguracionNegocioAdmin.save_model` (`apps/configuracion/admin.py`)
+  registra `configuracion.negocio.creado`/`.actualizado` con diff antes/después
+  de los campos comerciales/fiscales/operativos (`_CAMPOS_AUDITADOS_CONFIG`:
+  identidad, módulos, medios de pago, ITBIS/e-CF, descuentos, caja). El Admin
+  es la única interfaz de escritura de `ConfiguracionNegocio` hoy (no hay
+  viewset API); `logo` queda fuera del diff (archivo, lifecycle en CFG-018).
+- **SUS-015** — `GuardDegradacionMixin` (`apps/api/views/suscripciones.py`)
+  registra `suscripciones.suscripcion.actualizado` y
+  `suscripciones.override_negocio.{creado,actualizado,eliminado}` **después**
+  de que el guard de degradación (SUS-004) pasa, dentro del mismo
+  `transaction.atomic(using=alias)`. De paso corrige el mismo bug de
+  MERGE-C03-ALIAS-ATOMIC que tenía `seed.bootstrap`: el mixin abría
+  `transaction.atomic()` sin alias, así que bajo `with_tenant` no protegía la
+  escritura real. Un `DELETE` reasigna el `pk` (que Django limpia al borrar)
+  solo para la referencia opaca del evento, no para reescribir la fila.
+- Ambas acciones nuevas quedan en `apps/auditoria/productores.py::MATRIZ_V1`.
+  `suscripciones.suscripcion.creado`/`.eliminado` NO se registran: ese viewset
+  no permite POST ni DELETE (`http_method_names`), así que esas acciones nunca
+  se emiten — no se reservan como si ya existieran.
+- Tests nuevos: `CFG017AuditoriaTests` en
+  `apps/configuracion/tests/test_auditoria_configuracion.py` (crear/editar deja
+  un evento con diff; actor real) y `SUS015AuditoriaTests` en
+  `apps/api/tests/test_suscripciones_admin.py` (cambiar plan, incluir/excluir
+  override, delete, y el rechazo del guard sin dejar evento).
+- Regresión focal (`apps.configuracion` + `apps.suscripciones` + `apps.api` +
+  `apps.auditoria`): 205 OK. Suite completa + `check` + `makemigrations --check`
+  repetidos, en verde.
+
 ## Deltas propuestos a documentos que edita Codex
 
 **`docs/TODO_AUDITORIAS.md`** — mover a corregido: **SUS-008, SUS-009, SUS-010,
-SUS-012, SUS-013, SUS-016 (parcial), SUS-018, CFG-006, CFG-009, CFG-011, CFG-013,
-CFG-014, CFG-015**. Siguen abiertos: SUS-006, SUS-007 (parcial: UI hecha, pull de
-sync pendiente), SUS-011, SUS-014, SUS-015, SUS-017, SUS-019; CFG-010, CFG-012,
-CFG-017, CFG-018, CFG-019, CFG-020, CFG-021. (CFG-016 es de C01; CFG-018/COM-* de C02.)
+SUS-012, SUS-013, SUS-015, SUS-016 (parcial), SUS-018, CFG-006, CFG-009,
+CFG-011, CFG-013, CFG-014, CFG-015, CFG-017**. Siguen abiertos: SUS-006,
+SUS-007 (parcial: UI hecha, pull de sync pendiente), SUS-011, SUS-014,
+SUS-017, SUS-019; CFG-010, CFG-012, CFG-018, CFG-019, CFG-020, CFG-021.
+(CFG-016 es de C01; CFG-018/COM-* de C02.) La entrada actual del documento
+(línea ~261, "CFG-012 + CFG-017") quedó desactualizada en la mitad de
+CFG-017: sigue abierto CFG-012, pero CFG-017 ya cerró.
 
 **`docs/ESTADO_AUDITORIAS.md`** — registrar: C03 cerró el batch de engine/onboarding
 de suscripciones y de diagnóstico/comandos de configuración; **sin migraciones
@@ -339,9 +378,8 @@ este handoff + los `AGENTS.md` (ya actualizados) + el código.
   hay exactamente 1 negocio, así que el aborto no dispara y la adopción es la
   correcta; aun así **Codex debería re-correr sus tests de provisión de tenant**
   con este seed (sus 57 tests de tenancy/api pasan localmente, ver Pruebas).
-- **CT-01 (auditoría)**: `registrar_mutacion` sigue `PENDIENTE A02`. CFG-017 y
-  SUS-015 (auditoría de cambios de config/comerciales) quedan a la espera de ese
-  commit; los puntos de enganche son las mutaciones del Admin/serializers/comandos.
+- **CT-01 (auditoría)**: integrado a `develop` local 2026-09-10. CFG-017 y
+  SUS-015 ya están cerrados (ver sección siguiente).
 - **CT-02 (permisos)**: confirmar si A03 ya implementó el envelope de capacidades;
   condiciona SUS-006 (enforcement HTML) y el payload `/auth/perfil/` de CT-03(B).
 - **Sync (Codex)**: la parte de SUS-007 que toca `apps/api/views/sync.py` y
@@ -360,7 +398,8 @@ este handoff + los `AGENTS.md` (ya actualizados) + el código.
    (requiere migración; el consumidor `apps/ventas/views.py` es de C05, coordinar).
 3. **CFG-012** — leer no crea configuración (separar `get` de `bootstrap`; toca el
    context processor —C— y el GET de sync —Codex—; cuidado: render de login/error).
-4. **CFG-017 / SUS-015** — auditoría de dominio (espera CT-01).
+4. ~~**CFG-017 / SUS-015** — auditoría de dominio.~~ **Cerrado 2026-09-10** (ver
+   sección siguiente), ahora que A02/CT-01 está integrado.
 5. **SUS-006** — enforcement de módulo en vistas HTML de CxC y reportes on-demand
    (apps de dominio C05; coordinar; capa adicional al permiso).
 6. **SUS-011** — señales `on_commit`. Necesita el patrón memo-local/`on_commit` de
