@@ -203,7 +203,7 @@ Con el dueño o la cajera presentes, antes de irse:
 | Síntoma | Causa | Arreglo |
 |---|---|---|
 | El POS **no imprime** y no da error | La `ConfiguracionNegocio` no está ligada a la sucursal, así que `bootstrap_suscripciones` no derivó módulos. Firma: `negocio_modulos` con solo `cuentas_por_cobrar` | Ligar la config a la sucursal y re-ejecutar `bootstrap_suscripciones`. Ver BUG-D |
-| La `SECRET_KEY` sale marcada como corta | Bug #9: un `&` la truncó en el formato `.bat` | Generar una nueva en el `.env`. **Invalida las sesiones abiertas** |
+| La `SECRET_KEY` sale marcada como corta | Bug #9: un `&` la truncó en el formato `.bat` | `python manage.py rotar_secret_key` sobre el `.env` canónico (nunca editar a mano). **Invalida las sesiones abiertas** |
 | Cambios en el `.env` que no toman efecto | El servicio conserva variables del formato viejo, y le ganan al archivo | Re-ejecutar `registrar_servicio.bat`; `nssm get POSFifoSystem AppEnvironmentExtra` debe mostrar **solo 2 variables** |
 | `PUSH` con `Venta no existe en cloud todavia` | Orden de eventos de la versión vieja: la CxC salía antes que su venta | Se resuelve en el ciclo siguiente. Con esta versión ya no ocurre |
 | Un cursor aparece **BLOQUEADO** | Un registro del portal falla al aplicarse y frena la marca de agua | El detalle dice cuál. Corregirlo en el portal y volver a sincronizar |
