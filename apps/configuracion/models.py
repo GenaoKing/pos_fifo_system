@@ -15,6 +15,30 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.tenancy.media import config_logo_upload_to
 
 
+class ConfiguracionProtegidaError(RuntimeError):
+    """
+    CFG-011 — la configuracion del negocio no se borra: es control plane
+    (identidad fiscal, medios de pago, modulos). El `delete()` del modelo antes
+    era un `pass` silencioso —un caller creia haber borrado y seguia con estado
+    falso— mientras que `QuerySet.delete()` no pasaba por ahi y SI borraba de
+    verdad, dejando workers sirviendo una copia que ya no existe. Ahora ambas
+    rutas fallan de forma uniforme y observable.
+    """
+
+
+class _ConfiguracionQuerySet(models.QuerySet):
+    def delete(self):
+        raise ConfiguracionProtegidaError(
+            'No se permite borrar configuraciones por QuerySet.delete(). '
+            'La configuracion del negocio es control plane; retirarla exige una '
+            'transicion versionada y explicita, no un borrado masivo.'
+        )
+
+
+class _ConfiguracionManager(models.Manager.from_queryset(_ConfiguracionQuerySet)):
+    pass
+
+
 class ConfiguracionNegocio(models.Model):
     """
     Configuracion por sucursal.
@@ -301,6 +325,8 @@ class ConfiguracionNegocio(models.Model):
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
+    objects = _ConfiguracionManager()
+
     class Meta:
         verbose_name = 'Configuracion del Negocio'
         verbose_name_plural = 'Configuraciones del Negocio'
@@ -309,6 +335,42 @@ class ConfiguracionNegocio(models.Model):
         if self.sucursal:
             return f'Configuracion: {self.nombre_negocio} ({self.sucursal.codigo})'
         return f'Configuracion: {self.nombre_negocio}'
+
+    def clean(self):
+        """
+        CFG-006 — reglas cruzadas. El modelo no tenia `clean()` y `full_clean()`
+        aceptaba combinaciones que rompen la operacion o la fiscalidad:
+        cero medios de pago (el POS no puede cobrar), e-CF activo sin emisor
+        (una venta entra a un flujo fiscal sin con que firmar) e ITBIS fuera de
+        rango (el campo no tiene min/max, aceptaba -5 o 200).
+
+        Se valida a nivel aplicacion (Admin/formularios/`full_clean`). Los
+        constraints de base quedan para un preflight coordinado: una instalacion
+        existente podria violar hoy alguna de estas reglas y una migracion con
+        `CheckConstraint` fallaria en el `migrate`.
+        """
+        errors = {}
+
+        if not (self.pago_efectivo or self.pago_transferencia or self.pago_tarjeta):
+            errors['pago_efectivo'] = (
+                'Debe haber al menos un medio de pago habilitado; sin ninguno el '
+                'POS no puede cobrar.'
+            )
+
+        if self.modulo_ecf and self.emisor_activo_id is None:
+            errors['emisor_activo'] = (
+                'Con Facturacion Electronica (e-CF) activa hay que definir el '
+                'emisor que firma los comprobantes.'
+            )
+
+        itbis = self.itbis_porcentaje_global
+        if itbis is not None and not (Decimal('0') <= itbis <= Decimal('100')):
+            errors['itbis_porcentaje_global'] = (
+                'El ITBIS % global debe estar entre 0 y 100.'
+            )
+
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         # -----------------------------------------------------------
@@ -333,10 +395,15 @@ class ConfiguracionNegocio(models.Model):
 
     def delete(self, *args, **kwargs):
         """
-        No se borra la configuracion. (CFG-011 senala que esta proteccion es
-        ilusoria: `QuerySet.delete()` no pasa por aca. Queda anotado.)
+        CFG-011 — no se borra la configuracion. Antes era un `pass` silencioso;
+        ahora falla en voz alta (y `QuerySet.delete()` tambien, via
+        `_ConfiguracionManager`), de forma uniforme por cualquier ruta.
         """
-        pass
+        raise ConfiguracionProtegidaError(
+            'La configuracion del negocio no se borra (es control plane). '
+            'Si de verdad hay que retirarla, hacelo por una transicion '
+            'versionada y explicita, no por delete().'
+        )
 
     @classmethod
     def load(cls, sucursal=None):

@@ -30,8 +30,13 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 
 ## Invariantes / trampas
 
-- `save()` invalida el cache (`utils.cache_key_config`); `delete()` es no-op.
-  Ya **no** se fuerza `pk=1`.
+- `save()` invalida el cache (`utils.cache_key_config`); `delete()` **y**
+  `QuerySet.delete()` levantan `ConfiguracionProtegidaError` (CFG-011; antes
+  `delete()` era un `pass` silencioso y el QuerySet borraba de verdad). Ya **no**
+  se fuerza `pk=1`.
+- `full_clean()` valida reglas cruzadas (CFG-006): al menos un medio de pago,
+  e-CF exige `emisor_activo`, ITBIS en `[0,100]`. Es validación de aplicación
+  (Admin/forms); todavía **no** hay constraints DB (esperan preflight de datos).
 - `SUCURSAL_CODIGO` que no resuelve: con una sola config cae a ella con
   warning; con varias levanta `ConfiguracionNoResuelta` (CFG-002). Nunca
   `.objects.first()`.

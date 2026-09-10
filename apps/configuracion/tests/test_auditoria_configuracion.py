@@ -6,8 +6,11 @@ Regresion de los hallazgos de
 """
 from io import StringIO
 
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -334,3 +337,69 @@ class SecretosEnDryRunTests(ConfiguracionTestCase):
                 self.assertTrue(comando._es_sensible(nombre))
 
         self.assertFalse(comando._es_sensible('DB_NAME'))
+
+
+class ValidacionCruzadaTests(ConfiguracionTestCase):
+    """CFG-006: `full_clean()` rechaza combinaciones operativas/fiscales inseguras."""
+
+    def test_una_config_por_defecto_es_valida(self):
+        self.config_a.full_clean()  # no levanta
+
+    def test_sin_ningun_medio_de_pago_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba cero metodos de pago."""
+        self.config_a.pago_efectivo = False
+        self.config_a.pago_transferencia = False
+        self.config_a.pago_tarjeta = False
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('pago_efectivo', ctx.exception.message_dict)
+
+    def test_ecf_activo_sin_emisor_se_rechaza(self):
+        """La reproduccion: `modulo_ecf=True` coexistia con `emisor_activo=NULL`."""
+        self.config_a.modulo_ecf = True  # emisor_activo queda None
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('emisor_activo', ctx.exception.message_dict)
+
+    def test_itbis_fuera_de_rango_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba ITBIS -5.00."""
+        self.config_a.itbis_porcentaje_global = Decimal('-5.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+    def test_itbis_por_encima_de_cien_se_rechaza(self):
+        self.config_a.itbis_porcentaje_global = Decimal('200.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+
+class BorradoProtegidoTests(ConfiguracionTestCase):
+    """CFG-011: borrar configuracion falla uniforme por instancia y por QuerySet."""
+
+    def test_delete_de_instancia_levanta_y_no_borra(self):
+        """Antes era un `pass`: el caller creia haber borrado y seguia con estado falso."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            self.config_a.delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
+
+    def test_delete_por_queryset_tambien_levanta_y_no_borra(self):
+        """La otra mitad del hallazgo: `QuerySet.delete()` SI borraba de verdad."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
