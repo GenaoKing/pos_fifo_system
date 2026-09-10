@@ -25,6 +25,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 | ¿Se puede desactivar? | `engine.puede_desactivarse(negocio, key)` (bloquea si hay dependientes o datos en vuelo: CxC abiertas, ECF en proceso) |
 | Declarar un módulo | `registry.CATALOGO_MODULOS` (`key`, `depende_de`, `core`, `flag_legacy`) → `manage.py sync_modulos` |
 | Aprovisionar negocios existentes | `manage.py bootstrap_suscripciones` · `seed.py` |
+| Resincronizar los planes default (Basico/Pro/Empresarial) | `manage.py sync_modulos` · `seed.sincronizar_planes_preset` — solo toca planes con `preset_version` no nulo (SUS-017) |
 | Gate en vistas / DRF | `apps.configuracion.decorators.requiere_modulo` · `apps/api/permissions.RequiereModulo` |
 | Admin por API | `apps/api/views/suscripciones.py` (permiso `suscripciones.administrar`, solo operador global) |
 | ¿Quién cambió un plan/override? | `Auditoria` (CT-01), acción `suscripciones.suscripcion.*` / `suscripciones.override_negocio.*` — la registra `GuardDegradacionMixin._aplicar` en la misma transacción que la escritura (SUS-015) |
@@ -52,7 +53,10 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
   evento CT-01 **después** de que el guard de degradación pasa: un rechazo no
   deja ni escritura ni evento. `suscripciones.suscripcion.creado`/`.eliminado`
   no se emiten — ese viewset no permite POST ni DELETE.
+- `Plan.preset_version=None` = personalizado: `sync_modulos` nunca lo toca.
+  Un valor = versión de `seed.TIERS` aplicada; desactualizado se resincroniza
+  solo, con la sincronizacion real, al correr el comando (SUS-017).
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
   — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
-  -010, -012, -013, -015, -016 (parcial), -018; abiertos SUS-006, -007, -011,
-  -014, -017, -019.
+  -010, -012, -013, -015, -016 (parcial), -017, -018; abiertos SUS-006, -007,
+  -011, -014, -019.

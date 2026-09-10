@@ -18,7 +18,7 @@ class ModuloAdmin(admin.ModelAdmin):
 
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'slug', 'activo')
+    list_display = ('nombre', 'slug', 'activo', 'preset_version')
     list_filter = ('activo',)
     search_fields = ('nombre', 'slug')
     prepopulated_fields = {'slug': ('nombre',)}
