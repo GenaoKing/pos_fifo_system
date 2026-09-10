@@ -7,8 +7,9 @@ lectura/escritura de datos operativos.
 ## Puntos de corte
 
 - Base usada para el merge técnico: `codex/cierre-prod-A02@ef17e2a`.
-- Punto seguro actual: `develop@11ecec2` (A00-A02 de Codex y este handoff de
-  revisión; ningún commit de implementación de Claude).
+- Punto seguro de implementación: `codex/cierre-prod-A02@ef17e2a`. El tip local
+  de `develop` contiene además este handoff de revisión, pero ningún commit de
+  implementación de Claude.
 - Checkpoint de Claude revisado: `claude/cierre-prod-C03@21616ce`; contiene las
   entregas acumuladas C01, C02 y C03 parcial y estaba limpio al tomar el corte.
 - Combinación de revisión: `integration/cierre-prod-A02-C03-review@1f0e531`.
@@ -79,8 +80,9 @@ BD, sin escribir `default`.
 
 1. Claude corrige los tres bloqueadores en su rama, completa el handoff del
    checkpoint y deja su worktree limpio.
-2. Con el worktree limpio, Claude incorpora `develop@11ecec2` a su rama; no se
-   fuerza ni reescribe historia y no se arrastran cambios de staging.
+2. Con el worktree limpio, Claude incorpora el tip local vigente de `develop` a
+   su rama; no se fuerza ni reescribe historia y no se arrastran cambios de
+   staging.
 3. Repetir en la combinación final: focal C01-C03 + A02, suite Django completa,
    e-CF separada, `check`, `makemigrations --check`, build/check cloud y pruebas
    de alias tenant indicadas arriba.
@@ -91,5 +93,7 @@ BD, sin escribir `default`.
 ## Rollback
 
 La rama de revisión puede abandonarse sin revertir datos: solo contiene commits
-Git y una BD de tests desechable que Django destruyó. `develop@11ecec2` sigue
-siendo el punto seguro hasta cerrar este handoff.
+Git y una BD de tests desechable que Django destruyó.
+`codex/cierre-prod-A02@ef17e2a` sigue siendo el punto seguro de implementación;
+`develop` añade únicamente la documentación de esta revisión hasta cerrar los
+bloqueadores.
