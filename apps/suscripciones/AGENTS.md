@@ -40,7 +40,10 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
   (`_HOOKS_DATOS`) revienta, bloquea la baja y loguea; un fallo de infra no es
   permiso para apagar (SUS-010).
 - Cache con versión y clave por tenant; TTL 30 s con `LocMemCache` (SUS-003).
-  Las signals invalidan ante cualquier cambio de plan/suscripción/override.
+  Las signals invalidan ante cualquier cambio de plan/suscripción/override,
+  diferido con `transaction.on_commit` (SUS-011): un rollback no invalida
+  nada; en tests, escribir y esperar ver el cambio requiere
+  `self.captureOnCommitCallbacks(execute=True)` alrededor de la escritura.
 - El grafo de dependencias vive **solo** en `registry.py`; la tabla `Modulo` es
   un espejo. `checks.py` (system checks) falla si el registro es inconsistente o
   si la DB y el registro divergen (SUS-012).
