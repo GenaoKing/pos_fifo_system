@@ -107,6 +107,41 @@ class CampoTests(SimpleTestCase):
         self.assertEqual(codigo, 1)
         self.assertEqual(valor, '')
 
+    def test_claves_sensibles_se_rechazan_sin_imprimir(self):
+        """
+        MERGE-C01-SECRET-CAMPO: `campo` es de proposito general y el parser
+        acepta cualquier `nombre`. `actualizar.bat` solo pide campos no
+        sensibles hoy, pero una invocacion directa con una clave sensible no
+        debe imprimirla -- ni en stdout ni en stderr.
+        """
+        sensibles = {
+            'DB_PASSWORD': 'super-secreta',
+            'DJANGO_SECRET_KEY': 'clave-django-unica',
+            'INITIAL_SYSADMIN_PASSWORD': 'password-inicial',
+            'CLOUD_API_TOKEN': 'token-cloud-secreto',
+        }
+        contenido = ''.join(f'{k}={v}\n' for k, v in sensibles.items())
+        with TemporaryDirectory() as tmp:
+            ruta = self._escribir_env(tmp, contenido)
+            for nombre, valor in sensibles.items():
+                salida_out, salida_err = io.StringIO(), io.StringIO()
+                with redirect_stdout(salida_out), redirect_stderr(salida_err):
+                    codigo = preflight.main(['campo', nombre, str(ruta)])
+                self.assertEqual(codigo, 1, msg=f'{nombre} deberia rechazarse')
+                self.assertNotIn(valor, salida_out.getvalue())
+                self.assertNotIn(valor, salida_err.getvalue())
+
+    def test_nombre_arbitrario_fuera_de_allowlist_se_rechaza(self):
+        """Cualquier `nombre` fuera de la allowlist explicita se rechaza, no
+        solo las claves sensibles conocidas hoy -- la allowlist es la fuente
+        de verdad, no una lista negra de lo ya identificado como secreto."""
+        with TemporaryDirectory() as tmp:
+            codigo, valor = self._campo(
+                tmp, 'UN_CAMPO_NUEVO=algo\n', 'UN_CAMPO_NUEVO',
+            )
+        self.assertEqual(codigo, 1)
+        self.assertEqual(valor, '')
+
 
 class BackupTests(SimpleTestCase):
     """La contrasena viaja en el entorno del subproceso, nunca en argv ni en

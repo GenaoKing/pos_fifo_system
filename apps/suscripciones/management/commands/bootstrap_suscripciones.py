@@ -17,6 +17,7 @@ from apps.configuracion.models import ConfiguracionNegocio
 from apps.negocios.models import Negocio
 from apps.suscripciones import seed
 from apps.suscripciones.models import Modulo, NegocioModulo, Plan, SuscripcionNegocio
+from apps.tenancy.context import get_current_tenant_alias
 
 
 class Command(BaseCommand):
@@ -30,9 +31,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        # MERGE-C03-ALIAS-ATOMIC: bajo `with_tenant` los managers escriben en
+        # la BD del tenant; un `transaction.atomic()` sin alias se abre sobre
+        # `default` y no protege esa escritura. Se resuelve el alias activo
+        # (o `default` fuera de tenancy) y se lo pasa explicito tanto a la
+        # transaccion como a `seed.bootstrap`, para que ambas corran sobre la
+        # misma conexion/BD.
+        alias = get_current_tenant_alias() or 'default'
 
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=alias):
                 resumen = seed.bootstrap(
                     ModuloModel=Modulo,
                     PlanModel=Plan,
@@ -40,9 +48,10 @@ class Command(BaseCommand):
                     NegocioModuloModel=NegocioModulo,
                     SuscripcionModel=SuscripcionNegocio,
                     ConfiguracionModel=ConfiguracionNegocio,
+                    using=alias,
                 )
                 if dry_run:
-                    transaction.set_rollback(True)
+                    transaction.set_rollback(True, using=alias)
         except seed.BootstrapAmbiguo as exc:
             # SUS-009: ambiguedad = no se escribe nada y se falla en voz alta.
             raise CommandError(str(exc))
@@ -58,5 +67,5 @@ class Command(BaseCommand):
         ))
         if not dry_run:
             self.stdout.write(
-                f'Negocios con suscripcion: {SuscripcionNegocio.objects.count()}.'
+                f'Negocios con suscripcion: {SuscripcionNegocio.objects.using(alias).count()}.'
             )

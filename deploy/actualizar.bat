@@ -65,8 +65,9 @@ if not exist "%DST_DIR%\manage.py" (
     pause
     exit /b 1
 )
-if not exist "%DST_DIR%\deploy\env_cliente.bat" (
-    echo [ERROR] Falta "%DST_DIR%\deploy\env_cliente.bat" - config del cliente.
+if not exist "%DST_DIR%\deploy\env_cliente.bat" if not exist "%DST_DIR%\deploy\env_cliente.env" (
+    echo [ERROR] Falta la configuracion del cliente: no existe
+    echo         "%DST_DIR%\deploy\env_cliente.bat" ni "%DST_DIR%\deploy\env_cliente.env".
     echo         Si es una instalacion nueva use deploy\instalar.bat, no este script.
     pause
     exit /b 1

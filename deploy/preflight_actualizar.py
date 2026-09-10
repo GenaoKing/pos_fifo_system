@@ -38,6 +38,30 @@ import sys
 
 _TOKEN_PLACEHOLDER = 'PEGAR-TOKEN-DE-vincular_sucursal_token'
 
+# Allowlist explicita: solo estos nombres puede imprimir `campo` en stdout.
+# Cualquier variable ausente de esta lista (DB_PASSWORD, DJANGO_SECRET_KEY,
+# INITIAL_SYSADMIN_PASSWORD, CLOUD_API_TOKEN incluidas) se rechaza sin
+# imprimir nada, sea cual sea el `nombre` que reciba el subcomando -- este
+# script corre con el .env real de un cliente y `campo` es de proposito
+# general: nada impide que un llamador futuro (o un uso manual del script)
+# pida una clave sensible por error.
+_CAMPOS_NO_SENSIBLES = frozenset({
+    'PGCLIENTENCODING', 'PYTHONUTF8',
+    'DB_NAME', 'DB_USER', 'DB_HOST', 'DB_PORT',
+    'SERVER_IP', 'SERVER_PORT', 'SERVER_THREADS', 'EXTRA_HOSTS',
+    'DJANGO_SETTINGS_MODULE', 'DJANGO_DEBUG',
+    'INITIAL_SYSADMIN_USERNAME',
+    'THERMAL_PRINTER_NAME', 'ZEBRA_PRINTER_NAME', 'THERMAL_PRINTER_ENABLED',
+    'THERMAL_CHARSET', 'THERMAL_CASH_DRAWER', 'THERMAL_CASH_DRAWER_PIN',
+    'THERMAL_PAPER_WIDTH', 'THERMAL_LOGO_WIDTH',
+    'THERMAL_USB_VENDOR_ID', 'THERMAL_USB_PRODUCT_ID',
+    'NEGOCIO_PRESET', 'NEGOCIO_NOMBRE',
+    'SYNC_ENABLED', 'SUCURSAL_CODIGO', 'CLOUD_API_URL',
+    'SYNC_INTERVAL', 'SYNC_BATCH_SIZE', 'SYNC_MAX_RETRIES', 'SYNC_HTTP_TIMEOUT',
+    'SYNC_CONCILIACION_ENABLED', 'SYNC_CONCILIACION_HORA',
+    'SYNC_CONCILIACION_DIAS',
+})
+
 # Comillas, `!` (dispara la expansion retrasada de cmd si esta activa) o un
 # `%NOMBRE%` pareado no sobreviven intactos un viaje como argumento
 # entrecomillado de linea de comandos (`--nombre "%X%"`): cmd no soporta
@@ -64,7 +88,17 @@ def _leer_valores(archivo_env):
 
 
 def cmd_campo(args):
-    """Imprime el valor crudo de una variable (o nada si no existe)."""
+    """Imprime el valor crudo de una variable no sensible (o nada si no
+    existe). Rechaza cualquier nombre fuera de la allowlist sin imprimir
+    nada, para no exponer secretos por stdout ante un `nombre` arbitrario."""
+    if args.nombre not in _CAMPOS_NO_SENSIBLES:
+        print(
+            f'[ERROR] "{args.nombre}" no es un campo permitido para `campo` '
+            f'(riesgo de imprimir un secreto). Si es un valor sensible, '
+            f'consumalo directamente en el subproceso en vez de imprimirlo.',
+            file=sys.stderr,
+        )
+        return 1
     valores = _leer_valores(args.archivo_env)
     valor = valores.get(args.nombre)
     if valor is None:
