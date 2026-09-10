@@ -23,9 +23,64 @@ Agente: B / Claude. Encargo:
   - `38e5647` — configuración: validación cruzada (CFG-006) + borrado protegido (CFG-011).
   - `6e3d551` — suscripciones: semántica de `Plan.activo` y overrides (SUS-013).
   - `b19c4a5` — configuración: la UI lee el entitlement efectivo (CFG-009 / SUS-007 mitad UI).
+  - `8fd83a0` — cierra los tres bloqueadores de `REVISION_MERGE_A02-C03.md`
+    (ver sección siguiente).
 - **No publicado a `origin`** ni fusionado a `develop` (mismo criterio que C01/C02:
   cada bloque cierra en su rama secuencial; la integración a `develop` se decide
   en un checkpoint mayor con el usuario/Codex). Working tree limpio al cierre.
+
+## Cierre de los bloqueadores de merge (2026-09-10, `8fd83a0`)
+
+Codex revisó este checkpoint junto con A02 en
+[REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md) y encontró tres
+hallazgos que bloqueaban el merge a `develop`. Los tres se cerraron en
+`8fd83a0`, sobre este mismo worktree/rama:
+
+- **MERGE-C01-ENVONLY** — `deploy/actualizar.bat` exigía siempre
+  `env_cliente.bat`, aunque el resto del script (líneas 111+) ya soportaba
+  `env_cliente.env` solo. El chequeo temprano ahora acepta las tres variantes
+  (BAT legado, solo `.env`, o ambos) y solo falla si ninguna existe.
+- **MERGE-C01-SECRET-CAMPO** — `deploy/preflight_actualizar.py campo`
+  aceptaba cualquier `nombre` y lo imprimía. Nueva allowlist explícita
+  (`_CAMPOS_NO_SENSIBLES`) con todos los campos no sensibles del template;
+  cualquier nombre fuera de ella —`DB_PASSWORD`, `DJANGO_SECRET_KEY`,
+  `INITIAL_SYSADMIN_PASSWORD`, `CLOUD_API_TOKEN` incluidos— se rechaza (exit 1)
+  sin tocar stdout/stderr. Cubierto por
+  `test_preflight_actualizar.CampoTests.test_claves_sensibles_se_rechazan_sin_imprimir`
+  y `test_nombre_arbitrario_fuera_de_allowlist_se_rechaza`.
+- **MERGE-C03-ALIAS-ATOMIC** — `seed.bootstrap` abría `transaction.atomic()`
+  sin alias: bajo `with_tenant`, el router manda los managers a la BD del
+  tenant mientras la transacción se abría sobre `default`, así que un fallo a
+  mitad de camino no revertía nada en el tenant. `bootstrap` ahora resuelve un
+  alias (parámetro explícito `using`, o el tenant activo en contexto vía
+  `apps.tenancy.context.get_current_tenant_alias()`, o `default` fuera de
+  tenancy — mismo patrón que `apps/notificaciones/services.py` y
+  `apps/api/views/sync.py`), aplica `.using(alias)` a cada consulta de
+  `sembrar_modulos`/`crear_planes_default`/`derivar_modulos_de_flags`/
+  `_preservar_overrides_por_sucursal`, y abre `transaction.atomic(using=alias)`.
+  `bootstrap_suscripciones` resuelve el mismo alias y envuelve su propio
+  `--dry-run` con `transaction.atomic(using=alias)` +
+  `transaction.set_rollback(True, using=alias)` (antes el rollback del dry-run
+  quedaba en una transacción `default` separada de la del tenant). La
+  migración `0002_seed_suscripciones` pasa `using=schema_editor.connection.alias`
+  explícito, sin depender del contexto ambiente.
+  - **La firma de `seed.bootstrap` sigue siendo compatible**: `using` es
+    keyword-only con default `None`; los llamadores existentes de
+    `apps/tenancy` (`bootstrap_tenant.py`, `normalizar_import_tenant.py`, no
+    tocados — son de Codex) corren dentro de `tenant_context(...)`, así que
+    heredan el alias correcto sin cambios.
+  - **Falta cerrar** (ver "Secuencia acordada" en
+    [REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md)): un test que
+    inyecte un fallo dentro de `bootstrap` corriendo sobre una BD tenant real
+    (vía `with_tenant`) y confirme que revierte módulos/planes/suscripción/
+    overrides en esa BD sin tocar `default`. La infraestructura de dos BDs
+    físicas (namespace `TENANT_TEST_DB_NAMESPACE`, TEN-016) es de A02 y todavía
+    no está en este worktree — se agrega al fusionar el tip de `develop` en el
+    paso 2 de la secuencia acordada.
+
+Suite focal de `apps.configuracion` + `apps.suscripciones` + `apps.api`
+(112 tests), `manage.py check` y `makemigrations --check --dry-run` en verde.
+Sin migraciones nuevas.
 
 ## Qué cubre esta entrega
 
