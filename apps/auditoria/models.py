@@ -2,6 +2,10 @@
 Modelos para el sistema de auditoría
 apps/auditoria/models.py
 """
+import re
+import uuid
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -52,7 +56,15 @@ class AuditoriaManager(models.Manager.from_queryset(AuditoriaQuerySet)):
         cuantas filas se eliminaron, hasta que fecha y por que. Un historial que
         se puede vaciar sin dejar rastro del vaciado no es un historial.
         """
+        from datetime import timedelta
+
         modelo = self.model
+        minimo_consultable = timezone.now() - timedelta(days=90)
+        if fecha_corte > minimo_consultable:
+            raise ValueError(
+                'La auditoria local conserva al menos 90 dias consultables; '
+                'el corte solicitado invade esa ventana.'
+            )
         # Se fijan los ids ANTES de registrar la constancia: si se filtrara por
         # fecha despues, la propia fila de la purga —creada ahora, y por tanto
         # anterior a un corte futuro— se borraria a si misma.
@@ -164,8 +176,84 @@ class Auditoria(models.Model):
         CIERRE_DIARIO = 'CIERRE_DIARIO', 'Resumen diario generado'
         AUDITORIA_PURGADA = 'AUDIT_PURGE', 'Auditoria purgada por retencion'
 
+    SCHEMA_LEGACY = 'audit.legacy.v0'
+    SCHEMA_V1 = 'audit.event.v1'
+
+    class Resultado(models.TextChoices):
+        SUCCEEDED = 'SUCCEEDED', 'Exitosa'
+        DENIED = 'DENIED', 'Rechazada'
+        FAILED = 'FAILED', 'Fallida'
+
+    class Canal(models.TextChoices):
+        POS_LOCAL = 'POS_LOCAL', 'POS local'
+        PORTAL_API = 'PORTAL_API', 'Portal API'
+        SYNC = 'SYNC', 'Sincronizacion'
+        COMMAND = 'COMMAND', 'Comando'
+        SYSTEM = 'SYSTEM', 'Sistema'
+        LEGACY = 'LEGACY', 'Productor legado'
+
+    class ActorKind(models.TextChoices):
+        USER = 'USER', 'Usuario'
+        SERVICE = 'SERVICE', 'Servicio'
+        SYSTEM = 'SYSTEM', 'Sistema'
+
+    ACCION_V1_RE = re.compile(
+        r'^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,}$'
+    )
+
     # === APPEND-ONLY ===
     objects = AuditoriaManager()
+
+    # === CONTRATO TRANSPORTABLE audit.event.v1 ===
+    #
+    # Las FK historicas se conservan como conveniencia de navegacion, pero no
+    # son identidad: pueden quedar nulas o apuntar a un objeto renombrado. Los
+    # campos siguientes congelan referencias opacas y snapshots aptos para
+    # control plane, bases tenant y modelos con PK que no sea entero.
+    schema_version = models.CharField(
+        max_length=32,
+        default=SCHEMA_LEGACY,
+        editable=False,
+        db_index=True,
+    )
+    event_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+    registrado_en = models.DateTimeField(
+        default=timezone.now,
+        editable=False,
+    )
+    actor_ref = models.UUIDField(null=True, blank=True, editable=False)
+    actor_kind = models.CharField(
+        max_length=12,
+        choices=ActorKind.choices,
+        default=ActorKind.SYSTEM,
+        editable=False,
+    )
+    impersonator_ref = models.UUIDField(null=True, blank=True, editable=False)
+    tenant_key = models.CharField(max_length=64, blank=True, editable=False)
+    branch_ref = models.UUIDField(null=True, blank=True, editable=False)
+    branch_code = models.CharField(max_length=40, blank=True, editable=False)
+    canal = models.CharField(
+        max_length=16,
+        choices=Canal.choices,
+        default=Canal.LEGACY,
+        editable=False,
+    )
+    entity_type = models.CharField(max_length=160, blank=True, editable=False)
+    entity_ref = models.UUIDField(null=True, blank=True, editable=False)
+    entity_display = models.CharField(max_length=300, blank=True, editable=False)
+    resultado = models.CharField(
+        max_length=12,
+        choices=Resultado.choices,
+        default=Resultado.SUCCEEDED,
+        editable=False,
+    )
+    correlacion_id = models.UUIDField(null=True, blank=True, editable=False)
+    idempotencia_key = models.CharField(max_length=200, blank=True, editable=False)
+    error_codigo = models.CharField(max_length=100, blank=True, editable=False)
 
     # === QUIÉN realizó la acción ===
     usuario = models.ForeignKey(
@@ -180,7 +268,7 @@ class Auditoria(models.Model):
 
     # === QUÉ acción se realizó ===
     accion = models.CharField(
-        max_length=20,
+        max_length=100,
         choices=TipoAccion.choices,
         verbose_name='Acción',
         db_index=True
@@ -361,21 +449,71 @@ class Auditoria(models.Model):
             models.Index(fields=['nivel_importancia', '-fecha_hora']),
             models.Index(fields=['exito', '-fecha_hora']),
             models.Index(fields=['sucursal', '-fecha_hora']),
+            models.Index(fields=['tenant_key', 'sucursal', '-fecha_hora']),
+            models.Index(fields=['entity_type', 'entity_ref', '-fecha_hora']),
+            models.Index(fields=['correlacion_id', '-fecha_hora']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    resultado__in=('SUCCEEDED', 'DENIED', 'FAILED'),
+                ),
+                name='audit_resultado_valido',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    canal__in=(
+                        'POS_LOCAL', 'PORTAL_API', 'SYNC', 'COMMAND',
+                        'SYSTEM', 'LEGACY',
+                    ),
+                ),
+                name='audit_canal_valido',
+            ),
         ]
 
     # === APPEND-ONLY + SNAPSHOT + INTEGRIDAD ===
 
-    CAMPOS_FIRMADOS = (
+    CAMPOS_FIRMADOS_LEGACY = (
         'accion', 'descripcion', 'actor_username', 'actor_tipo',
         'object_id', 'exito', 'nivel_importancia',
+    )
+
+    CAMPOS_FIRMADOS_V1 = (
+        'schema_version', 'event_id', 'registrado_en', 'actor_ref',
+        'actor_kind', 'actor_username', 'actor_nombre', 'impersonator_ref',
+        'tenant_key', 'branch_ref', 'branch_code', 'canal', 'accion',
+        'entity_type', 'entity_ref', 'entity_display', 'datos_anteriores',
+        'datos_nuevos', 'resultado', 'correlacion_id', 'idempotencia_key',
+        'metadata', 'error_codigo', 'mensaje_error', 'sucursal_id',
     )
 
     def calcular_hash(self):
         """SHA-256 sobre los campos que no deben cambiar nunca."""
         import hashlib
-        from datetime import timezone as dt_timezone
+        import json
+        from datetime import datetime as dt_datetime, timezone as dt_timezone
 
-        partes = [str(getattr(self, campo) or '') for campo in self.CAMPOS_FIRMADOS]
+        campos = (
+            self.CAMPOS_FIRMADOS_V1
+            if self.schema_version == self.SCHEMA_V1
+            else self.CAMPOS_FIRMADOS_LEGACY
+        )
+
+        def estable(valor):
+            if valor is None:
+                return ''
+            if isinstance(valor, (dict, list)):
+                return json.dumps(
+                    valor, ensure_ascii=False, sort_keys=True,
+                    separators=(',', ':'), default=str,
+                )
+            if hasattr(valor, 'isoformat'):
+                if isinstance(valor, dt_datetime) and timezone.is_aware(valor):
+                    valor = valor.astimezone(dt_timezone.utc)
+                return valor.isoformat()
+            return str(valor)
+
+        partes = [estable(getattr(self, campo)) for campo in campos]
         # La fecha se firma en UTC y con precision fija: asi el hash no depende
         # de como cada driver o zona horaria represente el MISMO instante al
         # releerlo de la base. `isoformat()` crudo variaba el sufijo de offset
@@ -434,8 +572,41 @@ class Auditoria(models.Model):
             self.fecha_hora = _tz.now()
 
         self._congelar_actor()
+        # `accion` conserva choices para presentar el catalogo legacy, pero v1
+        # admite el codigo namespaced definido por su gramatica. La validacion
+        # equivalente vive en `clean()`.
+        self.full_clean(exclude=['accion'])
         self.hash_integridad = self.calcular_hash()
         return super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        acciones_legacy = {valor for valor, _ in self.TipoAccion.choices}
+        if (
+            self.accion not in acciones_legacy
+            and not self.ACCION_V1_RE.fullmatch(self.accion or '')
+        ):
+            raise ValidationError({
+                'accion': 'La accion debe ser legacy conocida o un codigo '
+                          'namespaced de audit.event.v1.',
+            })
+
+        if self.resultado == self.Resultado.SUCCEEDED and self.mensaje_error:
+            raise ValidationError({
+                'mensaje_error': 'Un evento exitoso no puede contener error.',
+            })
+        if self.resultado != self.Resultado.SUCCEEDED and self.exito:
+            raise ValidationError({'exito': 'DENIED/FAILED exige exito=False.'})
+        if self.resultado == self.Resultado.SUCCEEDED and not self.exito:
+            raise ValidationError({'exito': 'SUCCEEDED exige exito=True.'})
+
+        if self.schema_version == self.SCHEMA_V1:
+            if self.canal == self.Canal.LEGACY:
+                raise ValidationError({'canal': 'audit.event.v1 exige un canal explicito.'})
+            if not self.actor_ref:
+                raise ValidationError({'actor_ref': 'audit.event.v1 exige actor estable.'})
+            if not self.entity_ref or not self.entity_type:
+                raise ValidationError({'entity_ref': 'audit.event.v1 exige entidad estable.'})
 
     def delete(self, *args, **kwargs):
         raise AuditoriaInmutable(
@@ -543,6 +714,20 @@ class Auditoria(models.Model):
                 nivel_importancia='ALTA'
             )
         """
+        # El adaptador legacy no ofrece la garantia transaccional de CT-01,
+        # pero nunca debe persistir secretos ni filas semanticamente invalidas.
+        from .services import redactar_payload
+
+        for campo in ('datos_anteriores', 'datos_nuevos', 'metadata'):
+            if campo in kwargs:
+                kwargs[campo] = redactar_payload(kwargs[campo])
+        if 'mensaje_error' in kwargs:
+            kwargs['mensaje_error'] = redactar_payload(kwargs['mensaje_error'])
+
+        kwargs.setdefault(
+            'resultado',
+            cls.Resultado.SUCCEEDED if kwargs.get('exito', True) else cls.Resultado.FAILED,
+        )
         return cls.objects.create(
             accion=accion,
             descripcion=descripcion,
@@ -598,7 +783,9 @@ class Auditoria(models.Model):
         )
 
     @classmethod
-    def registrar_anulacion_venta(cls, venta, usuario, motivo, ip_address=None):
+    def registrar_anulacion_venta(
+        cls, venta, usuario, motivo, ip_address=None, *, estado_anterior=None,
+    ):
         """Registra la anulación de una venta"""
         return cls.registrar(
             accion=cls.TipoAccion.VENTA_ANULADA,
@@ -606,6 +793,10 @@ class Auditoria(models.Model):
             usuario=usuario,
             content_object=venta,
             datos_anteriores={
+                'estado': estado_anterior or 'DESCONOCIDO',
+                'total': str(venta.total),
+            },
+            datos_nuevos={
                 'estado': venta.estado,
                 'total': str(venta.total),
             },
@@ -656,7 +847,8 @@ class Auditoria(models.Model):
             usuario=usuario,
             content_object=compra,
             datos_nuevos={
-                'proveedor': compra.proveedor,
+                'proveedor_id': getattr(compra, 'proveedor_id', None),
+                'proveedor_nombre': str(compra.proveedor),
                 'total': str(compra.total),
                 'cantidad_productos': compra.detalles.count(),
             },

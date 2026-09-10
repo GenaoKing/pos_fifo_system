@@ -30,7 +30,10 @@ DEFAULT_ONLY_APPS = {'admin', 'sessions'}
 # la base queda rota con el deploy en verde. Al mover una app hay que
 # desregistrarla (`DELETE FROM django_migrations WHERE app='<app>'`) en cada
 # base afectada y volver a migrar. `migrate_tenants` ahora lo detecta.
-DUAL_HOME_APPS = {'auth', 'contenttypes', 'usuarios', 'negocios', 'token_blacklist'}
+DUAL_HOME_APPS = {
+    'auth', 'auditoria', 'contenttypes', 'usuarios', 'negocios',
+    'token_blacklist',
+}
 
 
 class TenantDatabaseRouter:

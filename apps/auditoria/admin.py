@@ -29,6 +29,10 @@ class AuditoriaAdmin(admin.ModelAdmin):
     ]
     
     list_filter = [
+        'schema_version',
+        'canal',
+        'resultado',
+        'tenant_key',
         'accion',
         'nivel_importancia',
         'exito',
@@ -42,9 +46,31 @@ class AuditoriaAdmin(admin.ModelAdmin):
         'usuario__first_name',
         'usuario__last_name',
         'ip_address',
+        'event_id',
+        'correlacion_id',
+        'actor_ref',
+        'entity_ref',
+        'entity_display',
     ]
     
     readonly_fields = [
+        'schema_version',
+        'event_id',
+        'registrado_en',
+        'actor_ref',
+        'actor_kind',
+        'impersonator_ref',
+        'tenant_key',
+        'branch_ref',
+        'branch_code',
+        'canal',
+        'entity_type',
+        'entity_ref',
+        'entity_display',
+        'resultado',
+        'correlacion_id',
+        'idempotencia_key',
+        'error_codigo',
         'usuario',
         'accion',
         'descripcion',
@@ -64,8 +90,18 @@ class AuditoriaAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Información Básica', {
             'fields': (
+                'schema_version',
+                'event_id',
                 'fecha_hora',
+                'registrado_en',
                 'usuario',
+                'actor_ref',
+                'actor_kind',
+                'impersonator_ref',
+                'tenant_key',
+                'branch_ref',
+                'branch_code',
+                'canal',
                 'accion',
                 'descripcion',
             )
@@ -74,6 +110,9 @@ class AuditoriaAdmin(admin.ModelAdmin):
             'fields': (
                 'content_type',
                 'object_id',
+                'entity_type',
+                'entity_ref',
+                'entity_display',
             ),
             'classes': ('collapse',)
         }),
@@ -96,6 +135,10 @@ class AuditoriaAdmin(admin.ModelAdmin):
             'fields': (
                 'nivel_importancia',
                 'exito',
+                'resultado',
+                'correlacion_id',
+                'idempotencia_key',
+                'error_codigo',
                 'mensaje_error',
             )
         }),
