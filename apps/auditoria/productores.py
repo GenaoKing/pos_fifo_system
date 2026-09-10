@@ -104,9 +104,36 @@ MATRIZ_LEGACY = {
 MATRIZ_V1 = {
     'negocios.negocio.creado': 'apps.negocios.services:crear_negocio',
     'negocios.negocio.actualizado': 'apps.negocios.services:actualizar_negocio',
+    'negocios.negocio.desactivado': 'apps.negocios.services:actualizar_negocio',
+    'negocios.negocio.reactivado': 'apps.negocios.services:actualizar_negocio',
     'usuarios.usuario.provisionado': 'apps.usuarios.services:provisionar_usuario',
     'usuarios.usuario.actualizado': 'apps.usuarios.services:actualizar_usuario',
-    'tenant.provisioning.*': 'apps.tenancy.services:marcar_estado_provisioning',
+    'usuarios.usuario.activado': 'apps.usuarios.services:actualizar_usuario',
+    'usuarios.usuario.desactivado': 'apps.usuarios.services:actualizar_usuario',
+    'tenant.provisioning.prepared': (
+        'apps.tenancy.services:preparar_tenant_provisioning'
+    ),
+    'tenant.provisioning.pending': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.db_ready': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.schema_ready': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.tenant_ready': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.control_ready': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.active': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
+    'tenant.provisioning.failed': (
+        'apps.tenancy.services:marcar_estado_provisioning'
+    ),
 }
 
 

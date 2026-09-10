@@ -229,6 +229,7 @@ class MatrizDeProductoresTests(TestCase):
     def test_productores_v1_obligatorios_existen(self):
         for accion, ruta in MATRIZ_V1.items():
             with self.subTest(accion=accion):
+                self.assertRegex(accion, Auditoria.ACCION_V1_RE)
                 self.assertTrue(callable(self._resolver(ruta)))
 
     def test_visor_no_presenta_ausencia_como_cobertura(self):
