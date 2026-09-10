@@ -1,16 +1,26 @@
-# Handoff C02 — Documentos, imágenes e impresión (entrega parcial 1)
+# Handoff C02 — Documentos, imágenes e impresión (entrega parcial 1, CERRADA)
 
-Estado: **EN_CURSO** (primera entrega de C02; quedan items del encargo sin
-cerrar, listados abajo). Fecha: **2026-09-10**.
+Estado: **CERRADO para esta sesión, PARCIAL respecto del encargo completo.**
+Se cierra deliberadamente con el clúster de logo/tablas de `apps/common/pdf`
+resuelto y probado; COM-012/013 y los puntos 5-7 del encargo (impresión,
+Chart.js, matriz física) quedan explícitamente para una entrega posterior de
+C02 — no se simulan como hechos. Fecha: **2026-09-10**.
 Agente: B / Claude. Encargo: [CIERRE_PROD_CLAUDE.md](../../planes/CIERRE_PROD_CLAUDE.md#c02--documentos-imágenes-e-impresión).
+Continúa en otro hilo con **C03 — Configuración y módulos vendibles**, en el
+mismo worktree (rama nueva `claude/cierre-prod-C03` desde el tip de esta).
 
 ## SHA base / resultado
 
 - Base consumida: tip de `claude/cierre-prod-C01`
   (`157b7ed42ee02a9493082938f1608d70326043bc`), worktree
   `C:/Proyectos/pos_fifo_system_cierre_claude`, rama `claude/cierre-prod-C02`.
-- Resultado: commit(s) local(es) en esa rama con los archivos listados abajo.
-  **No publicado a `origin`** (evita disparar CI/deploy de `develop`).
+- Resultado: commit `d937db5` en esa rama con los archivos listados abajo.
+  Working tree limpio al cierre (`git status` sin cambios pendientes).
+  **No publicado a `origin`** (evita disparar CI/deploy de `develop`); no se
+  fusionó a `develop` local — mismo criterio que dejó C01 sin fusionar: cada
+  bloque de Claude se cierra en su propia rama secuencial dentro del mismo
+  worktree, y la integración a `develop` se decide en un checkpoint mayor
+  (coordinar con el usuario / con Codex antes de fusionar).
 
 ## Qué cubre esta entrega
 
@@ -145,6 +155,12 @@ Para `docs/exploracion/AUDITORIA_CODIGO_APPS_COMMON.md`: es snapshot
 histórico, no se edita; su tabla de mitigación queda desactualizada a
 propósito (la fuente de verdad pasa a ser este handoff + el código).
 
+Para `docs/PROJECT_STATUS.md` (línea 46-47, "Plan activo de cierre a
+producción"): donde dice *"A00 integrado localmente; A01 validado y C01
+desbloqueado contra sus locks; G1-G4 pendientes"*, agregar *"; C02 iniciado
+(logo/tablas de `apps/common/pdf` cerrados, impresión y paginación
+pendientes)"*.
+
 ## Pendientes explícitos del encargo C02, NO cubiertos en esta entrega
 
 1. **COM-012** (tablas materializan todos los registros antes de maquetar —
@@ -186,7 +202,27 @@ propósito (la fuente de verdad pasa a ser este handoff + el código).
 
 ## Siguiente tarea desbloqueada
 
-Quedan del encargo C02: COM-012 (paginación/streaming de listas grandes),
-impresión con cuota/auditoría (`utils/impresoras`), retirar Chart.js,
-y la matriz física para C06. Se continúa en el mismo hilo salvo indicación
-distinta del usuario.
+**Por decisión del usuario, este hilo cierra aquí. Continúa en otro chat con
+C03 — Configuración y módulos vendibles**, sobre este mismo worktree
+(`C:/Proyectos/pos_fifo_system_cierre_claude`), rama nueva
+`claude/cierre-prod-C03` desde el tip de `claude/cierre-prod-C02`
+(commit `d937db5`). Antes de tocar código, esa sesión debería:
+
+1. Leer `CLAUDE.md`, este handoff, el encargo C03 en
+   `docs/planes/CIERRE_PROD_CLAUDE.md` y `apps/configuracion/AGENTS.md` /
+   `apps/suscripciones/AGENTS.md` si existen.
+2. Confirmar si CT-02 (permisos/capacidades) ya tiene implementación real de
+   A03 o sigue `PENDIENTE` en `CONTRATOS.md` — condiciona el punto 6 del
+   encargo C03 ("aplicar contrato CT-02 en sus APIs/servicios/UI").
+3. Tener presente el pendiente #6 de este handoff: `ConfiguracionNegocio.logo`
+   no tiene validator de tamaño/formato al SUBIR (la mitad que corrige C02 es
+   la lectura defensiva al renderizar) — buen candidato a resolver junto con
+   el resto de `apps/configuracion` en C03, reusando
+   `utils.imagenes.validar_imagen_subida`/`TAMANO_MAX_BYTES`.
+
+C02 queda **abierto, no cerrado por completo**: COM-012 (paginación/streaming
+de listas grandes), COM-013 (pedido de deps a Codex), impresión con
+cuota/auditoría (`utils/impresoras`, punto 5), retirar Chart.js (punto 6) y la
+matriz física (punto 7, para C06) siguen pendientes para cuando se retome ese
+bloque — el plan maestro permite avanzar C03/C05 en paralelo sin haber
+cerrado C02 por completo (C03 no depende de C02).
