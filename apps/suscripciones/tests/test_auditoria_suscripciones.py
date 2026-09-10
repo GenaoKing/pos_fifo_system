@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 from rest_framework.test import APIClient
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.negocios.models import Negocio
 from apps.suscripciones import registry, seed
 from apps.suscripciones.engine import (
@@ -19,6 +20,7 @@ from apps.suscripciones.engine import (
     _cache_key,
     estado_suscripcion,
     modulo_activo,
+    modulos_activos,
     modulos_negocio,
 )
 from apps.suscripciones.models import (
@@ -486,3 +488,110 @@ class DriftDeCatalogoTests(SuscripcionesTestCase):
 
         ids = {p.id for p in espejo_db_coincide_con_registro(None)}
         self.assertIn('suscripciones.W002', ids)
+
+
+class BootstrapTestCase(SuscripcionesTestCase):
+    """Base para las pruebas de onboarding: llama al bootstrap con modelos reales."""
+
+    def _bootstrap(self):
+        return seed.bootstrap(
+            ModuloModel=Modulo,
+            PlanModel=Plan,
+            NegocioModel=Negocio,
+            NegocioModuloModel=NegocioModulo,
+            SuscripcionModel=SuscripcionNegocio,
+            ConfiguracionModel=ConfiguracionNegocio,
+        )
+
+    def _config(self, sucursal, **flags):
+        return ConfiguracionNegocio.objects.create(
+            sucursal=sucursal, nombre_negocio=getattr(sucursal, 'nombre', 'X'),
+            **flags,
+        )
+
+
+class BootstrapPreservaPorSucursalTests(BootstrapTestCase):
+    """SUS-008: la union del bootstrap no enciende un modulo en una sucursal que
+    lo tenia apagado."""
+
+    def test_flags_divergentes_se_conservan_bit_por_bit(self):
+        """
+        La reproduccion: sucursal A con e-CF=True y B con e-CF=False producia
+        e-CF activo tambien para B, sin ningun override de compensacion.
+        """
+        suc_a = self.sucursal  # SUS-A (setUp)
+        suc_b = Sucursal.objects.create(
+            codigo='SUS-B', nombre='Tienda B', activa=True, negocio=self.negocio,
+        )
+        self._config(suc_a, modulo_ecf=True)
+        self._config(suc_b, modulo_ecf=False)
+
+        self._bootstrap()
+        cache.clear()
+
+        # A nivel negocio, e-CF esta en el set (union de A y B).
+        self.assertIn('ecf', modulos_negocio(self.negocio))
+        # Pero se conserva bit por bit: A encendido, B apagado.
+        self.assertIn('ecf', modulos_activos(self.negocio, sucursal=suc_a))
+        self.assertNotIn('ecf', modulos_activos(self.negocio, sucursal=suc_b))
+
+    def test_todas_apagadas_no_crea_override_ni_enciende(self):
+        """Si ninguna sucursal tenia el flag, no hay nada que compensar."""
+        suc_a = self.sucursal
+        self._config(suc_a, modulo_ecf=False)
+
+        resumen = self._bootstrap()
+        cache.clear()
+
+        self.assertNotIn('ecf', modulos_negocio(self.negocio))
+        self.assertEqual(resumen['overrides_sucursal'], 0)
+
+
+class BootstrapLegacySinSucursalTests(BootstrapTestCase):
+    """SUS-009: la configuracion legacy `sucursal=NULL` no se ignora en silencio."""
+
+    def test_una_config_legacy_con_un_solo_negocio_se_adopta(self):
+        self._config_legacy(modulo_ecf=True)
+
+        resumen = self._bootstrap()
+        cache.clear()
+
+        self.assertEqual(resumen['legacy_adoptadas'], 1)
+        self.assertIn('ecf', modulos_negocio(self.negocio))
+
+    def test_config_legacy_con_varios_negocios_aborta_sin_escribir(self):
+        """
+        La reproduccion: la derivacion filtraba `sucursal__negocio` y la fila
+        legacy se perdia. Ahora, si no es atribuible sin ambiguedad, aborta.
+        """
+        Negocio.objects.create(nombre='Otro', slug='otro')  # ya son 2 negocios
+        self._config_legacy(modulo_ecf=True)
+        antes = SuscripcionNegocio.objects.count()
+
+        with self.assertRaises(seed.BootstrapAmbiguo):
+            self._bootstrap()
+
+        self.assertEqual(SuscripcionNegocio.objects.count(), antes)
+
+    def _config_legacy(self, **flags):
+        return ConfiguracionNegocio.objects.create(
+            sucursal=None, nombre_negocio='Legacy', **flags,
+        )
+
+
+class BootstrapDryRunTests(BootstrapTestCase):
+    """SUS-016: `--dry-run` reporta sin escribir, y el bootstrap es atomico."""
+
+    def test_dry_run_no_escribe(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        self._config(self.sucursal, modulo_ecf=True)
+        antes = SuscripcionNegocio.objects.count()
+
+        salida = StringIO()
+        call_command('bootstrap_suscripciones', '--dry-run', stdout=salida)
+
+        self.assertEqual(SuscripcionNegocio.objects.count(), antes)
+        self.assertIn('DRY-RUN', salida.getvalue())
