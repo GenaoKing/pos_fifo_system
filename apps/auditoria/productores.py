@@ -134,6 +134,25 @@ MATRIZ_V1 = {
     'tenant.provisioning.failed': (
         'apps.tenancy.services:marcar_estado_provisioning'
     ),
+    # CFG-017 / SUS-015 (C03, tras integrar CT-01). `configuracion.negocio.*`
+    # solo cubre el Admin: es la unica interfaz de escritura de
+    # ConfiguracionNegocio hoy (no hay viewset API). `suscripciones.*.creado`
+    # de SuscripcionNegocio no se registra: ese viewset no permite POST
+    # (`http_method_names`), asi que esa accion nunca se emite.
+    'configuracion.negocio.creado': 'apps.configuracion.admin:ConfiguracionNegocioAdmin.save_model',
+    'configuracion.negocio.actualizado': 'apps.configuracion.admin:ConfiguracionNegocioAdmin.save_model',
+    'suscripciones.suscripcion.actualizado': (
+        'apps.api.views.suscripciones:GuardDegradacionMixin._aplicar'
+    ),
+    'suscripciones.override_negocio.creado': (
+        'apps.api.views.suscripciones:GuardDegradacionMixin._aplicar'
+    ),
+    'suscripciones.override_negocio.actualizado': (
+        'apps.api.views.suscripciones:GuardDegradacionMixin._aplicar'
+    ),
+    'suscripciones.override_negocio.eliminado': (
+        'apps.api.views.suscripciones:GuardDegradacionMixin._aplicar'
+    ),
 }
 
 

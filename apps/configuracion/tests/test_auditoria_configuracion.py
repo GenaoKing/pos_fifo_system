@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
+from apps.auditoria.models import Auditoria
 from apps.configuracion.models import ConfiguracionNegocio
 from apps.configuracion.utils import (
     ConfiguracionNoResuelta,
@@ -273,6 +274,72 @@ class AdminGateadoPorRbacTests(ConfiguracionTestCase):
         self.assertFalse(
             self._admin().has_delete_permission(self._request(root))
         )
+
+
+class CFG017AuditoriaTests(ConfiguracionTestCase):
+    """
+    CFG-017 — Admin es la unica interfaz de escritura de `ConfiguracionNegocio`
+    hoy; sin evento CT-01 no puede reconstruirse quien cambio que.
+    """
+
+    def _admin(self):
+        from django.contrib import admin as django_admin
+
+        from apps.configuracion.admin import ConfiguracionNegocioAdmin
+
+        return ConfiguracionNegocioAdmin(
+            ConfiguracionNegocio, django_admin.site,
+        )
+
+    def _request(self, user):
+        peticion = RequestFactory().get('/admin/')
+        peticion.user = user
+        return peticion
+
+    def test_editar_deja_exactamente_un_evento_con_diff(self):
+        self.config_a.pago_tarjeta = True
+        self.config_a.permitir_inventario_negativo = True
+
+        self._admin().save_model(
+            self._request(None), self.config_a, form=None, change=True,
+        )
+
+        eventos = Auditoria.objects.filter(accion='configuracion.negocio.actualizado')
+        self.assertEqual(eventos.count(), 1)
+        evento = eventos.get()
+        self.assertFalse(evento.datos_anteriores['pago_tarjeta'])
+        self.assertTrue(evento.datos_nuevos['pago_tarjeta'])
+        self.assertTrue(evento.datos_nuevos['permitir_inventario_negativo'])
+        self.assertEqual(evento.sucursal_id, self.suc_a.id)
+
+    def test_crear_deja_evento_con_antes_vacio(self):
+        nueva = ConfiguracionNegocio(sucursal=None, nombre_negocio='Legacy')
+
+        self._admin().save_model(
+            self._request(None), nueva, form=None, change=False,
+        )
+
+        evento = Auditoria.objects.get(accion='configuracion.negocio.creado')
+        self.assertEqual(evento.datos_anteriores, {})
+        self.assertEqual(evento.datos_nuevos['nombre_negocio'], 'Legacy')
+
+    def test_editar_registra_al_actor_real(self):
+        # Actor del MISMO negocio que `config_a` (via `suc_a`): CT-01 rechaza
+        # un actor de otro tenant, y `_usuario()`/`habilitar_cajero()` sin
+        # `negocio=` explicito crea uno propio por llamada.
+        admin_user = User.objects.create_user(
+            username='admin_cfg', email='admin_cfg@test.local', password='x',
+            rol='ADMIN', activo=True, is_staff=True, negocio=self.negocio,
+        )
+        self.config_a.rnc = '999'
+
+        self._admin().save_model(
+            self._request(admin_user), self.config_a, form=None, change=True,
+        )
+
+        evento = Auditoria.objects.get(accion='configuracion.negocio.actualizado')
+        self.assertEqual(evento.actor_username, 'admin_cfg')
+        self.assertEqual(evento.metadata['source'], 'DJANGO_ADMIN_LOCAL')
 
 
 class SecretosEnDryRunTests(ConfiguracionTestCase):

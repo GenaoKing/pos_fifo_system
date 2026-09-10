@@ -6,9 +6,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from apps.auditoria.models import Auditoria
 from apps.negocios.models import Negocio
 from apps.suscripciones import seed
-from apps.suscripciones.models import Modulo, Plan, SuscripcionNegocio
+from apps.suscripciones.models import Modulo, NegocioModulo, Plan, SuscripcionNegocio
 
 User = get_user_model()
 
@@ -112,6 +113,82 @@ class SuscripcionAdminTests(TestCase):
         )
         self.assertEqual(r.status_code, 400)
         self.assertIn('modulo', r.data)
+
+
+class SUS015AuditoriaTests(TestCase):
+    """
+    SUS-015 — los cambios comerciales (plan, overrides à la carte) ahora dejan
+    un evento CT-01 dentro de la misma transaccion; un rechazo del guard no
+    deja ni escritura ni evento.
+    """
+
+    def setUp(self):
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        self.negocio = Negocio.objects.create(nombre='Royal Plast', slug='royal-plast')
+        self.susc = SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='basico'), activa=True,
+        )
+        self.operador = User.objects.create_user('op', 'op@e.com', 'x', rol='SYSADMIN')
+
+    def _api(self):
+        client = APIClient()
+        client.force_authenticate(user=self.operador)
+        return client
+
+    def test_cambiar_plan_deja_exactamente_un_evento_con_diff(self):
+        r = self._api().patch(
+            f'/api/v1/suscripciones/negocios/{self.susc.id}/',
+            {'plan': 'empresarial'}, format='json',
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+
+        eventos = Auditoria.objects.filter(accion='suscripciones.suscripcion.actualizado')
+        self.assertEqual(eventos.count(), 1)
+        evento = eventos.get()
+        self.assertEqual(evento.actor_username, 'op')
+        self.assertEqual(evento.datos_anteriores['plan'], 'basico')
+        self.assertEqual(evento.datos_nuevos['plan'], 'empresarial')
+        self.assertEqual(evento.tenant_key, self.negocio.slug)
+
+    def test_override_incluir_deja_evento_de_creacion(self):
+        r = self._api().post(
+            '/api/v1/suscripciones/overrides/',
+            {'negocio': self.negocio.id, 'modulo': 'ecf', 'incluido': True},
+            format='json',
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+
+        evento = Auditoria.objects.get(accion='suscripciones.override_negocio.creado')
+        self.assertEqual(evento.datos_anteriores, {})
+        self.assertEqual(evento.datos_nuevos['modulo'], 'ecf')
+        self.assertTrue(evento.datos_nuevos['incluido'])
+
+    def test_override_eliminar_deja_evento_con_despues_vacio(self):
+        override = NegocioModulo.objects.create(
+            negocio=self.negocio, modulo=Modulo.objects.get(key='ecf'), incluido=True,
+        )
+        r = self._api().delete(f'/api/v1/suscripciones/overrides/{override.id}/')
+        self.assertEqual(r.status_code, 204, getattr(r, 'data', None))
+
+        evento = Auditoria.objects.get(accion='suscripciones.override_negocio.eliminado')
+        self.assertEqual(evento.datos_anteriores['modulo'], 'ecf')
+        self.assertEqual(evento.datos_nuevos, {})
+        self.assertFalse(NegocioModulo.objects.filter(pk=override.pk).exists())
+
+    def test_override_rechazado_por_el_guard_no_deja_evento(self):
+        self.susc.plan = Plan.objects.get(slug='empresarial')
+        self.susc.save()
+        antes = Auditoria.objects.count()
+
+        r = self._api().post(
+            '/api/v1/suscripciones/overrides/',
+            {'negocio': self.negocio.id, 'modulo': 'ventas', 'incluido': False},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(Auditoria.objects.count(), antes)
 
 
 class PayloadModulosTests(TestCase):
