@@ -1,4 +1,5 @@
 """Tests del resolutor de modulos por negocio/sucursal y puede_desactivarse."""
+from django.db import transaction
 from django.test import TestCase
 from django.utils.text import slugify
 
@@ -111,14 +112,61 @@ class ResolverTests(TestCase):
         self.assertTrue(ok)
 
     def test_invalidacion_cache_al_cambiar_override(self):
+        """
+        SUS-011 — la senal difiere la invalidacion con `transaction.on_commit`:
+        en un `TestCase` normal esos hooks quedan pendientes y se descartan al
+        revertir (no corren solos), asi que hay que envolver la escritura en
+        `captureOnCommitCallbacks(execute=True)` para simular el commit real y
+        efectivamente correrlos -- de otro modo este test estaria probando el
+        codigo viejo (invalidacion sincrona) sin darse cuenta.
+        """
         # Provisionado (plan 'basico', sin ecf) para no caer en el fail-open
         # de negocio sin aprovisionar: se quiere probar la invalidacion de
         # cache, no la trampa de BUG-D.
         self._suscribir('basico')
         self.assertNotIn('ecf', engine.modulos_negocio(self.negocio))  # cachea
         ecf = Modulo.objects.get(key='ecf')
-        NegocioModulo.objects.create(negocio=self.negocio, modulo=ecf, incluido=True)
-        self.assertIn('ecf', engine.modulos_negocio(self.negocio))  # signal invalido
+        with self.captureOnCommitCallbacks(execute=True):
+            NegocioModulo.objects.create(negocio=self.negocio, modulo=ecf, incluido=True)
+        self.assertIn('ecf', engine.modulos_negocio(self.negocio))  # signal invalido, ya commiteada
+
+    def test_un_rollback_no_invalida_nada(self):
+        """
+        SUS-011 — la reproduccion exacta del hallazgo: dentro de
+        `transaction.atomic()`, crear algo invalidaba ANTES de que la
+        transaccion confirmara; si esa transaccion se revertia, la
+        invalidacion ya habia salido igual (un cambio que nunca paso bumpeaba
+        la version para todos). Ahora, al diferir con `on_commit`, un
+        rollback no deja ni el `NegocioModulo` ni la invalidacion.
+        """
+        self._suscribir('basico')
+        self.assertNotIn('ecf', engine.modulos_negocio(self.negocio))  # cachea v1
+        version_antes = engine._version()
+
+        ecf = Modulo.objects.get(key='ecf')
+
+        class _Revertir(Exception):
+            pass
+
+        with self.captureOnCommitCallbacks() as callbacks:
+            try:
+                with transaction.atomic():
+                    NegocioModulo.objects.create(
+                        negocio=self.negocio, modulo=ecf, incluido=True,
+                    )
+                    raise _Revertir
+            except _Revertir:
+                pass
+
+        # El rollback descarta los hooks on_commit: ninguno quedo pendiente.
+        self.assertEqual(callbacks, [])
+        self.assertEqual(engine._version(), version_antes)
+        self.assertFalse(
+            NegocioModulo.objects.filter(negocio=self.negocio, modulo=ecf).exists()
+        )
+        # El cache cacheado ANTES del rollback sigue siendo valido: no se
+        # invalido con un cambio que nunca se confirmo.
+        self.assertNotIn('ecf', engine.modulos_negocio(self.negocio))
 
 
 class BackCompatTests(TestCase):

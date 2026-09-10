@@ -341,6 +341,74 @@ deja ni escritura ni evento.
   `apps.auditoria`): 205 OK. Suite completa + `check` + `makemigrations --check`
   repetidos, en verde.
 
+## Cierre de SUS-017 (2026-09-10, presets versionados)
+
+`sync_modulos` prometía sincronizar los planes default y no lo hacía:
+`crear_planes_default` solo asignaba módulos al crear el plan (o si estaba
+vacío), así que editar `TIERS` y re-correr el comando no restauraba nada
+(la reproducción exacta del hallazgo).
+
+- **`seed.TIERS`** gana un 4º elemento, `version` (int; sube al editar la
+  composición de un tier). `crear_planes_default` (usado por `bootstrap()`
+  para aprovisionar un tenant nuevo, y por la migración histórica
+  `0002_seed_suscripciones`) lo ignora — ahí no hay nada que resincronizar
+  todavía, y necesita seguir funcionando con el `PlanModel` **histórico**
+  (sin el campo nuevo).
+- **`Plan.preset_version`** (nuevo, `PositiveIntegerField` nullable,
+  migración `0003_plan_preset_version`): `None` = plan personalizado (Admin
+  puede vaciarlo para desenganchar uno de los tres tiers de la
+  sincronización); un valor = versión de `TIERS` que ese plan tiene aplicada.
+- **`seed.sincronizar_planes_preset`** (nueva, solo para `PlanModel`
+  corriente — no se invoca desde la migración): para cada tier, si el plan
+  no existe lo crea; si existe y está `personalizado` no lo toca; si su
+  `preset_version` quedó atrás lo re-sincroniza (módulos + versión); si ya
+  está al día no hace nada. `manage.py sync_modulos` la usa y reporta la
+  acción por plan (`creado` / `actualizado` / `sin_cambios` / `personalizado`).
+- **Backfill conservador**: la migración `0003` solo marca `preset_version=1`
+  al plan cuyo set de módulos ACTUAL coincide exacto con la v1 congelada en
+  la propia migración (no importa `seed.TIERS`, que sigue evolucionando); si
+  ya divergía —posible edición manual previa a este campo— queda `None`
+  (personalizado), sin pisar nada.
+- `PlanAdmin` expone `preset_version` en `list_display` y como campo editable
+  (el `help_text` del modelo explica cómo desenganchar un plan).
+- Tests nuevos: `apps/suscripciones/tests/test_sync_modulos.py` — crea,
+  re-sincroniza tras subir de versión (la reproducción exacta), respeta un
+  plan personalizado, y dos tests directos de la función de backfill de la
+  migración (coincide exacto → se marca; ya divergía → queda `None`).
+- Regresión (`apps.suscripciones` + `apps.api` + `apps.configuracion` +
+  `apps.auditoria`): 470 OK, 2 skips esperados. `check` y
+  `makemigrations --check` en verde.
+
+## Cierre de SUS-011 (2026-09-10, invalidación diferida a `on_commit`)
+
+`apps/suscripciones/signals.py` invalidaba el cache (bump de versión) DENTRO
+de la transacción que hizo el cambio: un lector concurrente, entre el bump y
+el commit, podía recachear el estado viejo bajo la versión nueva y
+conservarlo por el TTL; y si la transacción se revertía, la invalidación ya
+se había publicado igual — un cambio que nunca pasó bumpeaba la versión para
+todos. Mismo patrón que `apps/permisos/signals.py` (PER-011): los tres
+receptores (`post_save`/`post_delete`/`m2m_changed`) ahora difieren con
+`transaction.on_commit(invalidar_cache)`.
+
+- **No hace falta memo local** (a diferencia de permisos): el motor de
+  suscripciones no tiene una capa de memo por-request — cachea directo en
+  `cache` con TTL corto (30s local / 300s compartido). No se agregó una
+  abstracción que el hallazgo no pedía.
+- **Un solo test dependía de la invalidación síncrona**:
+  `test_invalidacion_cache_al_cambiar_override` (`test_engine.py`). Se
+  auditó el resto de la suite (`test_auditoria_suscripciones.py`) y los
+  demás casos que escriben y vuelven a leer ya llamaban `cache.clear()` a
+  mano — no dependían del timing de la señal. Ese test se reescribió con
+  `self.captureOnCommitCallbacks(execute=True)` (el helper oficial de
+  Django para probar hooks `on_commit` sin `TransactionTestCase`).
+- Test nuevo, la reproducción exacta del hallazgo:
+  `test_un_rollback_no_invalida_nada` — un `transaction.atomic()` que
+  revierte no deja ni la escritura ni el hook `on_commit` pendiente (Django
+  los descarta al hacer rollback de la savepoint), así que el cache cacheado
+  antes del intento sigue siendo válido.
+- Regresión (`apps.suscripciones` + `apps.api` + `apps.configuracion` +
+  `apps.auditoria` + `apps.tenancy`) en verde; sin migraciones.
+
 ## Deltas propuestos a documentos que edita Codex
 
 **`docs/TODO_AUDITORIAS.md`** — mover a corregido: **SUS-008, SUS-009, SUS-010,
@@ -402,13 +470,13 @@ este handoff + los `AGENTS.md` (ya actualizados) + el código.
    sección siguiente), ahora que A02/CT-01 está integrado.
 5. **SUS-006** — enforcement de módulo en vistas HTML de CxC y reportes on-demand
    (apps de dominio C05; coordinar; capa adicional al permiso).
-6. **SUS-011** — señales `on_commit`. Necesita el patrón memo-local/`on_commit` de
-   permisos (con `TransactionTestCase` o memo de request) para no romper la
-   invalidación síncrona que esperan los tests actuales; se dejó fuera del batch 1
-   a propósito.
+6. ~~**SUS-011** — señales `on_commit`.~~ **Cerrado 2026-09-10** (ver sección
+   siguiente); no hizo falta memo local, solo `captureOnCommitCallbacks` en el
+   único test que dependía del timing.
 7. **SUS-014** — divergencia `Tenant.plan_slug` vs plan operativo
    (`bootstrap_tenant` es de Codex; C entrega validación, A la cablea).
-8. **SUS-017** — presets versionados (el sync de planes default no restaura).
+8. ~~**SUS-017** — presets versionados.~~ **Cerrado 2026-09-10** (ver sección
+   siguiente).
 9. **CFG-018/019/020/021 · SUS-019** — lifecycle de logo, superficies muertas,
    gramática de barcode, y ampliar la matriz de tests (multi-worker/scope).
 10. **OPS-SUS-001, OPS-CFG-002, OPS-CFG-003, OPS-COM-001** — preflight de solo

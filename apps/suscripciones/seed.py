@@ -10,17 +10,26 @@ from . import registry
 
 # Composicion de los tiers por defecto (solo modulos VENDIBLES; el core lo agrega
 # el resolutor). Ajustable segun el negocio comercial.
+#
+# El ultimo elemento es la VERSION del preset (SUS-017): subirla cuando se
+# edita la lista de modulos de un tier es lo que le permite a
+# `sincronizar_planes_preset` (via `manage.py sync_modulos`) detectar que un
+# plan gestionado quedo desactualizado y re-aplicarlo. `crear_planes_default`
+# -usado por `bootstrap()` para aprovisionar un tenant nuevo- ignora la
+# version: ahi no hay nada que resincronizar todavia.
 TIERS = {
     'basico': (
         'Basico',
         'POS basico: ventas, inventario, clientes y caja.',
         ['impresion_termica', 'barcode_scanner'],
+        1,
     ),
     'pro': (
         'Pro',
         'Basico + cuentas por cobrar, cotizaciones, reportes, dashboard y etiquetas.',
         ['impresion_termica', 'barcode_scanner', 'cuentas_por_cobrar',
          'cotizaciones', 'reportes_ondemand', 'dashboard', 'etiquetas_zebra'],
+        1,
     ),
     'empresarial': (
         'Empresarial',
@@ -28,6 +37,7 @@ TIERS = {
         ['impresion_termica', 'barcode_scanner', 'cuentas_por_cobrar',
          'cotizaciones', 'reportes_ondemand', 'dashboard', 'etiquetas_zebra',
          'ecf', 'financiacion'],
+        1,
     ),
 }
 
@@ -50,16 +60,68 @@ def sembrar_modulos(ModuloModel, using=None):
 
 def crear_planes_default(PlanModel, ModuloModel, using=None):
     """Crea los planes Basico/Pro/Empresarial. No pisa la edicion manual: solo
-    asigna modulos cuando el plan se crea (o esta vacio)."""
+    asigna modulos cuando el plan se crea (o esta vacio).
+
+    Usado por `bootstrap()` (aprovisionar un tenant nuevo) y por la migracion
+    historica `0002_seed_suscripciones`: por eso ignora la version del preset
+    (`sincronizar_planes_preset`, mas abajo, es la version consciente de
+    version -- y de `PlanModel` corriente, no historico -- que usa
+    `manage.py sync_modulos`)."""
     plan_manager = PlanModel.objects if using is None else PlanModel.objects.using(using)
     modulo_manager = ModuloModel.objects if using is None else ModuloModel.objects.using(using)
-    for slug, (nombre, descripcion, keys_) in TIERS.items():
+    for slug, (nombre, descripcion, keys_, _version) in TIERS.items():
         plan, _ = plan_manager.get_or_create(
             slug=slug,
             defaults={'nombre': nombre, 'descripcion': descripcion, 'activo': True},
         )
         if plan.modulos.count() == 0:
             plan.modulos.set(modulo_manager.filter(key__in=keys_))
+
+
+def sincronizar_planes_preset(PlanModel, ModuloModel, using=None, *, reportar=None):
+    """
+    SUS-017 — a diferencia de `crear_planes_default`, esto SI resincroniza:
+    editar la lista de modulos de un tier en `TIERS` (y subir su version) y
+    volver a correr esto actualiza cualquier plan gestionado que quedo atras.
+    Antes `sync_modulos` prometia sincronizar los planes default y no lo
+    hacia -- quitar un modulo de un tier y re-correrlo no lo restauraba.
+
+    Un plan con `preset_version=None` es un plan PERSONALIZADO (desenganchado
+    a proposito, por Admin o por el backfill de la migracion que introdujo
+    este campo): nunca se toca aca.
+
+    Solo tiene sentido con el `PlanModel` corriente (necesita el campo
+    `preset_version`); no se invoca desde la migracion historica de seed.
+
+    `reportar(slug, accion)`, si se pasa, informa que paso con cada tier:
+    'creado' | 'actualizado' | 'sin_cambios' | 'personalizado'.
+    """
+    plan_manager = PlanModel.objects if using is None else PlanModel.objects.using(using)
+    modulo_manager = ModuloModel.objects if using is None else ModuloModel.objects.using(using)
+    for slug, (nombre, descripcion, keys_, version) in TIERS.items():
+        plan = plan_manager.filter(slug=slug).first()
+        if plan is None:
+            plan = plan_manager.create(
+                slug=slug, nombre=nombre, descripcion=descripcion, activo=True,
+                preset_version=version,
+            )
+            plan.modulos.set(modulo_manager.filter(key__in=keys_))
+            if reportar:
+                reportar(slug, 'creado')
+            continue
+        if plan.preset_version is None:
+            if reportar:
+                reportar(slug, 'personalizado')
+            continue
+        if plan.preset_version == version:
+            if reportar:
+                reportar(slug, 'sin_cambios')
+            continue
+        plan.modulos.set(modulo_manager.filter(key__in=keys_))
+        plan.preset_version = version
+        plan.save(using=using, update_fields=['preset_version'])
+        if reportar:
+            reportar(slug, 'actualizado')
 
 
 class BootstrapAmbiguo(RuntimeError):

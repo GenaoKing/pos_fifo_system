@@ -42,6 +42,14 @@ class Plan(models.Model):
     modulos = models.ManyToManyField(
         Modulo, related_name='planes', blank=True, verbose_name='Modulos incluidos',
     )
+    preset_version = models.PositiveIntegerField(
+        'Version del preset', null=True, blank=True,
+        help_text='SUS-017 — version de `seed.TIERS` que este plan tiene '
+                  'aplicada. Vacio = plan personalizado: `manage.py '
+                  'sync_modulos` no lo toca. Un valor desactualizado respecto '
+                  'de TIERS se resincroniza (modulos + version) al correr '
+                  'sync_modulos.',
+    )
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
