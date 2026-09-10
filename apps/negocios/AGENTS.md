@@ -1,6 +1,6 @@
 # apps/negocios — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -20,6 +20,8 @@ sucursales y ancla roles/permisos (`apps/permisos`) y entitlements
 | **Resolver el tenant de un request** | `utils.resolver_negocio(request)` → `Resolucion` (`.tenant(negocio)` / `.global_()` / `.sin_acceso(motivo)`); `.filtrar(qs, campo='negocio')` |
 | Negocio o `None` | `utils.negocio_actual(request)` |
 | ¿Es operador global? | `utils.es_principal_global(user)` |
+| Crear negocio lógico | `services.crear_negocio(...)`; slug con reintento acotado y CT-01 |
+| Actualizar/lifecycle | `services.actualizar_negocio(...)`; lock, motivo obligatorio y CT-01 |
 
 ## Invariantes / trampas
 
@@ -29,6 +31,9 @@ sucursales y ancla roles/permisos (`apps/permisos`) y entitlements
 - `NegocioAmbiguo` si una base tenant tiene más de un `Negocio`.
 - `Negocio` no lleva logo/dirección/teléfono: eso es `ConfiguracionNegocio`
   (por sucursal).
+- `slug` es identidad inmutable después del alta. `rnc_canonico`, cuando existe,
+  contiene exactamente nueve dígitos y es único; las migraciones abortan ante
+  colisiones, no inventan ni fusionan identidades.
 - `Usuario.negocio` es `PROTECT` (`usuarios.0004`): borrar un negocio con
   usuarios falla. App **dual-home** en el router de tenancy.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md`) —

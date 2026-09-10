@@ -27,6 +27,11 @@ from apps.tenancy.models import (
     SesionImpersonacion,
     Tenant,
 )
+from apps.tenancy.session_policy import (
+    SesionAbsolutaExpirada,
+    agregar_limite_absoluto,
+    validar_limite_absoluto,
+)
 
 logger = logging.getLogger('tenancy.auth')
 
@@ -35,6 +40,7 @@ class LegacyPortalTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        agregar_limite_absoluto(token)
         token['username'] = user.username
         token['rol'] = getattr(user, 'rol', None)
         token['full_name'] = (
@@ -200,6 +206,10 @@ class TenantTokenRefreshSerializer(TokenRefreshSerializer):
 
     def validate(self, attrs):
         refresh = RefreshToken(attrs['refresh'])
+        try:
+            validar_limite_absoluto(refresh)
+        except SesionAbsolutaExpirada as exc:
+            raise InvalidToken(str(exc)) from exc
         identity_id = refresh.get('identity_id')
         tenant_key = refresh.get('tenant_key') or refresh.get('tenant_id')
 
@@ -327,6 +337,7 @@ def _tenant_token_payload(identity, tenant, user, *, impersonado=False):
 
 def _global_token_payload(identity):
     refresh = RefreshToken()
+    agregar_limite_absoluto(refresh)
     refresh['identity_id'] = identity.pk
     refresh['is_global'] = True
     refresh['email'] = identity.email
@@ -352,6 +363,7 @@ def _global_token_payload(identity):
 
 
 def _add_tenant_claims(token, identity, tenant, user, *, impersonado=False):
+    agregar_limite_absoluto(token)
     token['identity_id'] = identity.pk
     token['impersonado'] = impersonado
     token['tenant_key'] = tenant.tenant_key
@@ -394,8 +406,10 @@ def _validar_usuario_portal(user):
 
 def _touch_user(user):
     if hasattr(user, 'ultimo_acceso'):
-        user.ultimo_acceso = timezone.now()
-        user.save(update_fields=['ultimo_acceso'])
+        instante = timezone.now()
+        user.last_login = instante
+        user.ultimo_acceso = instante
+        user.save(update_fields=['last_login', 'ultimo_acceso'])
 
 
 def _user_payload(user):

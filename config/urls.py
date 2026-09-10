@@ -59,7 +59,6 @@ _ES_INSTANCIA_CLOUD = getattr(settings, 'TENANCY_DB_PER_TENANT_ENABLED', False)
 
 urlpatterns = [
     path("api/v1/health/live/", health_live, name="api-health-live"),
-    path("admin/", admin.site.urls),
     # API REST V1
     path('api/', include('apps.api.urls')),
     # `serve_media` no renderiza template ni toca un modelo de negocio -- no
@@ -71,6 +70,10 @@ urlpatterns = [
 
 if not _ES_INSTANCIA_CLOUD:
     urlpatterns += [
+        # Django Admin es herramienta de la instalacion local. En cloud queda
+        # cerrado por URL: la operacion de plataforma usa APIs/comandos
+        # tenant-aware y auditables, no una segunda credencial web.
+        path("admin/", admin.site.urls),
         path('', RedirectView.as_view(pattern_name='reportes:dashboard'), name='home'),
         path('styleguide/', styleguide, name='styleguide'),
         path('inventario/', include('apps.inventario.urls')),

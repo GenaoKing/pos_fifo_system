@@ -24,12 +24,16 @@ USR-009  El logout aceptaba GET, asi que una imagen o un enlace en otro sitio
 """
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.shortcuts import redirect, render
+from django.http import Http404
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
 
 from apps.auditoria.models import Auditoria, get_client_ip, get_user_agent
@@ -57,6 +61,11 @@ def _auditar(registrar, **kwargs):
         return False
 
 
+def home_for_user(user):
+    """Destino local unico para una identidad autenticada."""
+    return 'reportes:dashboard' if user.es_admin else 'pos:punto_venta'
+
+
 def _destino_seguro(request, user):
     """
     A donde mandar tras un login exitoso.
@@ -71,12 +80,12 @@ def _destino_seguro(request, user):
         require_https=request.is_secure(),
     ):
         return destino
-    return 'reportes:dashboard' if user.es_admin else 'pos:punto_venta'
+    return home_for_user(user)
 
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('reportes:dashboard')
+        return redirect(home_for_user(request.user))
 
     form = AuthenticationForm()
 
@@ -131,6 +140,11 @@ def login_view(request):
                 )
 
             login(request, user)
+            # Django ya actualizo `last_login` mediante su signal. El campo
+            # historico de la aplicacion conserva exactamente el mismo
+            # instante, no una segunda historia con otro reloj (USR-015).
+            user.ultimo_acceso = user.last_login or timezone.now()
+            user.save(update_fields=['ultimo_acceso'])
             limite_login.limpiar(request, username)
 
             _auditar(
@@ -189,6 +203,8 @@ def logout_view(request):
     return redirect('usuarios:login')
 
 
-@login_required
+@staff_member_required
 def styleguide(request):
+    if not settings.DEBUG:
+        raise Http404('Styleguide disponible solo en desarrollo.')
     return render(request, 'styleguide.html')

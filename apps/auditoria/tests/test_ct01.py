@@ -1,4 +1,5 @@
 import uuid
+import importlib
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -11,6 +12,12 @@ from apps.auditoria.services import (
     evento_transportable,
     redactar_payload,
     registrar_mutacion,
+)
+from apps.auditoria.productores import (
+    MATRIZ_LEGACY,
+    MATRIZ_V1,
+    SIN_PRODUCTOR,
+    opciones_legacy_para_visor,
 )
 from apps.negocios.models import Negocio
 from apps.sucursales.models import Sucursal
@@ -143,6 +150,23 @@ class CT01TestCase(TestCase):
         self.assertIsNone(evento.usuario_id)
         self.assertEqual(evento.actor_username, 'ops@example.com')
 
+    def test_impersonacion_conserva_actor_operativo_e_identidad_global(self):
+        identity = Identity.objects.create(
+            email='impersonador@example.com', is_global=True,
+        )
+        self.actor.identity_id = identity.pk
+        self.actor.es_impersonado = True
+
+        evento = self._registrar()
+        payload = evento_transportable(evento)
+
+        self.assertIsNotNone(evento.actor_ref)
+        self.assertIsNotNone(evento.impersonator_ref)
+        self.assertNotEqual(evento.actor_ref, evento.impersonator_ref)
+        self.assertEqual(
+            payload['actor']['impersonator_ref'], str(evento.impersonator_ref),
+        )
+
     def test_taxonomia_y_resultados_incoherentes_se_rechazan(self):
         with self.assertRaises(ValidationError):
             Auditoria.objects.create(
@@ -176,3 +200,37 @@ class CT01AtomicidadExplicitaTests(TransactionTestCase):
                 tenant=negocio.slug,
                 using='default',
             )
+
+
+class MatrizDeProductoresTests(TestCase):
+    @staticmethod
+    def _resolver(ruta):
+        modulo, atributos = ruta.split(':', 1)
+        objeto = importlib.import_module(modulo)
+        for atributo in atributos.split('.'):
+            objeto = getattr(objeto, atributo)
+        return objeto
+
+    def test_cada_tipo_legacy_declara_productor_o_ausencia_explicita(self):
+        self.assertEqual(
+            set(MATRIZ_LEGACY),
+            {value for value, _label in Auditoria.TipoAccion.choices},
+        )
+        for accion, spec in MATRIZ_LEGACY.items():
+            with self.subTest(accion=accion):
+                if spec.estado == SIN_PRODUCTOR:
+                    self.assertTrue(spec.nota)
+                    self.assertFalse(spec.productores)
+                else:
+                    self.assertTrue(spec.productores)
+                    for ruta in spec.productores:
+                        self.assertTrue(callable(self._resolver(ruta)))
+
+    def test_productores_v1_obligatorios_existen(self):
+        for accion, ruta in MATRIZ_V1.items():
+            with self.subTest(accion=accion):
+                self.assertTrue(callable(self._resolver(ruta)))
+
+    def test_visor_no_presenta_ausencia_como_cobertura(self):
+        opciones = {fila['value']: fila for fila in opciones_legacy_para_visor()}
+        self.assertIn('sin productor activo', opciones['PROD_CREATE']['label'])

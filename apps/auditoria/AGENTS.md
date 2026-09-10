@@ -18,6 +18,7 @@ automática y un dashboard local en `/auditoria/`.
 | --- | --- |
 | **Registrar una mutación nueva** | `services.registrar_mutacion(..., using=)` — contrato `audit.event.v1` / CT-01, redactado y transaccional |
 | Adaptar un productor histórico | `Auditoria.registrar(...)`; solo compatibilidad durante migración |
+| Cobertura real por tipo de evento | `productores.py` → `MATRIZ_V1` y `MATRIZ_LEGACY`; `SIN_PRODUCTOR` significa que el visor solo ofrece historia |
 | Tipos de acción | `Auditoria.TipoAccion` (`TextChoices`) |
 | Captura automática por request | `middleware.py` → `AuditoriaMiddleware`, `SesionAuditoriaMiddleware` |
 | Dashboard / búsqueda | `views.py` → `dashboard_auditoria`, `api_auditoria_buscar` |
@@ -37,6 +38,9 @@ automática y un dashboard local en `/auditoria/`.
   invalida primero la sesión y su log es best-effort.
 - El adaptador `Auditoria.registrar` sigue disponible para productores legacy,
   pero no satisface por sí solo CT-01.
+- CT-01 persiste referencias opacas separadas para el actor operativo y, cuando
+  corresponde, la identidad global que impersona. No guardar credenciales o
+  tokens en snapshots, metadata ni errores.
 - `Auditoria.derivar_sucursal(objeto)` para inferir la sucursal de un hecho.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md`) —
   **snapshot histórico**, verificar contra código.

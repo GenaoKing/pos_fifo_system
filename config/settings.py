@@ -138,6 +138,9 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Maximo absoluto de jornada: SESSION_SAVE_EVERY_REQUEST puede renovar la
+    # inactividad, pero nunca extiende una sesion mas alla de 12 horas.
+    'apps.usuarios.middleware.SesionAbsolutaMiddleware',
     # Acota el memo de permisos a un request. Va DESPUES de Authentication
     # (necesita request.user resuelto) y ANTES de cualquier cosa que consulte
     # permisos.
@@ -271,6 +274,7 @@ LOGOUT_REDIRECT_URL = '/login/'
 SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
 SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
+SESSION_ABSOLUTE_MAX_AGE = 43200        # maximo real aunque haya actividad
 
 # =============================================================================
 # LOGGING — config básico, principalmente para módulos e-CF y ventas

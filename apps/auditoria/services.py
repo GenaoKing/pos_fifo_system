@@ -159,7 +159,7 @@ def _actor_data(actor, *, tenant_key, using):
     ) or username
     is_service = bool(
         getattr(actor, 'is_service_account', False)
-        or str(username).lower().startswith(('svc_', 'sync_'))
+        or str(username).lower().startswith(('svc_', 'sync_', 'sucursal_service_'))
     )
     impersonator_ref = None
     if getattr(actor, 'es_impersonado', False) and getattr(actor, 'identity_id', None):
@@ -174,6 +174,17 @@ def _actor_data(actor, *, tenant_key, using):
     if usuario is not None and usuario._state.db != using:
         raise AuditContractError(
             'AUDIT_CONTEXT_INVALID', 'El actor operativo pertenece a otra BD.',
+        )
+    actor_negocio = getattr(usuario, 'negocio', None) if usuario is not None else None
+    actor_tenant = _tenant_key(actor_negocio)
+    actor_global = bool(
+        getattr(actor, 'is_superuser', False)
+        or getattr(actor, 'is_global_identity', False)
+        or getattr(base, 'is_global', False)
+    )
+    if actor_tenant and tenant_key and actor_tenant != tenant_key and not actor_global:
+        raise AuditContractError(
+            'AUDIT_CONTEXT_INVALID', 'El actor pertenece a otro tenant.',
         )
     return {
         'usuario': usuario,

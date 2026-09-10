@@ -33,6 +33,7 @@ from django.utils import timezone
 from apps.usuarios.models import Usuario
 
 from .models import Auditoria
+from .productores import opciones_legacy_para_visor
 from .services import evento_transportable
 from .scope import alcance_de
 
@@ -80,10 +81,7 @@ def dashboard_auditoria(request):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
 
-    tipos_accion = [
-        {'value': choice[0], 'label': choice[1]}
-        for choice in Auditoria.TipoAccion.choices
-    ]
+    tipos_accion = opciones_legacy_para_visor()
 
     niveles = [
         {'value': choice[0], 'label': choice[1]}

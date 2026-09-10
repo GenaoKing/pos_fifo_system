@@ -7,6 +7,7 @@ La app no tenia pruebas propias (NEG-015); este modulo es el arranque.
 """
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.test import RequestFactory, TestCase
 
 from apps.negocios.models import Negocio, NegocioAmbiguo
@@ -18,6 +19,8 @@ from apps.negocios.utils import (
 )
 from apps.sucursales.models import Sucursal
 from apps.tenancy.context import force_tenancy
+from apps.auditoria.models import Auditoria
+from apps.negocios.services import actualizar_negocio, crear_negocio
 
 User = get_user_model()
 
@@ -277,3 +280,92 @@ class SelfRowTests(NegociosTestCase):
                 fuente = inspect.getsource(modulo)
                 self.assertIsNone(patron.search(fuente))
                 self.assertIn('Negocio.self_row()', fuente)
+
+
+class IdentidadYCicloDeVidaTests(NegociosTestCase):
+    """NEG-006..014/016/017: identidad validada, estable y auditable."""
+
+    def setUp(self):
+        super().setUp()
+        self.actor = User.objects.create_superuser(
+            username='root_negocio', email='root-negocio@example.com', password='x',
+        )
+
+    def test_nombre_vacio_y_rnc_invalido_no_persisten(self):
+        with self.assertRaises(ValidationError):
+            Negocio.objects.create(nombre='   ', slug='vacio')
+        with self.assertRaises(ValidationError):
+            Negocio.objects.create(nombre='RNC malo', slug='rnc-malo', rnc='123')
+
+    def test_rnc_se_canoniza_y_no_se_duplica_por_formato(self):
+        primero = Negocio.objects.create(
+            nombre='Fiscal A', slug='fiscal-a', rnc='1-31-12345-6',
+        )
+        self.assertEqual(primero.rnc_canonico, '131123456')
+        with self.assertRaises(ValidationError):
+            Negocio.objects.create(
+                nombre='Fiscal B', slug='fiscal-b', rnc='131123456',
+            )
+
+    def test_slug_no_es_editable_despues_del_alta(self):
+        self.negocio_a.slug = 'otro-routing'
+        with self.assertRaisesMessage(ValidationError, 'identidad estable'):
+            self.negocio_a.save()
+
+    def test_admin_no_permite_borrado_y_congela_slug(self):
+        from django.contrib import admin as django_admin
+        from apps.negocios.admin import NegocioAdmin
+
+        instancia = NegocioAdmin(Negocio, django_admin.site)
+        request = self.factory.get('/admin/')
+        request.user = self.actor
+
+        self.assertFalse(instancia.has_delete_permission(request, self.negocio_a))
+        self.assertIn('slug', instancia.get_readonly_fields(request, self.negocio_a))
+
+    def test_servicio_actualiza_y_audita_en_una_transaccion(self):
+        actualizado = actualizar_negocio(
+            negocio_id=self.negocio_a.pk,
+            actor=self.actor,
+            cambios={'nombre': 'Negocio A renovado', 'activo': False},
+            motivo='Solicitud aprobada',
+            canal=Auditoria.Canal.COMMAND,
+            using='default',
+        )
+
+        self.assertFalse(actualizado.activo)
+        evento = Auditoria.objects.get(accion='negocios.negocio.desactivado')
+        self.assertEqual(evento.datos_anteriores['activo'], True)
+        self.assertEqual(evento.datos_nuevos['activo'], False)
+
+    def test_alta_con_nombre_repetido_reserva_slug_y_audita(self):
+        primero = crear_negocio(
+            actor=self.actor, nombre='Nombre Repetido', using='default',
+        )
+        segundo = crear_negocio(
+            actor=self.actor, nombre='Nombre Repetido', using='default',
+        )
+
+        self.assertEqual(primero.slug, 'nombre-repetido')
+        self.assertEqual(segundo.slug, 'nombre-repetido-2')
+        self.assertEqual(
+            Auditoria.objects.filter(accion='negocios.negocio.creado').count(), 2,
+        )
+
+    def test_actor_de_otro_negocio_no_puede_mutar_identidad(self):
+        actor = User.objects.create_user(
+            username='ajeno', email='ajeno@example.com', password='x',
+            rol='ADMIN', negocio=self.negocio_b,
+        )
+
+        with self.assertRaisesMessage(ValueError, 'otro negocio'):
+            actualizar_negocio(
+                negocio_id=self.negocio_a.pk,
+                actor=actor,
+                cambios={'nombre': 'Intrusion'},
+                motivo='No autorizado',
+                using='default',
+            )
+
+        self.negocio_a.refresh_from_db()
+        self.assertEqual(self.negocio_a.nombre, 'Negocio A')

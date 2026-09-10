@@ -60,6 +60,9 @@ jobs:
       DB_PORT: "5432"
       DB_SSLMODE: disable
       SECURE_SSL_REDIRECT: "false"
+      # TEN-016: namespace por ejecucion; el runner crea/destruye solo estas
+      # dos BDs fisicas y evita colisiones entre reintentos concurrentes.
+      TENANT_TEST_DB_NAMESPACE: ci_${{ github.run_id }}_${{ github.run_attempt }}
 
     services:
       postgres:
