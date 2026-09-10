@@ -42,6 +42,12 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 - El grafo de dependencias vive **solo** en `registry.py`; la tabla `Modulo` es
   un espejo. `checks.py` (system checks) falla si el registro es inconsistente o
   si la DB y el registro divergen (SUS-012).
+- `Plan.activo=False` = **no vendible a nuevas altas**; NO suspende clientes
+  existentes (la suspensión es `SuscripcionNegocio.activa`). El serializer
+  rechaza asignar un plan inactivo salvo re-guardar a quien ya lo tiene (SUS-013).
+- Excluir un módulo core (`NegocioModulo incluido=False`) o apagarlo por sucursal
+  (`SucursalModuloOverride`) es un no-op enganoso: ambos se rechazan (SUS-013).
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
-  — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-010, -012,
-  -018; abiertos SUS-006..009, -011, -013..017, -019.
+  — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
+  -010, -012, -013, -016 (parcial), -018; abiertos SUS-006, -007, -011, -014,
+  -015, -017, -019.

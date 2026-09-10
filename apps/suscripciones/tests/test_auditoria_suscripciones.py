@@ -595,3 +595,81 @@ class BootstrapDryRunTests(BootstrapTestCase):
 
         self.assertEqual(SuscripcionNegocio.objects.count(), antes)
         self.assertIn('DRY-RUN', salida.getvalue())
+
+
+class SemanticaDePlanYOverrideTests(SuscripcionesTestCase):
+    """SUS-013: `Plan.activo` bloquea nuevas altas (no suspende); core no se
+    excluye ni se apaga por sucursal."""
+
+    def setUp(self):
+        super().setUp()
+        self.operador = self._usuario('op_sus13')
+        cache.clear()
+
+    def test_asignar_un_plan_inactivo_a_una_nueva_alta_se_rechaza(self):
+        """La reproduccion: el serializer aceptaba cualquier plan, incluido inactivo."""
+        self.basico.activo = False
+        self.basico.save()
+        suscripcion = SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=None, activa=True,
+        )
+        cache.clear()
+
+        respuesta = self._api(self.operador).patch(
+            f'/api/v1/suscripciones/negocios/{suscripcion.id}/',
+            {'plan': self.basico.slug}, format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_reguardar_a_un_suscriptor_ya_en_el_plan_inactivo_no_se_bloquea(self):
+        """`activo=False` no suspende clientes existentes: mantenerlos es valido."""
+        suscripcion = SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.basico, activa=True,
+        )
+        self.basico.activo = False
+        self.basico.save()
+        cache.clear()
+
+        respuesta = self._api(self.operador).patch(
+            f'/api/v1/suscripciones/negocios/{suscripcion.id}/',
+            {'plan': self.basico.slug}, format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 200, respuesta.content)
+
+    def test_excluir_un_modulo_core_via_override_se_rechaza(self):
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.empresarial, activa=True,
+        )
+        cache.clear()
+
+        respuesta = self._api(self.operador).post(
+            '/api/v1/suscripciones/overrides/',
+            {'negocio': self.negocio.id, 'modulo': 'ventas', 'incluido': False},
+            format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_override_de_sucursal_activo_true_se_rechaza(self):
+        from django.core.exceptions import ValidationError
+
+        override = SucursalModuloOverride(
+            sucursal=self.sucursal, modulo=Modulo.objects.get(key='ecf'),
+            activo=True,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            override.full_clean()
+        self.assertIn('activo', ctx.exception.message_dict)
+
+    def test_apagar_un_core_por_sucursal_se_rechaza(self):
+        from django.core.exceptions import ValidationError
+
+        override = SucursalModuloOverride(
+            sucursal=self.sucursal, modulo=Modulo.objects.get(key='ventas'),
+            activo=False,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            override.full_clean()
+        self.assertIn('modulo', ctx.exception.message_dict)
