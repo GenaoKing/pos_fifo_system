@@ -2,7 +2,7 @@
 import time
 
 from django.conf import settings
-from django.contrib.auth import logout
+from django.contrib.auth import SESSION_KEY, logout
 
 
 SESSION_INICIO_ABSOLUTO = '_pos_session_started_at'
@@ -16,7 +16,12 @@ class SesionAbsolutaMiddleware:
 
     def __call__(self, request):
         ahora = time.time()
-        if getattr(request, 'user', None) and request.user.is_authenticated:
+        es_sesion_local = SESSION_KEY in request.session
+        if (
+            es_sesion_local
+            and getattr(request, 'user', None)
+            and request.user.is_authenticated
+        ):
             inicio = request.session.get(SESSION_INICIO_ABSOLUTO)
             maximo = int(getattr(settings, 'SESSION_ABSOLUTE_MAX_AGE', 43200))
             try:
@@ -34,6 +39,10 @@ class SesionAbsolutaMiddleware:
 
         # En el POST de login, AuthenticationMiddleware vio un anonimo al
         # entrar, pero `login()` reemplazo request.user dentro de la vista.
-        if getattr(request, 'user', None) and request.user.is_authenticated:
+        if (
+            SESSION_KEY in request.session
+            and getattr(request, 'user', None)
+            and request.user.is_authenticated
+        ):
             request.session.setdefault(SESSION_INICIO_ABSOLUTO, ahora)
         return response

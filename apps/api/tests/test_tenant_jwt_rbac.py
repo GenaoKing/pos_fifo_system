@@ -1,3 +1,4 @@
+import time
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -26,6 +27,7 @@ class TenantJwtRbacGateTests(SimpleTestCase):
         get_model.return_value.objects.filter.return_value.first.return_value = user
         token = {
             'identity_id': 1, 'tenant_key': 'demo', 'username': 'cajera',
+            'iat': int(time.time()),
         }
         result = TenantJWTAuthentication().get_user_for_token(token, Mock())
         self.assertIs(result, user)

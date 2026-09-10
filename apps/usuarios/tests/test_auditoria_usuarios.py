@@ -484,6 +484,14 @@ class ManagerDeUsuariosTests(UsuariosTestCase):
         self.assertEqual(usuario.rol, 'SYSADMIN')
         self.assertIsNone(usuario.negocio_id)
 
+    def test_create_user_legacy_canoniza_privilegio_django_a_sysadmin(self):
+        usuario = User.objects.create_user(
+            username='root_legacy', email='root-legacy@example.com', password='x',
+            rol='CAJERA', is_staff=True, is_superuser=True,
+        )
+
+        self.assertEqual(usuario.rol, 'SYSADMIN')
+
 
 class ProvisioningAutoritativoTests(UsuariosTestCase):
     """USR-007/010/013: alta usable, acotada y auditada."""

@@ -16,6 +16,11 @@ class UsuarioManager(BaseUserManager):
         if not email:
             raise ValueError('El usuario debe tener un email')
         
+        # Fixtures/scripts legacy a veces pedian el privilegio Django sin
+        # alinear el rol. Se canoniza a la unica combinacion valida en vez de
+        # persistir un superusuario que el resto del modelo interpreta distinto.
+        if extra_fields.get('is_superuser'):
+            extra_fields['rol'] = 'SYSADMIN'
         username = str(username).strip().casefold()
         email = self.normalize_email(email).strip().casefold()
         user = self.model(username=username, email=email, **extra_fields)
