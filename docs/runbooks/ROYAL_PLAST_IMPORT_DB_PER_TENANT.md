@@ -2,6 +2,13 @@
 
 Estado: runbook operativo para dry-run prod descartable. Fecha: 2026-06-18.
 
+> **Actualización A02 (2026-09-10; no ejecutar aún):** el candidato
+> `583863f` exige identidad exacta (`db_name=tnt_<tenant_key>` y
+> `media_prefix=<tenant_key>/`) y separa la credencial del Usuario POS de la
+> `Identity` portal. Antes de reutilizar comandos históricos de este documento,
+> usar un dump/BD descartable, ejecutar `verificar_identidad_tenant` y adaptar
+> los dos secretos; A02 no validó ni modificó Royal Plast operativo.
+
 ## Estado Actual 2026-06-19
 
 - Dry-run prod descartable cerrado correctamente y luego limpiado:
@@ -256,7 +263,7 @@ C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py normalizar_import
   --sucursal-codigo 01 `
   --sucursal-nombre "Royal Plast - Principal" `
   --admin-email storibio57+dryrun@gmail.com `
-  --admin-password "<GENERAR_PASSWORD_DRYRUN>" `
+  --identity-password "<GENERAR_PASSWORD_PORTAL_DRYRUN>" `
   --show-sync-token `
   --settings=config.settings_cloud
 ```
@@ -360,6 +367,11 @@ C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py normalizar_import
 ```
 
 Resultado despues de normalizar:
+
+> El bloque anterior registra una ejecución histórica y **no es un comando
+> vigente para copiar**: usó una sola `--admin-password`. En A02, una Identity
+> nueva requiere `--identity-password`; la credencial local solo se cambia con
+> `--admin-password ... --rotar-admin-password`, y ambas deben ser distintas.
 
 | Metrica | Valor |
 | --- | ---: |

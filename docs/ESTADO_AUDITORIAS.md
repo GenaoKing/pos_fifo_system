@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-08** · Rama: `develop`
+Última actualización: **2026-09-10** · Rama de cierre local: `codex/cierre-prod-A02`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -23,14 +23,14 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/ventas` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_VENTAS.md](exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md) |
 | `apps/inventario` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_INVENTARIO.md](exploracion/AUDITORIA_CODIGO_APPS_INVENTARIO.md) |
 | `apps/sync` | 12 | Mitigado | [AUDITORIA_CODIGO_APPS_SYNC.md](exploracion/AUDITORIA_CODIGO_APPS_SYNC.md) |
-| `apps/tenancy` | 18 | Mitigado (17 corregidos, 1 pospuesto) | [AUDITORIA_CODIGO_APPS_TENANCY.md](exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md) |
+| `apps/tenancy` | 18 | **Mitigado; TEN-016 cerrado en A02** | [AUDITORIA_CODIGO_APPS_TENANCY.md](exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md) |
 | `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
 | `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
-| `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
-| `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
-| `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
+| `apps/usuarios` | 19 | **A02 cerrado salvo USR-012→A03 y USR-014→A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
+| `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
+| `apps/negocios` | 17 | **Pendientes de código A02 cerrados; preflights reales en A08** | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
@@ -41,6 +41,15 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 
 **Suite completa, serial: 1160 tests, OK** (base de pruebas recreada el
 2026-09-07; 1008 s).
+
+### Actualización A02 — 2026-09-10
+
+CT-01 quedó implementado en `cd8a3b4` y auditoría/identidad/negocios/tenancy se
+cerraron en `583863f` + `f0a255c` + `bb7f774`. Hay servicios transaccionales y autorizados para
+usuario/negocio, credenciales local/portal separadas, sesión absoluta de 12 h,
+provisioning por checkpoints sin fingir atomicidad distribuida, `/admin/`
+cerrado en cloud y gate TEN-016 con dos PostgreSQL físicos. No se aplicaron las
+migraciones A02 ni se consultaron/modificaron filas de producción o staging.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -440,12 +449,10 @@ Ninguno bloquea el despliegue.
 
 - **Claim durable del push de sync** (`IN_FLIGHT` + lease). El claim local
   todavía no es durable ante un crash a mitad de envío.
-- **Matriz PostgreSQL multi-DB en CI** (TEN-016). Requiere levantar dos bases en
-  el pipeline; es el único hallazgo de tenancy sin corregir.
 - **Drill de restauración.** `backup_tenant` produce y verifica un artefacto,
   pero nadie probó restaurarlo end-to-end.
-- **Auditoría de mutaciones API bajo tenancy.** `SesionImpersonacion` registra
-  el acceso, no cada mutación hecha durante la sesión.
+- **Cobertura de productores CT-01.** A02 conserva actor operativo e identidad
+  impersonadora; cada bloque posterior debe integrar y probar sus productores.
 
 ### Robustez
 

@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-10** (A00 y A01 del cierre: base aislada, CT-01/02 y
-baseline reproducible Django 5.2.17 para Windows 3.11/cloud 3.12.14; sin despliegue
-ni consulta de datos operativos).
+Ultima revision: **2026-09-10** (A00-A02 del cierre: base aislada, baseline
+reproducible, CT-01 implementado y auditoria/identidad/tenancy cerradas en
+codigo; CT-02 sigue A03; sin despliegue ni consulta de datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -43,8 +43,9 @@ El [plan conjunto Codex / Claude](PLAN_CIERRE_PROD.md) define el alcance de cier
 propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
-[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **A00 integrado localmente; A01
-validado y C01 desbloqueado contra sus locks; G1-G4 pendientes**. Inventario,
+[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **A00-A02 integrados en el
+`develop` local; C01 desbloqueado;
+A03/CT-02 y G1-G4 pendientes**. Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
 Sus decisiones de alcance prevalecen sobre

@@ -11,7 +11,7 @@ las pruebas consumidoras.
 
 | Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA** | `cd8a3b4` |
+| CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | PENDIENTE A03 | SHA del handoff A00 |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
 | CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
@@ -29,6 +29,8 @@ consumir el commit de implementación de A02/A03 y repetir sus tests.**
   transacción**. `using` nunca cae implícitamente a `default` bajo tenancy.
 - Actor, tenant, sucursal, canal y objeto se congelan como identidad histórica.
   Los textos de presentación son snapshots; no son claves.
+- Bajo impersonación, `actor.ref` identifica al usuario operativo del tenant y
+  `actor.impersonator_ref` identifica por separado a la `Identity` global.
 - `before`/`after` representan estados del dominio, no el objeto ya mutado en
   ambos lados. `result` es `SUCCEEDED`, `DENIED` o `FAILED`.
 - Contraseñas, hashes de contraseña, tokens, cookies, claves, secretos,

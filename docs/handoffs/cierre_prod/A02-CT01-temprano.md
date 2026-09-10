@@ -81,6 +81,5 @@ scoped e inmutabilidad.
   como terminado y repetir sus tests de dominio.
 - No se hizo push ni despliegue. No se ejecutó la migración contra ninguna BD
   operativa.
-- La matriz de dos BDs tenant reales y referencias con PK iguales sigue en el
-  bloque TEN-016 de A02; hasta ese handoff las suites multi-BD continúan en
-  serial.
+- TEN-016 quedó implementado y validado en `583863f`; el cierre completo y la
+  evidencia de dos BDs físicas están en `A02-auditoria-identidad-tenancy.md`.

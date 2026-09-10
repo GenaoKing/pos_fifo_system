@@ -28,7 +28,7 @@ nuevo candidato.
 | Staging protegido | `C:/Proyectos/pos_fifo_system_notifications_staging@89b30c4`, detached y limpio | No se usa para desarrollo. |
 | Venvs | `.venv` independiente en ambos worktrees backend, Python 3.11.14 | Creados sin modificar el conda compartido. Python 3.12 no está instalado en el host; se validará mediante la imagen cloud. |
 | BDs dev | `pos_cierre_codex` y `pos_cierre_claude`, vacías, en PostgreSQL local | Creadas con el usuario de desarrollo documentado. Los tests derivan `test_pos_cierre_*`. |
-| BDs tenant de tests | No hay hoy un prefijo físico aislado para aliases `tnt_*` | No correr suites multi-DB en paralelo. TEN-016/A02 debe introducir aislamiento real antes de habilitarlas. |
+| BDs tenant de tests | TEN-016 usa `TENANT_TEST_DB_NAMESPACE` y dos BDs físicas derivadas por corrida (`583863f`) | Cada runner crea/destruye solo su namespace. Sin la variable, el gate se salta y no registra aliases extra. |
 | Puertos reservados | Codex 8101/8102; Claude 8201/8202 | Backend `.env` ignorado usa 8101/8201; segundo puerto reservado para rig/frontend. |
 | Servicios | No existen `POSFifoSystem`/`POSFifoSync` en este host | Los ensayos NSSM quedan para servicios de laboratorio de C01/C06. |
 
@@ -117,36 +117,36 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| AUD-008 | TODO + AUD-AUD | Política de fallo contradictoria puede impedir sesión. | A | A02 | Alta | PENDIENTE | — | Aceptación AUD-008/logout. |
-| AUD-009 | TODO + AUD-AUD | Anulación registra estado nuevo como anterior. | A | A02 | Alta | PENDIENTE | — | Aceptación AUD-009. |
-| AUD-010 | TODO + AUD-AUD | Acción, nivel y resultado admiten combinaciones incoherentes. | A | A02 | Alta | PENDIENTE | — | Aceptación AUD-010. |
-| AUD-013 | TODO + AUD-AUD | Excepciones completas/duplicadas sin redacción. | A | A02 | Alta | PENDIENTE | — | Fixture secretos CT-01. |
-| AUD-016 | TODO + AUD-AUD | `registrar_compra()` no serializa payload documentado. | A | A02 | Alta al activar | PENDIENTE | — | Aceptación AUD-016. |
-| AUD-018 | TODO + AUD-AUD | Taxonomía promete productores que no existen. | A | A02 | Alta | PENDIENTE | — | Matriz productor/acción. |
-| AUD-019 | TODO + AUD-AUD | Visor oculta datos necesarios para investigar. | A | A02 | Media | PENDIENTE | — | Consulta CT-01 scoped. |
-| AUD-020 | TODO + AUD-AUD | Sin lifecycle/índices suficientes para 90 días. | A | A02 | Media | PENDIENTE | — | Query 90 días con plan/índice. |
-| AUD-021 | TODO + AUD-AUD | Relación genérica no conserva identidad histórica estable. | A | A02 | Media-baja | PENDIENTE | — | Borrar/renombrar objeto no pierde identidad. |
-| USR-007 | TODO + AUD-USR | Sin flujo autoritativo de provisioning tenant. | A | A02 | Media-alta | PENDIENTE | — | Crash/reanudación/idempotencia. |
-| USR-010 | TODO + AUD-USR | `Identity` y `Usuario` son credenciales independientes. | A | A02 | Media-alta | PENDIENTE | — | Contrato explícito sin claves en claro. |
-| USR-011 | TODO + AUD-USR | Manager omite validación de credencial/email/rol. | A | A02 | Media | PENDIENTE | — | Aceptación USR-011. |
-| USR-012 | TODO + AUD-USR | Tres fuentes de privilegio sin invariantes comunes. | A | A02/A03 | Media-alta | PENDIENTE | — | Matriz identidad/RBAC. |
-| USR-013 | TODO + AUD-USR | Mutaciones de usuario sin auditoría de dominio. | A | A02 | Media | PENDIENTE | — | CT-01 en misma transacción. |
+| AUD-008 | TODO + AUD-AUD | Política de fallo contradictoria puede impedir sesión. | A | A02 | Alta | RESUELTO | `cd8a3b4` | Logout invalida aunque falle el sink; dominio exitoso revierte si falla CT-01. |
+| AUD-009 | TODO + AUD-AUD | Anulación registra estado nuevo como anterior. | A | A02 | Alta | RESUELTO | `cd8a3b4` | Snapshot previo probado en anulación. |
+| AUD-010 | TODO + AUD-AUD | Acción, nivel y resultado admiten combinaciones incoherentes. | A | A02 | Alta | RESUELTO | `cd8a3b4` | Constraints/validación rechazan combinaciones imposibles. |
+| AUD-013 | TODO + AUD-AUD | Excepciones completas/duplicadas sin redacción. | A | A02 | Alta | RESUELTO | `cd8a3b4` | Fixture recursivo de password/token/DSN/excepción. |
+| AUD-016 | TODO + AUD-AUD | `registrar_compra()` no serializa payload documentado. | A | A02 | Alta al activar | RESUELTO | `cd8a3b4` | Payload de proveedor serializable probado. |
+| AUD-018 | TODO + AUD-AUD | Taxonomía promete productores que no existen. | A | A02 | Alta | RESUELTO | `583863f`, `bb7f774` | `productores.py` mapea cada tipo legacy o declara `SIN_PRODUCTOR`; V1 enumera acciones válidas sin comodines. |
+| AUD-019 | TODO + AUD-AUD | Visor oculta datos necesarios para investigar. | A | A02 | Media | RESUELTO | `cd8a3b4` | Consulta scoped expone envelope redactado y rango temporal. |
+| AUD-020 | TODO + AUD-AUD | Sin lifecycle/índices suficientes para 90 días. | A | A02 | Media | RESUELTO | `cd8a3b4` | Índices tenant/sucursal/entidad/fecha; ventana consultable >=90 d, sin purga automática. |
+| AUD-021 | TODO + AUD-AUD | Relación genérica no conserva identidad histórica estable. | A | A02 | Media-baja | RESUELTO | `cd8a3b4` | Referencia opaca y snapshot sobreviven renombre/borrado. |
+| USR-007 | TODO + AUD-USR | Sin flujo autoritativo de provisioning tenant. | A | A02 | Media-alta | RESUELTO | `583863f` | Servicio/comando crean usuario+RBAC+CT-01 o revierten. |
+| USR-010 | TODO + AUD-USR | `Identity` y `Usuario` son credenciales independientes. | A | A02 | Media-alta | RESUELTO | `583863f` | Secretos/rotaciones local y portal separados; igualdad rechazada. |
+| USR-011 | TODO + AUD-USR | Manager omite validación de credencial/email/rol. | A | A02 | Media | RESUELTO | `583863f` | Alta humana soportada usa `create_human_user`, validadores y `full_clean`; `create_user` queda compat ORM. |
+| USR-012 | TODO + AUD-USR | Tres fuentes de privilegio sin invariantes comunes. | A | A02/A03 | Media-alta | PARCIAL_A02 | `583863f` | Identidad/tenant validados; unificación y revocación RBAC quedan en A03/CT-02. |
+| USR-013 | TODO + AUD-USR | Mutaciones de usuario sin auditoría de dominio. | A | A02 | Media | RESUELTO | `583863f` | Alta/actualización/estado con CT-01 en la transacción tenant. |
 | USR-014 | TODO + AUD-USR | IP confía en cualquier `X-Forwarded-For`. | A | A08 | Media | PENDIENTE | — | Proxy real + spoof adversarial. |
-| USR-015 | TODO + AUD-USR | `last_login` y `ultimo_acceso` divergen. | A | A02 | Media-baja | PENDIENTE | — | Aceptación USR-015. |
-| USR-016 | TODO + AUD-USR | Username/email únicos dependen de mayúsculas. | A | A02 | Media | PENDIENTE | — | Colisión case-insensitive/preflight. |
-| USR-017 | TODO + AUD-USR | Sesión deslizante sin máximo absoluto de 12 h. | A | A02 | Baja-media | PENDIENTE | — | Sesión activa >12 h expira. |
-| USR-019 | TODO + AUD-USR | Rutas dev/redirecciones no comparten política. | A | A02 | Baja | PENDIENTE | — | Aceptación USR-019. |
-| NEG-006 | TODO + AUD-NEG | Tres fuentes de identidad comercial divergen. | A | A02 | No indicada | PENDIENTE | — | Aceptación NEG-006. |
-| NEG-007 | TODO + AUD-NEG | Ciclo tenant sin auditoría de dominio. | A | A02 | No indicada | PENDIENTE | — | CT-01 provisioning. |
-| NEG-008 | TODO + AUD-NEG | Borrado de negocio cascada seguridad/entitlements. | A | A02 | No indicada | PENDIENTE | — | PROTECT/preflight. |
-| NEG-009 | TODO + AUD-NEG | `slug` mutable participa en identidad legacy. | A | A02 | No indicada | PENDIENTE | — | Inmutabilidad/migración. |
-| NEG-011 | TODO + AUD-NEG | RNC sin canon ni política de unicidad. | A | A02 | No indicada | PENDIENTE | — | Aceptación NEG-011. |
-| NEG-012 | TODO + AUD-NEG | Escrituras directas evitan validadores. | A | A02 | No indicada | PENDIENTE | — | Aceptación NEG-012. |
-| NEG-013 | TODO + AUD-NEG | Autogeneración de slug omitible/solo memoria. | A | A02 | No indicada | PENDIENTE | — | Aceptación NEG-013. |
-| NEG-014 | TODO + AUD-NEG | Generación de slug tiene carrera TOCTOU. | A | A02 | No indicada | PENDIENTE | — | Carrera concurrente. |
-| NEG-016 | TODO + AUD-NEG | Documentación de modelo describe arquitectura retirada. | A | A02/A07 | No indicada | PENDIENTE | — | Docs contra código. |
-| NEG-017 | TODO + AUD-NEG | Lifecycle disperso fuera de la app. | A | A02 | No indicada | PENDIENTE | — | Servicio único/reanudable. |
-| TEN-016 | TODO + AUD-TEN | CI no prueba aislamiento PostgreSQL multi-DB real. | A | A02/A08 | Media-alta | PENDIENTE | — | Dos BDs/PK iguales en CI. |
+| USR-015 | TODO + AUD-USR | `last_login` y `ultimo_acceso` divergen. | A | A02 | Media-baja | RESUELTO | `583863f` | Login local/portal persiste el mismo instante. |
+| USR-016 | TODO + AUD-USR | Username/email únicos dependen de mayúsculas. | A | A02 | Media | RESUELTO | `583863f` | `Lower()` único y migración con preflight sin renombre. |
+| USR-017 | TODO + AUD-USR | Sesión deslizante sin máximo absoluto de 12 h. | A | A02 | Baja-media | RESUELTO | `583863f` | Middleware local y access/refresh JWT vencen al máximo absoluto. |
+| USR-019 | TODO + AUD-USR | Rutas dev/redirecciones no comparten política. | A | A02 | Baja | RESUELTO | `583863f` | Home por rol único; styleguide staff+DEBUG; rutas POS ausentes en cloud. |
+| NEG-006 | TODO + AUD-NEG | Tres fuentes de identidad comercial divergen. | A | A02 | No indicada | RESUELTO_CODIGO | `583863f` | Autoridad control-plane y verificador read-only de proyecciones. |
+| NEG-007 | TODO + AUD-NEG | Ciclo tenant sin auditoría de dominio. | A | A02 | No indicada | RESUELTO | `583863f` | Preparación/checkpoints auditados y reanudables. |
+| NEG-008 | TODO + AUD-NEG | Borrado de negocio cascada seguridad/entitlements. | A | A02 | No indicada | RESUELTO | `583863f` | Delete Admin cerrado; lifecycle soportado desactiva y Usuario usa PROTECT. |
+| NEG-009 | TODO + AUD-NEG | `slug` mutable participa en identidad legacy. | A | A02 | No indicada | RESUELTO | `583863f` | Slug lógico/físico inmutable y preflight sin reapuntar. |
+| NEG-011 | TODO + AUD-NEG | RNC sin canon ni política de unicidad. | A | A02 | No indicada | RESUELTO_CODIGO | `583863f` | Canon de 9 dígitos único; migraciones abortan colisión. |
+| NEG-012 | TODO + AUD-NEG | Escrituras directas evitan validadores. | A | A02 | No indicada | RESUELTO | `583863f` | `save()`/servicios ejecutan `full_clean` y constraints. |
+| NEG-013 | TODO + AUD-NEG | Autogeneración de slug omitible/solo memoria. | A | A02 | No indicada | RESUELTO | `583863f` | Slug se incluye aunque `update_fields` lo omitiera. |
+| NEG-014 | TODO + AUD-NEG | Generación de slug tiene carrera TOCTOU. | A | A02 | No indicada | RESUELTO | `583863f` | Constraint + savepoint y retry acotado. |
+| NEG-016 | TODO + AUD-NEG | Documentación de modelo describe arquitectura retirada. | A | A02/A07 | No indicada | RESUELTO_A02 | `583863f` | Docstring/mapa distinguen tenant lógico de routing físico. |
+| NEG-017 | TODO + AUD-NEG | Lifecycle disperso fuera de la app. | A | A02 | No indicada | RESUELTO | `583863f` | `apps.negocios.services` concentra alta/actualización/estado. |
+| TEN-016 | TODO + AUD-TEN | CI no prueba aislamiento PostgreSQL multi-DB real. | A | A02/A08 | Media-alta | RESUELTO | `583863f` | Dos BDs físicas namespaced, mismo PK y filas/refs aisladas. |
 
 ### Productos y clientes — dueño A, A05-A06/B07-B08
 
@@ -253,7 +253,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | OPS-CFG-002 | `SUCURSAL_CODIGO` inválido debe abortar, no cruzar identidad. | C | C01/C03 | Alta | OPERATIVO_PENDIENTE | — | Preflight aislado. |
 | OPS-CFG-003 | Asignar `configuracion.administrar` a roles legítimos. | C | C03/C06 | Alta acceso | OPERATIVO_PENDIENTE | — | Sin lockout/403 correcto. |
 | DOC-RBAC-WORKERS | RBAC_PERMISOS aún dice single-worker; Docker usa 3. | A | A03/A07 | Baja | PENDIENTE | — | Documento contra Docker. |
-| USR-002-CLOUD-ADMIN | Cerrar `/admin/` cloud y cubrir alternativas; MFA/red queda fuera del código inmediato. | A+C | A02/C04 | Alta | PENDIENTE | — | Tenant denegado/global autorizado. |
+| USR-002-CLOUD-ADMIN | Cerrar `/admin/` cloud y cubrir alternativas; MFA/red queda fuera del código inmediato. | A+C | A02/C04 | Alta | PARCIAL_A02 | `583863f` | `/admin/` no se monta en cloud; alternativa visual sigue C04 y MFA/red queda diferido. |
 | OPS-RESTORE | Dumps verificados pero sin restauración end-to-end. | A+C | A08/C06 | Alta | PENDIENTE | — | Restaurar control plane + tenants aislados. |
 | OPS-PRO-007 | Categoría inactiva con producto activo cambia visibilidad efectiva. | A+C | A06/C04/C05 | Alta | OPERATIVO_PENDIENTE | — | Conteo preflight + UX motivo. |
 | OPS-CLI-CONTADO | `clientes.0006` aborta ante cliente real marcado CONTADO. | A | A06/A08 | Alta migración | OPERATIVO_PENDIENTE | — | Preflight copia; no reasignar historia. |
@@ -264,11 +264,12 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | SYNC-DIFERIDOS | Diferido congela cursor; falta cola durable/estado PARCIAL. | A | A04 | Alta | PENDIENTE | — | Reinicio y cursor contiguo. |
 | SYNC-LEGACY | `_pull_legacy` sigue por compatibilidad cloud viejo. | A | A04 | Media | PENDIENTE | — | Matriz viejo/nuevo antes de retirar. |
 | DB-CONSTRAINTS | Ventas/inventario validan cantidades/importes solo en app. | C | C05 | Alta | PENDIENTE | — | Escritura directa rechazada. |
+| CXC-MIG-ALIAS | `cuentas_por_cobrar.0002` usa el manager sin `.using(schema_editor.connection.alias)` y en un grafo tenant desde cero intenta sembrar `default`. | C | C05/A08 | Alta migración | ENTREGADO_A_C | `583863f` (detección) | Corregir en superficie C y migrar desde cero dos BDs tenant físicas. |
 | CXC-IDEMP-CONC | Falta prueba N reintentos de cobro con misma clave. | C | C05 | Alta | PENDIENTE | — | Exactamente un efecto financiero. |
 | VEN-ANULAR-LEGACY | `_puede_anular` usa rol legacy. | C | C05 | Alta auth | PENDIENTE | — | CT-02 por sucursal. |
 | INV-RBAC-SCOPE | Gates inventario llaman permiso sin sucursal. | C | C05 | Alta auth | PENDIENTE | — | Asignaciones A/B. |
 | SYNC-VENTA-ID | Handler venta cloud carece identidad compuesta robusta. | A | A04 | Alta | PENDIENTE | — | Replay tenant/sucursal. |
-| TEN-API-AUDIT | Impersonación registra sesión, no cada mutación. | A | A02 | Alta | PENDIENTE | — | CT-01 canal/actor real e impersonador. |
+| TEN-API-AUDIT | Impersonación registra sesión, no cada mutación. | A | A02 | Alta | RESUELTO_CONTRATO | `583863f` | CT-01 conserva actor operativo e `impersonator_ref`; cada bloque acredita sus productores. |
 | PER-ADMIN-BYPASS | `ADMIN` conserva bypass transitorio. | A | A03 | Alta | PENDIENTE | — | Preflight lockout + asignación explícita. |
 | NOTIF-RBAC-GUARD | Notificaciones duplica filtros de `permisos.engine`. | A | A03 | Media | PENDIENTE | — | Helper único y matriz. |
 | PAG-CXC-CAJA | Cartera corta 300 e historial turnos 50 sin aviso. | C | C05 | Media | PENDIENTE | — | Paginación y metadatos. |
@@ -284,7 +285,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | BUG-B | Cursor temporal/orden podía saltar maestros. | A | A04/A09 | Media | Corregido/desplegado previo | BUGS + Fase 2 | Compat viejo/nuevo y >200. |
 | BUG-C | CxC sin cédula no resolvía cliente. | A+C | A04/C05/C06 | Alta | Corregido; historia/visita final a revalidar | BUGS | Replay y conciliación por tienda. |
 | BUG-D | Bootstrap/config dejaba módulos e impresión apagados. | C | C01/C03 | Alta | Causa y fail-open corregidos; procedimiento final pendiente | BUGS | Instalación limpia baseline A01. |
-| BUG-E | Refresh sin contexto tenant daba 500. | A | A02 | Baja | Corregido en código; revalidar baseline | BUGS | 401 real y refresh multi-tenant. |
+| BUG-E | Refresh sin contexto tenant daba 500. | A | A02 | Baja | RESUELTO | `583863f` + BUGS | Refresh tenant-aware revalidado y límite absoluto cubierto. |
 | BUG-F | Migraciones figuraban aplicadas sin tablas tenant. | A | A02/A08 | Crítica | Corregido y reparado en prod | `migrate_tenants` guard | Migración limpia/copia y tablas reales. |
 | BUG-G | Update RP: backup locale, secret, orden y NSSM. | C | C01/C06 | Crítica | Correcciones previas; paquete final no ensayado | BUGS | Matriz interrupción/rollback. |
 | BUG-H | SKU local faltante tumbaba venta cloud. | A+C | A04/A06/C04/C06 | Alta | Prod backend `bcb8621` contiene fix; POS/foto y RC final pendientes | BUGS | Stub→portal→pull/foto. |
