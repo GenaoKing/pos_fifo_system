@@ -261,6 +261,31 @@ def modulo_activo(nombre_modulo):
     return _modulo_default_legacy(key)
 
 
+def modulos_efectivos():
+    """
+    Set de keys de modulos activos para la sucursal actual — la MISMA verdad que
+    gatea el backend: el entitlement del engine si hay negocio resuelto, o los
+    flags legacy de ConfiguracionNegocio si no.
+
+    Existe para cerrar CFG-009 / SUS-007: templates y menus leian
+    `config.modulo_*` (el flag crudo) mientras servicios y decoradores leian el
+    entitlement efectivo. Con dos fuentes, la navegacion podia ofrecer un enlace
+    que termina en 404 (modulo comprado pero flag apagado) o esconder un modulo
+    que el backend igual ejecuta. Consumido por el context processor, es la unica
+    fuente para la UI.
+    """
+    from apps.suscripciones import registry
+
+    sucursal = _sucursal_actual()
+    negocio = getattr(sucursal, 'negocio', None) if sucursal is not None else None
+    if negocio is not None:
+        from apps.suscripciones.engine import modulos_activos
+        return set(modulos_activos(negocio, sucursal))
+
+    # Sin negocio resuelto: misma conducta legacy que `modulo_activo`, key por key.
+    return {key for key in registry.keys() if _modulo_default_legacy(key)}
+
+
 def _sucursal_actual():
     from apps.sucursales.models import get_sucursal_actual
     return get_sucursal_actual()

@@ -803,7 +803,7 @@
                         <p class="text-3xl font-bold" x-text="'$' + calcularTotal().toFixed(2)"></p>
                     </div>
 
-                    {% if config.modulo_ecf %}
+                    {% if 'ecf' in modulos_efectivos %}
                     <div class="mb-3">
                         <label class="block text-sm font-medium text-gray-700 mb-2" for="tipo_ecf">
                             Tipo de Comprobante Fiscal

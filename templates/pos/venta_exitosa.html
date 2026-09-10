@@ -151,7 +151,7 @@
     {# ============================================================ #}
     {# Estado de e-CF (solo si modulo_ecf=True para esta sucursal)  #}
     {# ============================================================ #}
-    {% if config.modulo_ecf %}
+    {% if 'ecf' in modulos_efectivos %}
     <div class="card" style="overflow: visible;">
     <div class="card-body">
         <h3 class="text-lg font-semibold mb-3">Comprobante Fiscal Electrónico</h3>

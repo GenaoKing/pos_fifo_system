@@ -403,3 +403,67 @@ class BorradoProtegidoTests(ConfiguracionTestCase):
         self.assertTrue(
             ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
         )
+
+
+@override_settings(SUCURSAL_CODIGO='CFG-A')
+class ModulosEfectivosTests(ConfiguracionTestCase):
+    """
+    CFG-009 / SUS-007: la UI consulta el entitlement efectivo, no `config.modulo_*`.
+    `modulos_efectivos()` alimenta el context processor; debe coincidir con lo que
+    gatea el backend, no con el flag legacy crudo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from apps.suscripciones import seed
+        from apps.suscripciones.models import Modulo, Plan
+
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        cache.clear()
+
+    def test_no_muestra_un_modulo_que_el_plan_no_incluye_aunque_el_flag_este_on(self):
+        """
+        La reproduccion: flag `modulo_cotizaciones=True` con un negocio cuyo plan
+        NO incluye cotizaciones -> el template veia True (enlace a 404) mientras
+        el backend devolvia False.
+        """
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='basico'), activa=True,
+        )
+        self.config_a.modulo_cotizaciones = True
+        self.config_a.save()
+        cache.clear()
+
+        efectivos = modulos_efectivos()
+        self.assertNotIn('cotizaciones', efectivos)   # manda el entitlement
+        self.assertTrue(self.config_a.modulo_cotizaciones)  # el flag crudo seguia True
+
+    def test_muestra_lo_que_el_plan_agrega_aunque_el_flag_este_off(self):
+        """El reverso: un modulo comprado en el plan aparece aunque el flag este off."""
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        self.assertIn('ecf', modulos_efectivos())      # el plan lo incluye
+        self.assertFalse(self.config_a.modulo_ecf)      # el flag crudo seguia False
+
+    def test_el_context_processor_expone_el_set(self):
+        from apps.configuracion.context_processors import config_negocio
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        ctx = config_negocio(RequestFactory().get('/'))
+        self.assertIn('modulos_efectivos', ctx)
+        self.assertIn('ecf', ctx['modulos_efectivos'])

@@ -24,7 +24,8 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | Config para **encabezar un documento** | `utils.config_para_documento(sucursal)` (COM-001) · `config_de_sucursal` |
 | ¿Módulo activo? | `utils.modulo_activo(key)` → delega en `apps.suscripciones.engine` si resuelve negocio; si no, flag legacy |
 | Gatear una vista por módulo | `decorators.requiere_modulo` (404) · `requiere_sysadmin` |
-| `{{ config }}` en templates | `context_processors.config_negocio` |
+| `{{ config }}` / `modulos_efectivos` en templates | `context_processors.config_negocio` (inyecta ambos) |
+| Gatear un menú/pantalla por módulo | `{% if 'key' in modulos_efectivos %}` — **no** `config.modulo_*` (CFG-009/SUS-007) |
 | ¿Este descuento pide autorización? | `ConfiguracionNegocio.descuento_requiere_token(subtotal=, descuento_total=)` |
 | Instalar / diagnosticar | `manage.py crear_config_inicial`, `migrar_env_cliente` (`.bat` → `.env`), `verificar_instalacion` (solo lectura) |
 
@@ -49,7 +50,9 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 - Los datos del negocio **no** van en `deploy/env_cliente.env`: el env es
   infraestructura (BD, impresoras, sync, `SUCURSAL_CODIGO`).
 - Los flags `modulo_*` son legacy: la verdad de entitlements está en
-  `apps/suscripciones` (`flag_legacy` en su `registry`).
+  `apps/suscripciones` (`flag_legacy` en su `registry`). La UI ya **no** los lee:
+  `utils.modulos_efectivos()` (via context processor) resuelve por el mismo motor
+  que gatea el backend (CFG-009/SUS-007). Falta migrar el pull de sync (Codex).
 - `texto_pie_ticket` / `imprimir_logo_ticket` fueron eliminados en `0002`; el
   driver térmico los lee con `getattr` y cae al default.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md`)
