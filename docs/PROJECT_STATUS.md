@@ -37,6 +37,16 @@ Regla de organizacion: la raiz de `docs/` queda reservada para fuentes vivas
 con decisiones pendientes o lectura operativa diaria. Tutoriales, handoffs,
 bitacoras y exploraciones viven en subcarpetas.
 
+### Plan activo de cierre a produccion
+
+El [plan conjunto Codex / Claude](PLAN_CIERRE_PROD.md) define el alcance de cierre,
+propiedad de archivos, dependencias y gates para integrar `develop`, validar un
+nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
+Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
+[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **plan preparado; ejecucion y gates
+pendientes**. No autoriza despliegues. Sus decisiones de alcance prevalecen sobre
+recomendaciones historicas de este indice; no prueban el estado actual de Azure.
+
 ## Resumen ejecutivo
 
 | Area | Estado | Fuente viva | Siguiente accion |
@@ -214,11 +224,14 @@ roadmap, marcar los checkboxes de lo que ya se hizo en el mismo commit.
 
 ## Clasificacion de documentos
 
-Inventario verificado contra el arbol de `docs/` el 2026-09-08.
+Inventario base verificado contra el arbol de `docs/` el 2026-09-08; ampliado el
+2026-09-09 con el plan de cierre y los encargos de ambos agentes.
 
-### Fuentes vivas en la raiz de `docs/` (16)
+### Fuentes vivas en la raiz de `docs/` (17)
 
 - `PROJECT_STATUS.md` -- este documento
+- `PLAN_CIERRE_PROD.md` -- plan de cierre, reparto Codex/Claude y gates; encargos
+  operativos por agente en `docs/planes/`
 - `VISION_PRODUCTO_2026.md`
 - `DEPLOY_POS_LOCAL.md`
 - Los 4 roadmaps vivos, priorizados en [Roadmaps: estado y prioridad](#roadmaps-estado-y-prioridad):
@@ -332,17 +345,18 @@ dev) estan **hechos**: staging existe con su backend remoto, el frontend dev y
 staging estan publicados en Azure Static Web Apps, y el backend completo se
 promovio a staging el 2026-09-08.
 
-1. **Cerrar los 2 bloqueantes de seguridad de RBAC** (PER-006 y PER-007 en
-   `TODO_AUDITORIAS.md`): privilegio que persiste tras mover una asignacion o
-   borrar un rol. Es lo unico marcado como bloqueante en todo el backlog.
-2. **Preparar la promocion a produccion**: recorrer la tabla de migraciones y la
-   checklist "antes de desplegar" de `TODO_AUDITORIAS.md` (aviso del cambio de
-   `$` a `RD$`, sucursales sin configuracion propia, cotizaciones vencidas,
-   `SUCURSAL_CODIGO`, permisos nuevos). Prod exige `workflow_dispatch` manual +
-   job de migraciones aparte. Decidir como gates o riesgos aceptados los cuatro
-   casos físicos diferidos en el handoff de notificaciones.
-3. **Desplegar al POS local lo que quedo pendiente**: Fase 3 de sync
-   (conciliacion diaria) y el comprobante de venta en PDF.
-4. **Backend de cache compartido (Redis) en el cloud**: ya son tres los
-   subsistemas (permisos, modulos, configuracion) cuyo cache no se comparte
-   entre los workers de Gunicorn.
+1. **Preparar trabajo paralelo seguro (A00/G0):** base comun, inventario de
+   hallazgos vigentes y worktrees/BDs separados, preservando los `tfvars` del
+   worktree de staging. Seguir el [plan activo](PLAN_CIERRE_PROD.md).
+2. **Cerrar bugs y deuda del alcance en develop:** Codex lleva nucleo, RBAC,
+   auditoria, sync y maestros; Claude lleva Windows/dotenv, documentos,
+   configuracion/modulos, operacion comercial y portal. PER-006/007 siguen
+   pendientes hasta que haya evidencia de cierre, pero no son el unico criterio
+   del nuevo gate. Cotizaciones vencidas no bloquean; sus bugs de codigo si.
+3. **Validar un nuevo candidato completo en staging:** suites, migraciones sobre
+   copias, contratos POS viejo/nuevo, restauracion, matriz fisica y observacion.
+   No heredar automaticamente la aprobacion de una version anterior.
+4. **Solicitar pase y operar cloud -> RP -> SK:** backend antes que portal,
+   notificaciones graduales y aceptacion por tienda. Redis, WORM y separacion/HA
+   de PostgreSQL quedan fuera de este release; la consistencia entre workers
+   debe resolverse sin introducir Redis.
