@@ -6,7 +6,9 @@ lectura/escritura de datos operativos.
 
 ## Puntos de corte
 
-- Base segura integrada: `develop@ef17e2a` (A00-A02 de Codex).
+- Base usada para el merge técnico: `codex/cierre-prod-A02@ef17e2a`.
+- Punto seguro actual: `develop@11ecec2` (A00-A02 de Codex y este handoff de
+  revisión; ningún commit de implementación de Claude).
 - Checkpoint de Claude revisado: `claude/cierre-prod-C03@21616ce`; contiene las
   entregas acumuladas C01, C02 y C03 parcial y estaba limpio al tomar el corte.
 - Combinación de revisión: `integration/cierre-prod-A02-C03-review@1f0e531`.
@@ -14,9 +16,19 @@ lectura/escritura de datos operativos.
 - El worktree de staging permaneció detached en `89b30c4` y no se tocó.
 
 La simulación y el merge real en la rama de revisión no produjeron conflictos
-de texto ni solapamientos de propiedad con A02. La suite focal combinada pasó
-**431 tests, 1 skip esperado**. Esto acredita compatibilidad inicial, no aptitud
-de despliegue: los siguientes puntos deben cerrarse en las superficies de C.
+de texto ni solapamientos de propiedad con A02. La validación combinada quedó
+verde con la misma configuración y BD de pruebas aisladas de A02:
+
+- suite focal: **431 tests, 1 skip esperado**;
+- suite Django completa sin e-CF: **1301 tests, 1 skip esperado** en
+  **386.497 s**, con creación y destrucción de la BD de pruebas;
+- e-CF separada: **72 passed** en **17.15 s**;
+- `manage.py check`: sin observaciones;
+- `makemigrations --check --dry-run`: sin cambios;
+- `compileall`, `git diff --check` y estado del worktree: verdes y limpios.
+
+Esto acredita compatibilidad técnica inicial, no aptitud de despliegue: los
+siguientes puntos deben cerrarse en las superficies de C.
 
 ## Bloqueadores para integrar la línea acumulada de Claude
 
@@ -67,7 +79,7 @@ BD, sin escribir `default`.
 
 1. Claude corrige los tres bloqueadores en su rama, completa el handoff del
    checkpoint y deja su worktree limpio.
-2. Con el worktree limpio, Claude incorpora `develop@ef17e2a` a su rama; no se
+2. Con el worktree limpio, Claude incorpora `develop@11ecec2` a su rama; no se
    fuerza ni reescribe historia y no se arrastran cambios de staging.
 3. Repetir en la combinación final: focal C01-C03 + A02, suite Django completa,
    e-CF separada, `check`, `makemigrations --check`, build/check cloud y pruebas
@@ -79,5 +91,5 @@ BD, sin escribir `default`.
 ## Rollback
 
 La rama de revisión puede abandonarse sin revertir datos: solo contiene commits
-Git y una BD de tests desechable que Django destruyó. `develop@ef17e2a` sigue
+Git y una BD de tests desechable que Django destruyó. `develop@11ecec2` sigue
 siendo el punto seguro hasta cerrar este handoff.
