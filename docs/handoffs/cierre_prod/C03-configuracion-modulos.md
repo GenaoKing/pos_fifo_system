@@ -69,18 +69,21 @@ hallazgos que bloqueaban el merge a `develop`. Los tres se cerraron en
     `apps/tenancy` (`bootstrap_tenant.py`, `normalizar_import_tenant.py`, no
     tocados — son de Codex) corren dentro de `tenant_context(...)`, así que
     heredan el alias correcto sin cambios.
-  - **Falta cerrar** (ver "Secuencia acordada" en
-    [REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md)): un test que
-    inyecte un fallo dentro de `bootstrap` corriendo sobre una BD tenant real
-    (vía `with_tenant`) y confirme que revierte módulos/planes/suscripción/
-    overrides en esa BD sin tocar `default`. La infraestructura de dos BDs
-    físicas (namespace `TENANT_TEST_DB_NAMESPACE`, TEN-016) es de A02 y todavía
-    no está en este worktree — se agrega al fusionar el tip de `develop` en el
-    paso 2 de la secuencia acordada.
+  - **Cerrado tras el merge de develop** (paso 3 de la secuencia acordada en
+    [REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md)):
+    `apps/suscripciones/tests/test_seed_atomicidad_tenant.py` (nuevo), gate
+    opt-in con la misma infraestructura de dos BDs físicas de TEN-016
+    (`TENANT_TEST_DB_NAMESPACE`), inyecta un fallo dentro de `bootstrap`
+    corriendo sobre una BD tenant real y confirma que revierte
+    módulos/planes/suscripción/overrides en esa BD sin tocar `default`
+    (y, en el caso exitoso, que las escrituras sí llegan a la BD tenant).
 
 Suite focal de `apps.configuracion` + `apps.suscripciones` + `apps.api`
 (112 tests), `manage.py check` y `makemigrations --check --dry-run` en verde.
-Sin migraciones nuevas.
+Sin migraciones nuevas. Validación combinada final con A02 (venv aislado,
+Django 5.2.17): 1305 tests + 3 skips + 72 e-CF + 3 del gate opt-in, todo en
+verde — detalle en
+[REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md#cierre-de-los-bloqueadores-2026-09-10-claude).
 
 ## Qué cubre esta entrega
 
@@ -214,6 +217,9 @@ migración en toda la entrega).
   actualizado al contrato correcto de CFG-013)
 - `apps/configuracion/tests/test_crear_config_inicial.py` (nuevo — CFG-015)
 - `apps/configuracion/tests/test_auditoria_configuracion.py` (regresiones CFG-006/009/011)
+- `apps/suscripciones/tests/test_seed_atomicidad_tenant.py` (nuevo — gate opt-in
+  MERGE-C03-ALIAS-ATOMIC, TEN-016-style)
+- `apps/configuracion/tests/test_preflight_actualizar.py` (allowlist de `campo`)
 - `apps/configuracion/utils.py` (CFG-009 `modulos_efectivos()`)
 - `apps/configuracion/context_processors.py` (inyecta `modulos_efectivos`)
 - `templates/base.html`, `templates/pos/punto_venta.html`,
@@ -412,6 +418,8 @@ próxima sesión (independientes primero, coordinados después):
    de C05 (`apps/ventas/views.py`).
 2. **CFG-012** (leer no crea configuración) — cuidado con el render de login/error
    y el GET de sync (Codex).
-3. **Solicitud a Codex:** migrar el pull de sync a `modulos_efectivos()` (resto de
-   SUS-007). Y coordinar el merge de **A02/CT-01** a la base para cerrar CFG-017 /
-   SUS-015; con **CT-02** (A03), SUS-006 y el payload `/auth/perfil/` de CT-03(B).
+3. **A02/CT-01 ya está integrado a `develop` local** (2026-09-10, ver
+   [REVISION_MERGE_A02-C03.md](REVISION_MERGE_A02-C03.md)): CFG-017/SUS-015
+   quedan desbloqueados para una próxima entrega. **Solicitud a Codex:** migrar
+   el pull de sync a `modulos_efectivos()` (resto de SUS-007). Falta **CT-02**
+   (A03) para SUS-006 y el payload `/auth/perfil/` de CT-03(B).
