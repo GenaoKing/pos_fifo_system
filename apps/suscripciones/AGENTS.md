@@ -1,6 +1,6 @@
 # apps/suscripciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -31,10 +31,23 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 ## Invariantes / trampas
 
 - **Fail-open** sin negocio o `SIN_APROVISIONAR` (BUG-D): un entitlement es
-  comercial, no seguridad. La seguridad es `apps/permisos` (default deny).
+  comercial, no seguridad. La seguridad es `apps/permisos` (default deny). Pero
+  una `key` que no está en `registry` **siempre deniega** aunque no haya negocio
+  (SUS-018): el fail-open es para keys reales, no para un typo en un gate.
+- `puede_desactivarse` es **fail-closed**: si un hook de datos en vuelo
+  (`_HOOKS_DATOS`) revienta, bloquea la baja y loguea; un fallo de infra no es
+  permiso para apagar (SUS-010).
 - Cache con versión y clave por tenant; TTL 30 s con `LocMemCache` (SUS-003).
   Las signals invalidan ante cualquier cambio de plan/suscripción/override.
 - El grafo de dependencias vive **solo** en `registry.py`; la tabla `Modulo` es
-  un espejo.
-- Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
-  — **snapshot histórico**; SUS-006..010 abiertos en `docs/TODO_AUDITORIAS.md`.
+  un espejo. `checks.py` (system checks) falla si el registro es inconsistente o
+  si la DB y el registro divergen (SUS-012).
+- `Plan.activo=False` = **no vendible a nuevas altas**; NO suspende clientes
+  existentes (la suspensión es `SuscripcionNegocio.activa`). El serializer
+  rechaza asignar un plan inactivo salvo re-guardar a quien ya lo tiene (SUS-013).
+- Excluir un módulo core (`NegocioModulo incluido=False`) o apagarlo por sucursal
+  (`SucursalModuloOverride`) es un no-op enganoso: ambos se rechazan (SUS-013).
+- Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
+  — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
+  -010, -012, -013, -016 (parcial), -018; abiertos SUS-006, -007, -011, -014,
+  -015, -017, -019.

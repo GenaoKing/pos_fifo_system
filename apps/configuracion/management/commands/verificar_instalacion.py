@@ -19,7 +19,7 @@ import json as json_lib
 from collections import OrderedDict
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
@@ -29,6 +29,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--json', action='store_true',
                             help='Emite el reporte como JSON.')
+        parser.add_argument(
+            '--strict', action='store_true',
+            help=('Termina con codigo distinto de cero si la instalacion tiene '
+                  'problemas. Para usar el comando como gate de despliegue.'),
+        )
 
     def handle(self, *args, **opts):
         reporte = OrderedDict()
@@ -36,11 +41,32 @@ class Command(BaseCommand):
         reporte['base_datos'] = self._revisar_base_datos()
         reporte['seeds'] = self._revisar_seeds()
         reporte['modulos'] = self._revisar_modulos()
+        reporte['sano'] = not self._hay_problema(reporte)
 
         if opts['json']:
             self.stdout.write(json_lib.dumps(reporte, indent=2, default=str))
         else:
             self._imprimir(reporte)
+
+        # CFG-014: `handle()` imprimia el reporte pero terminaba en 0 aunque
+        # `hay_problema`, asi que un script de despliegue no podia usarlo como
+        # gate. Con --strict, un estado roto termina distinto de cero.
+        if opts['strict'] and not reporte['sano']:
+            raise CommandError(
+                'La instalacion tiene problemas (ver el reporte). '
+                '--strict => exit distinto de cero.'
+            )
+
+    @staticmethod
+    def _hay_problema(reporte):
+        cfg = reporte['configuracion']
+        db = reporte['base_datos']
+        m = reporte['modulos']
+        criticos = [p for p in cfg['problemas'] if p['critico']]
+        return bool(
+            criticos or not db['conecta'] or db['migraciones_pendientes']
+            or m.get('roto')
+        )
 
     # ------------------------------------------------------------------
     # 1. Configuracion
@@ -91,10 +117,20 @@ class Command(BaseCommand):
     def _revisar_seeds(self):
         from apps.caja.models import Caja
         from apps.configuracion.models import ConfiguracionNegocio
+        from apps.configuracion.utils import config_de_sucursal
         from apps.sucursales.models import get_sucursal_actual
 
         sucursal = get_sucursal_actual()
-        config = ConfiguracionNegocio.objects.first()
+
+        # CFG-014: usaba `.objects.first()`, que podia mostrar la configuracion
+        # de OTRA sucursal (soporte validaba la fila equivocada). La config del
+        # diagnostico es la de la sucursal resuelta; si no tiene, es None (no la
+        # de un vecino). En legacy sin sucursal, la fila legacy (sucursal=NULL).
+        if sucursal is not None:
+            config = config_de_sucursal(sucursal)
+        else:
+            config = ConfiguracionNegocio.objects.filter(sucursal__isnull=True).first()
+
         return {
             'sucursal_codigo_configurado': getattr(settings, 'SUCURSAL_CODIGO', None),
             'sucursal_resuelta': str(sucursal) if sucursal else None,
@@ -103,6 +139,10 @@ class Command(BaseCommand):
                 if sucursal is not None and sucursal.negocio_id else None
             ),
             'configuracion_negocio': config.nombre_negocio if config else None,
+            'configuracion_pk': config.pk if config else None,
+            'configuracion_sucursal': (
+                str(config.sucursal) if config and config.sucursal_id else None
+            ),
             'cajas': Caja.objects.count(),
             'usuarios': self._contar_usuarios(),
         }
@@ -151,13 +191,36 @@ class Command(BaseCommand):
         vendibles = [m.key for m in registry.vendibles()]
 
         if negocio is None:
+            # CFG-013: antes devolvia SIEMPRE `apagados=[]` sin consultar los
+            # flags, asi que podia certificar "sano" una instalacion con
+            # impresion_termica apagada. Ahora enumera el MISMO conjunto que
+            # `modulo_activo()`: lo que el POS realmente gatea.
+            from apps.configuracion.utils import modulo_activo as _modulo_legacy
+
+            try:
+                apagados = sorted(k for k in vendibles if not _modulo_legacy(k))
+            except Exception as exc:
+                return {
+                    'modo': 'legacy',
+                    'explicacion': (
+                        'La sucursal no tiene negocio asignado, pero no se pudo '
+                        'resolver la configuracion legacy.'
+                    ),
+                    'error': str(exc),
+                    'apagados': [],
+                    'aprovisionado': None,
+                    'roto': False,
+                }
             return {
                 'modo': 'legacy',
                 'explicacion': ('La sucursal no tiene negocio asignado: los modulos '
                                 'se resuelven por los flags de ConfiguracionNegocio '
                                 '(fail-open). Es un estado valido.'),
-                'apagados': [],
+                'apagados': apagados,
                 'aprovisionado': None,
+                # Un default-off (etiquetas, e-CF, financiacion) es intencional;
+                # impresion_termica apagada SI rompe (el POS no imprime).
+                'roto': 'impresion_termica' in apagados,
             }
 
         from apps.suscripciones.engine import modulos_activos
@@ -255,7 +318,18 @@ class Command(BaseCommand):
         w('MODULOS VENDIBLES')
         if m['modo'] == 'legacy':
             w(f'  Modo: flags de ConfiguracionNegocio (sin negocio asignado).')
-            w(ok('  OK: no hay riesgo de apagado por suscripcion.'))
+            if m.get('error'):
+                w(warn(f'  AVISO: no se pudo resolver la configuracion: {m["error"]}'))
+            elif not m['apagados']:
+                w(ok('  OK: todos los modulos vendibles estan activos.'))
+            elif not m['roto']:
+                w(f'  Apagados (puede ser intencional): {", ".join(m["apagados"])}')
+            else:
+                w(err(f'  ! {len(m["apagados"])} modulo(s) APAGADOS: '
+                      f'{", ".join(m["apagados"])}'))
+                if 'impresion_termica' in m['apagados']:
+                    w(err('    OJO: `impresion_termica` apagado significa que el POS '
+                          'NO IMPRIME TICKETS, sin mostrar ningun error.'))
         else:
             w(f'  Modo: suscripciones | negocio: {m["negocio"]}')
             w(f'  Plan: {m["plan"] or "(ninguno)"}')
@@ -284,14 +358,9 @@ class Command(BaseCommand):
                     w(err('    modulos. Arreglo: manage.py bootstrap_suscripciones'))
 
         # --- resumen
-        criticos = [p for p in cfg['problemas'] if p['critico']]
-        hay_problema = bool(
-            criticos or not db['conecta'] or db['migraciones_pendientes']
-            or m.get('roto')
-        )
         w('')
         w('=' * 70)
-        if hay_problema:
+        if not r['sano']:
             w(err('  RESULTADO: la instalacion tiene problemas. Ver arriba.'))
         else:
             w(ok('  RESULTADO: instalacion sana.'))

@@ -69,8 +69,35 @@ class Command(BaseCommand):
                 defaults={'nombre_negocio': options['nombre']}
             )
         else:
-            # Legacy: buscar primera config o crear
-            config = ConfiguracionNegocio.objects.first()
+            # Legacy (sin --sucursal). CFG-015: antes tomaba `.objects.first()`
+            # y la sobrescribia aunque estuviera LIGADA a una sucursal, y encima
+            # etiquetaba la salida "sin sucursal - legacy". En una instalacion
+            # multi-sucursal, una instruccion vieja pisaba la sucursal de menor
+            # PK en silencio. Ahora:
+            #   - si existe cualquier config ligada a sucursal, exigir --sucursal
+            #     (y listar los codigos validos), sin escribir nada;
+            #   - el modo legacy opera SOLO sobre la fila sin sucursal, y falla
+            #     si hay mas de una (ambiguo).
+            ligadas = list(
+                ConfiguracionNegocio.objects
+                .filter(sucursal__isnull=False)
+                .values_list('sucursal__codigo', flat=True)
+            )
+            if ligadas:
+                raise CommandError(
+                    'Esta instalacion ya tiene configuracion(es) ligadas a '
+                    f'sucursal ({", ".join(sorted(ligadas))}). Especifica '
+                    '--sucursal <codigo>; sin el, este comando pisaria una '
+                    'sucursal existente por omision.'
+                )
+
+            legacy_qs = ConfiguracionNegocio.objects.filter(sucursal__isnull=True)
+            if legacy_qs.count() > 1:
+                raise CommandError(
+                    'Hay varias configuraciones legacy sin sucursal: es ambiguo '
+                    'cual actualizar. Ligalas a su sucursal antes de continuar.'
+                )
+            config = legacy_qs.first()
             if config is None:
                 config = ConfiguracionNegocio(pk=1)
                 created = True

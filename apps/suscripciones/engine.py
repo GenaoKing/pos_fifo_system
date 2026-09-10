@@ -27,10 +27,14 @@ exista una suscripcion con plan, o UNA fila de `NegocioModulo` (aunque sea
 solo una exclusion), deja de aplicar: ya hay una decision explicita que
 respetar.
 """
+import logging
+
 from django.conf import settings
 from django.core.cache import cache
 
 from . import registry
+
+logger = logging.getLogger('suscripciones')
 
 CACHE_PREFIX = 'modulos_negocio'
 
@@ -229,6 +233,18 @@ def modulo_activo(key, negocio=None, sucursal=None):
         negocio = getattr(sucursal, 'negocio', None)
 
     if negocio is None:
+        # Fail-open comercial, PERO solo para keys REALES del catalogo. Una key
+        # desconocida —un typo en un gate nuevo— jamas debe autorizarse: en un
+        # contexto sin negocio se colaba invisible, devolviendo True sin dejar
+        # rastro (SUS-018). El registro es la fuente de verdad; lo que no esta en
+        # el se deniega y se registra para que el gate mal escrito se note.
+        if registry.modulo(key) is None:
+            logger.warning(
+                "modulo_activo('%s'): key fuera del catalogo de modulos; se "
+                "deniega (SUS-018). Revisar el gate/consumidor que la declara.",
+                key,
+            )
+            return False
         return True  # fail-open (ver docstring del modulo)
     return key in modulos_activos(negocio, sucursal)
 
@@ -265,8 +281,7 @@ def _hay_ecf_en_proceso(negocio):
 
 
 # Hooks de "datos bloqueantes" por modulo: impiden apagar un modulo que aun tiene
-# datos en vuelo. Cada hook -> str (motivo) o None. Se llaman defensivamente
-# (cualquier excepcion = None = no bloquea).
+# datos en vuelo. Cada hook -> str (motivo) o None.
 _HOOKS_DATOS = {
     'cuentas_por_cobrar': _hay_cxc_abiertas,
     'ecf': _hay_ecf_en_proceso,
@@ -274,13 +289,30 @@ _HOOKS_DATOS = {
 
 
 def _datos_bloqueantes(negocio, key):
+    """
+    Motivo (str) por el que NO se puede apagar `key`, o None si esta libre.
+
+    SUS-010 — fail-closed. Antes cualquier excepcion del hook se tragaba y
+    devolvia None ("no hay datos pendientes"): una tabla indisponible, un error
+    de import o de esquema se interpretaba como autorizacion para apagar, que es
+    justo lo contrario de lo prudente. El hook existe para *demostrar* que no hay
+    trabajo en vuelo; si no puede demostrarlo, no se apaga. El error se registra
+    —no se silencia— para que la causa (infra, no permiso) sea diagnosticable.
+    """
     hook = _HOOKS_DATOS.get(key)
     if hook is None:
         return None
     try:
         return hook(negocio)
     except Exception:
-        return None
+        logger.exception(
+            "No se pudo comprobar si '%s' tiene datos en vuelo; se bloquea la "
+            "baja por precaucion (SUS-010).", key,
+        )
+        return (
+            f"no se pudo verificar si hay datos en vuelo de '{key}'; no se "
+            f"apaga sin poder demostrar que es seguro"
+        )
 
 
 def puede_desactivarse(negocio, key):

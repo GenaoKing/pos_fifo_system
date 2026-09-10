@@ -171,6 +171,10 @@ class RemoteLogoPdfTests(SimpleTestCase):
         class _BlobBackedLogo:
             name = 'demo/config/logo.png'
 
+            def __init__(self):
+                self._contenido = png
+                self._pos = 0
+
             def __bool__(self):
                 return True
 
@@ -179,10 +183,19 @@ class RemoteLogoPdfTests(SimpleTestCase):
                 raise NotImplementedError("This backend doesn't support absolute paths.")
 
             def open(self, mode='rb'):
+                self._pos = 0
                 return self
 
-            def read(self):
-                return png
+            def read(self, size=-1):
+                # Un FieldFile real soporta lectura por bloques; _logo_source
+                # ahora lee acotado (COM-009), no todo de una sola llamada.
+                if size is None or size < 0:
+                    datos = self._contenido[self._pos:]
+                    self._pos = len(self._contenido)
+                else:
+                    datos = self._contenido[self._pos:self._pos + size]
+                    self._pos += len(datos)
+                return datos
 
             def close(self):
                 pass

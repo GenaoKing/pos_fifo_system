@@ -97,3 +97,51 @@ Git y una BD de tests desechable que Django destruyó.
 `codex/cierre-prod-A02@ef17e2a` sigue siendo el punto seguro de implementación;
 `develop` añade únicamente la documentación de esta revisión hasta cerrar los
 bloqueadores.
+
+## Cierre de los bloqueadores (2026-09-10, Claude)
+
+Los tres bloqueadores se cerraron sobre `claude/cierre-prod-C03`
+(`8fd83a0`, detalle en
+[C03-configuracion-modulos.md](C03-configuracion-modulos.md#cierre-de-los-bloqueadores-de-merge-2026-09-10-8fd83a0))
+y se repitió la secuencia acordada:
+
+1. **Paso 1 (fix en la rama)** — `8fd83a0` cierra MERGE-C01-ENVONLY,
+   MERGE-C01-SECRET-CAMPO y MERGE-C03-ALIAS-ATOMIC; `b3e8685` documenta el
+   cierre en el handoff C03. Worktree limpio.
+2. **Paso 2 (incorporar develop)** — `019dd25` mergea `develop@e3635de`
+   (A00-A02 + esta revisión) a `claude/cierre-prod-C03`, sin conflictos ni
+   force/rebase.
+3. **Paso 3 (validación combinada final)** — corrida sobre un venv aislado
+   nuevo (`C:\Proyectos\.venvs\pos_cierre_claude_c03_20260910`, CPython
+   3.11.14, Django 5.2.17 vía `requirements-dev.txt --require-hashes`; **no
+   se tocó el conda compartido `pos_fifo`**, mismo criterio que A01):
+   - Suite focal (apps tocadas por A02+C03): **616 OK, ningún fallo**.
+   - Suite Django completa sin e-CF (mismo comando que
+     `.github/workflows/backend-ci.yml`, find de `tests/test_*.py` excluyendo
+     `facturacion_electronica`): **1305 OK, 3 skips esperados** en 386.9 s
+     (1301 de la corrida de Codex + 4 tests nuevos de esta entrega).
+   - e-CF separado (`pytest`): **72 passed** en 11.0 s.
+   - Gates opt-in de BD física dual (`TENANT_TEST_DB_NAMESPACE`), corridos
+     juntos: TEN-016 (`test_multidb_isolation`) +
+     **`apps/suscripciones/tests/test_seed_atomicidad_tenant.py`** (nuevo,
+     cierra la aceptación pendiente de MERGE-C03-ALIAS-ATOMIC: un fallo
+     inyectado a mitad de `seed.bootstrap` sobre una BD tenant física revierte
+     módulos/planes/suscripción/overrides en esa BD y no deja rastro en
+     `default`) — **3 OK**.
+   - `manage.py check` (`settings_development`): sin observaciones.
+   - `makemigrations --check --dry-run`: sin cambios.
+   - `compileall` y `git diff --check` contra `develop`: verdes.
+   - **No se repitió** el build/check de `settings_cloud` (requiere la imagen
+     Docker Linux 3.12.14 de A01/A08; esta entrega no toca `config/settings_cloud.py`,
+     Docker, ni superficies cloud-only, así que se consideró fuera del riesgo
+     que ese check cubre).
+4. **Paso 4 (merge a develop)** — `claude/cierre-prod-C03` (con A02
+   incorporado) se fusiona a `develop` local por merge explícito, sin push.
+   Ver el commit de merge para el SHA final.
+
+Estado: **bloqueadores cerrados; línea acumulada de Claude (C01-C03) integrada
+a `develop` local.** CT-01 ya está en la base, así que CFG-017/SUS-015
+(auditoría de config/comerciales) quedan desbloqueados para una próxima
+entrega C. Sigue pendiente de A03: publicar CT-02, que condiciona SUS-006 y
+el payload `/auth/perfil/` de CT-03(B); y de Codex, el resto de SUS-007 (pull
+de sync).

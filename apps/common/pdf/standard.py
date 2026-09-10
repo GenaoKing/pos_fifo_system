@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 import os
 from datetime import date as date_cls
 from datetime import datetime
@@ -15,6 +17,10 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from utils.imagenes import TAMANO_MAX_BYTES as LOGO_MAX_BYTES
+
+logger = logging.getLogger('common.pdf')
 
 
 PAGE_SIZE = letter
@@ -195,6 +201,20 @@ class ImporteInvalido(ValueError):
     """Se intento imprimir como dinero algo que no es un importe."""
 
 
+class TablaInvalida(ValueError):
+    """
+    La forma de una tabla/grilla no es consistente (COM-005/COM-006).
+
+    Sin esto, un header con N columnas y una fila con N+1 valores no fallaba:
+    ReportLab ampliaba `_ncols` al maximo encontrado y repartia anchos sin
+    avisar, así una tabla de 2 columnas normalizadas a 518pt terminaba
+    ocupando 777pt — la ultima columna quedaba fuera de pagina sin error.
+    Una fila vacia en `info_grid` tambien reventaba con `ZeroDivisionError`
+    crudo en vez de un mensaje accionable. Se valida la forma ANTES de
+    construir flowables para que el error sea de contrato, no de ReportLab.
+    """
+
+
 def money(value) -> str:
     """
     Formatea un importe. NO convierte basura en cero.
@@ -260,10 +280,63 @@ def _config_or_default(config=None):
     return get_config()
 
 
+_LOGO_CHUNK = 64 * 1024
+
+# Columna reservada para el logo en `business_header`; si `width` no deja al
+# menos este margen para el bloque de texto, se omite el logo en vez de
+# producir una segunda columna de ancho negativo (COM-006).
+_LOGO_COL_WIDTH = 1.05 * inch
+_LOGO_BOX = 0.9 * inch
+_LOGO_MIN_INFO_WIDTH = 0.75 * inch
+
+
+def _leer_acotado(archivo, limite: int) -> bytes | None:
+    """Lee `archivo` en bloques hasta `limite` bytes. `None` si lo supera.
+
+    No confia solo en `.size`: un storage remoto puede reportarlo mal o no
+    reportarlo, y el tamano real del archivo que alguien subio es lo unico
+    que determina cuanta memoria consume el worker (COM-009).
+    """
+    partes = []
+    total = 0
+    while True:
+        bloque = archivo.read(_LOGO_CHUNK)
+        if not bloque:
+            break
+        total += len(bloque)
+        if total > limite:
+            return None
+        partes.append(bloque)
+    return b''.join(partes)
+
+
+def _logo_es_valido(fuente, contexto: str) -> bool:
+    """Decodifica `fuente` (ruta o BytesIO) para confirmar que es una imagen.
+
+    Un logo corrupto (blob dañado, migracion defectuosa) antes llegaba
+    directo a `Image()` de ReportLab y tumbaba TODO el documento con un
+    `UnidentifiedImageError` sin capturar (COM-007). Ahora se degrada: se
+    registra y el documento sigue sin logo.
+    """
+    from PIL import Image as PILImage
+
+    try:
+        with PILImage.open(fuente) as imagen:
+            imagen.verify()
+    except Exception as exc:
+        logger.warning(
+            'Logo invalido o corrupto (%s): %s: %s', contexto, type(exc).__name__, exc,
+        )
+        return False
+    return True
+
+
 def _logo_source(config):
     logo = getattr(config, 'logo', None)
     if not logo:
         return None
+
+    contexto = getattr(logo, 'name', None) or 'logo'
 
     try:
         path = logo.path
@@ -271,19 +344,102 @@ def _logo_source(config):
         # AzureStorage (y otros backends remotos) lanzan NotImplementedError en
         # .path; no es un error, solo significa "no hay ruta local" -> leer bytes.
         path = None
+
     if path and os.path.exists(path):
+        try:
+            tamano = os.path.getsize(path)
+        except OSError as exc:
+            logger.warning('No se pudo leer el logo local %s: %s', contexto, exc)
+            return None
+        if tamano > LOGO_MAX_BYTES:
+            logger.warning(
+                'Logo local %s descartado: %d bytes supera el limite de %d (COM-009).',
+                contexto, tamano, LOGO_MAX_BYTES,
+            )
+            return None
+        if not _logo_es_valido(path, contexto):
+            return None
         return path
+
+    # COM-008: distinguir "no hay logo" (arriba, silencioso) de "el storage
+    # fallo al resolverlo" (abajo, se registra con la causa real).
+    try:
+        tamano_declarado = getattr(logo, 'size', None)
+    except Exception as exc:
+        logger.warning('No se pudo consultar el tamano del logo remoto %s: %s', contexto, exc)
+        tamano_declarado = None
+    if tamano_declarado is not None and tamano_declarado > LOGO_MAX_BYTES:
+        logger.warning(
+            'Logo remoto %s descartado: %d bytes declarados supera el limite de %d (COM-009).',
+            contexto, tamano_declarado, LOGO_MAX_BYTES,
+        )
+        return None
 
     try:
         logo.open('rb')
-        return BytesIO(logo.read())
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            'No se pudo abrir el logo remoto %s: %s: %s', contexto, type(exc).__name__, exc,
+        )
+        return None
+
+    try:
+        contenido = _leer_acotado(logo, LOGO_MAX_BYTES)
+    except Exception as exc:
+        logger.warning(
+            'Fallo leyendo el logo remoto %s: %s: %s', contexto, type(exc).__name__, exc,
+        )
         return None
     finally:
         try:
             logo.close()
         except Exception:
             pass
+
+    if contenido is None:
+        logger.warning(
+            'Logo remoto %s descartado: supera el limite de %d bytes durante la lectura (COM-009).',
+            contexto, LOGO_MAX_BYTES,
+        )
+        return None
+
+    if not _logo_es_valido(BytesIO(contenido), contexto):
+        return None
+
+    return BytesIO(contenido)
+
+
+def _logo_flowable(logo_source):
+    """
+    `Image(..., width=0.9in, height=0.9in)` deformaba todo logo no cuadrado
+    (COM-014). Se lee el tamaño real y se escala manteniendo proporcion
+    dentro de la misma caja de 0.9x0.9in, para no correr el texto del header.
+    """
+    from PIL import Image as PILImage
+
+    dimensiones = None
+    try:
+        if isinstance(logo_source, BytesIO):
+            logo_source.seek(0)
+            with PILImage.open(logo_source) as imagen:
+                dimensiones = imagen.size
+            logo_source.seek(0)
+        else:
+            with PILImage.open(logo_source) as imagen:
+                dimensiones = imagen.size
+    except Exception as exc:
+        logger.warning('No se pudieron leer las dimensiones del logo: %s: %s', type(exc).__name__, exc)
+
+    if dimensiones and dimensiones[0] > 0 and dimensiones[1] > 0:
+        proporcion = dimensiones[0] / dimensiones[1]
+        if proporcion >= 1:
+            ancho, alto = _LOGO_BOX, _LOGO_BOX / proporcion
+        else:
+            ancho, alto = _LOGO_BOX * proporcion, _LOGO_BOX
+    else:
+        ancho = alto = _LOGO_BOX
+
+    return Image(logo_source, width=ancho, height=alto)
 
 
 def business_header(config=None, *, width: float = CONTENT_WIDTH):
@@ -306,10 +462,20 @@ def business_header(config=None, *, width: float = CONTENT_WIDTH):
     info = lines
 
     logo_source = _logo_source(config)
-    if logo_source:
-        left = Image(logo_source, width=0.9 * inch, height=0.9 * inch)
+    if logo_source is not None and width - _LOGO_COL_WIDTH < _LOGO_MIN_INFO_WIDTH:
+        # COM-006: restar un ancho fijo de logo sin comprobar el ancho total
+        # podia dejar la columna de info en negativo con un `width` angosto
+        # (p.ej. un ticket termico). Se prefiere omitir el logo a romper el
+        # layout o encimar el texto.
+        logger.warning(
+            'Ancho %.1fpt insuficiente para columna de logo; se omite.', width,
+        )
+        logo_source = None
+
+    if logo_source is not None:
+        left = _logo_flowable(logo_source)
         data = [[left, info]]
-        col_widths = [1.05 * inch, width - 1.05 * inch]
+        col_widths = [_LOGO_COL_WIDTH, width - _LOGO_COL_WIDTH]
     else:
         data = [[info]]
         col_widths = [width]
@@ -343,6 +509,12 @@ def section_title(title: str):
 
 def info_grid(rows: Sequence[Sequence[tuple[str, object]]], *, width: float = CONTENT_WIDTH):
     styles = get_styles()
+    rows = list(rows)
+    for indice, row in enumerate(rows):
+        if len(row) == 0:
+            # COM-006: una fila vacia hacia `max_pairs=0` y `width / 0`
+            # reventaba con `ZeroDivisionError` crudo.
+            raise TablaInvalida(f'info_grid: la fila {indice} no tiene ningun par etiqueta/valor.')
     data = []
     max_pairs = max((len(row) for row in rows), default=1)
     pair_width = width / max_pairs
@@ -374,7 +546,19 @@ def info_grid(rows: Sequence[Sequence[tuple[str, object]]], *, width: float = CO
 
 
 def _normalize_widths(col_widths: Sequence[float] | None, columns: int, width: float):
+    if columns < 1:
+        raise TablaInvalida('La tabla necesita al menos una columna.')
     if col_widths:
+        if len(col_widths) != columns:
+            raise TablaInvalida(
+                f'col_widths trae {len(col_widths)} valores para {columns} columnas.'
+            )
+        for w in col_widths:
+            if not isinstance(w, (int, float)) or isinstance(w, bool) or not math.isfinite(w) or w <= 0:
+                # COM-006: anchos en 0/negativos/NaN llegaban intactos hasta
+                # el build de ReportLab y fallaban con un ancho disponible
+                # negativo en vez de un error de contrato aca.
+                raise TablaInvalida(f'Ancho de columna invalido: {w!r}.')
         total = sum(col_widths)
         if total <= 1.01:
             return [w * width for w in col_widths]
@@ -404,8 +588,28 @@ def standard_table(
     width: float = CONTENT_WIDTH,
 ):
     styles = get_styles()
+    headers = list(headers)
+    if not headers:
+        raise TablaInvalida('standard_table necesita al menos un encabezado.')
     rows = list(rows)
-    column_count = len(headers) or 1
+    column_count = len(headers)
+
+    for indice, row in enumerate(rows):
+        if len(row) != column_count:
+            # COM-005: una fila con mas o menos valores que headers no se
+            # detectaba aca; ReportLab ampliaba `_ncols` al maximo encontrado
+            # y la tabla terminaba mas ancha que `CONTENT_WIDTH` sin avisar.
+            raise TablaInvalida(
+                f'standard_table: la fila {indice} trae {len(row)} valores '
+                f'para {column_count} encabezados.'
+            )
+    if aligns is not None and len(aligns) != column_count:
+        raise TablaInvalida(
+            f'aligns trae {len(aligns)} valores para {column_count} columnas.'
+        )
+    if status_col is not None and not (0 <= status_col < column_count):
+        raise TablaInvalida(f'status_col {status_col} fuera de rango para {column_count} columnas.')
+
     widths = _normalize_widths(col_widths, column_count, width)
     aligns = list(aligns or ['LEFT'] * column_count)
     data = [[para(h, styles['PdfHeaderCell'], bold=True) for h in headers]]
@@ -444,6 +648,11 @@ def standard_table(
 
 def totals_table(items: Sequence[tuple[str, object, str | None]], *, width: float = CONTENT_WIDTH):
     styles = get_styles()
+    items = list(items)
+    if not items:
+        # COM-006: `Table([])` fallaba con un `ValueError` interno de
+        # ReportLab en vez de un mensaje que diga que falta el renglon.
+        raise TablaInvalida('totals_table necesita al menos un renglon.')
     rows = []
     for item in items:
         label, value, *rest = item

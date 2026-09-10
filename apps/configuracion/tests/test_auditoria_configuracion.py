@@ -6,8 +6,11 @@ Regresion de los hallazgos de
 """
 from io import StringIO
 
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -334,3 +337,133 @@ class SecretosEnDryRunTests(ConfiguracionTestCase):
                 self.assertTrue(comando._es_sensible(nombre))
 
         self.assertFalse(comando._es_sensible('DB_NAME'))
+
+
+class ValidacionCruzadaTests(ConfiguracionTestCase):
+    """CFG-006: `full_clean()` rechaza combinaciones operativas/fiscales inseguras."""
+
+    def test_una_config_por_defecto_es_valida(self):
+        self.config_a.full_clean()  # no levanta
+
+    def test_sin_ningun_medio_de_pago_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba cero metodos de pago."""
+        self.config_a.pago_efectivo = False
+        self.config_a.pago_transferencia = False
+        self.config_a.pago_tarjeta = False
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('pago_efectivo', ctx.exception.message_dict)
+
+    def test_ecf_activo_sin_emisor_se_rechaza(self):
+        """La reproduccion: `modulo_ecf=True` coexistia con `emisor_activo=NULL`."""
+        self.config_a.modulo_ecf = True  # emisor_activo queda None
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('emisor_activo', ctx.exception.message_dict)
+
+    def test_itbis_fuera_de_rango_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba ITBIS -5.00."""
+        self.config_a.itbis_porcentaje_global = Decimal('-5.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+    def test_itbis_por_encima_de_cien_se_rechaza(self):
+        self.config_a.itbis_porcentaje_global = Decimal('200.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+
+class BorradoProtegidoTests(ConfiguracionTestCase):
+    """CFG-011: borrar configuracion falla uniforme por instancia y por QuerySet."""
+
+    def test_delete_de_instancia_levanta_y_no_borra(self):
+        """Antes era un `pass`: el caller creia haber borrado y seguia con estado falso."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            self.config_a.delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
+
+    def test_delete_por_queryset_tambien_levanta_y_no_borra(self):
+        """La otra mitad del hallazgo: `QuerySet.delete()` SI borraba de verdad."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
+
+
+@override_settings(SUCURSAL_CODIGO='CFG-A')
+class ModulosEfectivosTests(ConfiguracionTestCase):
+    """
+    CFG-009 / SUS-007: la UI consulta el entitlement efectivo, no `config.modulo_*`.
+    `modulos_efectivos()` alimenta el context processor; debe coincidir con lo que
+    gatea el backend, no con el flag legacy crudo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from apps.suscripciones import seed
+        from apps.suscripciones.models import Modulo, Plan
+
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        cache.clear()
+
+    def test_no_muestra_un_modulo_que_el_plan_no_incluye_aunque_el_flag_este_on(self):
+        """
+        La reproduccion: flag `modulo_cotizaciones=True` con un negocio cuyo plan
+        NO incluye cotizaciones -> el template veia True (enlace a 404) mientras
+        el backend devolvia False.
+        """
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='basico'), activa=True,
+        )
+        self.config_a.modulo_cotizaciones = True
+        self.config_a.save()
+        cache.clear()
+
+        efectivos = modulos_efectivos()
+        self.assertNotIn('cotizaciones', efectivos)   # manda el entitlement
+        self.assertTrue(self.config_a.modulo_cotizaciones)  # el flag crudo seguia True
+
+    def test_muestra_lo_que_el_plan_agrega_aunque_el_flag_este_off(self):
+        """El reverso: un modulo comprado en el plan aparece aunque el flag este off."""
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        self.assertIn('ecf', modulos_efectivos())      # el plan lo incluye
+        self.assertFalse(self.config_a.modulo_ecf)      # el flag crudo seguia False
+
+    def test_el_context_processor_expone_el_set(self):
+        from apps.configuracion.context_processors import config_negocio
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        ctx = config_negocio(RequestFactory().get('/'))
+        self.assertIn('modulos_efectivos', ctx)
+        self.assertIn('ecf', ctx['modulos_efectivos'])
