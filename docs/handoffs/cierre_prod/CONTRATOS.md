@@ -11,7 +11,7 @@ las pruebas consumidoras.
 
 | Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | PENDIENTE A02 | SHA del handoff A00 |
+| CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA** | `cd8a3b4` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | PENDIENTE A03 | SHA del handoff A00 |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
 | CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
@@ -53,6 +53,12 @@ registrar_mutacion(
     idempotencia_key=None, metadata=None, error=None, using,
 ) -> Auditoria
 ```
+
+Los códigos nuevos de `accion` usan tres o más segmentos en minúscula
+(`dominio.recurso.operacion`) y caracteres `[a-z0-9_]`; por ejemplo,
+`configuracion.sucursal.actualizada`. El productor conserva el código después
+de publicarlo. Los valores mayúsculos de `Auditoria.TipoAccion` son solo
+compatibilidad legacy y no se usan en productores CT-01 nuevos.
 
 `using` es obligatorio. Para una entidad persistida debe coincidir con
 `entidad._state.db`; para eventos de control-plane debe ser `default`. A02 puede
@@ -127,6 +133,10 @@ migración A02 rellena solo datos derivables sin inventar tenant/sucursal/actor.
 - Redacción adversarial en diccionarios/listas anidados y excepciones.
 - Logout cierra sesión aunque el writer falle.
 - Consulta scoped de 90 días usa índices y no cruza sucursales/tenants.
+
+Implementación y pruebas focales publicadas en
+[`A02-CT01-temprano.md`](A02-CT01-temprano.md). La prueba PostgreSQL con dos BDs
+tenant físicas se entrega con TEN-016 al cierre de A02.
 
 ## CT-02 — permisos y capacidades
 
