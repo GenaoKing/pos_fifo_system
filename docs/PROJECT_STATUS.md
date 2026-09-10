@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-09** (inventario de docs, conteo de tests, mapas de
-agentes, cierre de notificaciones y estado de despliegue contrastados contra
-el repo).
+Ultima revision: **2026-09-10** (A00 del cierre: ramas/worktrees, inventario de
+hallazgos, imágenes cloud y contratos CT-01/02 contrastados; sin despliegue ni
+consulta de datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -43,8 +43,10 @@ El [plan conjunto Codex / Claude](PLAN_CIERRE_PROD.md) define el alcance de cier
 propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
-[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **plan preparado; ejecucion y gates
-pendientes**. No autoriza despliegues. Sus decisiones de alcance prevalecen sobre
+[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **A00 integrado localmente;
+A01/C01 desbloqueados; G1-G4 pendientes**. Inventario y contratos:
+[`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
+Sus decisiones de alcance prevalecen sobre
 recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 
 ## Resumen ejecutivo
