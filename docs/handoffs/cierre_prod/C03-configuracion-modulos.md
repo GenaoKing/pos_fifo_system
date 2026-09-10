@@ -1,0 +1,307 @@
+# Handoff C03 — Configuración y módulos vendibles (entrega parcial 1)
+
+Estado: **PARCIAL.** Esta entrega cierra 9 hallazgos self-contained de
+`apps/suscripciones` y `apps/configuracion` (sin migraciones, sin tocar archivos
+de Codex, sin depender de CT-01/CT-02 implementados) y **propone CT-03** para
+desbloquear el resto. Los hallazgos que exigen el resolutor único (CFG-009 /
+SUS-007), auditoría CT-01 (CFG-017 / SUS-015), enforcement CT-02 (SUS-006) o
+tocan `apps/tenancy` (SUS-014) quedan explícitamente para entregas siguientes —
+no se simulan como hechos. Fecha: **2026-09-10**.
+Agente: B / Claude. Encargo:
+[CIERRE_PROD_CLAUDE.md](../../planes/CIERRE_PROD_CLAUDE.md#c03--configuración-y-módulos-vendibles).
+
+## SHA base / resultado
+
+- Base consumida: tip de `claude/cierre-prod-C02` (`45e0f73`), worktree
+  `C:/Proyectos/pos_fifo_system_cierre_claude`, rama nueva
+  `claude/cierre-prod-C03`.
+- Commits de esta entrega, en orden:
+  - `d968e3f` — suscripciones: fail-closed baja, deny key desconocida, check catálogo.
+  - `1ca1688` — suscripciones: bootstrap preserva por sucursal, adopta legacy, atómico.
+  - `fe5c8de` — configuración: diagnóstico fiel y comando sin objetivo ambiguo.
+- **No publicado a `origin`** ni fusionado a `develop` (mismo criterio que C01/C02:
+  cada bloque cierra en su rama secuencial; la integración a `develop` se decide
+  en un checkpoint mayor con el usuario/Codex). Working tree limpio al cierre.
+
+## Qué cubre esta entrega
+
+Punto 1 del encargo ("cerrar todos los hallazgos CFG/SUS vigentes... no solo los
+de dotenv") para los hallazgos que se pueden cerrar **sin** el resolutor único,
+sin auditoría CT-01 y sin enforcement CT-02, dentro de las dos apps propias.
+
+### apps/suscripciones — commit `d968e3f`
+
+- **SUS-010 (P1, "el más peligroso")** — `engine._datos_bloqueantes` tragaba
+  cualquier excepción del hook de datos en vuelo y devolvía `None`
+  ("no hay datos pendientes"), así que un fallo de infra (tabla indisponible,
+  error de esquema) **autorizaba** la baja de un módulo. Ahora falla cerrado:
+  loguea y devuelve un motivo bloqueante. Un hook que no puede *demostrar* que
+  no hay trabajo en vuelo no habilita apagar nada.
+- **SUS-018 (P3)** — `modulo_activo(key, negocio=None)` devolvía `True` para
+  cualquier string en el camino fail-open; una `key` fuera del registro (typo en
+  un gate nuevo) se colaba invisible y sin log. Ahora una key desconocida
+  **deniega y avisa**; el fail-open queda solo para keys reales del catálogo.
+- **SUS-012 (P2)** — nuevo `apps/suscripciones/checks.py` (system checks,
+  registrados en `apps.py`): falla si el registro en código es inconsistente
+  (keys duplicadas → E001, dependencia colgada → E002, ciclo → E003) o si el
+  espejo DB `Modulo` diverge del registro (fantasma en DB → E004; falta sembrar →
+  W001; `core` divergente → W002). El drift silencioso (un plan que promete un
+  módulo que runtime no reconoce) pasa a ser un fallo con diff accionable.
+
+### apps/suscripciones — commit `1ca1688` (onboarding)
+
+- **SUS-008 (P1)** — el bootstrap derivaba el set como UNIÓN de las sucursales,
+  así que una sucursal con e-CF=False quedaba con e-CF encendido si otra lo tenía
+  en True. Ahora, en la misma transacción, crea un override negativo por sucursal
+  (`SucursalModuloOverride activo=False`) para conservar cada estado previo bit
+  por bit.
+- **SUS-009 (P1)** — la derivación filtraba `sucursal__negocio` e ignoraba en
+  silencio las configuraciones legacy con `sucursal=NULL`. Ahora se adoptan
+  cuando hay un único negocio (atribución inequívoca) y se aborta con
+  `BootstrapAmbiguo` —sin escribir nada— cuando hay varias/ninguna.
+- **SUS-016 (P2, parcial)** — `seed.bootstrap` corre dentro de
+  `transaction.atomic()` y devuelve un dict-resumen; el comando
+  `bootstrap_suscripciones` agrega `--dry-run` (simula y revierte) e informa el
+  resumen. Falta la parte de "checkpoint reanudable por flota"; para una sola
+  instalación (RP/SK) la atomicidad + dry-run alcanza.
+
+> **La firma de `seed.bootstrap` NO cambió.** `SucursalModuloOverride` se
+> resuelve desde `NegocioModuloModel._meta.apps.get_model(...)` — el registro de
+> apps del llamador — así que funciona tanto con los modelos históricos de una
+> migración como en runtime, y **los llamadores de `apps/tenancy` no se tocan**.
+> Ver "Dependencias del otro agente".
+
+### apps/configuracion — commit `fe5c8de` (diagnóstico y comandos)
+
+- **CFG-013 (P2)** — `verificar_instalacion` en modo legacy devolvía SIEMPRE
+  `apagados=[]` sin mirar los flags; podía certificar "sano" con
+  `impresion_termica` apagada. Ahora enumera el mismo conjunto que
+  `modulo_activo()` y marca `roto` si `impresion_termica` quedó apagada.
+- **CFG-014 (P2)** — el diagnóstico mostraba `ConfiguracionNegocio.objects.first()`
+  (podía ser la de OTRA sucursal) y terminaba en 0 aunque hubiera problemas.
+  Ahora reporta la config de la sucursal resuelta (con `pk` y binding) y agrega
+  `--strict` para terminar distinto de cero (gate de despliegue).
+- **CFG-015 (P2)** — `crear_config_inicial` sin `--sucursal` tomaba `.first()` y
+  la pisaba aunque estuviera ligada a una sucursal. Ahora aborta si existen
+  configs ligadas (pide `--sucursal` y lista los códigos), y el modo legacy opera
+  solo sobre la fila `sucursal=NULL`, fallando si hay más de una.
+
+## Pruebas
+
+```
+python manage.py test apps.suscripciones apps.configuracion \
+  apps.tenancy.tests.test_models_and_commands apps.tenancy.tests.test_auditoria_tenancy \
+  apps.api.tests.test_suscripciones_admin apps.api.tests.test_modulo_gating \
+  --settings=config.settings_development
+# apps.suscripciones: 56 OK (16 nuevos: SUS-008/009/010/012/016/018).
+# apps.configuracion: 96 OK (incluye test_crear_config_inicial nuevo y
+#   regresiones CFG-013/014 en test_verificar_instalacion).
+# tenancy + api gating (llamadores/consumidores): 57 OK, cero regresiones.
+```
+
+`manage.py check --settings=config.settings_development` → sin issues (los nuevos
+system checks pasan contra la BD real). `makemigrations configuracion suscripciones
+--check` → sin cambios.
+
+## Archivos
+
+- `apps/suscripciones/engine.py` (SUS-010, SUS-018)
+- `apps/suscripciones/checks.py` (nuevo — SUS-012)
+- `apps/suscripciones/apps.py` (registra los checks)
+- `apps/suscripciones/seed.py` (SUS-008, SUS-009, SUS-016)
+- `apps/suscripciones/management/commands/bootstrap_suscripciones.py` (--dry-run/resumen)
+- `apps/suscripciones/tests/test_auditoria_suscripciones.py` (regresiones)
+- `apps/suscripciones/AGENTS.md` (invariantes + fecha)
+- `apps/configuracion/management/commands/verificar_instalacion.py` (CFG-013/014)
+- `apps/configuracion/management/commands/crear_config_inicial.py` (CFG-015)
+- `apps/configuracion/tests/test_verificar_instalacion.py` (regresiones + un test
+  actualizado al contrato correcto de CFG-013)
+- `apps/configuracion/tests/test_crear_config_inicial.py` (nuevo — CFG-015)
+- `apps/configuracion/AGENTS.md` (invariantes + fecha)
+- Este handoff.
+
+## Migraciones / BDs
+
+Ninguna. Todo es lógica, comandos, checks y tests.
+
+---
+
+## Propuesta de contrato CT-03 — configuración/capacidades efectivas
+
+Cumple el punto 2 del encargo ("publicar un único resolutor efectivo consumible
+por UI, API, servicios y sync") y desbloquea CFG-009 y SUS-007. Se propone; A
+integra `config/**`, routers/settings y `apps/sync`.
+
+### Alcance: dos resolutores, una regla cada uno
+
+CT-03 cubre **dos** verdades efectivas distintas, hoy ya implementadas en las
+apps de C03, que este contrato fija para que UI/API/servicio/sync consuman lo
+mismo:
+
+**(A) Configuración efectiva de la sucursal** — identidad fiscal, medios de pago,
+parámetros operativos. Resolutor: `apps.configuracion.utils`:
+
+- `get_config()` → la `ConfiguracionNegocio` de la sucursal del proceso
+  (`SUCURSAL_CODIGO`), cacheada con clave `config_negocio:<tenant>:<sufijo>`
+  (namespace de tenant, CFG-001), TTL 30 s local / 600 s compartido (CFG-005),
+  fail-loud sin tenant activo bajo tenancy.
+- `config_de_sucursal(sucursal)` / `config_para_documento(sucursal)` → la de
+  una sucursal concreta (COM-001), sin mirar `SUCURSAL_CODIGO`.
+- Precedencia de settings (ya fijada por A00/A01, se hereda tal cual): variables
+  de proceso > `POS_ENV_FILE` > defaults; `load_dotenv(override=False)`.
+- **Leer no crea configuración** — es la regla que falta cerrar (CFG-012): hoy
+  `load()` hace `get_or_create` y el context processor lo llama en cada template.
+  CT-03 fija que `get_config()`/render/GET no cambian conteo ni timestamps.
+
+**(B) Capacidades efectivas (módulos) del negocio/sucursal** — resolutor:
+`apps.suscripciones.engine`:
+
+```python
+modulos_activos(negocio, sucursal=None) -> set[str]
+modulo_activo(key, negocio=None, sucursal=None) -> bool
+estado_suscripcion(negocio) -> {SIN_APROVISIONAR|SUSPENDIDA|CON_PLAN|CUSTOM}
+```
+
+- Regla: `cierre( plan.modulos ∪ incluidos − excluidos ) ∪ core − {overrides
+  sucursal apagados}`. Estados explícitos (SUS-001). Key desconocida deniega
+  (SUS-018). Fail-open comercial solo sin negocio ni SIN_APROVISIONAR.
+- BD como verdad + memo por request; cache con versión + namespace tenant (SUS-002);
+  convergencia entre workers dentro del TTL (SUS-003).
+
+### Lo que falta para "una sola verdad" (CFG-009 / SUS-007)
+
+Hoy **templates y sync leen `ConfiguracionNegocio.modulo_*` (flags legacy)**,
+mientras servicios y decoradores leen el engine. Propuesta:
+
+1. **Context processor de capacidades** (C, `apps/configuracion`): junto a
+   `config`, inyectar `modulos_efectivos` = `set` de keys activas para la
+   sucursal actual, calculado por el engine. `templates/base.html` y
+   `templates/pos/*` pasan a preguntar por `modulos_efectivos` en vez de
+   `config.modulo_*`. (C-owned; no hay RBAC/entitlement paralelo en JS.)
+2. **Payload `/auth/perfil/`** (CT-02, A): el envelope `rbac.modules` ya es el
+   canal; C entrega el set del engine, A lo cablea al endpoint.
+3. **Pull de sync** (`apps/api/views/sync.py`, `apps/sync/engine.py` — **A/Codex**):
+   hoy serializa los flags legacy `modulo_*`. Se solicita a Codex migrar el pull
+   a un snapshot efectivo por sucursal (o marcar los flags legacy como derivados
+   del engine). C entrega el helper y los casos; A edita esos archivos.
+
+### Fixture / errores / revisión
+
+- Fixture canónico propuesto: `fixtures/ct03_capacidades_efectivas_v1.json`
+  (negocio con plan + un override negativo de sucursal → set esperado por
+  sucursal). C lo propone como `C03-*`; A lo integra a un solo SHA canónico.
+- Errores: `TenantContextError` (config/módulos sin tenant activo bajo tenancy),
+  `ConfiguracionNoResuelta` (código no resuelve con >1 config).
+- Revisión: `capabilities.v1`; cambiar la regla exige repetir las pruebas
+  consumidoras (matriz permisos × módulos × suspensión × sucursal del encargo).
+
+---
+
+## Deltas propuestos a documentos que edita Codex
+
+**`docs/TODO_AUDITORIAS.md`** — mover a corregido: **SUS-008, SUS-009, SUS-010,
+SUS-012, SUS-016 (parcial), SUS-018, CFG-013, CFG-014, CFG-015**. Siguen
+abiertos: SUS-006, SUS-007, SUS-011, SUS-013, SUS-014, SUS-015, SUS-017, SUS-019;
+CFG-006, CFG-009, CFG-010, CFG-011, CFG-012, CFG-017, CFG-018, CFG-019, CFG-020,
+CFG-021. (CFG-016 es de C01; CFG-018/COM-* de C02.)
+
+**`docs/ESTADO_AUDITORIAS.md`** — registrar: C03 cerró el batch de engine/onboarding
+de suscripciones y de diagnóstico/comandos de configuración; **sin migraciones
+nuevas**; **cambio de conducta a revisar antes de desplegar** (ver Riesgos);
+CT-03 propuesto en este handoff, pendiente de integrar por A.
+
+**`docs/PROJECT_STATUS.md`** — donde lista el avance del cierre, agregar:
+"C03 iniciado (suscripciones engine/onboarding y configuración diagnóstico
+cerrados; resolutor único CT-03 propuesto, enforcement/auditoría pendientes)".
+
+**`docs/BUGS.md`** — sin bug vivo nuevo; SUS-010 (fail-open de integridad) queda
+documentado como cerrado.
+
+**Snapshots de auditoría** (`AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`,
+`_CONFIGURACION.md`) — históricos, no se editan; la fuente de verdad pasa a ser
+este handoff + los `AGENTS.md` (ya actualizados) + el código.
+
+## Dependencias del otro agente
+
+- **`seed.bootstrap` cambió de conducta (no de firma).** Ahora (a) crea overrides
+  negativos por sucursal (SUS-008) y (b) aborta con `BootstrapAmbiguo` si hay
+  filas legacy `sucursal=NULL` y ≠1 negocio (SUS-009). Sus llamadores
+  `apps/tenancy/management/commands/bootstrap_tenant.py` y
+  `normalizar_import_tenant.py` (Codex) **no se editaron**. En una BD por tenant
+  hay exactamente 1 negocio, así que el aborto no dispara y la adopción es la
+  correcta; aun así **Codex debería re-correr sus tests de provisión de tenant**
+  con este seed (sus 57 tests de tenancy/api pasan localmente, ver Pruebas).
+- **CT-01 (auditoría)**: `registrar_mutacion` sigue `PENDIENTE A02`. CFG-017 y
+  SUS-015 (auditoría de cambios de config/comerciales) quedan a la espera de ese
+  commit; los puntos de enganche son las mutaciones del Admin/serializers/comandos.
+- **CT-02 (permisos)**: confirmar si A03 ya implementó el envelope de capacidades;
+  condiciona SUS-006 (enforcement HTML) y el payload `/auth/perfil/` de CT-03(B).
+- **Sync (Codex)**: la parte de SUS-007 que toca `apps/api/views/sync.py` y
+  `apps/sync/engine.py` (pull de flags legacy) se solicita a Codex; C entrega
+  helper + casos.
+
+## Pendientes explícitos del encargo C03, NO cubiertos en esta entrega
+
+1. **CFG-009 / SUS-007** — resolutor único de capacidades consumido por templates
+   y sync. Diseño en CT-03 (arriba); implementación C (context processor +
+   templates) + solicitud a Codex (sync). Es el punto 2 del encargo y el corazón
+   de la tabla de aceptación.
+2. **CFG-006** — validación cruzada de `ConfiguracionNegocio` (al menos un medio
+   de pago, e-CF exige emisor, rango de ITBIS). Vía `clean()` sin migración;
+   constraints DB sólo con preflight de datos existentes (RP/SK pueden violarlas).
+3. **CFG-010** — `AccesoRapidoPOS` sin ámbito de sucursal/negocio ni constraints
+   (requiere migración; el consumidor `apps/ventas/views.py` es de C05, coordinar).
+4. **CFG-011** — protección de borrado real (delete del modelo + QuerySet). Cambia
+   semántica de borrado; verificar que teardown de tenant/tests no borren configs.
+5. **CFG-012** — leer no crea configuración (separar `get` de `bootstrap`; toca el
+   context processor —C— y el GET de sync —Codex—; cuidado: render de login/error).
+6. **CFG-017 / SUS-015** — auditoría de dominio (espera CT-01).
+7. **SUS-006** — enforcement de módulo en vistas HTML de CxC y reportes on-demand
+   (apps de dominio C05; coordinar; capa adicional al permiso).
+8. **SUS-011** — señales `on_commit`. Necesita el patrón memo-local/`on_commit` de
+   permisos (con `TransactionTestCase` o memo de request) para no romper la
+   invalidación síncrona que esperan los tests actuales; se dejó fuera del batch 1
+   a propósito.
+9. **SUS-013** — semántica de `Plan.activo` / estados de override (modelos +
+   serializer de `apps/api/views/suscripciones.py` — "sus APIs específicas").
+10. **SUS-014** — divergencia `Tenant.plan_slug` vs plan operativo
+    (`bootstrap_tenant` es de Codex; C entrega validación, A la cablea).
+11. **SUS-017** — presets versionados (el sync de planes default no restaura).
+12. **CFG-018/019/020/021 · SUS-019** — lifecycle de logo, superficies muertas,
+    gramática de barcode, y ampliar la matriz de tests (multi-worker/scope).
+13. **OPS-SUS-001, OPS-CFG-002, OPS-CFG-003, OPS-COM-001** — preflight de solo
+    lectura por instalación y asignación de `configuracion.administrar`; se cierran
+    en C06/visita, no por un mock.
+14. Pendiente heredado de C02 (#6 de su handoff): `ConfiguracionNegocio.logo` sin
+    validator de tamaño/formato **al subir** — candidato natural con CFG-006/018,
+    reusando `utils.imagenes.validar_imagen_subida`/`TAMANO_MAX_BYTES`.
+
+## Riesgos y rollback
+
+- **Cambio de conducta a comunicar antes de desplegar (SUS-008/009):** al correr
+  `bootstrap_suscripciones` sobre una instalación multi-sucursal ya existente,
+  ahora se crean overrides negativos por sucursal — una sucursal que "heredaba"
+  un módulo por la unión dejará de tenerlo si su flag estaba en False. Es lo
+  correcto (preserva la conducta real previa), pero conviene un `--dry-run`
+  antes. Y si hay una config legacy `sucursal=NULL` con varios negocios, el
+  comando ahora **aborta** en vez de ignorarla: hay que asignarle sucursal.
+- **SUS-010 fail-closed:** si un hook de datos bloqueantes falla por infra, una
+  baja de módulo ahora se rechaza (antes se permitía). Correcto, pero un fallo de
+  BD intermitente puede bloquear una operación administrativa legítima; el log
+  dice la causa real (infra, no permiso).
+- **CFG-014 `--strict`:** sólo cambia el exit code cuando se pasa el flag; sin él,
+  la conducta es la de antes. Los scripts de deploy deberían adoptarlo como gate.
+- Rollback: `git revert` de los tres commits; sin estado persistente ni migración.
+
+## Siguiente tarea desbloqueada
+
+Sobre este mismo worktree y rama `claude/cierre-prod-C03`. Orden sugerido para la
+próxima sesión (independientes primero, coordinados después):
+
+1. **CFG-006 + CFG-011** (validación cruzada + borrado protegido) — self-contained
+   en `apps/configuracion/models.py`, verificando que nada borre configs.
+2. **SUS-013** (semántica de estados de plan/override) + su serializer.
+3. **CFG-009 / SUS-007** — implementar el context processor de `modulos_efectivos`
+   y migrar `templates/base.html`/`pos/*`; solicitar a Codex la parte de sync.
+   Es el entregable central (CT-03(B)); requiere que A publique/valide CT-03.
+4. Con CT-01 real: CFG-017 / SUS-015. Con CT-02 real: SUS-006.
