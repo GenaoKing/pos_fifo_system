@@ -12,6 +12,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.checks import run_checks
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
@@ -38,7 +39,13 @@ def _desregistrar_alias(prefijo='tnt_'):
     from django.conf import settings
     from django.db import connections
 
-    for alias in [a for a in list(connections.databases) if a.startswith(prefijo)]:
+    for alias in [
+        a for a in list(connections.databases)
+        if a.startswith(prefijo)
+        and not connections.databases[a].get('TEST', {}).get(
+            'TENANT_ISOLATION_GATE', False,
+        )
+    ]:
         connections.databases.pop(alias, None)
         settings.DATABASES.pop(alias, None)
         contenedor = getattr(connections, '_connections', None)
@@ -59,17 +66,14 @@ class InvariantesDeIdentidadTests(TestCase):
         resolvian exactamente `shared/productos/item.jpg`. Un upload
         sobrescribia el blob del otro negocio.
         """
-        Tenant.objects.create(
-            tenant_key='uno', slug='uno', nombre='Uno',
-            db_name='tnt_uno', media_prefix='shared/',
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Tenant.objects.create(
-                    tenant_key='dos', slug='dos', nombre='Dos',
-                    db_name='tnt_dos', media_prefix='shared/',
-                )
+        with self.assertRaisesMessage(
+            ValidationError,
+            'media_prefix debe derivarse exactamente de tenant_key',
+        ):
+            Tenant.objects.create(
+                tenant_key='uno', slug='uno', nombre='Uno',
+                db_name='tnt_uno', media_prefix='shared/',
+            )
 
     def test_un_media_prefix_vacio_cae_al_default_del_key(self):
         """Un prefijo vacio degradaba las rutas a globales."""
@@ -161,7 +165,7 @@ class RegistryTests(TestCase):
             self.assertEqual(get_current_tenant_key(), 'provisionando')
             self.assertEqual(get_current_tenant_alias(), 'tnt_provisionando')
 
-    def test_cambiar_db_name_descarta_la_conexion_cacheada(self):
+    def test_db_name_no_se_puede_reapuntar_en_runtime(self):
         """
         La reproduccion de la auditoria: se configuraba `tenant_old`, se
         materializaba su wrapper, se cambiaba `db_name` y se reconfiguraba. El
@@ -173,21 +177,21 @@ class RegistryTests(TestCase):
         from apps.tenancy.registry import configure_tenant_database
 
         tenant = Tenant.objects.create(
-            tenant_key='rot', slug='rot', nombre='Rot', db_name='tnt_old',
+            tenant_key='rot', slug='rot', nombre='Rot', db_name='tnt_rot',
         )
         _, alias = configure_tenant_database(tenant)
 
         # Materializa el wrapper (sin conectar).
         wrapper = connections[alias]
-        self.assertEqual(wrapper.settings_dict['NAME'], 'tnt_old')
+        self.assertEqual(wrapper.settings_dict['NAME'], 'tnt_rot')
 
         tenant.db_name = 'tnt_new'
-        tenant.save(update_fields=['db_name'])
-        configure_tenant_database(tenant)
+        with self.assertRaisesMessage(ValidationError, 'routing inmutable'):
+            tenant.save(update_fields=['db_name'])
 
-        # El wrapper viejo quedo descartado: el proximo acceso crea uno nuevo
-        # con la configuracion actual.
-        self.assertEqual(connections[alias].settings_dict['NAME'], 'tnt_new')
+        # El wrapper nunca cambia de destino porque la identidad no se pudo
+        # mutar. Un reapuntamiento requiere una migracion controlada.
+        self.assertEqual(connections[alias].settings_dict['NAME'], 'tnt_rot')
 
     def test_el_admin_congela_la_identidad_de_routing(self):
         from django.contrib import admin as django_admin

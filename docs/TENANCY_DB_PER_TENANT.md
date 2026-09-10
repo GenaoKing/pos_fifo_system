@@ -259,6 +259,8 @@ python manage.py bootstrap_tenant \
     --nombre "Royal Plast EIRL" \
     --rnc ... \
     --admin-email dueno@royalplast.com \
+    --admin-password '<secreto POS local>' \
+    --identity-password '<secreto portal distinto>' \
     --sucursal-codigo 01 \
     --plan empresarial \
     [--dry-run]
@@ -286,13 +288,16 @@ queda **encadenado en orden** dentro de este comando, no suelto.
 También falla si `--slug` explícito ya pertenece a otro tenant o si
 `--admin-email` ya tiene una membership activa en otro tenant. Si el slug se
 omite, se genera uno único de forma idempotente.
+Las dos contraseñas son puertas independientes y no pueden coincidir. Un rerun
+no cambia ninguna; para rotar se usan `--rotar-admin-password` y
+`--rotar-identity-password` por separado.
 
 ---
 
 ## 7. Media y storage
 
 - **Un** Storage Account por ambiente, **un** container público, **prefijo por
-  `tenant_key` estable** (no por slug, que puede cambiar):
+  `tenant_key` estable** (no por el nombre comercial; key y slug son identidad):
 
 ```text
 media-public/

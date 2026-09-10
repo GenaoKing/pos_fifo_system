@@ -21,7 +21,7 @@ AUD-015  `int(request.GET.get('pagina', 1))` con un valor no numerico levantaba
          `ValueError` y devolvia 500.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -33,6 +33,8 @@ from django.utils import timezone
 from apps.usuarios.models import Usuario
 
 from .models import Auditoria
+from .productores import opciones_legacy_para_visor
+from .services import evento_transportable
 from .scope import alcance_de
 
 logger = logging.getLogger('auditoria')
@@ -79,10 +81,7 @@ def dashboard_auditoria(request):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
 
-    tipos_accion = [
-        {'value': choice[0], 'label': choice[1]}
-        for choice in Auditoria.TipoAccion.choices
-    ]
+    tipos_accion = opciones_legacy_para_visor()
 
     niveles = [
         {'value': choice[0], 'label': choice[1]}
@@ -178,10 +177,17 @@ def api_auditoria_buscar(request):
         qs = qs.filter(nivel_importancia=nivel)
     if usuario_id:
         qs = qs.filter(usuario_id=usuario_id)
+    # Rangos sobre la columna, no `fecha_hora__date`: la transformacion DATE
+    # impedia aprovechar los indices en una consulta de 90 dias.
+    zona = timezone.get_current_timezone()
     if fecha_desde:
-        qs = qs.filter(fecha_hora__date__gte=fecha_desde)
+        inicio = timezone.make_aware(datetime.combine(fecha_desde, time.min), zona)
+        qs = qs.filter(fecha_hora__gte=inicio)
     if fecha_hasta:
-        qs = qs.filter(fecha_hora__date__lte=fecha_hasta)
+        fin = timezone.make_aware(
+            datetime.combine(fecha_hasta + timedelta(days=1), time.min), zona,
+        )
+        qs = qs.filter(fecha_hora__lt=fin)
     if busqueda:
         qs = qs.filter(descripcion__icontains=busqueda)
     if solo_errores:
@@ -204,6 +210,11 @@ def api_auditoria_buscar(request):
         'exito': r.exito,
         'ip_address': r.ip_address or '',
         'sucursal': r.sucursal.nombre if r.sucursal_id else None,
+        # Detalle forense ya redactado y acotado por el mismo queryset. El
+        # investigador no necesita entrar a Django Admin para reconstruir el
+        # actor, el objeto, el diff, el resultado y la correlacion (AUD-019).
+        'evento': evento_transportable(r),
+        'user_agent': r.user_agent,
     } for r in page.object_list]
 
     return JsonResponse({

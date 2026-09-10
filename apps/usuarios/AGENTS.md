@@ -1,6 +1,6 @@
 # apps/usuarios — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -20,8 +20,11 @@ Login/logout del POS local y el gate de Django Admin en cloud.
 | Rol legacy | `Usuario.es_admin` / `es_sysadmin` / `es_cajera`; `ROLES` |
 | Login / logout del POS | `views.login_view` (`/login/`), `views.logout_view` (`/logout/`) |
 | Freno de fuerza bruta | `throttling.LimiteLogin` (ráfaga + sostenida, clave IP+username, USR-006) |
-| Django Admin | `admin_site.PosAdminSite` — bajo tenancy exige identidad **global** del control plane (USR-002) |
-| Crear usuarios | `UsuarioManager.create_user` / `create_superuser`; admin inicial desde `INITIAL_SYSADMIN_*` |
+| Django Admin | Solo local: `admin_site.PosAdminSite`; `/admin/` no se monta en cloud |
+| Provisionar usuario operativo | `services.provisionar_usuario(...)` o `manage.py provisionar_usuario_tenant`; crea credencial local + RBAC + CT-01 en una transacción tenant |
+| Actualizar/desactivar usuario | `services.actualizar_usuario(...)`; exige actor autorizado, motivo y CT-01 |
+| Crear principal humano en código | `UsuarioManager.create_human_user`; valida credencial y pertenencia |
+| Crear cuenta de servicio | `UsuarioManager.create_service_user`; contraseña no utilizable |
 
 ## Invariantes / trampas
 
@@ -34,6 +37,12 @@ Login/logout del POS local y el gate de Django Admin en cloud.
 - `Usuario.negocio` es `PROTECT` (`usuarios.0004`). App **dual-home** en el
   router: vive en la base tenant, y `token_blacklist` la sigue por FK.
 - En cloud, el portal autentica `Identity` + `Membership` (`apps/tenancy`), no
-  este modelo directamente.
+  este modelo directamente. La clave de `Identity` y la de `Usuario` son
+  credenciales separadas; nunca se copian ni sincronizan en claro.
+- Las sesiones local y JWT tienen un máximo absoluto de 12 horas, además de su
+  expiración deslizante o por token. `last_login` y `ultimo_acceso` se actualizan
+  juntos en los logins soportados.
+- La creación directa desde Django Admin está cerrada: el alta soportada usa el
+  servicio/comando anterior para no separar usuario, RBAC y auditoría.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md`) —
   **snapshot histórico**, verificar contra código.

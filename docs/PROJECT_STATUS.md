@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-09** (inventario de docs, conteo de tests, mapas de
-agentes, cierre de notificaciones y estado de despliegue contrastados contra
-el repo).
+Ultima revision: **2026-09-10** (A00-A02 del cierre: base aislada, baseline
+reproducible, CT-01 implementado y auditoria/identidad/tenancy cerradas en
+codigo; CT-02 sigue A03; sin despliegue ni consulta de datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -43,8 +43,12 @@ El [plan conjunto Codex / Claude](PLAN_CIERRE_PROD.md) define el alcance de cier
 propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
-[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **plan preparado; ejecucion y gates
-pendientes**. No autoriza despliegues. Sus decisiones de alcance prevalecen sobre
+[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **A00-A02 integrados en el
+`develop` local; C01 desbloqueado;
+A03/CT-02 y G1-G4 pendientes**. Inventario,
+contratos y handoffs:
+[`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
+Sus decisiones de alcance prevalecen sobre
 recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 
 ## Resumen ejecutivo
@@ -62,7 +66,7 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Convenciones activas | `TESTING.md` | CI del PR #23: 1.167 pruebas Django + 72 de facturación verdes (2026-09-09). Subir cobertura critica cloud/RBAC/sync. |
+| Testing | Baseline Django 5.2.17 validado localmente | `TESTING.md` | A01: 1.173 pruebas Django + 72 de facturación verdes en Windows 3.11; repetición Linux 3.12.14 registrada en su handoff. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos, mitigados | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | **2 bloqueantes de seguridad abiertos**: PER-006 (mover una asignacion no revoca la anterior en el POS local) y PER-007 (borrar un rol custom no se propaga). Los snapshots por modulo viven en `docs/exploracion/` y son historicos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
@@ -173,20 +177,22 @@ Frontera actual:
 
 Fuente viva: `TESTING.md`.
 
-Estado (2026-09-09):
+Estado (2026-09-10):
 
-- **1.226 metodos de test en 101 archivos.** La unica app sin ningun archivo de
+- **1.232 metodos de test en 102 archivos.** La unica app sin ningun archivo de
   test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
   Con un solo archivo, y por lo tanto candidatas a reforzar:
   `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
-- Última corrida completa medida: **1.167 pruebas Django verdes en 438 s** y
-  **72 pruebas pytest de facturación verdes en 20 s** (GitHub Actions del PR
-  #23, 2026-09-09). El conteo estático de métodos no es directamente
-  comparable con casos parametrizados y descubrimiento del runner.
+- Última corrida completa Windows 3.11/Django 5.2.17: **1.173 pruebas Django
+  verdes en 426 s** y **72 pruebas pytest de facturación verdes en 18 s**
+  (A01, 2026-09-10). La repetición Linux 3.12 vive en el handoff A01. El conteo
+  estático de métodos no es directamente comparable con casos parametrizados y
+  descubrimiento del runner.
 - `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->
   `testpaths`), no con `manage.py test`.
-- Para este repo, el interprete probado historicamente es
-  `C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe`.
+- Baseline: CPython 3.11.14 x64 en Windows y CPython 3.12.14 en cloud/CI. Los locks
+  y comandos reproducibles están en `requirements/README.md`; no actualizar el
+  conda compartido en sitio.
 - `--parallel` da ruido falso en Windows: medir en serial.
 
 Siguiente foco:
@@ -345,9 +351,9 @@ dev) estan **hechos**: staging existe con su backend remoto, el frontend dev y
 staging estan publicados en Azure Static Web Apps, y el backend completo se
 promovio a staging el 2026-09-08.
 
-1. **Preparar trabajo paralelo seguro (A00/G0):** base comun, inventario de
-   hallazgos vigentes y worktrees/BDs separados, preservando los `tfvars` del
-   worktree de staging. Seguir el [plan activo](PLAN_CIERRE_PROD.md).
+1. **Consumir el baseline A01 sin mezclar entornos:** Claude/C01 usa su worktree,
+   venv/BD/puertos propios y los locks publicados; las suites tenant siguen en
+   serial hasta TEN-016. Seguir el [plan activo](PLAN_CIERRE_PROD.md).
 2. **Cerrar bugs y deuda del alcance en develop:** Codex lleva nucleo, RBAC,
    auditoria, sync y maestros; Claude lleva Windows/dotenv, documentos,
    configuracion/modulos, operacion comercial y portal. PER-006/007 siguen

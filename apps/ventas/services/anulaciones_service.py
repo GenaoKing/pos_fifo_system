@@ -132,6 +132,7 @@ def anular_venta_service(
 
         _devolver_stock_fifo(venta=venta, usuario=usuario)
 
+        estado_anterior = venta.estado
         venta.estado = 'ANULADA'
         venta.motivo_anulacion = motivo
         venta.anulada_por = usuario
@@ -153,6 +154,7 @@ def anular_venta_service(
             usuario=usuario,
             motivo=motivo,
             ip_address=ip_address,
+            estado_anterior=estado_anterior,
         )
 
         # Outbox transaccional: atomico con la anulacion.

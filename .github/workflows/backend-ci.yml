@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.12.14"
   DJANGO_SETTINGS_MODULE: config.settings_cloud
   IMAGE_REPOSITORY: pos-fifo-backend
 
@@ -60,6 +60,9 @@ jobs:
       DB_PORT: "5432"
       DB_SSLMODE: disable
       SECURE_SSL_REDIRECT: "false"
+      # TEN-016: namespace por ejecucion; el runner crea/destruye solo estas
+      # dos BDs fisicas y evita colisiones entre reintentos concurrentes.
+      TENANT_TEST_DB_NAMESPACE: ci_${{ github.run_id }}_${{ github.run_attempt }}
 
     services:
       postgres:
@@ -91,8 +94,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_ci.txt
+          python -m pip install --upgrade "pip==26.0.1"
+          python -m pip install --require-hashes -r requirements_ci.txt
 
       - name: Django system check
         run: python manage.py check --settings=config.settings_cloud

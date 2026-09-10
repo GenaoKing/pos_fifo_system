@@ -247,7 +247,13 @@ class InmutabilidadTests(AuditoriaTestCase):
         historial.
         """
         viejo = self._evento('Antiguo')
-        corte = timezone.now() + timedelta(days=1)
+        corte = timezone.now() - timedelta(days=90)
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'UPDATE auditoria_auditoria SET fecha_hora = %s WHERE id = %s',
+                [timezone.now() - timedelta(days=120), viejo.id],
+            )
 
         borrados = Auditoria.objects.purgar_hasta(
             corte, motivo='Retencion de 90 dias',
@@ -259,6 +265,14 @@ class InmutabilidadTests(AuditoriaTestCase):
         ).first()
         self.assertIsNotNone(rastro)
         self.assertIn('Retencion de 90 dias', rastro.descripcion)
+
+    def test_no_se_puede_purgar_la_ventana_consultable_de_90_dias(self):
+        self._evento('Reciente')
+
+        with self.assertRaisesMessage(ValueError, 'al menos 90 dias'):
+            Auditoria.objects.purgar_hasta(
+                timezone.now() - timedelta(days=89), motivo='Demasiado reciente',
+            )
 
 
 class IdentidadDelActorTests(AuditoriaTestCase):

@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -41,5 +41,7 @@ tiene modelos propios (`models.py` vacío).
 - `?desde=` es cursor keyset — ver `apps/sync/AGENTS.md`. En el cliente,
   `encodeURIComponent()`.
 - Throttling de login: `throttling.py`; paginación: `pagination.py`.
+- Todo token portal lleva `session_started_at`/`session_expires_at`; access y
+  refresh rechazan la sesión al superar el máximo absoluto de 12 horas.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

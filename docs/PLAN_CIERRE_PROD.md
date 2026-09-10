@@ -327,7 +327,7 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | Elemento | Estado | Evidencia |
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
-| Bootstrap/base común A00 | Pendiente | Registrar commit al ejecutar A00 |
-| Implementación A01–A08 / C01–C06 | Pendiente | Handoffs por bloque |
-| G0 / G1 / G2 / G3 / G4 | Pendientes | No se cierran por redactar este plan |
+| Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
+| Implementación A01–A08 / C01–C06 | **A01 validado localmente; resto pendiente** | `docs/handoffs/cierre_prod/A01-baseline-dependencias.md` y handoffs siguientes |
+| G0 / G1 / G2 / G3 / G4 | **G0 habilita C01 y A02/A03 con contención tenant documentada**; G1-G4 pendientes | Worktrees, venvs, BDs y puertos separados; suites tenant multi-DB en serial hasta TEN-016. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

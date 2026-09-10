@@ -5,6 +5,8 @@ Django settings for POS FIFO System.
 from pathlib import Path
 import os
 
+from config.env_loader import cargar_env_file
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -32,21 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # archivo**. Eso mantiene funcionando el rig de pruebas, los tests y Azure, donde
 # la configuracion llega por entorno y no por archivo.
 
-def _cargar_env_file():
-    """Carga el .env de la instalacion. Devuelve la ruta usada, o None."""
-    ruta = os.environ.get('POS_ENV_FILE') or (BASE_DIR / 'deploy' / 'env_cliente.env')
-    ruta = Path(ruta)
-    if not ruta.is_file():
-        return None
-    try:
-        from dotenv import load_dotenv
-    except ImportError:  # pragma: no cover - entorno sin la dependencia
-        return None
-    load_dotenv(ruta, override=False, encoding='utf-8')
-    return ruta
-
-
-POS_ENV_FILE_CARGADO = _cargar_env_file()
+POS_ENV_FILE_CARGADO = cargar_env_file(base_dir=BASE_DIR, environ=os.environ)
 
 
 def _env_text(name, default=''):
@@ -150,6 +138,9 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Maximo absoluto de jornada: SESSION_SAVE_EVERY_REQUEST puede renovar la
+    # inactividad, pero nunca extiende una sesion mas alla de 12 horas.
+    'apps.usuarios.middleware.SesionAbsolutaMiddleware',
     # Acota el memo de permisos a un request. Va DESPUES de Authentication
     # (necesita request.user resuelto) y ANTES de cualquier cosa que consulte
     # permisos.
@@ -283,6 +274,7 @@ LOGOUT_REDIRECT_URL = '/login/'
 SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
 SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
+SESSION_ABSOLUTE_MAX_AGE = 43200        # maximo real aunque haya actividad
 
 # =============================================================================
 # LOGGING — config básico, principalmente para módulos e-CF y ventas

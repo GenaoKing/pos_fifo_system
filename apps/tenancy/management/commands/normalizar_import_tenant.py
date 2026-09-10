@@ -1,4 +1,6 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from rest_framework.authtoken.models import Token
 
@@ -7,7 +9,8 @@ from django.db import transaction
 from apps.tenancy.context import force_tenancy, tenant_context
 from apps.tenancy.registry import configure_tenant_database, tenant_alias
 from apps.tenancy.management.base import TenantCommandMixin
-from apps.tenancy.models import Identity, Membership, SyncToken
+from apps.tenancy.models import Identity, Membership, SyncToken, Tenant
+from apps.tenancy.services import marcar_estado_provisioning
 
 
 class Command(TenantCommandMixin, BaseCommand):
@@ -23,15 +26,28 @@ class Command(TenantCommandMixin, BaseCommand):
         parser.add_argument('--admin-email', required=True, help='Email de la Identity admin.')
         parser.add_argument(
             '--admin-password',
-            help='Password inicial del admin. Obligatoria si el admin todavia no '
-                 'tiene una, o junto con --rotar-password. Sin ella, un rerun '
-                 'conserva la credencial vigente.',
+            help='Password del Usuario operativo local; solo se aplica con '
+                 '--rotar-admin-password.',
+        )
+        parser.add_argument(
+            '--identity-password',
+            help='Password independiente de la Identity portal. Obligatoria '
+                 'si la Identity no existe o se rota.',
         )
         parser.add_argument(
             '--rotar-password',
             action='store_true',
-            help='Restablece la password del admin y de la Identity. Sin este '
-                 'flag no se toca ninguna credencial existente.',
+            help='Compatibilidad: exige ambos secretos y rota ambas puertas.',
+        )
+        parser.add_argument(
+            '--rotar-admin-password',
+            action='store_true',
+            help='Rota solo la credencial del Usuario operativo local.',
+        )
+        parser.add_argument(
+            '--rotar-identity-password',
+            action='store_true',
+            help='Rota solo la credencial Identity del portal.',
         )
         parser.add_argument('--admin-username', default='', help='Username operativo admin. Default: primer ADMIN/SYSADMIN.')
         parser.add_argument('--plan', default='empresarial', help='Plan a asignar si existe.')
@@ -54,22 +70,61 @@ class Command(TenantCommandMixin, BaseCommand):
         if not admin_email:
             raise CommandError('--admin-email no puede estar vacio.')
         options['admin_email'] = admin_email
+        options['admin_username'] = options['admin_username'].strip().casefold()
+        requested_slug = options['slug'].strip().lower()
+        if requested_slug != tenant.slug:
+            raise CommandError(
+                f'El slug de routing es inmutable: el tenant usa "{tenant.slug}" '
+                f'y se solicito "{requested_slug}".'
+            )
+        options['slug'] = requested_slug
         self._validate_admin_email_available(tenant, admin_email)
 
-        # Preflight de credenciales: si hay que fijar una password y no vino,
-        # se falla ANTES de tocar nada.
+        rotar_admin_password = options['rotar_admin_password']
+        rotar_identity_password = options['rotar_identity_password']
+        if options['rotar_password']:
+            if not options.get('admin_password') or not options.get('identity_password'):
+                raise CommandError(
+                    '--rotar-password exige --admin-password e '
+                    '--identity-password; las credenciales ya no se sincronizan.'
+                )
+            rotar_admin_password = True
+            rotar_identity_password = True
+        options['rotar_admin_password'] = rotar_admin_password
+        options['rotar_identity_password'] = rotar_identity_password
+
+        # Preflight de credenciales: cada puerta se valida y rota por separado.
         identity_existente = Identity.objects.using('default').filter(
             email__iexact=admin_email,
         ).exists()
-        if options.get('rotar_password') and not options.get('admin_password'):
+        if rotar_admin_password and not options.get('admin_password'):
             raise CommandError(
-                '--rotar-password requiere --admin-password.'
+                '--rotar-admin-password requiere --admin-password.'
             )
-        if not identity_existente and not options.get('admin_password'):
+        if (
+            (rotar_identity_password or not identity_existente)
+            and not options.get('identity_password')
+        ):
             raise CommandError(
-                'La Identity admin no existe todavia: pasa --admin-password para '
-                'crearla. (Ya no hay password por defecto.)'
+                'La Identity admin requiere --identity-password independiente.'
             )
+        if (
+            options.get('admin_password') and options.get('identity_password')
+            and options['admin_password'] == options['identity_password']
+        ):
+            raise CommandError(
+                'La password local y la Identity del portal deben ser distintas.'
+            )
+        if rotar_admin_password:
+            try:
+                validate_password(options['admin_password'])
+            except ValidationError as exc:
+                raise CommandError('; '.join(exc.messages)) from exc
+        if rotar_identity_password or not identity_existente:
+            try:
+                validate_password(options['identity_password'])
+            except ValidationError as exc:
+                raise CommandError('; '.join(exc.messages)) from exc
 
         # ATOMICIDAD POR BASE. Son dos bases distintas, asi que no hay una sola
         # transaccion posible; lo que si se puede es que CADA dominio revierta
@@ -86,12 +141,28 @@ class Command(TenantCommandMixin, BaseCommand):
                 with tenant_context(tenant):
                     summary = self._normalize_tenant_db(tenant, options)
         else:
-            alias = tenant_alias(tenant.tenant_key)
-            configure_tenant_database(tenant)
-            with force_tenancy(True):
-                with tenant_context(tenant):
-                    with transaction.atomic(using=alias):
-                        summary = self._normalize_tenant_db(tenant, options)
+            activo_previo = tenant.activo
+            try:
+                tenant = marcar_estado_provisioning(
+                    tenant,
+                    Tenant.EstadoProvisioning.PENDING,
+                    incrementar_intento=True,
+                )
+                alias = tenant_alias(tenant.tenant_key)
+                configure_tenant_database(tenant, permitir_inactivo=True)
+                tenant = marcar_estado_provisioning(
+                    tenant, Tenant.EstadoProvisioning.DB_READY,
+                )
+                with force_tenancy(True):
+                    with tenant_context(tenant, permitir_inactivo=True):
+                        with transaction.atomic(using=alias):
+                            summary = self._normalize_tenant_db(tenant, options)
+                tenant = marcar_estado_provisioning(
+                    tenant, Tenant.EstadoProvisioning.TENANT_READY,
+                )
+            except Exception as exc:
+                self._registrar_fallo_reanudable(tenant, activo_previo, exc)
+                raise
 
         if not options['dry_run']:
             # El cruce entre bases sigue sin ser atomico: si el control plane
@@ -103,10 +174,17 @@ class Command(TenantCommandMixin, BaseCommand):
                     self._normalize_control_plane(
                         tenant, options, summary['admin_username'], summary['sync_token'],
                     )
-            except Exception:
+                tenant = marcar_estado_provisioning(
+                    tenant, Tenant.EstadoProvisioning.CONTROL_READY,
+                )
+                tenant = marcar_estado_provisioning(
+                    tenant, Tenant.EstadoProvisioning.ACTIVE, activo=True,
+                )
+            except Exception as exc:
+                self._registrar_fallo_reanudable(tenant, activo_previo, exc)
                 self.stderr.write(self.style.ERROR(
-                    'La base del tenant quedo normalizada pero el control plane '
-                    'fallo. Re-ejecuta el comando: la fase tenant es idempotente.'
+                    'La normalizacion fallo en una fase reanudable. Consulta '
+                    'estado_provisioning/provisioning_error y re-ejecuta el comando.'
                 ))
                 raise
 
@@ -119,6 +197,19 @@ class Command(TenantCommandMixin, BaseCommand):
             self.stdout.write(self.style.WARNING('DRY-RUN: no se escribieron cambios.'))
         else:
             self.stdout.write(self.style.SUCCESS(f'Import normalizado: {tenant.tenant_key}.'))
+
+    def _registrar_fallo_reanudable(self, tenant, activo_previo, error):
+        try:
+            marcar_estado_provisioning(
+                tenant,
+                Tenant.EstadoProvisioning.FAILED,
+                activo=activo_previo,
+                error=error,
+            )
+        except Exception:
+            # No se reemplaza el error original por un fallo secundario al
+            # persistir el checkpoint; ambos quedan en logs de la ejecucion.
+            pass
 
     def _preflight(self, options, Sucursal, modelos_con_sucursal):
         """
@@ -190,12 +281,17 @@ class Command(TenantCommandMixin, BaseCommand):
                 negocio_id = negocio.pk
         else:
             negocio_id = negocio.pk
+            if negocio.slug != options['slug']:
+                raise CommandError(
+                    f'El self-row usa slug estable "{negocio.slug}" y el tenant '
+                    f'usa "{options["slug"]}". Resolver la identidad antes de '
+                    'normalizar; no se hace merge aproximado.'
+                )
             if not dry_run:
                 negocio.nombre = options['nombre']
-                negocio.slug = options['slug']
                 negocio.rnc = options['rnc']
                 negocio.activo = True
-                negocio.save(update_fields=['nombre', 'slug', 'rnc', 'activo', 'fecha_modificacion'])
+                negocio.save(update_fields=['nombre', 'rnc', 'activo', 'fecha_modificacion'])
 
         if dry_run:
             sucursal = None
@@ -224,12 +320,19 @@ class Command(TenantCommandMixin, BaseCommand):
                     nombre_negocio=options['nombre'],
                     rnc=options['rnc'],
                 )
-            elif config.sucursal_id is None:
-                config.sucursal = sucursal
-                config.nombre_negocio = options['nombre']
-                if options['rnc']:
-                    config.rnc = options['rnc']
-                config.save()
+            else:
+                campos_config = []
+                if config.sucursal_id is None:
+                    config.sucursal = sucursal
+                    campos_config.append('sucursal')
+                if config.nombre_negocio != options['nombre']:
+                    config.nombre_negocio = options['nombre']
+                    campos_config.append('nombre_negocio')
+                if config.rnc != negocio.rnc:
+                    config.rnc = negocio.rnc
+                    campos_config.append('rnc')
+                if campos_config:
+                    config.save(update_fields=campos_config)
 
             bootstrap_rbac(
                 NegocioModel=Negocio,
@@ -258,12 +361,16 @@ class Command(TenantCommandMixin, BaseCommand):
                 )
 
         admin_username = options['admin_username'] or self._first_admin_username(User)
+        admin_username = admin_username.casefold()
         if not admin_username:
             raise CommandError('No hay usuario ADMIN/SYSADMIN y no se paso --admin-username.')
 
         sync_token = ''
         if not dry_run:
-            admin = User.objects.filter(username=admin_username).first()
+            coincidencias = list(User.objects.filter(username__iexact=admin_username)[:2])
+            if len(coincidencias) > 1:
+                raise CommandError('Hay usernames equivalentes por mayusculas; resolver primero.')
+            admin = coincidencias[0] if coincidencias else None
             if admin is None:
                 raise CommandError(f'Usuario admin "{admin_username}" no existe.')
             admin.email = options['admin_email']
@@ -272,22 +379,22 @@ class Command(TenantCommandMixin, BaseCommand):
             admin.rol = 'SYSADMIN' if admin.rol == 'SYSADMIN' else 'ADMIN'
             # El default literal desaparecio: normalizar un import NO puede
             # reemplazar en silencio la password del dueno por una conocida.
-            if options.get('rotar_password'):
+            if options.get('rotar_admin_password'):
                 admin.set_password(options['admin_password'])
             admin.save()
 
             service_username = f'sucursal_service_{options["sucursal_codigo"].upper()}'
-            service_user, _ = User.objects.get_or_create(
-                username=service_username,
-                defaults={
-                    'email': f'{service_username.lower()}@{tenant.tenant_key}.sync.local',
-                    'first_name': 'Sucursal',
-                    'last_name': options['sucursal_codigo'].upper(),
-                    'rol': 'CAJERA',
-                    'activo': True,
-                    'negocio': negocio,
-                },
-            )
+            service_user = User.objects.filter(username__iexact=service_username).first()
+            if service_user is None:
+                service_user = User.objects.create_service_user(
+                    username=service_username,
+                    email=f'{service_username.lower()}@{tenant.tenant_key}.sync.local',
+                    first_name='Sucursal',
+                    last_name=options['sucursal_codigo'].upper(),
+                    rol='CAJERA',
+                    activo=True,
+                    negocio=negocio,
+                )
             service_user.negocio = negocio
             service_user.activo = True
             service_user.set_unusable_password()
@@ -315,8 +422,8 @@ class Command(TenantCommandMixin, BaseCommand):
         )
         identity.nombre = options['nombre']
         identity.activo = True
-        if identity_creada or options.get('rotar_password'):
-            identity.set_password(options['admin_password'])
+        if identity_creada or options.get('rotar_identity_password'):
+            identity.set_password(options['identity_password'])
         identity.save()
 
         Membership.objects.using('default').update_or_create(

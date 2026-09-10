@@ -16,7 +16,7 @@ apps/<app>/
 
 | App | Archivo | Qué prueba |
 |-----|---------|------------|
-| `api` | `tests/test_producto_viewset.py` | CRUD productos, permisos JWT vs token sucursal |
+| `api` | `tests/test_producto_viewset.py`, `tests/test_env_loader.py` | CRUD productos, permisos JWT vs token sucursal; contrato `POS_ENV_FILE` |
 | `api` | `tests/test_categoria_viewset.py` | CRUD categorías, sync incremental (B11) |
 | `api` | `tests/test_cliente_viewset.py` | CRUD clientes, búsqueda RNC/nombre, sync incremental (B11) |
 | `api` | `tests/test_cuentas_por_cobrar_viewset.py` | Cartera read-only (B15): permisos, filtros, `esta_vencida` por fecha, `resumen/` |
@@ -48,9 +48,9 @@ El `__init__.py` está listo — agregar archivos `test_*.py` cuando se necesite
 No usar `settings_azure_pg` para tests — requiere SSL y apunta a la BD de Azure.
 
 ```bash
-# Activar el entorno primero
-# En Windows: usar el intérprete directamente
-C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe manage.py test \
+# Activar un entorno aislado instalado desde requirements-dev.txt.
+# Baseline: CPython 3.11.14 Windows / 3.12.14 cloud, Django 5.2.17.
+python manage.py test \
     <modulo> --settings=config.settings_development
 
 # Un archivo

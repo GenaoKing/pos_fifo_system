@@ -4,7 +4,17 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-05**
+Última actualización: **2026-09-10**
+
+## Cierre A02 (sin despliegue)
+
+Los commits `583863f` + `f0a255c` + `bb7f774`, sobre CT-01 `cd8a3b4`, cierran en código los pendientes de
+auditoría, identidad, negocios y tenancy asignados a A02: AUD-008/009/010/013/
+016/018/019/020/021, USR-007/010/011/013/015/016/017/019,
+NEG-006/007/008/009/011/012/013/014/016/017 y TEN-016. USR-012 queda parcial:
+la identidad ya está acotada, pero las invariantes de privilegio/revocación son
+A03/CT-02. USR-014 sigue A08. Los preflights sobre filas operativas continúan
+abiertos para A08; A02 no leyó ni modificó datos reales.
 
 ---
 
@@ -123,8 +133,9 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 - [ ] **Decidir el resto de USR-002**: restringir `/admin/` por red, exigir
       MFA y auditarlo como frontera aparte. El gate de identidad global ya
       está; esto es despliegue.
-- [ ] **Matriz PostgreSQL multi-DB en CI** (TEN-016). Único hallazgo de tenancy
-      sin corregir; requiere levantar dos bases en el pipeline.
+- [x] **Matriz PostgreSQL multi-DB en CI** (TEN-016). `583863f` levanta dos
+      bases namespaced por corrida, prueba mismo PK con filas/referencias
+      aisladas y destruye únicamente esos artefactos de test.
 - [ ] **Drill de restauración.** `backup_tenant` verifica el artefacto, pero
       nadie lo restauró end-to-end.
 - [ ] **Antes de desplegar: revisar categorias inactivas con productos
@@ -271,29 +282,18 @@ da 500 con referencias), **CLI-015 (la ruta de detalle apunta a una
 plantilla inexistente: 500 garantizado)**, CLI-016 (N+1 financieros),
 CLI-017, CLI-018, CLI-019, CLI-021.
 
-**Pendientes de `apps/negocios`** (P1 cerrados, más NEG-010/015):
-NEG-006 (tres fuentes de identidad comercial), NEG-007 (ciclo de vida del
-tenant sin auditoría), NEG-008 (cascada al borrar un negocio — la mitad de
-usuarios ya la cubre USR-003), NEG-009 (`slug` mutable en identidad legacy),
-NEG-011 (RNC sin política de unicidad), NEG-012 (escrituras directas evitan
-validadores), NEG-013 (autogeneración de slug omitible), NEG-014 (carrera
-TOCTOU en el slug), NEG-016, NEG-017.
+**Pendientes posteriores a A02 de `apps/negocios`:** ninguno de código en el
+inventario A02. Persisten los preflights operativos de identidad/self-row para
+A08; no se resuelven adjudicando o fusionando filas automáticamente.
 
-**Pendientes de `apps/auditoria`** (P1 cerrados, más AUD-007/011/012/014/015/022):
-AUD-008 (política de fallo contradictoria), AUD-009 (la anulación registra el
-estado nuevo como si fuera el anterior), AUD-010 (acción/nivel/resultado
-incoherentes), AUD-013 (excepciones sin redacción), AUD-016
-(`registrar_compra()` no serializa su payload), AUD-018 (taxonomía sin
-productores), AUD-019 (el visor oculta datos), AUD-020 (sin lifecycle de
-retención), AUD-021 (identidad histórica del objeto).
+**Pendientes posteriores a A02 de `apps/auditoria`:** AUD-002-ULTIMA continúa
+como riesgo aceptado: sin WORM no se promete detectar el borrado externo de la
+última fila. La adopción de CT-01 por cada productor se acredita en su bloque.
 
-**Pendientes de `apps/usuarios`** (P1 cerrados, más USR-008/009/018):
-USR-007 (flujo de provisión de usuarios tenant), USR-010 (`Identity` y
-`Usuario` son credenciales independientes), USR-011 (el manager omite
-validación), USR-012 (tres fuentes de privilegio), USR-013 (mutaciones sin
-auditoría de dominio), USR-015 (`last_login` vs `ultimo_acceso`), USR-016
-(unicidad sensible a mayúsculas), USR-017 (sesión sin máximo absoluto),
-USR-019 (rutas de desarrollo).
+**Pendientes posteriores a A02 de `apps/usuarios`:** USR-012 pasa a A03/CT-02
+para unificar privilegios y revocaciones; USR-014 permanece en A08 porque exige
+validar la cadena real de proxies. La pantalla portal de gestión/clave sigue en
+C04; A02 publicó el servicio/comando backend y separó las credenciales.
 
 ---
 

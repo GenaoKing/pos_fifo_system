@@ -13,6 +13,7 @@ solo REGISTRA el alias (un dict en `settings.DATABASES`), no abre conexion.
 Aislar la llamada a la base de simplejwt con mocks prueba exactamente el
 mecanismo del bug sin la complejidad de levantar una segunda base fisica.
 """
+import time
 from unittest.mock import patch
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -28,7 +29,13 @@ def _desregistrar_alias(prefijo='tnt_'):
     from django.conf import settings
     from django.db import connections
 
-    for alias in [a for a in list(connections.databases) if a.startswith(prefijo)]:
+    for alias in [
+        a for a in list(connections.databases)
+        if a.startswith(prefijo)
+        and not connections.databases[a].get('TEST', {}).get(
+            'TENANT_ISOLATION_GATE', False,
+        )
+    ]:
         connections.databases.pop(alias, None)
         settings.DATABASES.pop(alias, None)
         contenedor = getattr(connections, '_connections', None)
@@ -150,3 +157,18 @@ class RefreshResuelveUsuarioContraElTenantCorrectoTests(TestCase):
         ):
             serializer = TenantTokenRefreshSerializer(data={'refresh': str(token)})
             self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_refresh_no_extiende_una_sesion_mas_de_doce_horas(self):
+        token = self._token_de_tenant()
+        inicio = int(time.time()) - (12 * 60 * 60) - 1
+        token['session_started_at'] = inicio
+        token['session_expires_at'] = inicio + (12 * 60 * 60)
+
+        with patch(
+            'rest_framework_simplejwt.serializers.TokenRefreshSerializer.validate',
+        ) as mock_validate:
+            serializer = TenantTokenRefreshSerializer(data={'refresh': str(token)})
+            with self.assertRaises(InvalidToken):
+                serializer.is_valid(raise_exception=True)
+
+        mock_validate.assert_not_called()
