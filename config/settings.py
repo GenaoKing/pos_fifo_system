@@ -5,6 +5,8 @@ Django settings for POS FIFO System.
 from pathlib import Path
 import os
 
+from config.env_loader import cargar_env_file
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -32,21 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # archivo**. Eso mantiene funcionando el rig de pruebas, los tests y Azure, donde
 # la configuracion llega por entorno y no por archivo.
 
-def _cargar_env_file():
-    """Carga el .env de la instalacion. Devuelve la ruta usada, o None."""
-    ruta = os.environ.get('POS_ENV_FILE') or (BASE_DIR / 'deploy' / 'env_cliente.env')
-    ruta = Path(ruta)
-    if not ruta.is_file():
-        return None
-    try:
-        from dotenv import load_dotenv
-    except ImportError:  # pragma: no cover - entorno sin la dependencia
-        return None
-    load_dotenv(ruta, override=False, encoding='utf-8')
-    return ruta
-
-
-POS_ENV_FILE_CARGADO = _cargar_env_file()
+POS_ENV_FILE_CARGADO = cargar_env_file(base_dir=BASE_DIR, environ=os.environ)
 
 
 def _env_text(name, default=''):

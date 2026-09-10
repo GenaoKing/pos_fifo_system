@@ -1,0 +1,2 @@
+# Herramienta de generación; no entra al runtime.
+pip-tools==7.6.1

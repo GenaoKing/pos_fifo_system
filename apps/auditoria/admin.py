@@ -140,7 +140,7 @@ class AuditoriaAdmin(admin.ModelAdmin):
                 url,
                 obj.usuario.username
             )
-        return format_html('<span style="color: #666;">Sistema</span>')
+        return format_html('<span style="color: #666;">{}</span>', 'Sistema')
     usuario_link.short_description = 'Usuario'
     usuario_link.admin_order_field = 'usuario'
     
@@ -193,7 +193,10 @@ class AuditoriaAdmin(admin.ModelAdmin):
                 except:
                     return str(objeto)[:50]
             except:
-                return format_html('<span style="color: #999;">Objeto eliminado</span>')
+                return format_html(
+                    '<span style="color: #999;">{}</span>',
+                    'Objeto eliminado',
+                )
         return '-'
     objeto_relacionado.short_description = 'Objeto'
     
@@ -218,9 +221,15 @@ class AuditoriaAdmin(admin.ModelAdmin):
     def exito_badge(self, obj):
         """Muestra si fue exitoso con un icono"""
         if obj.exito:
-            return format_html('<span style="color: #10b981; font-size: 18px;">✓</span>')
+            return format_html(
+                '<span style="color: #10b981; font-size: 18px;">{}</span>',
+                '✓',
+            )
         else:
-            return format_html('<span style="color: #ef4444; font-size: 18px;">✗</span>')
+            return format_html(
+                '<span style="color: #ef4444; font-size: 18px;">{}</span>',
+                '✗',
+            )
     exito_badge.short_description = 'Éxito'
     exito_badge.admin_order_field = 'exito'
     
