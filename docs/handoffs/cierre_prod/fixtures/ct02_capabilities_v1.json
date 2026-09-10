@@ -1,0 +1,27 @@
+{
+  "rbac": {
+    "schema_version": "rbac.capabilities.v1",
+    "subject_ref": "tenant:demo:user:018f5d5e-1111-7000-8000-000000000001",
+    "tenant_key": "demo",
+    "scope": {
+      "branch_code": null,
+      "kind": "ANY_FOR_DISPLAY"
+    },
+    "catalog_revision": 1,
+    "assignments_revision": 17,
+    "permissions": [
+      "productos.ver",
+      "productos.fotografiar"
+    ],
+    "modules": [
+      "inventario"
+    ]
+  },
+  "permisos": [
+    "productos.fotografiar",
+    "productos.ver"
+  ],
+  "modulos": [
+    "inventario"
+  ]
+}
