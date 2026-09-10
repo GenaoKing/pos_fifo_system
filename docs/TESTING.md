@@ -49,7 +49,7 @@ No usar `settings_azure_pg` para tests — requiere SSL y apunta a la BD de Azur
 
 ```bash
 # Activar un entorno aislado instalado desde requirements-dev.txt.
-# Baseline Windows: CPython 3.11.14 x64, Django 5.2.17.
+# Baseline: CPython 3.11.14 Windows / 3.12.14 cloud, Django 5.2.17.
 python manage.py test \
     <modulo> --settings=config.settings_development
 

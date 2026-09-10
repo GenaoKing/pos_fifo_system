@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.12.14"
   DJANGO_SETTINGS_MODULE: config.settings_cloud
   IMAGE_REPOSITORY: pos-fifo-backend
 

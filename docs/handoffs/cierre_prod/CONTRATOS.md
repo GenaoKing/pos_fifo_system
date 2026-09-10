@@ -249,6 +249,15 @@ errores, revisión y fixtures. Restricciones ya fijadas por A00/A01:
 
 - variables de proceso > archivo indicado por `POS_ENV_FILE` > defaults;
 - `load_dotenv(..., override=False, encoding="utf-8")`;
+- C01 registra `POS_ENV_FILE` como ruta absoluta; comillas exteriores se
+  normalizan antes de resolverla;
+- si `POS_ENV_FILE` está declarada vacía, relativa, ausente, no apunta a un
+  archivo o no puede leerse como UTF-8, el arranque falla con
+  `ImproperlyConfigured` y la ruta/variable exacta, nunca con fallback oculto;
+- si `POS_ENV_FILE` no está declarada, `deploy/env_cliente.env` conserva
+  compatibilidad como default opcional; su ausencia devuelve `None`;
+- el cargador devuelve el `Path` absoluto efectivamente leído o `None`, no
+  registra valores ni secretos;
 - BD como verdad dinámica y memo solo por request, sin Redis;
 - leer no crea configuración;
 - Codex integra `config/**`, routers/settings y `apps/sync`.
@@ -264,6 +273,18 @@ proxy online ni filtro de pull que omita inactivos.
 A01 fija runtimes/locks/imagen; C01 propone paquete/wheelhouse/preflight Windows;
 A08/C06 cierran el manifiesto con SHAs y hashes. El artefacto aprobado no se
 recompila para producción.
+
+Baseline consumible desde A01:
+
+- POS/paquete: CPython 3.11.14 x64 + `requirements.txt` con hashes;
+- desarrollo Windows: mismo runtime + `requirements-dev.txt`;
+- cloud: CPython 3.12.14 x64 + `requirements_cloud.txt`;
+- CI: CPython 3.12.14 x64 + `requirements_ci.txt`;
+- instalacion siempre con pip 26.0.1 y `--require-hashes`;
+- inputs humanos, regeneracion, digest de la imagen generadora y contrato de
+  wheelhouse en `requirements/README.md`;
+- C01 registra SHA-256 de cada wheel y del lock, y no incluye `.env`, dumps ni
+  credenciales en el paquete.
 
 ## Propiedad de archivos y fixtures compartidos
 

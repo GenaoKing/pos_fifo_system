@@ -4,8 +4,8 @@
 | --- | --- | --- | --- |
 | POS Windows | CPython 3.11 x64 | `windows-py311.in` | `../requirements.txt` |
 | Desarrollo Windows | CPython 3.11 x64 | `windows-dev-py311.in` | `../requirements-dev.txt` |
-| Cloud Linux | CPython 3.12 x64 | `cloud-py312.in` | `../requirements_cloud.txt` |
-| CI Linux | CPython 3.12 x64 | `cloud-ci-py312.in` | `../requirements_ci.txt` |
+| Cloud Linux | CPython 3.12.14 x64 | `cloud-py312.in` | `../requirements_cloud.txt` |
+| CI Linux | CPython 3.12.14 x64 | `cloud-ci-py312.in` | `../requirements_ci.txt` |
 
 Los `.in` fijan las dependencias directas aprobadas. Los cuatro locks incluyen
 transitivas y hashes. Instaladores, Docker y CI consumen los locks; no se instala
@@ -44,6 +44,18 @@ el Python de Windows. El gate compara que una segunda compilacion no cambie los
 archivos. La imagen de generacion registrada en A01 es
 `python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254`.
 
+```powershell
+docker run --rm --volume "${PWD}:/src" --workdir /src `
+  python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 `
+  sh -c "python -m pip install pip==26.0.1 pip-tools==7.6.1 && `
+  pip-compile --generate-hashes --allow-unsafe --no-strip-extras `
+    --index-url https://pypi.org/simple --output-file requirements_cloud.txt `
+    requirements/cloud-py312.in && `
+  pip-compile --generate-hashes --allow-unsafe --no-strip-extras `
+    --index-url https://pypi.org/simple --output-file requirements_ci.txt `
+    requirements/cloud-ci-py312.in"
+```
+
 ## Wheelhouse Windows offline
 
 Claude/C01 construye el wheelhouse fuera de Git, sin `.env` ni dumps:
@@ -61,7 +73,7 @@ el ZIP final. Un wheelhouse de otra version de Python/arquitectura no es valido.
 ## Politica de actualizacion
 
 - El baseline anterior era Django 5.0.8/Python 3.11. El nuevo fija
-  **Django 5.2.17 LTS** en Windows 3.11 y cloud/CI 3.12. La serie 5.2 soporta
+  **Django 5.2.17 LTS** en Windows 3.11 y cloud/CI 3.12.14. La serie 5.2 soporta
   ambos runtimes; el salto exige checks, warnings y suite completa antes de
   promover. Ver las notas oficiales de
   [Django 5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) y
