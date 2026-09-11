@@ -26,6 +26,22 @@ class ConfiguracionProtegidaError(RuntimeError):
     """
 
 
+class ConfiguracionNoInicializada(RuntimeError):
+    """
+    CFG-012 — leer la configuracion no puede crearla. `load()` hacia
+    `get_or_create()`, y el context processor lo llama en CADA render
+    (login, error, admin incluidos): abrir cualquier pagina en una
+    instalacion a la que todavia no le corrieron `crear_config_inicial`
+    creaba en silencio una fila "Mi Negocio", con conteos y timestamps que
+    no reflejan ninguna decision real de nadie.
+
+    Ahora una lectura sin fila levanta esta excepcion con la accion
+    correcta. Crear la fila es un acto explicito: `crear_config_inicial`
+    (instalacion real) o `ConfiguracionNegocio.bootstrap(...)` (fixtures de
+    test / un futuro primer-pull de sync que necesite materializarla).
+    """
+
+
 class _ConfiguracionQuerySet(models.QuerySet):
     def delete(self):
         raise ConfiguracionProtegidaError(
@@ -408,30 +424,59 @@ class ConfiguracionNegocio(models.Model):
     @classmethod
     def load(cls, sucursal=None):
         """
-        Carga la configuracion para una sucursal.
+        CFG-012 — lectura PURA. Nunca crea: si no hay fila, levanta
+        `ConfiguracionNoInicializada` con la accion correcta en el mensaje.
 
         Args:
             sucursal: instancia de Sucursal, o None para legacy/fallback
 
-        Si se pasa sucursal, busca por FK.
-        Si no hay sucursal, intenta cargar pk=1 (backward compatible).
+        Si se pasa sucursal, busca por FK. Si no hay sucursal, la unica
+        configuracion de la base (legacy, backward compatible).
+
+        Para crear explicitamente, usar `crear_config_inicial` (instalacion
+        real) o `ConfiguracionNegocio.bootstrap(...)` (get-or-create
+        explicito, para fixtures/tests o un bootstrap programatico).
         """
         if sucursal:
-            obj, _ = cls.objects.get_or_create(
-                sucursal=sucursal,
-                defaults={'nombre_negocio': sucursal.nombre}
-            )
-            return obj
+            try:
+                return cls.objects.get(sucursal=sucursal)
+            except cls.DoesNotExist:
+                raise ConfiguracionNoInicializada(
+                    f'No hay ConfiguracionNegocio para la sucursal '
+                    f'"{sucursal.codigo}". Ejecutar: manage.py '
+                    f'crear_config_inicial --sucursal {sucursal.codigo}'
+                )
         else:
-            # Backward compatible: cargar la primera config o crear una con pk=1.
-            # El leer-y-crear tiene carrera: en una instalacion recien montada,
-            # dos requests simultaneos veian None los dos y el segundo moria con
-            # IntegrityError sobre la pk. `get_or_create` reintenta la lectura
-            # dentro de su propio savepoint.
             obj = cls.objects.first()
             if obj is None:
-                obj, _ = cls.objects.get_or_create(pk=1)
+                raise ConfiguracionNoInicializada(
+                    'No hay ninguna ConfiguracionNegocio en esta base. '
+                    'Ejecutar: manage.py crear_config_inicial'
+                )
             return obj
+
+    @classmethod
+    def bootstrap(cls, sucursal=None, **defaults):
+        """
+        Unico punto de creacion IMPLICITA permitido (get-or-create), fuera
+        de `crear_config_inicial`. Transaccional e idempotente: una sola
+        sentencia `get_or_create()` (Django la corre en su propio
+        savepoint), correrla dos veces con los mismos argumentos no
+        duplica ni pisa una fila existente.
+
+        Es la misma semantica que tenia `load()` antes de CFG-012 — se
+        conserva a proposito, con otro nombre, para quien de verdad
+        necesite "crear si no existe": fixtures de test, o un futuro
+        primer-pull de sync que deba materializar la fila local. Ningun
+        call site de produccion la necesita hoy: la instalacion real corre
+        `crear_config_inicial` antes de aceptar trafico (ver runbook).
+        """
+        if sucursal:
+            defaults.setdefault('nombre_negocio', sucursal.nombre)
+            obj, _ = cls.objects.get_or_create(sucursal=sucursal, defaults=defaults)
+            return obj
+        obj, _ = cls.objects.get_or_create(pk=1, defaults=defaults)
+        return obj
 
     def get_metodos_pago_activos(self):
         """Retorna lista de metodos de pago habilitados"""

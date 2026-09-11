@@ -195,10 +195,30 @@ class Command(BaseCommand):
             # flags, asi que podia certificar "sano" una instalacion con
             # impresion_termica apagada. Ahora enumera el MISMO conjunto que
             # `modulo_activo()`: lo que el POS realmente gatea.
+            from apps.configuracion.models import ConfiguracionNoInicializada
             from apps.configuracion.utils import modulo_activo as _modulo_legacy
 
             try:
                 apagados = sorted(k for k in vendibles if not _modulo_legacy(k))
+            except ConfiguracionNoInicializada:
+                # CFG-012: esto YA NO es "no se pudo resolver" (un error de
+                # infraestructura ajeno) -- es el diagnostico haciendo
+                # exactamente su trabajo: la instalacion todavia no corrio
+                # `crear_config_inicial`. Reportarlo como sano/apagados=[]
+                # seria el mismo fallback accidental que CFG-012 vino a
+                # cerrar, solo que en el comando pensado para detectarlo.
+                return {
+                    'modo': 'legacy',
+                    'explicacion': (
+                        'La sucursal no tiene negocio asignado y todavia no '
+                        'existe ninguna ConfiguracionNegocio: no se puede '
+                        'saber que modulos estan realmente activos.'
+                    ),
+                    'error': 'CONFIGURACION_NO_INICIALIZADA',
+                    'apagados': [],
+                    'aprovisionado': None,
+                    'roto': True,
+                }
             except Exception as exc:
                 return {
                     'modo': 'legacy',
@@ -318,7 +338,10 @@ class Command(BaseCommand):
         w('MODULOS VENDIBLES')
         if m['modo'] == 'legacy':
             w(f'  Modo: flags de ConfiguracionNegocio (sin negocio asignado).')
-            if m.get('error'):
+            if m.get('error') == 'CONFIGURACION_NO_INICIALIZADA':
+                w(err('  ! No existe ninguna ConfiguracionNegocio todavia.'))
+                w(err('    Ejecutar: manage.py crear_config_inicial [--sucursal <codigo>]'))
+            elif m.get('error'):
                 w(warn(f'  AVISO: no se pudo resolver la configuracion: {m["error"]}'))
             elif not m['apagados']:
                 w(ok('  OK: todos los modulos vendibles estan activos.'))

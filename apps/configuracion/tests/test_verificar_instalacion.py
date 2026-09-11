@@ -63,13 +63,50 @@ class SucursalSinNegocioTests(VerificarInstalacionTestsBase):
         CFG-013: el modo legacy consulta los flags REALES (antes devolvia
         siempre `apagados=[]` sin mirarlos). Un default-off como etiquetas_zebra
         aparece; impresion_termica (default on) no, y nada se marca roto.
+
+        CFG-012: el reporte ya no puede materializar la config leyendola (el
+        propio comando dejaria de detectar una instalacion sin
+        `crear_config_inicial`) -- la crea explicitamente, como haria la
+        instalacion real.
         """
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        ConfiguracionNegocio.objects.create(sucursal=self.sucursal, nombre_negocio='X')
+
         modulos = self._reporte()['modulos']
 
         self.assertEqual(modulos['modo'], 'legacy')
         self.assertFalse(modulos['roto'])
         self.assertNotIn('impresion_termica', modulos['apagados'])
         self.assertIn('etiquetas_zebra', modulos['apagados'])
+
+    def test_sin_configuracion_creada_se_reporta_roto_no_sano_por_omision(self):
+        """
+        CFG-012 — la reproduccion exacta del riesgo: antes, ejecutar este
+        diagnostico ANTES de `crear_config_inicial` materializaba una config
+        "Mi Negocio" en silencio (via el `get_or_create` de `load()`) y el
+        reporte podia salir limpio. Ahora la ausencia de configuracion es un
+        hallazgo explicito del propio comando, no un efecto secundario de
+        haberlo corrido.
+        """
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+        modulos = self._reporte()['modulos']
+
+        self.assertEqual(modulos['modo'], 'legacy')
+        self.assertEqual(modulos['error'], 'CONFIGURACION_NO_INICIALIZADA')
+        self.assertTrue(modulos['roto'])
+        # El diagnostico no crea la fila que esta reportando como ausente.
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+    def test_sin_configuracion_creada_la_salida_dice_como_arreglarlo(self):
+        salida = self._salida()
+
+        self.assertIn('No existe ninguna ConfiguracionNegocio todavia', salida)
+        self.assertIn('crear_config_inicial', salida)
+        self.assertIn('RESULTADO: la instalacion tiene problemas', salida)
 
     def test_impresion_termica_apagada_en_legacy_se_reporta_roto(self):
         """
