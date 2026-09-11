@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 from unittest import skipUnless
+from unittest import mock
 
 from django.conf import settings
 from django.db import connections, transaction
@@ -13,6 +14,8 @@ from django.test import TestCase, override_settings
 from apps.auditoria.models import Auditoria
 from apps.auditoria.services import registrar_mutacion
 from apps.negocios.models import Negocio
+from apps.productos.models import Categoria, Producto
+from apps.sync.engine import SyncEngine
 from apps.tenancy.context import (
     force_tenancy,
     reset_current_tenant,
@@ -58,8 +61,27 @@ else:
     ALIAS_A = ALIAS_B = 'default'
 
 
+class _PullResponse:
+    status_code = 200
+    text = ''
+
+    def __init__(self, item):
+        self._payload = {
+            'count': 1,
+            'next': None,
+            'previous': None,
+            'results': [item],
+        }
+
+    def json(self):
+        return self._payload
+
+
 @skipUnless(NAMESPACE, 'TEN-016 requiere TENANT_TEST_DB_NAMESPACE aislado.')
-@override_settings(TENANCY_DB_PER_TENANT_ENABLED=True)
+@override_settings(
+    TENANCY_DB_PER_TENANT_ENABLED=True,
+    SUCURSAL_CODIGO='A05-TENANT',
+)
 class TenantPhysicalDatabaseIsolationTests(TestCase):
     # Algunas invalidaciones legacy registran on_commit() sin ``using`` y por
     # eso consultan default; el gate lo permite, pero no escribe dominio alli.
@@ -114,3 +136,66 @@ class TenantPhysicalDatabaseIsolationTests(TestCase):
         )
         self.assertEqual(Auditoria.objects.using(ALIAS_A).count(), 1)
         self.assertEqual(Auditoria.objects.using(ALIAS_B).count(), 1)
+
+    def _adoptar_producto(self, alias, tenant_key, nombre_local, nombre_cloud):
+        tokens = set_current_tenant(tenant_key, alias)
+        try:
+            with force_tenancy(True):
+                categoria = Categoria.objects.using(alias).create(
+                    nombre='Categoria A05', origen_cloud_id=44,
+                )
+                producto = Producto.objects.using(alias).create(
+                    sku='A05-TENANT-SKU',
+                    nombre=nombre_local,
+                    categoria=categoria,
+                    precio_venta='10.00',
+                )
+                item = {
+                    'id': 700,
+                    'sku': producto.sku,
+                    'nombre': nombre_cloud,
+                    'descripcion': '',
+                    'precio_venta': '20.00',
+                    'codigo_barras': None,
+                    'categoria': 44,
+                    'categoria_nombre': categoria.nombre,
+                    'activo': True,
+                    'estado': 'nuevo',
+                    'marca': '',
+                    'stock_minimo': 5,
+                    'atributos': {},
+                    'fecha_modificacion': '2026-09-11T12:00:00+00:00',
+                }
+                with mock.patch(
+                    'apps.sync.engine.requests.get',
+                    return_value=_PullResponse(item),
+                ):
+                    resultado = SyncEngine(
+                        cloud_url='https://cloud.a05.test', token='a05-token',
+                    )._pull_productos()
+                producto.refresh_from_db(using=alias)
+                return resultado, producto
+        finally:
+            reset_current_tenant(tokens)
+
+    def test_producto_adopta_misma_identidad_sin_cruzar_tenants(self):
+        resultado_a, producto_a = self._adoptar_producto(
+            ALIAS_A, 'gate_a', 'Local A', 'Cloud tenant A',
+        )
+        resultado_b, producto_b = self._adoptar_producto(
+            ALIAS_B, 'gate_b', 'Local B', 'Cloud tenant B',
+        )
+
+        self.assertEqual(resultado_a['count'], 1)
+        self.assertEqual(resultado_b['count'], 1)
+        self.assertEqual(producto_a.pk, producto_b.pk)
+        self.assertEqual(producto_a.origen_cloud_id, 700)
+        self.assertEqual(producto_b.origen_cloud_id, 700)
+        self.assertEqual(
+            Producto.objects.using(ALIAS_A).get(pk=producto_a.pk).nombre,
+            'Cloud tenant A',
+        )
+        self.assertEqual(
+            Producto.objects.using(ALIAS_B).get(pk=producto_b.pk).nombre,
+            'Cloud tenant B',
+        )

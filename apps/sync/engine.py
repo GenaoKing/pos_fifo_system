@@ -67,6 +67,14 @@ class _Diferido:
 DIFERIDO = _Diferido()
 
 
+class ConflictoAdopcionMaestro(RuntimeError):
+    """Colision determinista que requiere decision humana, no un upsert."""
+
+    def __init__(self, codigo, detalle):
+        self.codigo = codigo
+        super().__init__(f'{codigo}: {detalle}')
+
+
 def _resultado_pull(
     count=0, ok=True, error=None, bloqueo=None, paginas=0,
     diferidos_pendientes=0, diferidos_resueltos=0,
@@ -750,6 +758,13 @@ class SyncEngine:
                     continue
                 try:
                     resultado = apply_func(diferido.payload)
+                except ConflictoAdopcionMaestro as exc:
+                    diferido.intentos += 1
+                    diferido.ultimo_error = str(exc)[:2000]
+                    diferido.save(update_fields=[
+                        'intentos', 'ultimo_error', 'actualizado_at',
+                    ])
+                    continue
                 except Exception as exc:
                     diferido.intentos += 1
                     diferido.ultimo_error = (
@@ -786,6 +801,12 @@ class SyncEngine:
             if resultado is not DIFERIDO:
                 return True, False, ''
             motivo = 'Dependencia ausente.'
+        except ConflictoAdopcionMaestro as exc:
+            logger.warning(
+                'pull %s: conflicto aplicando item %s: %s',
+                tabla, item.get('id') or item.get('cursor_id'), exc,
+            )
+            motivo = str(exc)
         except Exception as exc:
             logger.exception(
                 'pull %s: error aplicando item %s: %s',
@@ -1180,32 +1201,50 @@ class SyncEngine:
              primera vez que baja un registro, adopta la fila local que ya
              existia y le graba la identidad.
 
-        Retorna (instancia_o_None, hay_que_sellar), o DIFERIDO si hay colision.
+        Retorna (instancia_o_None, hay_que_sellar). Toda ambiguedad o colision
+        levanta ``ConflictoAdopcionMaestro`` para que A04 la capture en la cola
+        durable con un motivo estable y visible.
         """
-        if cloud_id:
-            existente = modelo.objects.filter(origen_cloud_id=cloud_id).first()
-            if existente is not None:
-                return existente, False
-
-        candidato = modelo.objects.filter(**lookup_natural).first()
-        if candidato is None:
-            return None, bool(cloud_id)
-
-        if candidato.origen_cloud_id and candidato.origen_cloud_id != cloud_id:
-            # La fila local ya pertenece a OTRO registro cloud y su clave
-            # natural suele ser unica, asi que crear una segunda con el mismo
-            # nombre/cedula fallaria igual. Es una colision real: dos registros
-            # cloud distintos reclaman la misma clave natural local. Quien la
-            # resuelve es el operador (renombrar, fusionar), no el sync. Se
-            # difiere para que quede visible en la cola durable.
-            logger.warning(
-                '%s: la fila local %s ya esta sellada con origen_cloud_id=%s; '
-                'el registro cloud %s no puede adoptarla. Resolver manualmente.',
-                modelo.__name__, lookup_natural, candidato.origen_cloud_id, cloud_id,
+        if cloud_id is not None:
+            por_identidad = list(
+                modelo.objects.select_for_update()
+                .filter(origen_cloud_id=cloud_id)
+                .order_by('pk')[:2]
             )
-            return DIFERIDO, False
+            if len(por_identidad) > 1:
+                raise ConflictoAdopcionMaestro(
+                    'MASTER_CLOUD_ID_AMBIGUOUS',
+                    f'{modelo.__name__} cloud_id={cloud_id} coincide con mas de una fila.',
+                )
+            if por_identidad:
+                return por_identidad[0], False
 
-        return candidato, bool(cloud_id)
+        por_natural = list(
+            modelo.objects.select_for_update()
+            .filter(**lookup_natural)
+            .order_by('pk')[:2]
+        )
+        if len(por_natural) > 1:
+            raise ConflictoAdopcionMaestro(
+                'MASTER_NATURAL_AMBIGUOUS',
+                f'{modelo.__name__} {lookup_natural} coincide con mas de una fila local.',
+            )
+        if not por_natural:
+            return None, cloud_id is not None
+
+        candidato = por_natural[0]
+        if (
+            cloud_id is not None
+            and candidato.origen_cloud_id is not None
+            and candidato.origen_cloud_id != cloud_id
+        ):
+            raise ConflictoAdopcionMaestro(
+                'MASTER_NATURAL_ID_CONFLICT',
+                f'{modelo.__name__} {lookup_natural} pertenece a cloud_id='
+                f'{candidato.origen_cloud_id}, no a cloud_id={cloud_id}.',
+            )
+
+        return candidato, cloud_id is not None
 
     def _pull_categorias(self):
         from apps.productos.models import Categoria
@@ -1215,8 +1254,6 @@ class SyncEngine:
             existente, sellar = self._adoptar_por_identidad_cloud(
                 Categoria, cloud_id, {'nombre': item['nombre']},
             )
-            if existente is DIFERIDO:
-                return DIFERIDO
 
             campos = {
                 'nombre': item['nombre'],
@@ -1242,12 +1279,41 @@ class SyncEngine:
         from apps.productos.models import Producto, Categoria
 
         def apply(item):
-            # Resuelve categoria por nombre (identificador natural)
+            # La relacion tambien usa primero la identidad cloud de Categoria;
+            # el nombre queda solo como compatibilidad/adopcion inicial.
             categoria = None
+            categoria_cloud_id = item.get('categoria')
+            if categoria_cloud_id is not None:
+                categorias_identidad = list(
+                    Categoria.objects.select_for_update()
+                    .filter(origen_cloud_id=categoria_cloud_id)
+                    .order_by('pk')[:2]
+                )
+                if len(categorias_identidad) > 1:
+                    raise ConflictoAdopcionMaestro(
+                        'MASTER_CLOUD_ID_AMBIGUOUS',
+                        f'Categoria cloud_id={categoria_cloud_id} coincide con '
+                        'mas de una fila local.',
+                    )
+                if categorias_identidad:
+                    categoria = categorias_identidad[0]
+
             cat_nombre = item.get('categoria_nombre')
-            if cat_nombre:
-                categoria = Categoria.objects.filter(nombre=cat_nombre).first()
-                if categoria is None:
+            if categoria is None and cat_nombre:
+                categorias_naturales = list(
+                    Categoria.objects.select_for_update()
+                    .filter(nombre=cat_nombre)
+                    .order_by('pk')[:2]
+                )
+                if len(categorias_naturales) > 1:
+                    raise ConflictoAdopcionMaestro(
+                        'MASTER_NATURAL_AMBIGUOUS',
+                        f'Categoria nombre={cat_nombre!r} coincide con mas de '
+                        'una fila local.',
+                    )
+                if categorias_naturales:
+                    categoria = categorias_naturales[0]
+                else:
                     # Antes esto solo avisaba y guardaba el producto con su
                     # categoria vieja, avanzando el cursor: cuando la categoria
                     # llegaba, el producto ya no volvia a bajar y quedaba mal
@@ -1270,7 +1336,30 @@ class SyncEngine:
                 )
                 return
 
-            defaults = {
+            sku = item.get('sku')
+            if not isinstance(sku, str) or not sku:
+                raise ConflictoAdopcionMaestro(
+                    'MASTER_SKU_INVALID',
+                    'Producto sin SKU exacto no se puede adoptar ni crear.',
+                )
+
+            cloud_id = item.get('id')
+            producto, sellar = self._adoptar_por_identidad_cloud(
+                Producto, cloud_id, {'sku': sku},
+            )
+            if (
+                producto is not None
+                and cloud_id is not None
+                and producto.origen_cloud_id == cloud_id
+                and producto.sku != sku
+            ):
+                raise ConflictoAdopcionMaestro(
+                    'MASTER_SKU_IMMUTABLE',
+                    f'Producto cloud_id={cloud_id} conserva SKU={producto.sku!r}; '
+                    f'el payload intento usar SKU={sku!r}.',
+                )
+
+            campos = {
                 'nombre': item.get('nombre', ''),
                 'descripcion': item.get('descripcion', '') or '',
                 'precio_venta': item.get('precio_venta', '0'),
@@ -1288,12 +1377,16 @@ class SyncEngine:
                 'atributos': item.get('atributos') or {},
             }
             if categoria:
-                defaults['categoria'] = categoria
+                campos['categoria'] = categoria
+            if sellar:
+                campos['origen_cloud_id'] = cloud_id
 
-            producto, _ = Producto.objects.update_or_create(
-                sku=item['sku'],
-                defaults=defaults,
-            )
+            if producto is None:
+                producto = Producto.objects.create(sku=sku, **campos)
+            else:
+                for campo, valor in campos.items():
+                    setattr(producto, campo, valor)
+                producto.save()
             self._descargar_imagen_producto(producto, item.get('imagen_url'))
 
         return self._pull_generic('productos', '/api/v1/maestros/productos/', apply)
@@ -1377,8 +1470,6 @@ class SyncEngine:
             existente, sellar = self._adoptar_por_identidad_cloud(
                 Cliente, cloud_id, lookup,
             )
-            if existente is DIFERIDO:
-                return DIFERIDO
 
             plazo_anterior = existente.plazo_credito_dias if existente else None
             try:

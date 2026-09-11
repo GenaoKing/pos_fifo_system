@@ -59,6 +59,12 @@ mezclarlos:
   revocar por ausencia; además solo revoca filas `origen_cloud=True`.
 - Una baja `active=false` se aplica antes de resolver códigos/usuarios/roles
   nuevos. Una revisión menor se ignora; `cloud_id` no puede cambiar de terna.
+- Producto, Categoría y Cliente se buscan primero por `origen_cloud_id`; la
+  clave natural solo adopta una fila no sellada en la primera bajada. Colisiones
+  o coincidencias ambiguas quedan en `DiferidoSync` con código `MASTER_*`, nunca
+  crean un duplicado ni eligen una fila con `.first()`.
+- El SKU de Producto es inmutable. `origen_sucursal` y `pendiente_revision`
+  conservan el patrón de stub BUG-H y no forman parte de la identidad cloud.
 
 ## Antes de tocar el contrato de sync
 

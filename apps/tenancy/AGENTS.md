@@ -49,6 +49,8 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
   limita a 12 horas tanto en access como en refresh.
 - TEN-016 usa dos bases PostgreSQL físicas con nombres bajo
   `TENANT_TEST_DB_NAMESPACE`; nunca reutiliza o elimina bases tenant compartidas.
+  El gate también prueba que una misma identidad cloud de Producto se adopta
+  por separado en cada alias, sin cruzar filas entre tenants.
 - Runbooks: `docs/runbooks/INSTALACION_CLIENTE_NUEVO.md`,
   `MIGRAR_IMAGENES_A_BLOB.md`. Auditoría 2026-08-20
   (`docs/exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md`) — **snapshot histórico**.
