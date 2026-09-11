@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-07 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,13 +34,18 @@ atributos configurables por categoría e imágenes con miniatura.
 
 Pull incremental, **no eventos**. La sucursal aplica cambios vía
 `apps/sync/engine.py` → `_pull_productos`, `_pull_categorias`,
-`_descargar_imagen_producto`. Adopción por identidad usa `origen_cloud_id` /
-`origen_sucursal`. Backfill de imágenes: `python manage.py descargar_imagenes_productos`.
+`_descargar_imagen_producto`. Categoría y Producto se adoptan primero por
+`origen_cloud_id`; el SKU de Producto solo es clave natural de la primera
+adopción y queda inmutable tras el alta. `origen_sucursal` conserva la
+procedencia de un stub BUG-H y nunca sustituye esa identidad. Backfill de
+imágenes: `python manage.py descargar_imagenes_productos`.
 
 ## Trampas
 
 - Editar en el portal actualiza `fecha_modificacion` (`auto_now`) → eso es lo que
   el pull incremental de la sucursal usa como cursor. No pisar ese campo a mano.
+- `Producto.origen_cloud_id` admite solo la adopción `NULL → id`; luego es
+  inmutable. Una colisión de identidad/SKU se difiere explícitamente en sync.
 - `Categoria "Sin clasificar"` tiene manejo especial (ver `test_categoria_sin_clasificar`).
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md`) —
   **snapshot histórico**, verificar contra código.

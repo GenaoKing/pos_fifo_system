@@ -120,6 +120,11 @@ class ProductoAdmin(admin.ModelAdmin):
         'valor_inventario_readonly',
         'lotes_disponibles'
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        """El SKU se define al crear y no vuelve a ser editable."""
+        campos = super().get_readonly_fields(request, obj)
+        return (*campos, 'sku') if obj is not None else campos
     
     # Acciones personalizadas
     actions = [

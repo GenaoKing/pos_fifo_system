@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.contrib.postgres.indexes import GinIndex
 
@@ -126,8 +127,36 @@ def productos_vendibles(queryset=None):
     return base.filter(activo=True, categoria__activa=True)
 
 
+class ProductoQuerySet(models.QuerySet):
+    """Mantiene identidad aun en mutaciones masivas del ORM."""
+
+    CAMPOS_INMUTABLES = {'sku', 'origen_cloud_id'}
+
+    @classmethod
+    def _validar_campos_mutables(cls, campos):
+        bloqueados = cls.CAMPOS_INMUTABLES.intersection(campos)
+        if bloqueados:
+            raise ValidationError(
+                'Campos inmutables de Producto: ' + ', '.join(sorted(bloqueados))
+            )
+
+    def update(self, **kwargs):
+        self._validar_campos_mutables(kwargs)
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._validar_campos_mutables(fields)
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
+class ProductoManager(models.Manager.from_queryset(ProductoQuerySet)):
+    pass
+
+
 class Producto(models.Model):
     """Productos del inventario"""
+
+    objects = ProductoManager()
     
     # Identificadores
     sku = models.CharField(
@@ -136,6 +165,20 @@ class Producto(models.Model):
         unique=True,
         blank=True,
         help_text='Código interno único del producto',
+    )
+    # Identidad estable de la replica cloud. El SKU sigue siendo la clave
+    # natural de adopcion inicial, pero deja de decidir la identidad una vez
+    # que este campo queda sellado. No confundir con `origen_sucursal`: ese FK
+    # conserva la procedencia historica de los stubs BUG-H y no identifica la
+    # fila autoritativa del catalogo.
+    origen_cloud_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        editable=False,
+        verbose_name='ID en cloud',
+        help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
     )
     codigo_barras = models.CharField(
         'Código de barras',
@@ -317,9 +360,43 @@ class Producto(models.Model):
         # y prefiere generarla el mismo pasando `fuente` — hoy, la migracion de
         # media a Blob.
         sincronizar = kwargs.pop('sincronizar_miniatura', True)
+        self._validar_identidad_inmutable()
         super().save(*args, **kwargs)
         if sincronizar:
             self.sincronizar_miniatura()
+
+    def _validar_identidad_inmutable(self):
+        """Impide partir una identidad ya creada cambiando SKU o cloud ID.
+
+        Las superficies publicas omiten `sku` al actualizar para conservar
+        compatibilidad con clientes que todavia lo reenvian. Esta guarda es la
+        ultima frontera para Admin, scripts y servicios que guardan el modelo
+        directamente. La adopcion `NULL -> cloud_id` si esta permitida.
+        """
+        if self._state.adding or self.pk is None:
+            return
+
+        queryset = type(self).objects
+        if self._state.db:
+            queryset = queryset.using(self._state.db)
+        anterior = queryset.filter(pk=self.pk).values(
+            'sku', 'origen_cloud_id',
+        ).first()
+        if anterior is None:
+            return
+
+        errores = {}
+        if self.sku != anterior['sku']:
+            errores['sku'] = 'El SKU es inmutable despues de crear el producto.'
+        if (
+            anterior['origen_cloud_id'] is not None
+            and self.origen_cloud_id != anterior['origen_cloud_id']
+        ):
+            errores['origen_cloud_id'] = (
+                'La identidad cloud es inmutable una vez adoptada.'
+            )
+        if errores:
+            raise ValidationError(errores)
 
     def sincronizar_miniatura(self, forzar=False, fuente=None):
         """

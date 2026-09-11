@@ -147,13 +147,10 @@ def editar_producto(request, producto_id):
         producto = get_object_or_404(Producto, id=producto_id)
         data = json.loads(request.body)
         
-        # Validar unicidad de SKU y código de barras (excluyendo el producto actual)
-        if Producto.objects.filter(sku=data['sku']).exclude(id=producto_id).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe otro producto con ese SKU'
-            })
-        
+        # Validar unicidad del codigo de barras (excluyendo el producto actual).
+        # El SKU queda inmutable despues del alta. Se acepta en el payload por
+        # compatibilidad con el modal actual, pero se conserva el valor
+        # persistido y se aplican los demas atributos.
         if Producto.objects.filter(codigo_barras=data['codigo_barras']).exclude(id=producto_id).exists():
             return JsonResponse({
                 'success': False,
@@ -161,7 +158,6 @@ def editar_producto(request, producto_id):
             })
         
         # Actualizar campos
-        producto.sku = data['sku']
         producto.codigo_barras = data['codigo_barras']
         producto.nombre = data['nombre']
         producto.descripcion = data.get('descripcion', '')
