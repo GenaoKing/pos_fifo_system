@@ -1,6 +1,6 @@
 # apps/caja — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -17,7 +17,7 @@ de cuadre imprimible. Todo en `apps/caja/models.py` y `views.py`.
 
 | Necesito… | Voy a… |
 | --- | --- |
-| Pantalla / historial | `views.caja_index`, `views.historial_turnos` |
+| Pantalla / historial | `views.caja_index`, `views.historial_turnos` (paginado 50/pág., PAG-CXC-CAJA) |
 | Abrir / cerrar turno | `views.api_abrir_turno`, `views.api_cerrar_turno` (→ `TurnoCaja.cerrar`) |
 | Estado / detalle de turno | `views.api_estado_turno`, `views.api_detalle_turno` |
 | Registrar movimiento | `views.api_registrar_movimiento` |

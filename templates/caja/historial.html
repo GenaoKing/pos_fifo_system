@@ -17,7 +17,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Historial de Turnos</h1>
-            <p class="text-sm text-gray-500 mt-1">Ultimos 50 turnos cerrados</p>
+            <p class="text-sm text-gray-500 mt-1">{{ page_obj.paginator.count }} turnos cerrados</p>
         </div>
         <a href="{% url 'caja:index' %}" class="text-sm text-gray-600 hover:text-primary-600 inline-flex items-center">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -175,6 +175,22 @@
             {% endfor %}
         </div>
     </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="flex items-center justify-between mt-4 text-sm">
+        <span class="text-gray-500">
+            Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+        </span>
+        <div class="flex gap-2">
+            {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="text-gray-600 hover:text-primary-600">Anterior</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="text-gray-600 hover:text-primary-600">Siguiente</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="card">
         <div class="card-body text-center py-12 text-gray-400">
