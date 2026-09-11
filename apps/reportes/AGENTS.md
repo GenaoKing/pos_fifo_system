@@ -20,7 +20,7 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 | Dashboard | `views.dashboard`, `api_metricas_hoy` |
 | On-demand (gate módulo `reportes_ondemand`, SUS-006) | `views.reportes_on_demand`, `api_cierre_manual`, `api_ventas_periodo`, `api_top_productos`, `api_inventario_valorizado`, `api_ventas_cajero` |
 | **Generar** un reporte | `report_manager.ReporteManager` → `generar_cierre_diario`, `generar_top_productos`, `generar_inventario_valorizado` |
-| Cierre automático | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) |
+| Cierre diario **manual** (RPT-005: no hay servicio automático) | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) — ver `docs/runbooks/CIERRE_DIARIO_MANUAL.md` |
 | PDF del cierre | `pdf_generator.PDFGenerator.generar_cierre_caja` → `views.descargar_pdf_cierre` |
 | Dónde se guardan los PDFs | `almacenamiento.py` → `ruta_cierre` (`REPORTES_PRIVATE_ROOT`, **fuera** de `MEDIA_ROOT`) |
 | Alcance | `scope.alcance_de` (`reportes.sucursal.ver` / `reportes.consolidado.ver`), `puede_ver_reportes`; `reportes.ver` para el dashboard |
