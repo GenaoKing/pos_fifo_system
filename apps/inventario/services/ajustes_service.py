@@ -40,6 +40,7 @@ from ..models import AjusteInventario, Lote, MovimientoLote
 from .exceptions import (
     AjusteInvalidoError,
     LoteNoEncontradoError,
+    PermisoAjusteDenegadoError,
     StockInsuficienteLoteError,
 )
 
@@ -74,23 +75,28 @@ def registrar_ajuste_service(
     cantidad: int,
     motivo: str,
     ip_address: str | None = None,
+    sucursal=None,
 ) -> AjusteInventario:
     """
     Aplica un ajuste de inventario sobre un lote.
 
     Args:
-        usuario: quien registra el ajuste.
+        usuario: quien registra el ajuste. Se re-autoriza `inventario.ajustar`
+            contra la sucursal del LOTE (INV-RBAC-SCOPE), bajo el lock.
         lote_id: PK del lote a ajustar.
         tipo: uno de `TIPO_MOVIMIENTO_POR_AJUSTE`.
         cantidad: magnitud POSITIVA. El signo lo decide el tipo.
         motivo: texto obligatorio, minimo 10 caracteres.
         ip_address: para auditoria.
+        sucursal: sucursal operativa del solicitante. Solo se usa como scope de
+            respaldo para lotes legacy sin sucursal propia (ver `_puede_ajustar`).
 
     Returns:
         El `AjusteInventario` aplicado.
 
     Raises:
-        AjusteInvalidoError, StockInsuficienteLoteError, LoteNoEncontradoError.
+        AjusteInvalidoError, StockInsuficienteLoteError, LoteNoEncontradoError,
+        PermisoAjusteDenegadoError.
     """
     tipo = (tipo or '').strip().upper()
     motivo = (motivo or '').strip()
@@ -125,6 +131,16 @@ def registrar_ajuste_service(
         except (Lote.DoesNotExist, ValueError, TypeError):
             raise LoteNoEncontradoError(
                 f'No existe un lote activo con id={lote_id}.'
+            )
+
+        # INV-RBAC-SCOPE: se re-autoriza `inventario.ajustar` contra la sucursal
+        # del LOTE ya bloqueado — no solo el decorador de la vista, que resuelve
+        # la sucursal del OPERADOR. Bajo el lock, `lote.sucursal` es la identidad
+        # definitiva del lote.
+        if not _puede_ajustar(usuario, lote=lote, sucursal_operador=sucursal):
+            raise PermisoAjusteDenegadoError(
+                'No tienes permiso para ajustar inventario en la sucursal de '
+                'este lote.'
             )
 
         cantidad_anterior = lote.cantidad_actual
@@ -181,3 +197,25 @@ def registrar_ajuste_service(
         tipo, lote.numero_lote, cantidad_anterior, cantidad_nueva, motivo,
     )
     return ajuste
+
+
+def _puede_ajustar(usuario: 'AbstractUser', *, lote: Lote, sucursal_operador=None) -> bool:
+    """
+    Quién puede ajustar un lote (INV-RBAC-SCOPE / CT-02).
+
+    Se resuelve con el motor RBAC: `inventario.ajustar` en la sucursal del lote.
+    ADMIN/SYSADMIN siguen pasando porque el motor les concede acceso total, no por
+    un chequeo de rol aquí.
+
+    Scope:
+      - Con sucursal en el lote -> se autoriza contra ESA sucursal. Es lo que
+        impide ajustar cross-branch en una BD compartida.
+      - Lote legacy sin sucursal (anterior a la Fase 2) -> cae al scope operativo
+        del solicitante (`sucursal_operador`).
+    """
+    comprobar = getattr(usuario, 'tiene_permiso', None)
+    if comprobar is None:
+        # Usuario sin el modelo propio (AnonymousUser o doble de test).
+        return False
+    scope = lote.sucursal or sucursal_operador
+    return bool(comprobar('inventario.ajustar', sucursal=scope))

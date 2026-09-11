@@ -35,3 +35,15 @@ class LoteNoEncontradoError(ErrorInventarioBase):
     resultado esperable, no una falla interna.
     """
     status_code = 404
+
+
+class PermisoAjusteDenegadoError(ErrorInventarioBase):
+    """
+    El usuario no tiene `inventario.ajustar` en la sucursal del lote (INV-RBAC-SCOPE).
+
+    Se autoriza en el SERVICIO, contra la sucursal del lote ya bloqueado — no solo
+    en el decorador de la vista (que resuelve la sucursal del OPERADOR). En una BD
+    compartida por varias sucursales, un rol acotado a la sucursal A no puede
+    ajustar un lote de la B con solo cambiar el `lote_id`.
+    """
+    status_code = 403

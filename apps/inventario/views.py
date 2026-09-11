@@ -12,7 +12,11 @@ import json
 import logging
 
 from apps.configuracion.decorators import requiere_modulo
-from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+    sucursal_del_request,
+)
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -899,6 +903,7 @@ def api_ajustar_inventario(request):
             cantidad=data.get('cantidad', 0),
             motivo=data.get('motivo', ''),
             ip_address=get_client_ip(request),
+            sucursal=sucursal_del_request(request),
         )
     except ErrorInventarioBase as exc:
         # Incluye el lote inexistente (404): antes caia en el `except Exception`

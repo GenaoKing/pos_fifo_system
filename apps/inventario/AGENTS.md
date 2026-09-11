@@ -20,7 +20,7 @@ Compras y stock por lotes **FIFO** (`apps/inventario/models.py`): `Compra` →
 | **Consumir / devolver stock FIFO** | `fifo_logic.py` → `procesar_venta_fifo`, `anular_venta_devolver_stock`; `obtener_lotes_fifo(..., bloquear=True)` |
 | Stock disponible / valuación / mínimos | `fifo_logic.obtener_stock_disponible`, `calcular_valuacion_fifo`, `verificar_stock_minimo`, `obtener_productos_bajo_stock` |
 | Compras | `views.compras_lista`, `compra_crear`, `compra_detalle`, `compra_editar` (corrige lotes: `_anular_lote_por_correccion`), `compra_imprimir_etiquetas` (Zebra, `utils/impresoras/zebra.py`) |
-| Ajustes manuales | `views.vista_ajustes`, `api_lotes_producto`, `api_ajustar_inventario` → `services.registrar_ajuste_service` |
+| Ajustes manuales | `views.vista_ajustes`, `api_lotes_producto`, `api_ajustar_inventario` → `services.registrar_ajuste_service` (RBAC: `inventario.ajustar` re-autorizado en el SERVICIO contra la sucursal del LOTE bloqueado, INV-RBAC-SCOPE) |
 | Errores de dominio | `services/exceptions.py` |
 
 ## Invariantes / trampas
