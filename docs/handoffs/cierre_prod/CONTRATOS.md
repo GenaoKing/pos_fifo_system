@@ -1,6 +1,6 @@
 # Registro de contratos del cierre de producción
 
-Propietario: **A / Codex**. Última actualización: **2026-09-10**.
+Propietario: **A / Codex**. Última actualización: **2026-09-11**.
 
 Este archivo es la única fuente para nombres y semántica compartidos. Un
 contrato publicado no afirma que el backend ya lo implemente: la columna
@@ -12,14 +12,14 @@ las pruebas consumidoras.
 | Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
-| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | PENDIENTE A03 | SHA del handoff A00 |
+| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 IMPLEMENTADO; CONSUMIDORES C PENDIENTES** | `3e6cec1` |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
 | CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
-Las interfaces CT-01/02 se publican temprano para que Claude pueda preparar
-productores y gates. **No debe marcar una integración como terminada hasta
-consumir el commit de implementación de A02/A03 y repetir sus tests.**
+Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
+**Ninguna integración consumidora se considera terminada hasta consumir el
+commit de implementación de A02/A03 y repetir sus tests.**
 
 ## CT-01 — auditoría e identidad (`audit.event.v1`)
 
@@ -165,8 +165,8 @@ permisos_de_usuario(usuario, sucursal=<Sucursal>|None|TODAS) -> set[str]
 
 ### Payload de capacidades para portal/POS
 
-`/api/v1/auth/perfil/` conservará en la transición los campos actuales
-`permisos` y `modulos`, y añadirá el envelope:
+`/api/v1/auth/perfil/` y el login conservan los campos actuales `permisos` y
+`modulos`, y añaden el envelope:
 
 ```json
 {
@@ -192,18 +192,36 @@ Fixture canónico:
 
 ### Contrato de revocación cloud → POS (`rbac.sync.v2`)
 
-Se mantienen `/api/v1/sync/roles/` y `/api/v1/sync/asignaciones/`. V2 es
-aditivo sobre las claves legacy (`slug`, `usuario_username`, `rol_slug`,
-`sucursal_codigo`, `activo`, `fecha_modificacion`, `cursor_id`):
+Se mantienen `/api/v1/sync/roles/` y `/api/v1/sync/asignaciones/`. El POS nuevo
+solicita `X-RBAC-Schema: rbac.sync.v2` con `snapshot=full`. Sin ese header, el
+servidor conserva la lista legacy; un POS nuevo también acepta una lista de un
+cloud anterior. V2 es aditivo sobre `slug`, `usuario_username`, `rol_slug`,
+`sucursal_codigo`, `activo`, `fecha_modificacion` y `cursor_id`.
+
+Respuesta de roles:
 
 ```json
 {
   "schema_version": "rbac.sync.v2",
   "snapshot_complete": true,
+  "tenant_key": "demo",
+  "revision": 17,
   "roles": [{
     "cloud_id": "uuid", "revision": 4, "slug": "cajero",
     "active": false, "permission_codes": [], "deleted_at": "RFC3339"
-  }],
+  }]
+}
+```
+
+Respuesta de asignaciones para el token de sucursal:
+
+```json
+{
+  "schema_version": "rbac.sync.v2",
+  "snapshot_complete": true,
+  "tenant_key": "demo",
+  "scope": {"branch_ref": "uuid", "branch_code": "01"},
+  "revision": 21,
   "assignments": [{
     "cloud_id": "uuid", "revision": 9,
     "user_ref": "uuid", "usuario_username": "ana",
@@ -230,10 +248,12 @@ Reglas obligatorias:
    idempotente; una revisión menor se ignora y queda diagnosticada.
 7. El catálogo puede contener códigos desconocidos para un POS antiguo, pero
    nunca debe bloquear bajas de rol/asignación ni el avance de otros recursos.
+8. Antes de aplicar o reconciliar, el POS compara `tenant_key` con el contexto
+   técnico activo (fallback `Negocio.slug` en row-level) y, para asignaciones,
+   exige el mismo `scope.branch_code` de la instalación.
 
-La negociación exacta de capacidades HTTP se implementa en A03 y se agrega sin
-romper clientes que no envían header. Hasta entonces no se retira ninguna clave
-legacy ni `_pull_legacy`.
+La negociación quedó implementada de forma aditiva en A03. No se retira ninguna
+clave legacy ni `_pull_legacy` durante esta transición.
 
 ### Errores HTTP
 

@@ -1,6 +1,6 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-09**. Estado: **plan preparado; implementación y gates pendientes**.
+Fecha: **2026-09-11**. Estado: **en ejecución; A03 en revisión y gates pendientes**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01 validado localmente; resto pendiente** | `docs/handoffs/cierre_prod/A01-baseline-dependencias.md` y handoffs siguientes |
-| G0 / G1 / G2 / G3 / G4 | **G0 habilita C01 y A02/A03 con contención tenant documentada**; G1-G4 pendientes | Worktrees, venvs, BDs y puertos separados; suites tenant multi-DB en serial hasta TEN-016. |
+| Implementación A01–A08 / C01–C06 | **A01-A02 y C01-C03 integrados localmente tras cerrar sus 3 bloqueadores; A03 en REVISION aislada** | Reconciliar `3e6cec1` con el `develop` vigente y repetir la matriz combinada antes de integrar CT-02. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; A03 validado en aislamiento; G1-G4 pendientes** | Worktrees, venvs, BDs y puertos separados; suites tenant multi-DB en serial. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

@@ -4,7 +4,7 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-10**
+Última actualización: **2026-09-11**
 
 ## Cierre A02 (sin despliegue)
 
@@ -16,28 +16,29 @@ la identidad ya está acotada, pero las invariantes de privilegio/revocación so
 A03/CT-02. USR-014 sigue A08. Los preflights sobre filas operativas continúan
 abiertos para A08; A02 no leyó ni modificó datos reales.
 
+## Cierre A03 / CT-02 (sin despliegue)
+
+El candidato `codex/cierre-prod-A03`, basado en `develop@e3635de`, cierra en
+código PER-006/007, PER-012 y PER-014–021: identidad/revisión/tombstones RBAC,
+servicios atómicos y auditados, seed/comandos tenant-aware y migraciones
+históricas congeladas. PER-013 se entrega a C02/C05 porque sus consumidores son
+superficies Claude. El bypass de ADMIN no se retira en esta fase: queda
+condicionado al preflight por tenant de A08/A09.
+
 ---
 
-## 🔴 Bloqueantes de seguridad — privilegio que persiste
+## ✅ Bloqueantes de seguridad cerrados por A03
 
-Lo único de esta lista donde **hoy hay un permiso vivo que alguien cree
-retirado**. Recomendado tomar a continuación.
+Los dos casos de privilegio persistente quedaron resueltos en código por el
+contrato `rbac.sync.v2`; el despliegue y su verificación operativa siguen fuera
+de este cierre.
 
-- [ ] **PER-006 — Mover una asignación no revoca la anterior en el POS local.**
-      El payload cloud→local identifica la asignación por
-      `usuario_username + rol_slug + sucursal_codigo`, y la API permite cambiar
-      esos tres campos. La nueva relación baja a la sucursal; la anterior queda
-      activa **indefinidamente**.
-      *Arreglo:* identidad cloud inmutable en la asignación + tratar el cambio
-      de terna como revoke-old + create-new en una transacción.
-      *Contención barata:* hacer inmutables esos tres campos y exigir
-      soft-delete + alta nueva.
-- [ ] **PER-007 — Borrar un rol custom no se propaga.** La API hace
-      `instance.delete()` físico; el endpoint de sync solo emite filas
-      existentes y `_pull_roles()` solo hace upsert, nunca reconcilia ausencias.
-      El rol y sus asignaciones siguen activos en cada sucursal.
-      *Arreglo:* soft-delete versionado o ledger de tombstones, más una
-      reconciliación completa periódica.
+- [x] **PER-006 — Mover una asignación revoca la anterior en el POS local.**
+      A03 agrega `cloud_id` inmutable y movimiento revoke-old/create-new
+      transaccional; V2 conserva claves legacy solo por compatibilidad.
+- [x] **PER-007 — Borrar un rol custom se propaga.** A03 usa baja lógica
+      versionada y snapshots completos que reconcilian únicamente filas
+      `origen_cloud`, luego de validar tenant y sucursal.
 
 > Ambos son P1 críticos de `apps/permisos` y comparten solución: es un cambio de
 > contrato de sincronización con su propia migración, del tamaño de las
@@ -172,7 +173,9 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       de importes y cantidades se validan solo en la aplicación.
 - [ ] **Idempotencia concurrente del cobro CxC**: falta el test de N reintentos
       con la misma clave.
-- [ ] **`_puede_anular` usa el rol legacy** (`ADMIN`/`SYSADMIN`) en vez de RBAC.
+- [ ] **PER-013 / consumidores C02-C05 — anulación y reimpresión deben usar RBAC
+      y scope de la venta.** A03 publica el helper/contrato; Claude integra
+      `ventas.anular` y `ventas.reimprimir` en sus archivos y repite la matriz.
 - [ ] **Scope por sucursal en los gates de inventario**: `tiene_permiso` se
       llama sin sucursal en varios puntos de esa app. Con el contrato nuevo del
       motor (PER-003) esos gates ahora consultan solo asignaciones globales —
@@ -180,15 +183,13 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 - [ ] **Identidad compuesta en el cloud** para `_handler_venta_creada`.
 - [ ] **Auditoría de mutaciones API bajo tenancy**: `SesionImpersonacion`
       registra el acceso, no cada mutación de la sesión.
-- [ ] **Retirar el bypass de `ADMIN`** en `es_acceso_total`. Exige migrar antes
-      a cada admin a asignaciones explícitas, con comprobación previa de
-      lockout. Ya está acotado: no aprueba códigos inexistentes ni capacidades
-      del operador SaaS.
-- [ ] **Unificar los guards RBAC de notificaciones con `permisos.engine`.**
-      `notificaciones.services._asignaciones_en_alcance` copia los filtros
-      `activo` (rol/negocio/sucursal) de `_resolver_permisos`; extraer un helper
-      compartido evita que diverjan. Hoy están sincronizados y con comentario
-      cruzado. Deuda menor del code review de notificaciones (2026-09-05).
+- [ ] **Retirar el bypass de `ADMIN`** solo después de ejecutar
+      `preflight_rbac_admin_cutover --tenant <tenant_key>` y corregir los
+      ADMIN activos reportados. El código ya soporta
+      `RBAC_LEGACY_ADMIN_BYPASS=False`; A03 no leyó datos operativos ni cambió
+      esa bandera.
+- [x] **Guards RBAC de notificaciones unificados.** Notificaciones consume
+      `permisos.engine.asignaciones_efectivas` como consulta canónica.
 
 ---
 
@@ -216,8 +217,8 @@ ya resueltos en junio de 2026 y re-verificados; su decisión de scope quedó
 superada por NEG-001). Lo que sigue abajo son hallazgos P2/P3 dentro de módulos
 ya procesados.
 
-**Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
-PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+**Pendientes de `apps/permisos`:** PER-013 en consumidores C02/C05. Permanece
+además el gate operacional de ADMIN documentado arriba.
 
 **Pendientes de `apps/common`** (P1 cerrado + COM-002/003/004/010/011/015):
 COM-005 (forma de tablas sin validar: una columna extra expandio la tabla
