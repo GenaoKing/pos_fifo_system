@@ -140,6 +140,23 @@
                     </tbody>
                 </table>
             </div>
+
+            {% if page_obj.paginator.num_pages > 1 %}
+            <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm">
+                <span class="text-gray-500">
+                    Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+                    ({{ page_obj.paginator.count }} cotizaciones)
+                </span>
+                <div class="flex gap-2">
+                    {% if page_obj.has_previous %}
+                    <a href="?page={{ page_obj.previous_page_number }}{% if estado %}&estado={{ estado }}{% endif %}" class="btn-ghost btn-sm">Anterior</a>
+                    {% endif %}
+                    {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}{% if estado %}&estado={{ estado }}{% endif %}" class="btn-ghost btn-sm">Siguiente</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

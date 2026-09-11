@@ -906,6 +906,24 @@ def _marcar_cotizacion_convertida(cotizacion, venta: Venta) -> None:
     cotizacion.save(update_fields=['estado', 'venta'])
     sync_events.evento_cotizacion_convertida(cotizacion)
 
+    # COT-012: auditoria de negocio del ciclo de la cotizacion, atomica con la
+    # venta. La conversion es el hecho financiero (fija el precio autorizado).
+    Auditoria.registrar(
+        accion=Auditoria.TipoAccion.EDITAR,
+        descripcion=(
+            f'Cotizacion {cotizacion.numero_cotizacion} convertida en venta '
+            f'{venta.numero_venta}'
+        ),
+        usuario=venta.usuario,
+        content_object=cotizacion,
+        nivel_importancia='MEDIA',
+        metadata={
+            'cotizacion': cotizacion.numero_cotizacion,
+            'venta': venta.numero_venta,
+            'total': str(cotizacion.total),
+        },
+    )
+
 
 # -----------------------------------------------------------------------------
 # Cliente y precondiciones fiscales

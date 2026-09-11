@@ -38,6 +38,12 @@ cotización en el POS para convertirla en venta. `apps/cotizaciones/models.py`,
   y por eso `venta` usa `on_delete=PROTECT`. Preflight:
   `manage.py verificar_integridad_financiera`.
 - Permisos: `cotizaciones.ver`, `cotizaciones.crear`; módulo `cotizaciones`.
+- **Numeración (COT-010):** `Cotizacion.save()` usa máximo sufijo + reintento en
+  savepoint (no `count()+1`), igual que `Venta`/`_guardar_con_correlativo`.
+- **Auditoría (COT-012):** crear (`guardar_cotizacion`) y convertir
+  (`ventas_service._marcar_cotizacion_convertida` y el legacy `marcar_convertida`)
+  dejan `Auditoria.registrar` DENTRO de la transacción. `lista_cotizaciones` pagina
+  (COT-017); el descuento/cantidad se sanean en el servidor (COT-008).
 - Sync: `evento_cotizacion_creada`, `evento_cotizacion_convertida`
   (`apps/sync/events.py`); handlers en `apps/api/views/sync.py`.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md`)

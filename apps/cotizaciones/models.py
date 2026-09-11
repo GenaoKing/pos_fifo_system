@@ -1,9 +1,13 @@
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.core.validators import MinValueValidator
 from django.conf import settings
 from decimal import Decimal
 from django.utils import timezone
 import pytz
+
+
+# Reintentos de asignacion de numero_cotizacion ante colision (COT-010).
+MAX_INTENTOS_NUMERO_COTIZACION = 5
 
 
 class Cotizacion(models.Model):
@@ -147,16 +151,52 @@ class Cotizacion(models.Model):
             santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
             self.fecha_creacion = timezone.now().astimezone(santo_domingo_tz)
 
-        if not self.numero_cotizacion:
-            fecha_str = self.fecha_creacion.strftime('%Y%m%d')
-            prefijo = f'{self.sucursal.codigo}-COT-{fecha_str}' if self.sucursal else f'COT-{fecha_str}'
-            ultimo = Cotizacion.objects.filter(
-                sucursal=self.sucursal,
-                numero_cotizacion__startswith=prefijo
-            ).count()
-            self.numero_cotizacion = f'{prefijo}-{str(ultimo + 1).zfill(5)}'
+        # Si el numero ya viene asignado (replicacion, correcciones, segundo
+        # save() para actualizar totales), no se recalcula.
+        if self.numero_cotizacion:
+            return super().save(*args, **kwargs)
 
-        super().save(*args, **kwargs)
+        # COT-010: numeracion por MAXIMO sufijo + reintento en savepoint, no
+        # `count()+1`. Contar filas reutiliza un numero en cuanto la secuencia
+        # tiene un hueco, y bajo concurrencia dos cotizaciones proponen el mismo
+        # numero; la unique (sucursal, numero_cotizacion) lo rechazaba con un 500
+        # DESPUES de que el usuario ya guardo. Se reintenta leyendo el numero que
+        # el otro proceso acaba de tomar (mismo patron que Venta.save).
+        fecha_str = self.fecha_creacion.strftime('%Y%m%d')
+        prefijo = (
+            f'{self.sucursal.codigo}-COT-{fecha_str}'
+            if self.sucursal_id else f'COT-{fecha_str}'
+        )
+        for intento in range(MAX_INTENTOS_NUMERO_COTIZACION):
+            self.numero_cotizacion = self._siguiente_numero_cotizacion(prefijo)
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                if intento == MAX_INTENTOS_NUMERO_COTIZACION - 1:
+                    raise
+                self.numero_cotizacion = ''
+
+    @staticmethod
+    def _siguiente_numero_cotizacion(prefijo):
+        """
+        Siguiente correlativo del prefijo, a partir del MAXIMO sufijo existente.
+
+        El prefijo ya incluye el codigo de sucursal (o `COT-` para las legacy sin
+        sucursal), asi que filtrar por `startswith` respeta el alcance de la
+        unique `(sucursal, numero_cotizacion)`.
+        """
+        numeros = Cotizacion.objects.filter(
+            numero_cotizacion__startswith=prefijo
+        ).values_list('numero_cotizacion', flat=True)
+
+        ultimo = 0
+        for numero in numeros:
+            sufijo = numero.rsplit('-', 1)[-1]
+            if sufijo.isdigit():
+                ultimo = max(ultimo, int(sufijo))
+
+        return f'{prefijo}-{str(ultimo + 1).zfill(5)}'
 
     def calcular_totales(self):
         """Recalcula totales basado en detalles"""
