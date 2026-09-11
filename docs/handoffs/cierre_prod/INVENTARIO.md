@@ -20,6 +20,11 @@ Actualización A03: **2026-09-11**; implementación `3e6cec1`, merge local
 `b7147fb` y matriz combinada validada. No modifica la captura base A00 ni
 acredita despliegue.
 
+Actualización A04: **2026-09-11**; implementación `be15ea0` en
+`codex/cierre-prod-A04`, lista para revisión y todavía sin integrar. Acredita
+solo código/matriz local: la compatibilidad HTTP real y cualquier sonda o
+reparación de clientes permanecen en A09 con autorización.
+
 ## Base, ramas, worktrees y aislamiento
 
 | Elemento | Resultado verificado | Evidencia / acción |
@@ -264,15 +269,15 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | OPS-NEG-SELF | Más de una fila negocio en tenant bloquea provisioning. | A | A02/A08 | Alta | OPERATIVO_PENDIENTE | — | Preflight por copia. |
 | OPS-USR-HUERFANOS | Usuario activo sin negocio pierde scope al cerrar fail-open. | A | A02/A08 | Alta | OPERATIVO_PENDIENTE | — | Lista read-only + plan manual. |
 | OPS-PER-ROLES | Roles custom no reciben permisos por data migration. | A+C | A03/C06 | Alta | OPERATIVO_PENDIENTE | — | Matriz custom/system. |
-| SYNC-CLAIM | Claim push no sobrevive crash; falta lease de 5 min. | A | A04 | Alta | PENDIENTE | — | Dos procesos/crash/lease vencido. |
-| SYNC-DIFERIDOS | Diferido congela cursor; falta cola durable/estado PARCIAL. | A | A04 | Alta | PENDIENTE | — | Reinicio y cursor contiguo. |
-| SYNC-LEGACY | `_pull_legacy` sigue por compatibilidad cloud viejo. | A | A04 | Media | PENDIENTE | — | Matriz viejo/nuevo antes de retirar. |
+| SYNC-CLAIM | Claim push no sobrevive crash; falta lease de 5 min. | A | A04 | Alta | RESUELTO_LOCAL | `be15ea0` | Dos procesos, crash, lease vencido y ACK tardío verdes. |
+| SYNC-DIFERIDOS | Diferido congela cursor; falta cola durable/estado PARCIAL. | A | A04 | Alta | RESUELTO_LOCAL | `be15ea0` | Reinicio, rollback entre pasos, fallo al persistir y cursor cubiertos. |
+| SYNC-LEGACY | `_pull_legacy` sigue por compatibilidad cloud viejo. | A | A04 | Media | DIFERIDO_EXPLICITO | `be15ea0` | Se conserva; matriz viejo/nuevo real queda A09 antes de retirarlo. |
 | DB-CONSTRAINTS | Ventas/inventario validan cantidades/importes solo en app. | C | C05 | Alta | PENDIENTE | — | Escritura directa rechazada. |
 | CXC-MIG-ALIAS | `cuentas_por_cobrar.0002` usa el manager sin `.using(schema_editor.connection.alias)` y en un grafo tenant desde cero intenta sembrar `default`. | C | C05/A08 | Alta migración | ENTREGADO_A_C | `583863f` (detección) | Corregir en superficie C y migrar desde cero dos BDs tenant físicas. |
 | CXC-IDEMP-CONC | Falta prueba N reintentos de cobro con misma clave. | C | C05 | Alta | PENDIENTE | — | Exactamente un efecto financiero. |
 | VEN-ANULAR-LEGACY | `_puede_anular` usa rol legacy. | C | C05 | Alta auth | PENDIENTE | — | CT-02 por sucursal. |
 | INV-RBAC-SCOPE | Gates inventario llaman permiso sin sucursal. | C | C05 | Alta auth | PENDIENTE | — | Asignaciones A/B. |
-| SYNC-VENTA-ID | Handler venta cloud carece identidad compuesta robusta. | A | A04 | Alta | PENDIENTE | — | Replay tenant/sucursal. |
+| SYNC-VENTA-ID | Handler venta cloud carece identidad compuesta robusta. | A | A04 | Alta | RESUELTO_LOCAL | `be15ea0` | Identidad/hash scopeados; replay cross-branch no adopta el hecho ajeno. |
 | TEN-API-AUDIT | Impersonación registra sesión, no cada mutación. | A | A02 | Alta | RESUELTO_CONTRATO | `583863f` | CT-01 conserva actor operativo e `impersonator_ref`; cada bloque acredita sus productores. |
 | PER-ADMIN-BYPASS | `ADMIN` conserva bypass transitorio. | A | A03/A08 | Alta | OPERATIVO_PENDIENTE | `3e6cec1` | Flag y preflight listos; ejecutar por tenant antes de retirarlo. |
 | NOTIF-RBAC-GUARD | Notificaciones duplica filtros de `permisos.engine`. | A | A03 | Media | RESUELTO | `3e6cec1` | `asignaciones_efectivas` es el helper único compartido. |
@@ -295,7 +300,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | BUG-H | SKU local faltante tumbaba venta cloud. | A+C | A04/A06/C04/C06 | Alta | Prod backend `bcb8621` contiene fix; POS/foto y RC final pendientes | BUGS | Stub→portal→pull/foto. |
 | BUG-I | Chrome autocompleta credenciales en caja. | C | C05/C06 | Baja | Código + test; visual diferida | `45ca23a` base | Chrome con credenciales reales de laboratorio. |
 | BUG-J | Comentario Django aparecía en sidebar. | C | C06 | Baja | Código + test; visual diferida | BUGS | Inspección visual RC. |
-| BUG-K | `IntegrityError` falso se ACKeaba duplicado. | A | A04 | Alta | Fix en dev/staging; prod y falsos ACK históricos pendientes | `d831535`, imágenes dev/staging | Dry-run de `CONFIRMADO` vs hecho cloud; no replay ciego. |
+| BUG-K | `IntegrityError` falso se ACKeaba duplicado. | A | A04 | Alta | Herramienta/reconciliación A04 listas; prod y falsos ACK históricos pendientes | `d831535`, `be15ea0`; dev/staging previos | Ejecutar primero dry-run y revisar lista en A09; no replay ciego. |
 | BUG-L | Portal mostraba HTML 500 y confundía alta push. | C | C04/C06 | Media | Corregido dev/staging | Frontend staging `e0a2302` | RC integrado/backend real. |
 | BUG-M | Safari no instalado tocaba `pushManager`. | C | C04/C06 | Media | Corregido y validado físicamente en staging | Frontend staging `e0a2302` | Repetir RC sin asumir evidencia vieja. |
 

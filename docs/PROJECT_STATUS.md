@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-11** (A03/CT-02 integrado localmente en `b7147fb`
-después de C01-C03 y validado con la matriz combinada; sin push, despliegue ni
-lectura/escritura de datos operativos).
+Ultima revision: **2026-09-11** (A03/CT-02 integrado localmente en `b7147fb`;
+A04 implementado en la rama aislada `codex/cierre-prod-A04@be15ea0` y listo
+para revisión, todavía sin integrar; sin push, despliegue ni datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -44,8 +44,9 @@ propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
-A00-A03 y C01-C03; los tres bloqueadores se cerraron antes de incorporar Claude
-y CT-02 quedó reconciliado/validado en `b7147fb`; G1-G4 siguen pendientes**.
+A00-A03 y C01-C03; A04 está listo para revisión en una rama separada y no se ha
+fusionado; CT-02 quedó reconciliado/validado en `b7147fb`; G1-G4 siguen
+pendientes**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
@@ -67,11 +68,11 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Combinación A03+C validada localmente | `TESTING.md` | 957 focales + 1.346 Django + 72 e-CF en Windows 3.11; imagen Linux 3.12.14, `collectstatic`, `pip check` y `settings_cloud` verdes. |
-| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A03 cierra PER-006/007, PER-012 y PER-014–021; PER-013 queda en handoff a C02/C05. También queda el cutover operacional de ADMIN y pendientes de otros módulos. |
+| Testing | A04 validado localmente; combinación A03+C conserva su baseline | `TESTING.md` | A04: 215 focales sync/API + 1.364 Django en Windows 3.11, seriales y con BDs nuevas. Baseline anterior: 957 focales A03+C + 72 e-CF; Linux/artefacto se repite en A09. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A04 cierra localmente claim/diferidos e identidad scopeada; PER-013, cutover ADMIN y demás consumidores/operaciones siguen en sus bloques. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
-| Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
-| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-I/J/L/M corregidos y desplegados en dev/staging; BUG-M se confirmó físicamente. La reverificación visual de BUG-I/J se difirió con cobertura automática. BUG-K (ACK falso del sync) sigue fuera de producción. |
+| Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable listo para revisión local** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Revisar/integrar A04; compatibilidad real, dry-run de clientes y despliegue quedan para A09 con autorización. |
+| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-K tiene sonda/plan dirigido en A04 `be15ea0`, aún sin integrar ni ejecutar contra clientes; producción e historia siguen pendientes de A09. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -178,17 +179,19 @@ Frontera actual:
 
 Fuente viva: `TESTING.md`.
 
-Estado (2026-09-10):
+Estado (2026-09-11):
 
-- **1.232 metodos de test en 102 archivos.** La unica app sin ningun archivo de
+- **1.423 metodos de test en 113 archivos.** La unica app sin ningun archivo de
   test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
   Con un solo archivo, y por lo tanto candidatas a reforzar:
   `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
-- Última corrida completa Windows 3.11/Django 5.2.17: **1.173 pruebas Django
-  verdes en 426 s** y **72 pruebas pytest de facturación verdes en 18 s**
-  (A01, 2026-09-10). La repetición Linux 3.12 vive en el handoff A01. El conteo
-  estático de métodos no es directamente comparable con casos parametrizados y
-  descubrimiento del runner.
+- Última corrida completa Windows 3.11/Django 5.2.17: **1.364 pruebas Django
+  verdes en 469,692 s** (A04, 2026-09-11), seriales y con cuatro BDs de test
+  nuevas. La matriz focal sync/API fue **215/215 en 51,391 s**. La última
+  corrida pytest de facturación sigue siendo **72 verdes en 18 s** (A01): A04
+  no tocó esa superficie. La repetición Linux 3.12 vive en el handoff A01 y se
+  repite sobre el RC en A09. El conteo estático de métodos no es directamente
+  comparable con casos parametrizados y descubrimiento del runner.
 - `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->
   `testpaths`), no con `manage.py test`.
 - Baseline: CPython 3.11.14 x64 en Windows y CPython 3.12.14 en cloud/CI. Los locks

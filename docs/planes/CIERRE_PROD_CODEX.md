@@ -1,6 +1,6 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-11**. Estado: **A00-A03 integrados y A03 validado localmente**.
+Fecha: **2026-09-11**. Estado: **A00-A03 integrados; A04 listo para revisión**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -113,6 +113,11 @@ revocación con permiso nuevo desconocido, custom roles, snapshot incompleto y
 seed repetido. Claude consume un único helper/contrato de autorización.
 
 ## A04 — Transporte durable y reparación de BUG-K
+
+**Estado 2026-09-11:** implementación local `be15ea0` en
+`codex/cierre-prod-A04`, contrato y handoff publicados, sin merge/push/deploy ni
+datos operativos. La revisión cruzada y la integración explícita siguen
+pendientes; no comenzar A05 automáticamente.
 
 **Entrada:** A01 y contrato de identidad; integrar A03 para pruebas de RBAC.
 
