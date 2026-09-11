@@ -409,13 +409,80 @@ receptores (`post_save`/`post_delete`/`m2m_changed`) ahora difieren con
 - Regresión (`apps.suscripciones` + `apps.api` + `apps.configuracion` +
   `apps.auditoria` + `apps.tenancy`) en verde; sin migraciones.
 
+## CFG-012 — diseñado, NO implementado (2026-09-10/11)
+
+Leer configuración puede crearla: `ConfiguracionNegocio.load()` hace
+`get_or_create()`, y `get_config()` (llamada desde el context processor, en
+CADA render de template) hereda ese efecto secundario. El fix correcto es
+mecánico y chico — `.load()` deja de crear y lanza `ConfiguracionNoInicializada`
+(mensaje accionable: `manage.py crear_config_inicial [--sucursal <codigo>]`)
+cuando no hay fila — pero el **alcance real no es de producción**, es de tests.
+
+**Por qué no es riesgo de producción (verificado, no es solo intuición):**
+Django NO corre los context processors en la vista 500 por defecto (evita
+justo la cascada de fallos que parecía el riesgo); y en el flujo de instalación
+real, `crear_config_inicial` corre en
+`docs/runbooks/INSTALACION_CLIENTE_NUEVO.md` línea 145, **antes** de que el
+servicio arranque o el sync se habilite (línea 245+). Ningún render ni pull de
+sync debería llegar nunca a `.load()` sin fila ya creada — si llega, la
+instalación está rota y ES CORRECTO fallar fuerte ahí, no disimular con
+"Mi Negocio" por defecto.
+
+**Por qué es más grande de lo que parece — auditoría de impacto completa:**
+`get_config()`/`.load()` es un atajo de fixture usado por **~80 tests fuera de
+C03** (ventas, inventario, usuarios) que nunca crean `ConfiguracionNegocio`
+explícita:
+
+- **Rotura confirmada, ~43 tests**: `apps/ventas/tests/test_ventas_service.py`
+  (~24/31, vía `procesar_venta_service` → `get_config()` sin guardas en
+  `ventas_service.py:200`, antes de cualquier chequeo de permiso/stock),
+  `test_anulaciones.py` (~9/13, mismo mecanismo), `test_concurrencia.py` (5/5,
+  `setUp` materializa la config a propósito antes de lanzar hilos),
+  `test_producto_precio_cache.py` (1/1), `apps/inventario/tests/
+  test_concurrencia_inventario.py` (4/4, mismo patrón "materializar antes de
+  hilos").
+- **Rotura probable, ~40 tests más**: `apps/usuarios/tests/
+  test_auditoria_usuarios.py` — golpea `pos:punto_venta` y `usuarios:login`
+  vía `self.client`, y esas vistas llaman `get_config()` sin guardas
+  (`apps/ventas/views.py:77,518,762`; `apps/usuarios/views.py:117,139`), más
+  el context processor global (`config/settings.py` TEMPLATES).
+- **Ya construidos correctamente** (crean la config explícita, sirven de
+  plantilla): `apps/caja/tests/test_cuadre.py`, `apps/configuracion/tests/
+  test_auditoria_configuracion.py`, y el fixture opt-in de
+  `apps/facturacion_electronica/tests/conftest.py` (`config_negocio`, no
+  autouse).
+- **~15-18 archivos más sin verificar** que usan `self.client`/`APIClient`
+  contra vistas HTML (no JSON) sin mencionar `ConfiguracionNegocio` — mismo
+  riesgo potencial, no confirmado caso por caso.
+
+**Plan cuando se retome:**
+1. `apps/configuracion/models.py`: nueva `ConfiguracionNoInicializada
+   (RuntimeError)`; `ConfiguracionNegocio.load()` deja de hacer
+   `get_or_create` en ambas ramas (con y sin `sucursal`), lanza con mensaje
+   accionable.
+2. `apps/configuracion/utils.py::get_config()` no necesita cambios de código
+   — la excepción se propaga sola; sí revisar el docstring.
+3. Agregar `ConfiguracionNegocio.objects.create(...)` explícito al `setUp`/
+   fixture de cada archivo de la lista de arriba (mismo patrón que
+   `test_cuadre.py`), en vez de depender del efecto secundario. Mecánico,
+   pero son ~10 archivos fuera del árbol de C03 (`apps/ventas`,
+   `apps/inventario`, `apps/usuarios`) — coordinar antes de tocarlos si otro
+   agente/bloque los está usando a la vez.
+4. `apps/sync/engine.py:1237` y `apps/api/views/sync.py:439` (ninguno mío)
+   también dejarán de auto-crear — avisar a quien los toque; por el orden de
+   instalación real (nota de arriba) no deberían depender de eso, pero no se
+   verificó con un test dedicado.
+5. Repetir la suite completa del proyecto (no solo C03) antes de dar esto por
+   cerrado — es la única forma de confirmar la lista de "~15-18 sin verificar".
+
 ## Deltas propuestos a documentos que edita Codex
 
 **`docs/TODO_AUDITORIAS.md`** — mover a corregido: **SUS-008, SUS-009, SUS-010,
-SUS-012, SUS-013, SUS-015, SUS-016 (parcial), SUS-018, CFG-006, CFG-009,
-CFG-011, CFG-013, CFG-014, CFG-015, CFG-017**. Siguen abiertos: SUS-006,
-SUS-007 (parcial: UI hecha, pull de sync pendiente), SUS-011, SUS-014,
-SUS-017, SUS-019; CFG-010, CFG-012, CFG-018, CFG-019, CFG-020, CFG-021.
+SUS-011, SUS-012, SUS-013, SUS-015, SUS-016 (parcial), SUS-017, SUS-018,
+CFG-006, CFG-009, CFG-011, CFG-013, CFG-014, CFG-015, CFG-017**. Siguen
+abiertos: SUS-006, SUS-007 (parcial: UI hecha, pull de sync pendiente),
+SUS-014, SUS-019; CFG-010, CFG-012 (diseñado, ver sección de arriba — no
+implementado), CFG-018, CFG-019, CFG-020, CFG-021.
 (CFG-016 es de C01; CFG-018/COM-* de C02.) La entrada actual del documento
 (línea ~261, "CFG-012 + CFG-017") quedó desactualizada en la mitad de
 CFG-017: sigue abierto CFG-012, pero CFG-017 ya cerró.
