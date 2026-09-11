@@ -14,7 +14,7 @@ from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso
 from apps.sucursales.models import Sucursal
 from apps.sync.engine import SyncEngine
-from apps.sync.models import VersionMaestro
+from apps.sync.models import DiferidoSync, VersionMaestro
 from apps.tenancy.context import reset_current_tenant, set_current_tenant
 
 User = get_user_model()
@@ -247,11 +247,16 @@ class PullAsignacionesTests(TestCase):
 
         self.assertEqual(resultado['count'], 0)
         self.assertEqual(AsignacionRol.objects.count(), 0)
-        self.assertIsNotNone(resultado['bloqueo'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
 
         cursor = VersionMaestro.objects.get(tabla='asignaciones')
-        self.assertIsNone(cursor.ultima_version)
-        self.assertIsNotNone(cursor.bloqueado_desde)
+        self.assertIsNotNone(cursor.ultima_version)
+        self.assertIsNone(cursor.bloqueado_desde)
+        self.assertEqual(
+            DiferidoSync.objects.get(tabla='asignaciones').estado,
+            'PENDIENTE',
+        )
 
     @patch('apps.sync.engine.requests.get')
     def test_asignacion_diferida_se_aplica_cuando_llega_la_dependencia(self, mock_get):
@@ -283,12 +288,15 @@ class PullAsignacionesTests(TestCase):
         usuario.negocio = self.negocio
         usuario.save(update_fields=['negocio'])
 
-        # Ciclo 2: el cursor no avanzo, asi que la fila vuelve a bajar.
-        mock_get.return_value = _Resp(payload)
-        self.assertEqual(engine._pull_asignaciones()['count'], 1)
+        # Ciclo 2: la fila no vuelve a bajar; se recupera desde la cola durable.
+        mock_get.return_value = _Resp([])
+        resultado = engine._pull_asignaciones()
+        self.assertEqual(resultado['count'], 1)
+        self.assertEqual(resultado['diferidos_resueltos'], 1)
         self.assertTrue(
             AsignacionRol.objects.filter(usuario=usuario, rol=self.rol).exists()
         )
+        self.assertEqual(DiferidoSync.objects.get().estado, 'RESUELTO')
 
         cursor = VersionMaestro.objects.get(tabla='asignaciones')
         self.assertIsNone(cursor.bloqueado_desde)

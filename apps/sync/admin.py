@@ -7,6 +7,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from .models import (
+    DiferidoSync,
     EventoSync,
     InventarioMovimientoSync,
     InventarioSucursalSnapshot,
@@ -24,18 +25,25 @@ class EventoSyncAdmin(admin.ModelAdmin):
     list_filter = ('estado', 'tipo_evento', 'sucursal')
     search_fields = ('objeto_referencia', 'hash_payload', 'ultimo_error')
     readonly_fields = (
-        'tipo_evento', 'objeto_referencia', 'objeto_id_local',
-        'payload', 'hash_payload', 'created_at', 'sent_at', 'confirmed_at',
+        'event_id', 'tipo_evento', 'objeto_referencia', 'objeto_id_local',
+        'payload', 'hash_payload', 'lease_id', 'lease_expires_at',
+        'created_at', 'sent_at', 'confirmed_at',
     )
     date_hierarchy = 'created_at'
     actions = ['reintentar_eventos', 'descartar_eventos']
 
     fieldsets = (
         ('Evento', {
-            'fields': ('tipo_evento', 'sucursal', 'objeto_referencia', 'objeto_id_local'),
+            'fields': (
+                'event_id', 'tipo_evento', 'sucursal', 'objeto_referencia',
+                'objeto_id_local',
+            ),
         }),
         ('Estado', {
-            'fields': ('estado', 'intentos', 'ultimo_error'),
+            'fields': (
+                'estado', 'intentos', 'ultimo_error', 'lease_id',
+                'lease_expires_at',
+            ),
         }),
         ('Timestamps', {
             'fields': ('created_at', 'sent_at', 'confirmed_at'),
@@ -49,6 +57,7 @@ class EventoSyncAdmin(admin.ModelAdmin):
     def estado_badge(self, obj):
         colors = {
             'PENDIENTE': '#f59e0b',
+            'EN_VUELO': '#2563eb',
             'CONFIRMADO': '#10b981',
             'ERROR': '#ef4444',
             'DESCARTADO': '#6b7280',
@@ -86,6 +95,26 @@ class EventoSyncAdmin(admin.ModelAdmin):
 class VersionMaestroAdmin(admin.ModelAdmin):
     list_display = ('tabla', 'ultima_version', 'ultima_sync_exitosa', 'registros_ultima_sync')
     readonly_fields = ('tabla',)
+
+
+@admin.register(DiferidoSync)
+class DiferidoSyncAdmin(admin.ModelAdmin):
+    list_display = (
+        'tabla', 'identidad', 'estado', 'intentos', 'sucursal_codigo',
+        'creado_at', 'resuelto_at',
+    )
+    list_filter = ('estado', 'tabla', 'tenant_key', 'sucursal_codigo')
+    search_fields = ('identidad', 'payload_hash', 'ultimo_error')
+    readonly_fields = [field.name for field in DiferidoSync._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(LogSync)

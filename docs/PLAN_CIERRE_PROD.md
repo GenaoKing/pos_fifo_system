@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A03 y C01-C03 integrados localmente; CT-02 validado en combinación** | Merge A03 `b7147fb`; evidencia en `docs/handoffs/cierre_prod/A03-rbac-ct02.md`. Consumidores PER-013 C02/C05 pendientes. |
+| Implementación A01–A08 / C01–C06 | **A01-A03 y C01-C03 integrados localmente; A04 listo para revisión, sin integrar** | Merge A03 `b7147fb`; A04 `be15ea0` en `codex/cierre-prod-A04` y handoff propio. Consumidores PER-013 C02/C05 pendientes. |
 | G0 / G1 / G2 / G3 / G4 | **G0 completado; combinación A03+C validada; G1-G4 pendientes** | Worktrees, venvs y cuatro BDs PostgreSQL separadas; suites tenant multi-DB en serial. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

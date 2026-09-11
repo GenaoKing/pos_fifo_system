@@ -19,6 +19,8 @@ Diseno:
 - LogSync NO se limpia automaticamente; un command aparte puede purgar los
   mas antiguos de N dias si el volumen se vuelve un problema.
 """
+import uuid
+
 from django.db import models
 from django.utils import timezone
 from apps.sync.constants import TIPOS_EVENTO
@@ -28,7 +30,7 @@ class EventoSync(models.Model):
     """
     Evento pendiente de enviar al cloud.
 
-    Lifecycle: PENDIENTE -> (push exitoso) -> CONFIRMADO
+    Lifecycle: PENDIENTE -> EN_VUELO (lease) -> CONFIRMADO
                          -> (error temporal) -> ERROR (intentos++)
                          -> (intentos >= max) -> DESCARTADO (manual review)
     """
@@ -39,6 +41,7 @@ class EventoSync(models.Model):
     ESTADO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
         ('SIN_PAYLOAD', 'Sin payload (serializar al enviar)'),
+        ('EN_VUELO', 'En vuelo (lease activo)'),
         ('CONFIRMADO', 'Confirmado'),
         ('ERROR', 'Error'),
         ('DESCARTADO', 'Descartado'),
@@ -48,6 +51,13 @@ class EventoSync(models.Model):
     ESTADOS_ENVIABLES = ['PENDIENTE', 'ERROR', 'SIN_PAYLOAD']
 
     # Identidad del evento
+    event_id = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        db_index=True,
+        verbose_name='Identidad estable del evento',
+        help_text='UUID que se conserva entre reintentos y se envia al cloud.',
+    )
     sucursal = models.ForeignKey(
         'sucursales.Sucursal',
         on_delete=models.PROTECT,
@@ -117,6 +127,19 @@ class EventoSync(models.Model):
         default='',
         verbose_name='Ultimo error'
     )
+    lease_id = models.UUIDField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True,
+        verbose_name='Lease de envio',
+    )
+    lease_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name='Vencimiento del lease',
+    )
 
     # Timestamps
     created_at = models.DateTimeField(
@@ -145,6 +168,16 @@ class EventoSync(models.Model):
             models.Index(fields=['tipo_evento', 'estado']),
         ]
         constraints = [
+            models.UniqueConstraint(
+                fields=['sucursal', 'event_id'],
+                condition=models.Q(sucursal__isnull=False),
+                name='uniq_eventosync_sucursal_event_id',
+            ),
+            models.UniqueConstraint(
+                fields=['event_id'],
+                condition=models.Q(sucursal__isnull=True),
+                name='uniq_eventosync_legacy_event_id',
+            ),
             # Idempotencia con respaldo de BD, no solo de aplicacion.
             #
             # En el cloud, `recibir_eventos` consultaba el hash y DESPUES abria
@@ -163,9 +196,20 @@ class EventoSync(models.Model):
             # Se excluye el hash vacio: los eventos SIN_PAYLOAD todavia no lo
             # tienen y son varios legitimamente.
             models.UniqueConstraint(
+                fields=['sucursal', 'hash_payload'],
+                condition=(
+                    models.Q(sucursal__isnull=False)
+                    & ~models.Q(hash_payload='')
+                ),
+                name='uniq_eventosync_sucursal_hash',
+            ),
+            models.UniqueConstraint(
                 fields=['hash_payload'],
-                condition=~models.Q(hash_payload=''),
-                name='uniq_eventosync_hash_no_vacio',
+                condition=(
+                    models.Q(sucursal__isnull=True)
+                    & ~models.Q(hash_payload='')
+                ),
+                name='uniq_eventosync_legacy_hash',
             ),
         ]
 
@@ -173,15 +217,38 @@ class EventoSync(models.Model):
         ref = self.objeto_referencia or f'#{self.pk}'
         return f'{self.tipo_evento} {ref} [{self.estado}]'
 
-    def marcar_confirmado(self):
-        """Marca el evento como confirmado por el cloud."""
-        self.estado = 'CONFIRMADO'
-        self.confirmed_at = timezone.now()
-        if not self.sent_at:
-            self.sent_at = self.confirmed_at
-        self.save(update_fields=['estado', 'confirmed_at', 'sent_at'])
+    def marcar_confirmado(self, lease_id=None):
+        """Confirma el evento solo si el caller todavia posee su lease."""
+        ahora = timezone.now()
+        filtros = {'pk': self.pk}
+        if lease_id is not None:
+            filtros.update(estado='EN_VUELO', lease_id=lease_id)
+        else:
+            filtros['estado__in'] = self.ESTADOS_ENVIABLES + ['EN_VUELO']
 
-    def marcar_error(self, mensaje, max_retries=10):
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(**filtros).update(
+            estado='CONFIRMADO',
+            confirmed_at=ahora,
+            sent_at=models.Case(
+                models.When(sent_at__isnull=True, then=models.Value(ahora)),
+                default=models.F('sent_at'),
+                output_field=models.DateTimeField(),
+            ),
+            lease_id=None,
+            lease_expires_at=None,
+        )
+        if aplicado:
+            self.refresh_from_db(
+                using=using,
+                fields=[
+                    'estado', 'confirmed_at', 'sent_at', 'lease_id',
+                    'lease_expires_at',
+                ],
+            )
+        return bool(aplicado)
+
+    def marcar_error(self, mensaje, max_retries=10, lease_id=None):
         """
         Marca error; si supera max_retries, pasa a DESCARTADO.
 
@@ -191,10 +258,14 @@ class EventoSync(models.Model):
         sobre una instancia obsoleta reabria un evento ya entregado y lo hacia
         rebotar contra el cloud hasta agotar intentos.
         """
-        aplicado = type(self).objects.filter(
-            pk=self.pk,
-            estado__in=self.ESTADOS_ENVIABLES,
-        ).update(
+        filtros = {'pk': self.pk}
+        if lease_id is not None:
+            filtros.update(estado='EN_VUELO', lease_id=lease_id)
+        else:
+            filtros['estado__in'] = self.ESTADOS_ENVIABLES + ['EN_VUELO']
+
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(**filtros).update(
             intentos=models.F('intentos') + 1,
             ultimo_error=(mensaje or '')[:2000],
             estado=models.Case(
@@ -205,9 +276,17 @@ class EventoSync(models.Model):
                 default=models.Value('ERROR'),
                 output_field=models.CharField(),
             ),
+            lease_id=None,
+            lease_expires_at=None,
         )
         if aplicado:
-            self.refresh_from_db(fields=['estado', 'intentos', 'ultimo_error'])
+            self.refresh_from_db(
+                using=using,
+                fields=[
+                    'estado', 'intentos', 'ultimo_error', 'lease_id',
+                    'lease_expires_at',
+                ],
+            )
         return bool(aplicado)
 
     def reactivar(self):
@@ -224,7 +303,12 @@ class EventoSync(models.Model):
         self.intentos = 0
         self.ultimo_error = ''
         self.sent_at = None
-        self.save(update_fields=['estado', 'intentos', 'ultimo_error', 'sent_at'])
+        self.lease_id = None
+        self.lease_expires_at = None
+        self.save(update_fields=[
+            'estado', 'intentos', 'ultimo_error', 'sent_at', 'lease_id',
+            'lease_expires_at',
+        ])
         return self
 
 
@@ -248,8 +332,15 @@ def reactivar_eventos(queryset, reserializar=False):
     if not ids:
         return 0
 
-    base = EventoSync.objects.filter(id__in=ids)
-    comun = {'intentos': 0, 'ultimo_error': '', 'sent_at': None}
+    using = queryset.db
+    base = EventoSync.objects.using(using).filter(id__in=ids)
+    comun = {
+        'intentos': 0,
+        'ultimo_error': '',
+        'sent_at': None,
+        'lease_id': None,
+        'lease_expires_at': None,
+    }
 
     if reserializar:
         # Descarta el payload guardado para que el push lo reconstruya con el
@@ -272,7 +363,7 @@ def reactivar_eventos(queryset, reserializar=False):
             if objeto_id and registry.por_tipo(tipo) is not None
         ]
         if reconstruibles:
-            EventoSync.objects.filter(id__in=reconstruibles).update(
+            EventoSync.objects.using(using).filter(id__in=reconstruibles).update(
                 payload=None, hash_payload='',
             )
 
@@ -377,6 +468,62 @@ class VersionMaestro(models.Model):
         self.bloqueado_desde = None
         self.bloqueado_detalle = ''
         self.save(update_fields=['bloqueado_desde', 'bloqueado_detalle'])
+
+
+class DiferidoSync(models.Model):
+    """Item de pull que no pudo aplicarse pero ya quedo capturado localmente.
+
+    Guardarlo permite avanzar el cursor sin perderlo. El payload se reintenta
+    dentro de una transaccion local; si el proceso muere, la fila continua
+    PENDIENTE y el efecto de dominio se revierte con ella.
+    """
+
+    ESTADO_CHOICES = [
+        ('PENDIENTE', 'Pendiente'),
+        ('RESUELTO', 'Resuelto'),
+    ]
+
+    tenant_key = models.CharField(max_length=100, blank=True, default='')
+    sucursal_codigo = models.CharField(max_length=50, blank=True, default='')
+    tabla = models.CharField(max_length=32, db_index=True)
+    identidad = models.CharField(max_length=200, blank=True, default='')
+    cursor_fecha = models.DateTimeField(null=True, blank=True)
+    cursor_id = models.PositiveIntegerField(default=0)
+    payload_hash = models.CharField(max_length=64)
+    payload = models.JSONField()
+    estado = models.CharField(
+        max_length=16,
+        choices=ESTADO_CHOICES,
+        default='PENDIENTE',
+        db_index=True,
+    )
+    intentos = models.PositiveIntegerField(default=1)
+    ultimo_error = models.TextField(blank=True, default='')
+    creado_at = models.DateTimeField(auto_now_add=True)
+    actualizado_at = models.DateTimeField(auto_now=True)
+    resuelto_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['creado_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'tenant_key', 'sucursal_codigo', 'tabla', 'payload_hash',
+                ],
+                name='uniq_diferido_sync_ambito_payload',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=[
+                    'tenant_key', 'sucursal_codigo', 'tabla', 'estado',
+                ],
+                name='sync_dif_ambito_estado_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.tabla} {self.identidad or self.payload_hash[:12]} [{self.estado}]'
 
 
 class InventarioMovimientoSync(models.Model):
@@ -490,6 +637,7 @@ class LogSync(models.Model):
         ('PING', 'Verificar conexion'),
         ('FULL', 'Ciclo completo'),
         ('CONCILIACION', 'Conciliacion (anti-entropia)'),
+        ('REPARACION', 'Reparacion dirigida'),
     ]
 
     RESULTADO_CHOICES = [

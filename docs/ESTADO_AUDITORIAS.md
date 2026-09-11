@@ -468,8 +468,9 @@ Ninguno bloquea el despliegue.
 
 ### Seguridad y aislamiento
 
-- **Claim durable del push de sync** (`IN_FLIGHT` + lease). El claim local
-  todavía no es durable ante un crash a mitad de envío.
+- **Claim durable del push de sync: resuelto en A04 (`be15ea0`).** Estado
+  `EN_VUELO`, lease de cinco minutos, recuperación de vencidos y transición
+  condicionada por propiedad; cubierto con dos procesos y ACK tardío.
 - **Drill de restauración.** `backup_tenant` produce y verifica un artefacto,
   pero nadie probó restaurarlo end-to-end.
 - **Cobertura de productores CT-01.** A02 conserva actor operativo e identidad
@@ -479,8 +480,9 @@ Ninguno bloquea el despliegue.
 
 - **`CheckConstraint` de respaldo** en ventas e inventario. Las invariantes de
   importes y cantidades se validan en la aplicación; falta el cinturón en la BD.
-- **Cola durable de diferidos** en sync. Hoy un ítem diferido congela la marca
-  de agua.
+- **Cola durable de diferidos: resuelta en A04 (`be15ea0`).** El cursor avanza
+  si el ítem aplicó o quedó almacenado, el reintento es transaccional y un
+  pendiente mantiene el ciclo `PARCIAL`.
 - **`_pull_legacy` sigue existiendo** como fallback para clouds pre-Fase 2.
 - **Idempotencia concurrente del cobro CxC.** La constraint garantiza un solo
   pago por clave; falta el test de N reintentos concurrentes.
@@ -494,7 +496,9 @@ Ninguno bloquea el despliegue.
   helper y la prueba de aceptación sin modificarlas.
 - **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
   sin sucursal en varios puntos de esa app.
-- **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- **Identidad compuesta del receptor/handler: resuelta en A04 (`be15ea0`).**
+  `event_id` y hash se acotan por sucursal; ventas y CxC no adoptan una venta
+  homónima de otra sucursal. Una colisión de dominio real se reporta `ERROR`.
 
 ### Presentación y rendimiento
 

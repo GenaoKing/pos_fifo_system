@@ -165,11 +165,14 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟢 Robustez y deuda de contrato
 
-- [ ] **Claim durable del push de sync** (`IN_FLIGHT` + lease): el claim local
-      no sobrevive a un crash a mitad de envío.
-- [ ] **Cola durable de diferidos** en sync: un ítem diferido congela la marca
-      de agua.
-- [ ] **`_pull_legacy`** sigue existiendo como fallback para clouds pre-Fase 2.
+- [x] **Claim durable del push de sync** (`EN_VUELO` + lease): A04 persiste un
+      lease de cinco minutos antes del HTTP, recupera vencidos e ignora ACK de
+      un worker que perdió la propiedad (`be15ea0`).
+- [x] **Cola durable de diferidos** en sync: A04 avanza el cursor solo tras
+      aplicar o persistir; reintenta en transacción y reporta `PARCIAL` mientras
+      haya pendientes (`be15ea0`).
+- [ ] **`_pull_legacy`** se conserva deliberadamente como compatibilidad con
+      clouds pre-Fase 2; retirarlo requiere terminar la flota y la matriz real.
 - [ ] **`CheckConstraint` de respaldo** en ventas e inventario: las invariantes
       de importes y cantidades se validan solo en la aplicación.
 - [ ] **Idempotencia concurrente del cobro CxC**: falta el test de N reintentos
@@ -181,7 +184,10 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       llama sin sucursal en varios puntos de esa app. Con el contrato nuevo del
       motor (PER-003) esos gates ahora consultan solo asignaciones globales —
       correcto pero más restrictivo de lo que probablemente se quiso.
-- [ ] **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- [x] **Identidad compuesta en el receptor cloud**: A04 deduplica por identidad
+      estable/hash + sucursal autenticada y los handlers de venta/CxC consultan
+      la venta dentro de esa sucursal; una colisión real queda `ERROR`, no ACK
+      exitoso (`be15ea0`).
 - [ ] **Auditoría de mutaciones API bajo tenancy**: `SesionImpersonacion`
       registra el acceso, no cada mutación de la sesión.
 - [ ] **Retirar el bypass de `ADMIN`** solo después de ejecutar

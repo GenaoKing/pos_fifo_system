@@ -274,6 +274,65 @@ clave legacy ni `_pull_legacy` durante esta transición.
 - Seed repetido preserva customizaciones y revocaciones.
 - Remover bypass `ADMIN` solo después de preflight que evita lockout.
 
+## Extensión A04 — transporte financiero durable
+
+Implementación productora/consumidora: `be15ea0`. Es una extensión aditiva del
+batch existente de eventos; no crea CT-04 ni adelanta la cola de maestros A05.
+
+### Push y ACK compatibles
+
+- Cada elemento puede agregar `event_id` UUID. Es obligatorio en un POS A04 y
+  opcional para un POS legacy. El cloud nuevo sigue aceptando elementos sin él.
+- Las reservas únicas son `(sucursal, event_id)` y
+  `(sucursal, hash_payload)`; el tenant ya está determinado por el alias de BD.
+  Misma identidad/hash solo es `DUPLICADO` si tipo, hash y payload coinciden.
+- `detalle[]` refleja `event_id` cuando vino en la solicitud y conserva `hash`.
+  `CONFIRMADO`/`DUPLICADO` son terminales; `ERROR` siempre se reintenta. Los
+  códigos nuevos son `EVENT_SCOPE_MISMATCH` y `EVENT_IDENTITY_CONFLICT`.
+- Un POS A04 tolera un ACK legacy sin `event_id` mediante el hash scopeado. Un
+  cloud A04 tolera un POS legacy sin `event_id`; le asigna identidad interna.
+
+El POS persiste `EN_VUELO`, `lease_id` y `lease_expires_at` antes del HTTP. Solo
+el dueño del lease puede aplicar el ACK. El valor default es 300 segundos y se
+configura con `SYNC_LEASE_SECONDS`; leases vencidos se reclaman sin descartar el
+evento ni cambiar su identidad.
+
+### Pull diferido
+
+`DiferidoSync` guarda tenant técnico, sucursal, tabla, cursor, identidad legible,
+hash y payload. Un cursor solo atraviesa el elemento tras aplicar o confirmar
+esa escritura local. Los pendientes se reintentan dentro de la misma
+transacción que cambia `PENDIENTE` a `RESUELTO`; cualquier crash revierte el
+efecto y conserva la fila. Un ciclo con pendientes es `PARCIAL`.
+
+### Sonda `sync.reconciliation.v1`
+
+`POST /api/v1/sync/reconciliacion-eventos/` requiere token de sucursal y no
+escribe. Solicitud:
+
+```json
+{
+  "schema_version": "sync.reconciliation.v1",
+  "eventos": [{
+    "event_id": "uuid",
+    "tipo_evento": "VENTA_CREADA",
+    "payload": {},
+    "hash_payload": "sha256",
+    "objeto_referencia": "SD-001-V20260911-0001"
+  }]
+}
+```
+
+La respuesta fija `scope.tenant_key`, `scope.branch_code`, `scope.branch_ref` y
+clasifica cada fila como `DUPLICADO_REAL`, `DIVERGENCIA_CONTENIDO`,
+`HECHO_SIN_EVENTO_CLOUD`, `FALSO_ACK`, `NO_VERIFICABLE` o `AMBITO_INVALIDO`.
+Solo `FALSO_ACK` y `HECHO_SIN_EVENTO_CLOUD` proponen reenvío dirigido.
+
+`reparar_bug_k` es dry-run por defecto. Una escritura exige simultáneamente
+`--ejecutar`, un archivo `sync.bug_k.repair_plan.v1` revisado y su digest con
+`--confirmar-plan`; revalida cloud y precondiciones locales, guarda antes/después
+y rechaza repetir el mismo plan. A04 no autoriza ejecutar esos flags en clientes.
+
 ## CT-03 — reserva para configuración efectiva
 
 C03 propone en su handoff: firma del resolutor, precedencia, validaciones,

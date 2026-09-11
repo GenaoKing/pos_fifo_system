@@ -14,6 +14,10 @@ from apps.sync.constants import TIPOS_EVENTO_CODIGOS
 class EventoSyncSerializer(serializers.Serializer):
     """Valida un evento individual enviado por una sucursal."""
 
+    event_id = serializers.UUIDField(
+        required=False,
+        help_text='Identidad estable A04; opcional para POS legacy.',
+    )
     tipo_evento = serializers.ChoiceField(
         choices=[(t, t) for t in TIPOS_EVENTO_CODIGOS]
     )
@@ -41,6 +45,39 @@ class EventoBatchSerializer(serializers.Serializer):
         if len(value) > 100:
             raise serializers.ValidationError(
                 f'Maximo 100 eventos por batch. Recibidos: {len(value)}'
+            )
+        return value
+
+
+class SondaEventoSerializer(serializers.Serializer):
+    """Evento local CONFIRMADO que se contrasta sin mutar el cloud."""
+
+    event_id = serializers.UUIDField(required=False)
+    tipo_evento = serializers.ChoiceField(
+        choices=[(t, t) for t in TIPOS_EVENTO_CODIGOS]
+    )
+    payload = serializers.JSONField()
+    hash_payload = serializers.CharField(max_length=64)
+    objeto_referencia = serializers.CharField(
+        max_length=64, required=False, allow_blank=True,
+    )
+
+    def validate_payload(self, value):
+        if not value:
+            raise serializers.ValidationError('El payload no puede estar vacio.')
+        return value
+
+
+class SondaEventoBatchSerializer(serializers.Serializer):
+    schema_version = serializers.ChoiceField(
+        choices=['sync.reconciliation.v1']
+    )
+    eventos = SondaEventoSerializer(many=True)
+
+    def validate_eventos(self, value):
+        if len(value) > 100:
+            raise serializers.ValidationError(
+                f'Maximo 100 eventos por sonda. Recibidos: {len(value)}'
             )
         return value
 

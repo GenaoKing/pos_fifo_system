@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -28,22 +28,30 @@ mezclarlos:
 | Correr un ciclo a mano | `python manage.py sincronizar` |
 | Diagnóstico (outbox, huecos, cursores) | `python manage.py verificar_sync` · `sync_status` |
 | Reconciliar divergencias | `python manage.py conciliar` · `reconciliar_cloud` (ver `apps/sync/conciliacion.py`) |
+| Reparar BUG-K | `python manage.py reparar_bug_k` — sonda read-only/dry-run; ejecutar exige plan y digest aprobados |
 
 ## Modelos (`apps/sync/models.py`)
 
-- `EventoSync` — el outbox local; `hash_unico` idempotente, `estado`, `payload`.
+- `EventoSync` — outbox local; `event_id`/hash scopeados por sucursal, estado,
+  payload y lease durable `EN_VUELO`.
+- `DiferidoSync` — cola durable de elementos de pull que todavía no aplican.
 - `VersionMaestro` — cursor/versión por tabla maestra (soporte del pull keyset).
 - `InventarioMovimientoSync`, `InventarioSucursalSnapshot` — replicación de stock.
 - `LogSync` — bitácora de ciclos.
 
 ## Invariantes / trampas
 
-- El cursor de pull es **keyset `(fecha_modificacion, id)`**, no offset. La marca
-  de agua debe avanzar de forma **contigua**; un pull que "omite" no debe avanzar
-  el cursor ni marcar el ciclo `EXITOSO`.
+- El cursor de pull es **keyset `(fecha_modificacion, id)`**, no offset. Solo
+  atraviesa un elemento si fue aplicado o persistido en `DiferidoSync`; si la
+  cola no puede escribirse, se congela antes del elemento. Pendientes durables
+  vuelven el ciclo `PARCIAL`.
 - El `INSERT` en el outbox es parte de la transacción del hecho de negocio: si el
   hecho ocurre, el evento existe. No tragarse errores de inserción.
-- La deduplicación cloud depende de `hash_unico` — no dupliques la lógica de hash.
+- El push reclama con `select_for_update(skip_locked=True)` y persiste un lease
+  antes del HTTP. Un proceso solo puede confirmar/fallar el lease que posee;
+  otro recupera el evento después de `SYNC_LEASE_SECONDS`.
+- La deduplicación cloud usa `(sucursal, event_id)` y `(sucursal, hash_payload)`;
+  identidad ocupada con otro contenido es error, no duplicado.
 - Al construir `?desde=` en un cliente, `encodeURIComponent()` (el `+` del offset
   UTC rompe `parse_datetime`).
 - Roles/asignaciones negocian `rbac.sync.v2` pero aceptan la lista legacy. Solo
