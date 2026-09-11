@@ -7,22 +7,23 @@ historicos de una data migration (apps.get_model). Por eso NO se apoyan en
 metodos custom del modelo (ej. Negocio.save autogenera slug); calculan el slug
 explicitamente.
 """
+from django.db import router, transaction
 from django.utils.text import slugify
 
 from .catalogo import PERMISOS_CAJERO_DEFAULT, sembrar_catalogo
 
 
-def _slug_unico(NegocioModel, nombre):
+def _slug_unico(NegocioModel, nombre, *, using):
     base = slugify(nombre)[:110] or 'negocio'
     slug = base
     i = 2
-    while NegocioModel.objects.filter(slug=slug).exists():
+    while NegocioModel.objects.using(using).filter(slug=slug).exists():
         slug = f'{base}-{i}'
         i += 1
     return slug
 
 
-def crear_roles_default(negocio, RolModel, PermisoModel):
+def crear_roles_default(negocio, RolModel, PermisoModel, *, using=None):
     """
     Crea (idempotente) los roles de sistema del negocio:
       - Administrador: todos los permisos del catalogo (plantilla inicial).
@@ -34,7 +35,8 @@ def crear_roles_default(negocio, RolModel, PermisoModel):
     los usuarios ADMIN/SYSADMIN tienen acceso total por `es_acceso_total`
     independientemente de los permisos del rol Administrador.
     """
-    admin_rol, admin_creado = RolModel.objects.get_or_create(
+    using = using or negocio._state.db or router.db_for_write(RolModel)
+    admin_rol, admin_creado = RolModel.objects.using(using).get_or_create(
         negocio=negocio,
         slug='administrador',
         defaults={
@@ -44,9 +46,9 @@ def crear_roles_default(negocio, RolModel, PermisoModel):
         },
     )
     if admin_creado:
-        admin_rol.permisos.set(PermisoModel.objects.all())
+        admin_rol.permisos.set(PermisoModel.objects.using(using).all())
 
-    cajero_rol, cajero_creado = RolModel.objects.get_or_create(
+    cajero_rol, cajero_creado = RolModel.objects.using(using).get_or_create(
         negocio=negocio,
         slug='cajero',
         defaults={
@@ -57,7 +59,9 @@ def crear_roles_default(negocio, RolModel, PermisoModel):
     )
     if cajero_creado:
         cajero_rol.permisos.set(
-            PermisoModel.objects.filter(codigo__in=PERMISOS_CAJERO_DEFAULT)
+            PermisoModel.objects.using(using).filter(
+                codigo__in=PERMISOS_CAJERO_DEFAULT,
+            )
         )
     return admin_rol, cajero_rol
 
@@ -71,6 +75,8 @@ def bootstrap(
     PermisoModel,
     AsignacionRolModel,
     nombre=None,
+    negocio=None,
+    using=None,
 ):
     """
     Bootstrap del RBAC para una instalacion existente (idempotente):
@@ -82,23 +88,67 @@ def bootstrap(
 
     Retorna el Negocio.
     """
-    sembrar_catalogo(PermisoModel)
+    using = (
+        using
+        or getattr(getattr(negocio, '_state', None), 'db', None)
+        or router.db_for_write(NegocioModel)
+        or 'default'
+    )
+    with transaction.atomic(using=using):
+        return _bootstrap_en_transaccion(
+            NegocioModel=NegocioModel,
+            SucursalModel=SucursalModel,
+            UsuarioModel=UsuarioModel,
+            RolModel=RolModel,
+            PermisoModel=PermisoModel,
+            AsignacionRolModel=AsignacionRolModel,
+            nombre=nombre,
+            negocio=negocio,
+            using=using,
+        )
 
-    negocio = NegocioModel.objects.order_by('id').first()
+
+def _bootstrap_en_transaccion(
+    *, NegocioModel, SucursalModel, UsuarioModel, RolModel, PermisoModel,
+    AsignacionRolModel, nombre, negocio, using,
+):
+    sembrar_catalogo(PermisoModel, using=using)
+
+    negocios = NegocioModel.objects.using(using).order_by('id')
+    total_negocios = negocios.count()
+    if negocio is None and total_negocios > 1:
+        raise ValueError(
+            'Hay varios negocios: el bootstrap no puede elegir uno por orden. '
+            'Indica el negocio explicitamente.'
+        )
+    if negocio is None:
+        negocio = negocios.first()
     if negocio is None:
         nombre = nombre or 'Mi Negocio'
-        negocio = NegocioModel.objects.create(
+        negocio = NegocioModel.objects.using(using).create(
             nombre=nombre,
-            slug=_slug_unico(NegocioModel, nombre),
+            slug=_slug_unico(NegocioModel, nombre, using=using),
             activo=True,
         )
 
-    SucursalModel.objects.filter(negocio__isnull=True).update(negocio=negocio)
-    UsuarioModel.objects.filter(negocio__isnull=True).update(negocio=negocio)
+        total_negocios = 1
 
-    admin_rol, cajero_rol = crear_roles_default(negocio, RolModel, PermisoModel)
+    # La adopcion masiva solo es determinista en una instalacion con un unico
+    # negocio. Con varios tenants, los huerfanos requieren una correccion
+    # explicita y nunca se asignan al primero por orden de PK.
+    if total_negocios <= 1:
+        SucursalModel.objects.using(using).filter(
+            negocio__isnull=True,
+        ).update(negocio=negocio)
+        UsuarioModel.objects.using(using).filter(
+            negocio__isnull=True,
+        ).update(negocio=negocio)
 
-    for usuario in UsuarioModel.objects.filter(negocio=negocio):
+    admin_rol, cajero_rol = crear_roles_default(
+        negocio, RolModel, PermisoModel, using=using,
+    )
+
+    for usuario in UsuarioModel.objects.using(using).filter(negocio=negocio):
         rol_legacy = getattr(usuario, 'rol', None)
         if rol_legacy in ('ADMIN', 'SYSADMIN'):
             destino = admin_rol
@@ -106,7 +156,7 @@ def bootstrap(
             destino = cajero_rol
         else:
             continue
-        AsignacionRolModel.objects.get_or_create(
+        AsignacionRolModel.objects.using(using).get_or_create(
             usuario=usuario,
             rol=destino,
             sucursal=None,

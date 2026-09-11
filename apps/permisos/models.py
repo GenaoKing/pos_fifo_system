@@ -14,11 +14,13 @@ El enforcement se hace via apps/permisos/engine.py (cacheado).
 """
 import hashlib
 import secrets
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import models, router
 from django.utils import timezone
 
 
@@ -52,7 +54,60 @@ class Permiso(models.Model):
         return self.codigo
 
 
-class Rol(models.Model):
+class RecursoRBACSincronizable(models.Model):
+    """Identidad y version monotona para recursos replicados cloud -> POS."""
+
+    cloud_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    revision = models.PositiveBigIntegerField(default=1, editable=False)
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    origen_cloud = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text='La fila local fue adoptada o creada por el pull RBAC cloud.',
+    )
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        """Avanza revision en updates y protege ``cloud_id`` de cambios casuales.
+
+        El pull V2 usa las dos opciones privadas para adoptar la identidad y la
+        revision autoritativas del cloud. El resto de los escritores, incluido
+        Django Admin, no puede reusar una identidad ni guardar una revision
+        vieja por accidente.
+        """
+        preserve_revision = kwargs.pop('_preserve_rbac_revision', False)
+        adopt_cloud_identity = kwargs.pop('_adopt_cloud_identity', False)
+        using = kwargs.get('using') or self._state.db or router.db_for_write(
+            type(self), instance=self,
+        )
+        if self.pk:
+            anterior = (
+                type(self).objects.using(using)
+                .filter(pk=self.pk)
+                .values('cloud_id', 'revision')
+                .first()
+            )
+            if anterior is not None:
+                if (
+                    anterior['cloud_id'] != self.cloud_id
+                    and not adopt_cloud_identity
+                ):
+                    raise ValidationError(
+                        {'cloud_id': 'La identidad cloud de RBAC es inmutable.'}
+                    )
+                if not preserve_revision:
+                    self.revision = int(anterior['revision']) + 1
+                    update_fields = kwargs.get('update_fields')
+                    if update_fields is not None:
+                        kwargs['update_fields'] = set(update_fields) | {
+                            'revision', 'fecha_modificacion',
+                        }
+        return super().save(*args, **kwargs)
+
+
+class Rol(RecursoRBACSincronizable):
     """Rol configurable, scoped a un Negocio (tenant)."""
 
     negocio = models.ForeignKey(
@@ -96,7 +151,7 @@ class Rol(models.Model):
         return f'{self.nombre} ({self.negocio.nombre})'
 
 
-class AsignacionRol(models.Model):
+class AsignacionRol(RecursoRBACSincronizable):
     """Asigna un Rol a un Usuario, opcionalmente acotado a una Sucursal."""
 
     usuario = models.ForeignKey(
@@ -162,8 +217,6 @@ class AsignacionRol(models.Model):
         reprodujo en la auditoria. El motor ahora tambien filtra por negocio,
         pero esa es la ultima linea: la fila no deberia poder existir.
         """
-        from django.core.exceptions import ValidationError
-
         errores = {}
         negocio_rol = getattr(self.rol, 'negocio_id', None)
 
@@ -187,6 +240,29 @@ class AsignacionRol(models.Model):
 
         if errores:
             raise ValidationError(errores)
+
+
+class EstadoRBAC(models.Model):
+    """Revisiones del envelope de capacidades de un negocio.
+
+    Las revisiones por entidad resuelven replay/orden del sync. Estas dos son
+    revisiones del conjunto y permiten que portal/POS detecten decisiones
+    construidas contra un snapshot anterior sin derivarlas de timestamps.
+    """
+
+    negocio = models.OneToOneField(
+        'negocios.Negocio',
+        on_delete=models.CASCADE,
+        related_name='estado_rbac',
+    )
+    catalog_revision = models.PositiveBigIntegerField(default=1)
+    assignments_revision = models.PositiveBigIntegerField(default=1)
+    fecha_modificacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'permisos_estado_rbac'
+        verbose_name = 'Estado RBAC'
+        verbose_name_plural = 'Estados RBAC'
 
 
 class AutorizacionOverride(models.Model):

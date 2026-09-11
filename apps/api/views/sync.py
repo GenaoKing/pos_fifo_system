@@ -289,6 +289,22 @@ def _filtrar_keyset_sync(qs, request):
     )
 
 
+RBAC_SYNC_V2 = 'rbac.sync.v2'
+
+
+def _rbac_v2_solicitado(request):
+    return request.headers.get('X-RBAC-Schema') == RBAC_SYNC_V2
+
+
+def _tenant_key_rbac(request, negocio):
+    tenant = getattr(request, 'tenant', None)
+    return (
+        getattr(tenant, 'tenant_key', None)
+        or getattr(request, 'tenant_key', None)
+        or negocio.slug
+    )
+
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def roles_para_sucursal(request):
@@ -297,8 +313,8 @@ def roles_para_sucursal(request):
     autenticada, para que la sucursal las sincronice localmente. Solo lectura,
     scoped al negocio del token. Filtro incremental ?desde=<ISO>.
 
-    La asignacion usuario->rol NO se sincroniza (es local). Esto propaga solo
-    "que puede cada rol" configurado en el portal.
+    Este endpoint propaga "que puede cada rol"; las asignaciones usuario->rol
+    viajan por ``asignaciones_para_sucursal`` despues en el mismo ciclo.
     """
     from django.utils.dateparse import parse_datetime
     from apps.permisos.models import Rol
@@ -308,11 +324,18 @@ def roles_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
+    negocio = sucursal.negocio
+    snapshot_complete = (
+        _rbac_v2_solicitado(request)
+        and request.query_params.get('snapshot') == 'full'
+    )
     qs = (Rol.objects.filter(negocio_id=negocio_id)
           .prefetch_related('permisos')
           .order_by('fecha_modificacion', 'id'))
-    qs = _filtrar_keyset_sync(qs, request)
+    if not snapshot_complete:
+        qs = _filtrar_keyset_sync(qs, request)
 
+    roles = list(qs)
     data = [
         {
             'slug': r.slug,
@@ -324,9 +347,35 @@ def roles_para_sucursal(request):
             # es su `slug`; esto solo desempata el cursor.
             'cursor_id': r.id,
         }
-        for r in qs
+        for r in roles
     ]
-    return Response(data)
+    if not _rbac_v2_solicitado(request):
+        return Response(data)
+
+    from apps.permisos.revisions import leer_revisiones_rbac
+
+    _, assignments_revision = leer_revisiones_rbac(
+        negocio, using=negocio._state.db,
+    )
+    return Response({
+        'schema_version': RBAC_SYNC_V2,
+        'snapshot_complete': snapshot_complete,
+        'tenant_key': _tenant_key_rbac(request, negocio),
+        'revision': assignments_revision,
+        'roles': [
+            {
+                **legacy,
+                'cloud_id': str(rol.cloud_id),
+                'revision': rol.revision,
+                'active': rol.activo,
+                'permission_codes': legacy['permisos'],
+                'deleted_at': (
+                    rol.deleted_at.isoformat() if rol.deleted_at else None
+                ),
+            }
+            for rol, legacy in zip(roles, data)
+        ],
+    })
 
 
 # ============================================================================
@@ -353,6 +402,11 @@ def asignaciones_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
+    negocio = sucursal.negocio
+    snapshot_complete = (
+        _rbac_v2_solicitado(request)
+        and request.query_params.get('snapshot') == 'full'
+    )
     qs = (
         AsignacionRol.objects
         .filter(rol__negocio_id=negocio_id)
@@ -360,8 +414,10 @@ def asignaciones_para_sucursal(request):
         .select_related('usuario', 'rol', 'sucursal')
         .order_by('fecha_modificacion', 'id')
     )
-    qs = _filtrar_keyset_sync(qs, request)
+    if not snapshot_complete:
+        qs = _filtrar_keyset_sync(qs, request)
 
+    asignaciones = list(qs)
     data = [
         {
             'usuario_username': a.usuario.username,
@@ -374,9 +430,51 @@ def asignaciones_para_sucursal(request):
             # sucursal_codigo); esto solo desempata el cursor.
             'cursor_id': a.id,
         }
-        for a in qs
+        for a in asignaciones
     ]
-    return Response(data)
+    if not _rbac_v2_solicitado(request):
+        return Response(data)
+
+    from apps.auditoria.services import referencia_modelo
+    from apps.permisos.revisions import leer_revisiones_rbac
+
+    tenant_key = _tenant_key_rbac(request, negocio)
+    _, assignments_revision = leer_revisiones_rbac(
+        negocio, using=negocio._state.db,
+    )
+    return Response({
+        'schema_version': RBAC_SYNC_V2,
+        'snapshot_complete': snapshot_complete,
+        'tenant_key': tenant_key,
+        'scope': {
+            'branch_ref': str(referencia_modelo(sucursal, tenant_key=tenant_key)),
+            'branch_code': sucursal.codigo,
+        },
+        'revision': assignments_revision,
+        'assignments': [
+            {
+                **legacy,
+                'cloud_id': str(asignacion.cloud_id),
+                'revision': asignacion.revision,
+                'user_ref': str(referencia_modelo(
+                    asignacion.usuario, tenant_key=tenant_key,
+                )),
+                'role_cloud_id': str(asignacion.rol.cloud_id),
+                'branch_ref': (
+                    str(referencia_modelo(
+                        asignacion.sucursal, tenant_key=tenant_key,
+                    ))
+                    if asignacion.sucursal_id else None
+                ),
+                'active': asignacion.activo,
+                'deleted_at': (
+                    asignacion.deleted_at.isoformat()
+                    if asignacion.deleted_at else None
+                ),
+            }
+            for asignacion, legacy in zip(asignaciones, data)
+        ],
+    })
 
 
 # ============================================================================

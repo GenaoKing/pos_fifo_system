@@ -132,6 +132,11 @@ WEB_PUSH_VAPID_SUBJECT = _env_text(
 WEB_PUSH_TIMEOUT_SECONDS = _env_int('WEB_PUSH_TIMEOUT_SECONDS', 10)
 WEB_PUSH_TTL_SECONDS = _env_int('WEB_PUSH_TTL_SECONDS', 14400)
 
+# Compatibilidad temporal del rol legacy ADMIN. Solo se puede apagar despues
+# de ejecutar `preflight_rbac_admin_cutover` en cada tenant y confirmar cero
+# bloqueadores. SYSADMIN/superuser siguen siendo identidades globales aparte.
+RBAC_LEGACY_ADMIN_BYPASS = _env_bool('RBAC_LEGACY_ADMIN_BYPASS', True)
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

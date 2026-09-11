@@ -77,8 +77,8 @@ class TienePermiso(BasePermission):
     Concede acceso si el usuario tiene un permiso concreto del catalogo.
 
     El codigo se toma de `self.codigo` (via requiere_permiso(...)) o de
-    `view.required_permission`. Si no hay codigo declarado, no bloquea
-    (combinar siempre con IsAuthenticated).
+    `view.required_permission`. Si no hay codigo declarado, deniega: usar la
+    clase base sin configurar no puede abrir una vista por accidente.
     """
     codigo = None
     message = 'No tiene el permiso requerido para realizar esta accion.'
@@ -89,7 +89,7 @@ class TienePermiso(BasePermission):
             return False
         codigo = self.codigo or getattr(view, 'required_permission', None)
         if not codigo:
-            return True
+            return False
         sucursal = _request_sucursal(request)
         return user.tiene_permiso(codigo, sucursal=sucursal)
 

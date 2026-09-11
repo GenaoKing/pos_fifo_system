@@ -11,6 +11,8 @@ Convencion de codigos: '<modulo>.<accion>' en minusculas.
 Acciones CRUD estandar: ver / crear / editar / eliminar.
 """
 
+from django.db import connections, router, transaction
+
 # Cada entrada: (codigo, nombre, modulo, descripcion)
 CATALOGO = [
     # --- Clientes -----------------------------------------------------------
@@ -127,9 +129,9 @@ CATALOGO = [
 # Se alinean con la conducta REAL del POS local (no con el viejo `permisos_cajera`,
 # que era codigo muerto e incoherente):
 #   - vender, aplicar descuento y reimprimir: el cajero los hace hoy (sin gate).
-#   - anular: NO. La regla real (apps/ventas/services/anulaciones_service.py:
-#     _puede_anular) gatea las anulaciones a ADMIN/SYSADMIN. Por eso 'ventas.anular'
-#     NO esta aqui. Ver docs/RBAC_PERMISOS.md (seccion "Rol Cajero por defecto").
+#   - anular: NO. El servicio consulta 'ventas.anular' contra la sucursal de la
+#     venta, pero se mantiene fuera del preset Cajero por ser una capacidad
+#     sensible que debe asignarse explicitamente.
 #   - CxC ver/cobrar: la cajera consulta cartera y registra abonos hoy (antes
 #     del gate granular solo habia @login_required). 'anular_pago' NO: la
 #     reversa de abonos es operacion sensible (default solo Administrador).
@@ -176,22 +178,39 @@ def codigos_catalogo():
     return {fila[0] for fila in CATALOGO}
 
 
-def sembrar_catalogo(PermisoModel):
+def sembrar_catalogo(PermisoModel, *, using=None):
     """
     Upsert del catalogo en la tabla Permiso. Idempotente.
 
     Acepta el modelo Permiso real o el historico (apps.get_model en migraciones).
     Retorna (creados, actualizados).
     """
+    using = using or router.db_for_write(PermisoModel) or 'default'
     creados = 0
     actualizados = 0
-    for codigo, nombre, modulo, descripcion in CATALOGO:
-        obj, created = PermisoModel.objects.update_or_create(
-            codigo=codigo,
-            defaults={'nombre': nombre, 'modulo': modulo, 'descripcion': descripcion},
-        )
-        if created:
-            creados += 1
-        else:
-            actualizados += 1
+    manager = PermisoModel.objects.using(using)
+    with transaction.atomic(using=using):
+        # No hay una fila que bloquear cuando el catalogo esta vacio. En
+        # PostgreSQL, dos bootstraps simultaneos pueden consumir el mismo valor
+        # de secuencia antes de que update_or_create vea el INSERT contrario.
+        # El lock es por BD/alias y dura exactamente la transaccion.
+        if connections[using].vendor == 'postgresql':
+            with connections[using].cursor() as cursor:
+                cursor.execute(
+                    'SELECT pg_advisory_xact_lock(hashtext(%s))',
+                    ['apps.permisos.catalogo.v1'],
+                )
+        for codigo, nombre, modulo, descripcion in CATALOGO:
+            obj, created = manager.update_or_create(
+                codigo=codigo,
+                defaults={
+                    'nombre': nombre,
+                    'modulo': modulo,
+                    'descripcion': descripcion,
+                },
+            )
+            if created:
+                creados += 1
+            else:
+                actualizados += 1
     return creados, actualizados

@@ -17,9 +17,12 @@ las sucursales": la UI mostraba botones de la sucursal A mientras se operaba la
 B (PER-003). Estas plantillas solo corren en el POS local —el portal es React—,
 asi que la sucursal de la instalacion es la respuesta correcta.
 """
+import logging
+
 from django import template
 
 register = template.Library()
+logger = logging.getLogger('permisos')
 
 
 @register.filter(name='puede')
@@ -32,8 +35,12 @@ def puede(user, codigo):
         return False
     try:
         return bool(tiene(codigo, sucursal=_sucursal_actual()))
-    except Exception:
+    except Exception as exc:
         # Nunca romper el render de una plantilla por un fallo del motor.
+        logger.warning(
+            'No se pudo resolver el permiso %s al renderizar template: %s',
+            codigo, type(exc).__name__,
+        )
         return False
 
 

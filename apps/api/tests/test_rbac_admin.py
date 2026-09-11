@@ -12,6 +12,8 @@ from rest_framework.test import APIClient
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import Permiso
+from apps.auditoria.models import Auditoria
+from apps.permisos.models import AsignacionRol
 from apps.sucursales.models import Sucursal
 
 User = get_user_model()
@@ -227,3 +229,90 @@ class RbacAdminTests(TestCase):
         ids = {row['id'] for row in r.data}
         self.assertIn(self.rol_a.id, ids)
         self.assertNotIn(self.rol_b.id, ids)
+
+    # --- CT-02: tombstones, identidad inmutable y revision optimista ---
+
+    def test_mover_asignacion_revoca_anterior_y_crea_identidad_nueva(self):
+        usuario = User.objects.create_user(
+            username='movible', email='movible@test.local', password='x',
+            rol='CAJERA', negocio=self.neg_a,
+        )
+        sucursal = Sucursal.objects.create(
+            negocio=self.neg_a, codigo='RP-MOV', nombre='RP Movida',
+        )
+        anterior = testing.asignar(usuario, self.rol_a, set_negocio=False)
+        cloud_id_anterior = anterior.cloud_id
+
+        r = self._api(self.admin_a).patch(
+            f'{ASIGN_URL}{anterior.id}/',
+            {'sucursal': sucursal.id},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 200, r.data)
+        anterior.refresh_from_db()
+        nueva = AsignacionRol.objects.get(pk=r.data['id'])
+        self.assertFalse(anterior.activo)
+        self.assertIsNotNone(anterior.deleted_at)
+        self.assertNotEqual(nueva.pk, anterior.pk)
+        self.assertNotEqual(nueva.cloud_id, cloud_id_anterior)
+        self.assertTrue(nueva.activo)
+        self.assertEqual(nueva.sucursal, sucursal)
+        self.assertEqual(
+            Auditoria.objects.filter(accion='permisos.asignacion.movida').count(),
+            1,
+        )
+
+    def test_borrar_rol_custom_deja_tombstone_y_revoca_asignaciones(self):
+        usuario = User.objects.create_user(
+            username='rol_baja', email='rol_baja@test.local', password='x',
+            rol='CAJERA', negocio=self.neg_a,
+        )
+        asignacion = testing.asignar(usuario, self.rol_a, set_negocio=False)
+
+        r = self._api(self.admin_a).delete(f'{ROLES_URL}{self.rol_a.id}/')
+
+        self.assertEqual(r.status_code, 204)
+        self.rol_a.refresh_from_db()
+        asignacion.refresh_from_db()
+        self.assertFalse(self.rol_a.activo)
+        self.assertIsNotNone(self.rol_a.deleted_at)
+        self.assertFalse(asignacion.activo)
+        self.assertIsNotNone(asignacion.deleted_at)
+
+        # Reactivar el rol no revive relaciones que ya fueron revocadas.
+        r = self._api(self.admin_a).patch(
+            f'{ROLES_URL}{self.rol_a.id}/', {'activo': True}, format='json',
+        )
+        self.assertEqual(r.status_code, 200, r.data)
+        asignacion.refresh_from_db()
+        self.assertFalse(asignacion.activo)
+
+    def test_revision_obsoleta_devuelve_409_estable(self):
+        r = self._api(self.admin_a).patch(
+            f'{ROLES_URL}{self.rol_a.id}/',
+            {'descripcion': 'no debe aplicar'},
+            format='json',
+            HTTP_X_RBAC_REVISION=str(self.rol_a.revision - 1),
+        )
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.data['code'], 'rbac_revision_conflict')
+        self.rol_a.refresh_from_db()
+        self.assertNotEqual(self.rol_a.descripcion, 'no debe aplicar')
+
+    def test_crear_rol_genera_un_evento_ct01(self):
+        antes = Auditoria.objects.count()
+        r = self._api(self.admin_a).post(
+            ROLES_URL,
+            {'nombre': 'Auditable', 'permisos': ['clientes.ver']},
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, 201, r.data)
+        eventos = Auditoria.objects.filter(
+            accion='permisos.rol.creado', object_id=r.data['id'],
+        )
+        self.assertEqual(Auditoria.objects.count(), antes + 1)
+        self.assertEqual(eventos.count(), 1)
+        self.assertEqual(eventos.get().schema_version, 'audit.event.v1')
