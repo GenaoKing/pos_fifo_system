@@ -294,4 +294,40 @@ def bootstrap(
                 SucursalOverrideModel, resumen, using=alias,
             )
 
+
+class PlanDesconocido(ValueError):
+    """
+    SUS-014 — el slug no corresponde a ningun `Plan` real en la base
+    consultada. `bootstrap_tenant --plan <slug>` acepta texto libre y lo
+    escribe en `Tenant.plan_slug` (control plane) sin validarlo contra la
+    base del tenant; si el Plan no existe ahi, la asignacion se omite en
+    silencio (`.first()` sin resultado) y el control plane queda anunciando
+    un plan que la suscripcion operativa nunca tuvo.
+    """
+
+
+def validar_plan_slug(slug, *, using=None):
+    """
+    Valida un slug de plan ANTES de tocar el control plane y la base del
+    tenant (SUS-014). Uso esperado en `bootstrap_tenant` (Codex): llamarla
+    con el alias de la base tenant ANTES de escribir `Tenant.plan_slug` y
+    ANTES de asignar la suscripcion ahi — si el slug no existe, no se toca
+    ninguna de las dos bases.
+
+    Un slug vacio es valido: significa "sin plan asignado explicitamente",
+    el mismo caso que hoy deja `Tenant.plan_slug=''`.
+    """
+    if not slug:
+        return
+
+    from .models import Plan
+
+    manager = Plan.objects if using is None else Plan.objects.using(using)
+    if not manager.filter(slug=slug).exists():
+        existentes = sorted(manager.values_list('slug', flat=True))
+        raise PlanDesconocido(
+            f'"{slug}" no es un Plan existente en esta base. '
+            f'Planes disponibles: {", ".join(existentes) or "(ninguno)"}'
+        )
+
     return resumen
