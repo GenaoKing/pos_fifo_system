@@ -51,7 +51,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 
 from apps.auditoria.models import Auditoria
 from apps.configuracion.utils import get_config, modulo_activo
@@ -176,6 +176,20 @@ def procesar_venta_service(
     cliente_id = datos.get('cliente_id')
     cotizacion_id = datos.get('cotizacion_id')
     tipo_ecf = (datos.get('tipo_ecf') or TIPO_ECF_DEFAULT).strip()
+    clave_idempotencia = (datos.get('clave_idempotencia') or '').strip() or None
+
+    # ----------------------- Idempotencia: chequeo previo barato
+    # Un reintento (doble click, reintento de red tras timeout) con la misma
+    # clave devuelve la venta ORIGINAL sin cobrar ni consumir inventario otra
+    # vez. La unica parcial de `Venta.clave_idempotencia` es el respaldo real
+    # para la carrera verdadera (ver el try/except IntegrityError abajo). Sin
+    # clave, la conducta es la de antes (cada llamada crea una venta).
+    if clave_idempotencia:
+        existente = Venta.objects.filter(
+            clave_idempotencia=clave_idempotencia,
+        ).first()
+        if existente is not None:
+            return existente
 
     # ----------------------- Validaciones pre-transacción (lectura pura)
     if not carrito:
@@ -311,6 +325,7 @@ def procesar_venta_service(
             sucursal=sucursal,
             total_esperado=total_esperado,
             condicion_pago='CREDITO' if es_credito else 'CONTADO',
+            clave_idempotencia=clave_idempotencia,
         )
 
         # El consumo va DENTRO de la transacción: si la venta falla más
@@ -982,11 +997,17 @@ def _crear_venta(
     sucursal,
     total_esperado: Decimal,
     condicion_pago: str,
+    clave_idempotencia: str | None = None,
 ) -> Venta:
     """
     Crea la cabecera Venta. Calcula totales desde el carrito ya validado y los
     contrasta con `total_esperado`. El número de venta lo asigna el propio
     modelo en su save(), usando el prefijo de la sucursal recibida.
+
+    `clave_idempotencia` se persiste en la cabecera: la unica parcial garantiza
+    que dos peticiones con la misma clave nunca produzcan dos ventas (un solo
+    efecto financiero). El chequeo previo del service devuelve la original en el
+    reintento; la constraint es el respaldo ante la carrera verdadera.
     """
     subtotal = sum(
         (item['precio'] * item['cantidad'] for item in items),
@@ -1015,6 +1036,7 @@ def _crear_venta(
         total=total,
         condicion_pago=condicion_pago,
         estado='COMPLETADA',
+        clave_idempotencia=clave_idempotencia,
     )
 
 

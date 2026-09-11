@@ -149,7 +149,19 @@ class Venta(models.Model):
         null=True,
         verbose_name='Motivo de Anulación'
     )
-    
+
+    # Idempotencia: un reintento (doble click, reintento de red tras timeout)
+    # con la misma clave devuelve la venta ORIGINAL en vez de cobrar y consumir
+    # inventario otra vez. Null para ventas historicas y replicadas por sync.
+    clave_idempotencia = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        verbose_name='Clave de idempotencia',
+        help_text='UUID de la operacion de venta. Un reintento con la misma '
+                  'clave devuelve la venta original en vez de crear otra.',
+    )
+
     class Meta:
         verbose_name = 'Venta'
         verbose_name_plural = 'Ventas'
@@ -175,6 +187,14 @@ class Venta(models.Model):
             models.CheckConstraint(
                 condition=models.Q(descuento_total__gte=Decimal('0.00')),
                 name='venta_descuento_no_negativo',
+            ),
+            # Idempotencia: unicidad PARCIAL, solo sobre las claves presentes.
+            # Las ventas historicas y las replicadas por sync no tienen clave y
+            # conviven. Es el respaldo real del chequeo previo del service.
+            models.UniqueConstraint(
+                fields=['clave_idempotencia'],
+                condition=models.Q(clave_idempotencia__isnull=False),
+                name='uniq_venta_clave_idempotencia',
             ),
         ]
     

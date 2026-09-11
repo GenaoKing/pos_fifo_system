@@ -474,14 +474,14 @@ def procesar_venta(request):
             {'success': False, 'error': str(exc)},
             status=exc.status_code,
         )
-    except Exception as exc:
-        # Cualquier excepción no anticipada. Log completo, mensaje
-        # genérico al cliente.
-        import traceback
-        print(f'❌ ERROR no manejado en procesar_venta: {exc}')
-        traceback.print_exc()
+    except Exception:
+        # Cualquier excepción no anticipada. Log completo, mensaje genérico al
+        # cliente: el texto de la excepción no va al navegador (podía filtrar
+        # internals) y `logger.exception` no revienta en la consola cp1252 del
+        # proyecto como lo hacía el `print` con emoji.
+        logger.exception('Error no manejado en procesar_venta')
         return JsonResponse(
-            {'success': False, 'error': f'Error al procesar la venta: {exc}'},
+            {'success': False, 'error': 'No se pudo procesar la venta.'},
             status=500,
         )
 
