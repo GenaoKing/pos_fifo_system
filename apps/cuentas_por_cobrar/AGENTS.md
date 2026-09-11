@@ -1,6 +1,6 @@
 # apps/cuentas_por_cobrar — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -35,7 +35,10 @@ Ventas a crédito: `MetodoPlazoCredito` (`VENCIMIENTO_UNICO` / `CUOTAS`) →
 - `PagoCxC.clave_idempotencia` (migración `0006`): un reintento no duplica un abono.
 - Permisos: `cuentas_por_cobrar.ver` / `.cobrar` / `.anular_pago`. Módulo
   `cuentas_por_cobrar` (depende de `ventas` y `clientes`); no se puede
-  desactivar con cuentas abiertas.
+  desactivar con cuentas abiertas. **Gate de módulo (SUS-006):** todas las
+  vistas HTML llevan `@requiere_modulo('cuentas_por_cobrar')` y las APIs
+  `@requiere_modulo_json(...)`, ortogonal al permiso — sin el módulo en el plan,
+  la URL responde 404 aunque haya permiso.
 - Sync: `evento_cxc_creada`, `evento_cxc_pago_registrado`,
   `evento_cxc_pago_anulado`, `evento_cxc_anulada`.
 - Auditoría 2026-08-20

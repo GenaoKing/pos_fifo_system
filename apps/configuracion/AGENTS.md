@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -23,7 +23,7 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | **Leer la config del contexto actual** | `utils.get_config()` — por `SUCURSAL_CODIGO`, cacheada con clave por tenant (CFG-001), TTL 30 s local / 600 s compartido (CFG-005) |
 | Config para **encabezar un documento** | `utils.config_para_documento(sucursal)` (COM-001) · `config_de_sucursal` |
 | ¿Módulo activo? | `utils.modulo_activo(key)` → delega en `apps.suscripciones.engine` si resuelve negocio; si no, flag legacy |
-| Gatear una vista por módulo | `decorators.requiere_modulo` (404) · `requiere_sysadmin` |
+| Gatear una vista por módulo | `decorators.requiere_modulo` (HTML → 404) · `requiere_modulo_json` (fetch → 404 JSON) · `requiere_sysadmin` |
 | `{{ config }}` / `modulos_efectivos` en templates | `context_processors.config_negocio` (inyecta ambos) |
 | Gatear un menú/pantalla por módulo | `{% if 'key' in modulos_efectivos %}` — **no** `config.modulo_*` (CFG-009/SUS-007) |
 | ¿Este descuento pide autorización? | `ConfiguracionNegocio.descuento_requiere_token(subtotal=, descuento_total=)` |

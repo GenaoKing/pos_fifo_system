@@ -1,6 +1,6 @@
 # apps/ventas — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -17,7 +17,8 @@ stock **FIFO**), pagos, anulaciones, financiación cooperativa y PDFs.
 | --- | --- |
 | Pantalla del POS | `apps/ventas/views.py` → `punto_venta` |
 | **Procesar una venta** (la lógica real) | `apps/ventas/services/ventas_service.py` → `procesar_venta_service` |
-| Anular una venta | `apps/ventas/services/anulaciones_service.py` → `anular_venta_service` |
+| Anular una venta | `apps/ventas/services/anulaciones_service.py` → `anular_venta_service` (RBAC: `ventas.anular` en la sucursal de la PROPIA venta, PER-013) |
+| Reimprimir ticket térmico / listar reimpresión | `utils/impresoras/views.py` → `ReimprimirTicketView` / `ListaVentasReimprimirView` (permiso `ventas.reimprimir`, alcance `_ventas_en_alcance`) |
 | Consumir/devolver stock FIFO | delega en `apps/inventario/fifo_logic.py` → `procesar_venta_fifo` |
 | Errores de dominio | `apps/ventas/services/exceptions.py` |
 | Rutas / APIs del POS | `apps/ventas/urls.py` |
