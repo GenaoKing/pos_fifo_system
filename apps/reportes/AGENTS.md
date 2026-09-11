@@ -1,6 +1,6 @@
 # apps/reportes — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -18,7 +18,7 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 | Necesito… | Voy a… |
 | --- | --- |
 | Dashboard | `views.dashboard`, `api_metricas_hoy` |
-| On-demand | `views.reportes_on_demand`, `api_cierre_manual`, `api_ventas_periodo`, `api_top_productos`, `api_inventario_valorizado`, `api_ventas_cajero` |
+| On-demand (gate módulo `reportes_ondemand`, SUS-006) | `views.reportes_on_demand`, `api_cierre_manual`, `api_ventas_periodo`, `api_top_productos`, `api_inventario_valorizado`, `api_ventas_cajero` |
 | **Generar** un reporte | `report_manager.ReporteManager` → `generar_cierre_diario`, `generar_top_productos`, `generar_inventario_valorizado` |
 | Cierre automático | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) |
 | PDF del cierre | `pdf_generator.PDFGenerator.generar_cierre_caja` → `views.descargar_pdf_cierre` |

@@ -53,7 +53,11 @@ from apps.ventas.services import (
     anular_venta_service,
     ErrorVentaBase,
 )
-from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+    sucursal_del_request,
+)
 from apps.sucursales.models import get_sucursal_actual
 from apps.common.pdf.standard import ImporteInvalido
 
@@ -753,19 +757,25 @@ def lista_financiaciones(request):
 def vista_anulaciones(request):
     """
     Página para gestionar anulaciones de venta.
-    Solo accesible por ADMIN y SYSADMIN.
+
+    El permiso `ventas.anular` se evalúa en la sucursal en la que se opera
+    (PER-013 / CT-02): un rol acotado a otra sucursal no abre esta pantalla. Y
+    el listado se acota al mismo alcance operativo, para no exhibir las ventas
+    de otra sucursal que igual no se podrían anular desde aquí.
     """
-    if not request.user.tiene_permiso('ventas.anular'):
+    if not request.user.tiene_permiso(
+        'ventas.anular', sucursal=sucursal_del_request(request)
+    ):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
- 
+
     config = get_config()
- 
+
     # Obtener ventas recientes (últimos 30 días, máx 100)
     from datetime import timedelta
     fecha_desde = timezone.now() - timedelta(days=30)
- 
-    ventas_qs = Venta.objects.filter(
+
+    ventas_qs = _ventas_en_alcance(request).filter(
         fecha_venta__gte=fecha_desde
     ).select_related('usuario', 'anulada_por', 'cliente').order_by('-fecha_venta')[:100]
  
@@ -846,6 +856,7 @@ def api_anular_venta(request):
             venta_id=venta_id,
             motivo=motivo,
             ip_address=get_client_ip(request),
+            sucursal=sucursal_del_request(request),
         )
     except ErrorVentaBase as exc:
         return JsonResponse(
