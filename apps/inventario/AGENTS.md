@@ -1,6 +1,6 @@
 # apps/inventario — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -31,6 +31,10 @@ Compras y stock por lotes **FIFO** (`apps/inventario/models.py`): `Compra` →
   venta (`apps/ventas/services/ventas_service.py`); nunca mutar stock desde una
   vista.
 - Inventario negativo solo si `ConfiguracionNegocio.permitir_inventario_negativo`.
+- **DB-CONSTRAINTS:** `Compra.total >= 0` (la cabecera se crea con 0 y se
+  completa tras los detalles), `DetalleCompra`/`Lote` con cantidad `>= 1` y costo
+  `>= 0.01`. `Lote.cantidad_actual` NO se restringe (inventario negativo). El
+  preflight vive en `manage.py verificar_integridad_financiera`.
 - Permisos: `compras.ver` / `compras.registrar` / `inventario.ver` /
   `inventario.ajustar`.
 - Sync: `evento_compra_registrada`, `evento_inventario_movimiento`,

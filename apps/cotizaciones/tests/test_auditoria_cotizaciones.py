@@ -462,8 +462,19 @@ class EventoAtrasadoTests(CotizacionesTestCase):
             'detalles': [],
         }
 
+        # COT-015: una cotizacion CONVERTIDA exige el vinculo a su venta (la
+        # constraint `cotizacion_convertida_exige_venta` lo garantiza a nivel de
+        # BD). Se crea la venta que la consumio para reflejar el estado real.
+        from apps.ventas.models import Venta
+
+        venta = Venta.objects.create(
+            usuario=cotizacion.usuario, cliente=self.cliente, sucursal=self.suc_a,
+            subtotal=Decimal('50.00'), total=Decimal('50.00'),
+            estado='COMPLETADA', condicion_pago='CONTADO',
+        )
         cotizacion.estado = 'CONVERTIDA'
-        cotizacion.save(update_fields=['estado'])
+        cotizacion.venta = venta
+        cotizacion.save(update_fields=['estado', 'venta'])
 
         _handler_cotizacion_creada(self.suc_a, payload)
 

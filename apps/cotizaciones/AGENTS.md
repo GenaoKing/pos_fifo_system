@@ -1,6 +1,6 @@
 # apps/cotizaciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -32,6 +32,11 @@ cotización en el POS para convertirla en venta. `apps/cotizaciones/models.py`,
   es una decisión financiera.
 - No se convierte en otra sucursal, para otro cliente, vencida, ni por más
   unidades que las cotizadas (ver `tests/test_auditoria_cotizaciones.py`).
+- **Invariantes de BD (COT-008/015):** `DetalleCotizacion` con cantidad `>= 1`,
+  precio `>= 0.01`, descuento `>= 0` y `<= subtotal`; una `Cotizacion` en estado
+  `CONVERTIDA` **exige** `venta` (constraint `cotizacion_convertida_exige_venta`),
+  y por eso `venta` usa `on_delete=PROTECT`. Preflight:
+  `manage.py verificar_integridad_financiera`.
 - Permisos: `cotizaciones.ver`, `cotizaciones.crear`; módulo `cotizaciones`.
 - Sync: `evento_cotizacion_creada`, `evento_cotizacion_convertida`
   (`apps/sync/events.py`); handlers en `apps/api/views/sync.py`.

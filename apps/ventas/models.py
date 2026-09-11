@@ -159,6 +159,24 @@ class Venta(models.Model):
             models.Index(fields=['fecha_venta']),
             models.Index(fields=['estado']),
         ]
+        # DB-CONSTRAINTS: los importes se validaban solo en la app (validators de
+        # campo, que `objects.create()` ni siquiera ejecuta). Una escritura
+        # directa —script, shell, replicacion mal formada— podia dejar una venta
+        # con total negativo. La restriccion vive ahora en la BD.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total__gte=Decimal('0.01')),
+                name='venta_total_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(subtotal__gte=Decimal('0.00')),
+                name='venta_subtotal_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_total__gte=Decimal('0.00')),
+                name='venta_descuento_no_negativo',
+            ),
+        ]
     
     def __str__(self):
         return f"Venta {self.numero_venta} - ${self.total}"
@@ -338,7 +356,31 @@ class DetalleVenta(models.Model):
     class Meta:
         verbose_name = 'Detalle de Venta'
         verbose_name_plural = 'Detalles de Venta'
-    
+        # DB-CONSTRAINTS: cantidades e importes imposibles no deben poder
+        # persistirse ni por una escritura directa que salte `save()`.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gte=1),
+                name='detalleventa_cantidad_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(precio_unitario__gte=Decimal('0.01')),
+                name='detalleventa_precio_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__gte=Decimal('0.00')),
+                name='detalleventa_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__lte=models.F('subtotal')),
+                name='detalleventa_descuento_no_supera_subtotal',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_linea__gte=Decimal('0.00')),
+                name='detalleventa_total_no_negativo',
+            ),
+        ]
+
     def __str__(self):
         return f"{self.producto.nombre} × {self.cantidad}"
     
@@ -438,6 +480,13 @@ class Pago(models.Model):
         verbose_name = 'Pago'
         verbose_name_plural = 'Pagos'
         ordering = ['fecha_pago']
+        # DB-CONSTRAINTS: un pago con monto <= 0 no cuadra el cierre de caja.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(monto__gte=Decimal('0.01')),
+                name='pago_monto_positivo',
+            ),
+        ]
     
     def __str__(self):
         return f"{self.get_metodo_display()} - ${self.monto}"

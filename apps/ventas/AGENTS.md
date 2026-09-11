@@ -52,6 +52,9 @@ No hagas push directo desde aquí — solo emití el evento al outbox.
 
 - Todo lo que muta stock/pagos va dentro de la transacción del service; nada de
   escribir inventario desde la vista.
+- **DB-CONSTRAINTS:** `Venta.total >= 0.01`, `DetalleVenta` con cantidad `>= 1`,
+  precio `>= 0.01`, descuento `>= 0` y `<= subtotal`, y `Pago.monto >= 0.01`.
+  Preflight de datos: `manage.py verificar_integridad_financiera`.
 - `condicion_pago` a crédito y `turno_caja` cambian validaciones de pago.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md`) —
   **snapshot histórico**, verificar contra código.

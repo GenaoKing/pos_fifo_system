@@ -78,10 +78,18 @@ class Cotizacion(models.Model):
         verbose_name='Estado'
     )
 
-    # Referencia a la venta si fue convertida
+    # Referencia a la venta si fue convertida.
+    #
+    # COT-015: `on_delete=PROTECT` (antes `SET_NULL`). Una cotizacion CONVERTIDA
+    # DEBE conservar el vinculo a la venta que la consumio — es la invariante que
+    # el CheckConstraint `cotizacion_convertida_exige_venta` exige a nivel de BD.
+    # Con SET_NULL, borrar la venta dejaba la cotizacion CONVERTIDA con
+    # `venta=NULL` (violando esa invariante). Las ventas se ANULAN, no se borran;
+    # PROTECT convierte un borrado accidental en un error claro en vez de
+    # orfandad silenciosa.
     venta = models.OneToOneField(
         'ventas.Venta',
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         blank=True,
         null=True,
         related_name='cotizacion_origen',
@@ -108,6 +116,26 @@ class Cotizacion(models.Model):
             models.UniqueConstraint(
                 fields=['sucursal', 'numero_cotizacion'],
                 name='unique_cotizacion_por_sucursal_numero',
+            ),
+            # COT-008: importes imposibles no persistibles ni por escritura directa.
+            models.CheckConstraint(
+                condition=models.Q(subtotal__gte=Decimal('0.00')),
+                name='cotizacion_subtotal_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_total__gte=Decimal('0.00')),
+                name='cotizacion_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total__gte=Decimal('0.00')),
+                name='cotizacion_total_no_negativo',
+            ),
+            # COT-015: una cotizacion CONVERTIDA exige el vinculo a su venta.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(estado='CONVERTIDA') | models.Q(venta__isnull=False)
+                ),
+                name='cotizacion_convertida_exige_venta',
             ),
         ]
 
@@ -230,6 +258,30 @@ class DetalleCotizacion(models.Model):
     class Meta:
         verbose_name = 'Detalle de Cotizacion'
         verbose_name_plural = 'Detalles de Cotizacion'
+        # COT-008: la cotizacion es fuente autorizada de precio para la venta;
+        # una linea con cantidad/precio/descuento imposible no debe persistir.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gte=1),
+                name='detallecotizacion_cantidad_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(precio_unitario__gte=Decimal('0.01')),
+                name='detallecotizacion_precio_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__gte=Decimal('0.00')),
+                name='detallecotizacion_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__lte=models.F('subtotal')),
+                name='detallecotizacion_descuento_no_supera_subtotal',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_linea__gte=Decimal('0.00')),
+                name='detallecotizacion_total_no_negativo',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.producto.nombre} x {self.cantidad}"
