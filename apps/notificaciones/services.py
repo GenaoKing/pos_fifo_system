@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.permisos.models import AsignacionRol
+from apps.permisos.engine import asignaciones_efectivas
 from apps.sync.models import EventoSync
 from apps.tenancy.context import get_current_tenant_alias
 
@@ -50,24 +50,10 @@ class PreferenciaResuelta:
 
 
 def _asignaciones_en_alcance(sucursal):
-    """Asignaciones activas globales o locales, sin cruzar negocio.
-
-    Espejo de `permisos.engine._resolver_permisos`: mismos guards `activo`
-    (rol, negocio y sucursal). Si cambian los filtros alli, cambiar aqui —
-    de otro modo el motor generaria destinatarios que el RBAC ya no autoriza.
-    Una asignacion global sigue recibiendo aunque la sucursal este inactiva;
-    la acotada a una sucursal inactiva, no.
-    """
-    return AsignacionRol.objects.filter(
-        activo=True,
-        rol__activo=True,
-        rol__negocio__activo=True,
-        usuario__activo=True,
-        usuario__negocio_id=sucursal.negocio_id,
-        rol__negocio_id=sucursal.negocio_id,
-    ).filter(
-        Q(sucursal__isnull=True)
-        | Q(sucursal_id=sucursal.id, sucursal__activa=True)
+    """Asignaciones resueltas por el mismo helper canonico del motor RBAC."""
+    return asignaciones_efectivas(
+        negocio_id=sucursal.negocio_id,
+        sucursal=sucursal,
     )
 
 

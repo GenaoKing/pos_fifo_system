@@ -358,6 +358,13 @@ def _global_token_payload(identity):
             'permisos': [],
             'modulos': [],
             'is_global': True,
+            'rbac': _rbac_capabilities_payload(
+                identity,
+                tenant_key=None,
+                negocio=None,
+                permisos=[],
+                modulos=[],
+            ),
         },
     }
 
@@ -427,6 +434,13 @@ def _user_payload(user):
             'permisos': [],
             'modulos': [],
             'is_global': True,
+            'rbac': _rbac_capabilities_payload(
+                user,
+                tenant_key=None,
+                negocio=None,
+                permisos=[],
+                modulos=[],
+            ),
         }
 
     from apps.permisos.engine import TODAS, permisos_de_usuario
@@ -444,6 +458,12 @@ def _user_payload(user):
     tenant_id = getattr(user, 'tenant_key', None)
     if tenant_id is None and negocio is not None:
         tenant_id = negocio.slug
+
+    permisos = sorted(permisos_de_usuario(user, sucursal=TODAS))
+    from apps.permisos.catalogo import PERMISOS_OPERADOR_SAAS
+    if not getattr(user, 'is_superuser', False) and getattr(user, 'rol', None) != 'SYSADMIN':
+        permisos = sorted(set(permisos) - set(PERMISOS_OPERADOR_SAAS))
+    modulos = sorted(modulos_negocio(negocio))
 
     return {
         'id': user.id,
@@ -463,6 +483,44 @@ def _user_payload(user):
         # puede en alguna sucursal, para que el portal sepa que menus dibujar.
         # Cada endpoint revalida con el scope real (apps/api/permissions.py);
         # que un boton aparezca no significa que la accion vaya a pasar.
-        'permisos': sorted(permisos_de_usuario(user, sucursal=TODAS)),
-        'modulos': sorted(modulos_negocio(negocio)),
+        'permisos': permisos,
+        'modulos': modulos,
+        'rbac': _rbac_capabilities_payload(
+            user,
+            tenant_key=tenant_id,
+            negocio=negocio,
+            permisos=permisos,
+            modulos=modulos,
+        ),
+    }
+
+
+def _rbac_capabilities_payload(
+    subject, *, tenant_key, negocio, permisos, modulos,
+):
+    """Envelope aditivo ``rbac.capabilities.v1``; la UI no es enforcement."""
+    from apps.auditoria.services import referencia_modelo
+    from apps.permisos.models import EstadoRBAC
+
+    catalog_revision = 1
+    assignments_revision = 0
+    if negocio is not None:
+        estado = EstadoRBAC.objects.filter(negocio=negocio).first()
+        if estado is not None:
+            catalog_revision = estado.catalog_revision
+            assignments_revision = estado.assignments_revision
+        else:
+            assignments_revision = 1
+
+    return {
+        'schema_version': 'rbac.capabilities.v1',
+        'subject_ref': str(referencia_modelo(
+            getattr(subject, 'identity', subject), tenant_key=tenant_key,
+        )),
+        'tenant_key': tenant_key,
+        'scope': {'branch_code': None, 'kind': 'ANY_FOR_DISPLAY'},
+        'catalog_revision': catalog_revision,
+        'assignments_revision': assignments_revision,
+        'permissions': list(permisos),
+        'modules': list(modulos),
     }

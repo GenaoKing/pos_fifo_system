@@ -51,6 +51,21 @@ class SyncRolesEndpointTests(TestCase):
         self.assertEqual(cajero['slug'], 'cajero')
         self.assertIn('compras.registrar', cajero['permisos'])
 
+    def test_v2_es_opt_in_y_publica_identidad_revision_y_snapshot(self):
+        r = self._api().get(
+            f'{self.url}?snapshot=full',
+            HTTP_X_RBAC_SCHEMA='rbac.sync.v2',
+        )
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['schema_version'], 'rbac.sync.v2')
+        self.assertTrue(r.data['snapshot_complete'])
+        self.assertEqual(r.data['tenant_key'], self.neg_a.slug)
+        fila = r.data['roles'][0]
+        self.assertEqual(fila['cloud_id'], str(self.rol_a.cloud_id))
+        self.assertEqual(fila['revision'], self.rol_a.revision)
+        self.assertEqual(fila['permission_codes'], fila['permisos'])
+
     def test_sucursal_sin_negocio_devuelve_vacio(self):
         svc2 = User.objects.create_user('svc2', 's2@e.com', 'x', rol='CAJERA')
         Sucursal.objects.create(
@@ -66,6 +81,23 @@ class SyncRolesEndpointTests(TestCase):
         r = self._api().get(f'{self.url}?desde={quote(futuro)}')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data, [])
+
+    def test_cambio_m2m_aparece_en_el_pull_incremental(self):
+        fecha_anterior = self.rol_a.fecha_modificacion
+        revision_anterior = self.rol_a.revision
+        permiso = Permiso.objects.get(codigo='ventas.anular')
+
+        self.rol_a.permisos.add(permiso)
+        self.rol_a.refresh_from_db()
+
+        r = self._api().get(
+            f'{self.url}?desde={quote(fecha_anterior.isoformat())}'
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([fila['slug'] for fila in r.data], [self.rol_a.slug])
+        self.assertIn('ventas.anular', r.data[0]['permisos'])
+        self.assertGreater(self.rol_a.revision, revision_anterior)
+        self.assertGreater(self.rol_a.fecha_modificacion, fecha_anterior)
 
 
 class SyncAsignacionesEndpointTests(TestCase):
@@ -133,6 +165,26 @@ class SyncAsignacionesEndpointTests(TestCase):
 
         fila_global = next(row for row in r.data if row['usuario_username'] == 'caja_global')
         self.assertIsNone(fila_global['sucursal_codigo'])
+
+    def test_v2_publica_scope_e_identidades_estables(self):
+        r = self._api().get(
+            f'{self.url}?snapshot=full',
+            HTTP_X_RBAC_SCHEMA='rbac.sync.v2',
+        )
+
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data['snapshot_complete'])
+        self.assertEqual(r.data['scope']['branch_code'], self.sucursal.codigo)
+        self.assertEqual(len(r.data['assignments']), 2)
+        fila = next(
+            item for item in r.data['assignments']
+            if item['usuario_username'] == self.user_sucursal.username
+        )
+        asignacion = AsignacionRol.objects.get(usuario=self.user_sucursal)
+        self.assertEqual(fila['cloud_id'], str(asignacion.cloud_id))
+        self.assertEqual(fila['role_cloud_id'], str(self.rol_a.cloud_id))
+        self.assertTrue(fila['user_ref'])
+        self.assertTrue(fila['branch_ref'])
 
     def test_desde_filtra_incremental(self):
         futuro = (timezone.now() + datetime.timedelta(hours=1)).isoformat()

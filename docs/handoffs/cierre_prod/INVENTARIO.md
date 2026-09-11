@@ -16,6 +16,9 @@ Estados usados: `PENDIENTE`, `DECIDIDO` (política fijada, falta o no código),
 y `DIFERIDO_EXPLICITO`. Un despliegue anterior nunca equivale a validación del
 nuevo candidato.
 
+Actualización A03: **2026-09-11** sobre `develop@e3635de`; implementación
+`3e6cec1`. No modifica la captura base A00 ni acredita despliegue.
+
 ## Base, ramas, worktrees y aislamiento
 
 | Elemento | Resultado verificado | Evidencia / acción |
@@ -100,18 +103,18 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PER-006 | TODO + AUD-PER | Mover la terna natural deja activa la asignación anterior en el POS. | A | A03 | Crítica | PENDIENTE | — | Repro PER-006 + revoke/create atómico. |
-| PER-007 | TODO + AUD-PER | El borrado físico de rol custom no baja a POS. | A | A03 | Crítica | PENDIENTE | — | Repro PER-007 + tombstone/reconciliación. |
-| PER-012 | TODO + AUD-PER | Cambiar M2M de rol no siempre avanza cursor. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-012. |
-| PER-013 | TODO + AUD-PER | Catálogo y enforcement real no coinciden por completo. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-013. |
-| PER-014 | TODO + AUD-PER | Mutaciones RBAC sin auditoría durable. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-014 + CT-01. |
-| PER-015 | TODO + AUD-PER | `sync_permisos` mezcla catálogo, presets y transporte. | A | A03 | Media | PENDIENTE | — | Aceptación PER-015. |
-| PER-016 | TODO + AUD-PER | Bootstrap no es idempotente/seguro multi-negocio. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-016. |
-| PER-017 | TODO + AUD-PER | Escrituras API de rol/asignación no son atómicas bajo carrera. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-017. |
-| PER-018 | TODO + AUD-PER | Admin/comandos no comparten garantías API/tenant. | A | A03 | Media-alta | PENDIENTE | — | Aceptación PER-018. |
-| PER-019 | TODO + AUD-PER | Data migrations dependen de código vivo y sin reversa semántica. | A | A03 | Baja-media | PENDIENTE | — | Grafo histórico desde cero. |
-| PER-020 | TODO + AUD-PER | Fallbacks ocultan errores de configuración. | A | A03 | Baja-media | PENDIENTE | — | Aceptación PER-020. |
-| PER-021 | TODO + AUD-PER | Suite/documentación omiten fronteras adversariales. | A | A03 | Media | PENDIENTE | — | Matriz CT-02 completa. |
+| PER-006 | TODO + AUD-PER | Mover la terna natural deja activa la asignación anterior en el POS. | A | A03 | Crítica | RESUELTO | `3e6cec1` | Identidad UUID + revoke/create atómico y prueba API/sync. |
+| PER-007 | TODO + AUD-PER | El borrado físico de rol custom no baja a POS. | A | A03 | Crítica | RESUELTO | `3e6cec1` | Baja lógica versionada, tombstone y reconciliación completa scoped. |
+| PER-012 | TODO + AUD-PER | Cambiar M2M de rol no siempre avanza cursor. | A | A03 | Media-alta | RESUELTO | `3e6cec1` | Add/remove/clear/set directo y reverso avanzan revisión/timestamp. |
+| PER-013 | TODO + AUD-PER | Catálogo y enforcement real no coinciden por completo. | A+C | A03/C02/C05 | Media-alta | PARCIAL_A03 | `3e6cec1` | Contrato/helper publicados; anulación/reimpresión quedan en superficies C. |
+| PER-014 | TODO + AUD-PER | Mutaciones RBAC sin auditoría durable. | A | A03 | Media-alta | RESUELTO | `3e6cec1` | Servicios emiten exactamente un evento CT-01 por mutación. |
+| PER-015 | TODO + AUD-PER | `sync_permisos` mezcla catálogo, presets y transporte. | A | A03 | Media | RESUELTO | `3e6cec1` | Catálogo por defecto; presets solo con opción explícita. |
+| PER-016 | TODO + AUD-PER | Bootstrap no es idempotente/seguro multi-negocio. | A | A03 | Media-alta | RESUELTO | `3e6cec1` | Transacción/alias, negocio explícito y revocación preservada. |
+| PER-017 | TODO + AUD-PER | Escrituras API de rol/asignación no son atómicas bajo carrera. | A | A03 | Media-alta | RESUELTO | `3e6cec1` | Servicios con atomic/locks/constraints y revisión 409. |
+| PER-018 | TODO + AUD-PER | Admin/comandos no comparten garantías API/tenant. | A | A03 | Media-alta | RESUELTO | `3e6cec1` | Admin read-only; comandos tenant-aware y alias explícito. |
+| PER-019 | TODO + AUD-PER | Data migrations dependen de código vivo y sin reversa semántica. | A | A03 | Baja-media | RESUELTO | `3e6cec1` | Datos/helpers históricos congelados; migración desde cero verde. |
+| PER-020 | TODO + AUD-PER | Fallbacks ocultan errores de configuración. | A | A03 | Baja-media | RESUELTO | `3e6cec1` | DRF deny-by-default; template deniega y registra solo tipo. |
+| PER-021 | TODO + AUD-PER | Suite/documentación omiten fronteras adversariales. | A | A03 | Media | RESUELTO | `3e6cec1` | Matriz CT-02 y documentos vivos actualizados. |
 
 ### Auditoría, identidad, negocios y tenancy — dueño A, A02/B02-B03
 
@@ -129,7 +132,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | USR-007 | TODO + AUD-USR | Sin flujo autoritativo de provisioning tenant. | A | A02 | Media-alta | RESUELTO | `583863f` | Servicio/comando crean usuario+RBAC+CT-01 o revierten. |
 | USR-010 | TODO + AUD-USR | `Identity` y `Usuario` son credenciales independientes. | A | A02 | Media-alta | RESUELTO | `583863f` | Secretos/rotaciones local y portal separados; igualdad rechazada. |
 | USR-011 | TODO + AUD-USR | Manager omite validación de credencial/email/rol. | A | A02 | Media | RESUELTO | `583863f` | Alta humana soportada usa `create_human_user`, validadores y `full_clean`; `create_user` queda compat ORM. |
-| USR-012 | TODO + AUD-USR | Tres fuentes de privilegio sin invariantes comunes. | A | A02/A03 | Media-alta | PARCIAL_A02 | `583863f` | Identidad/tenant validados; unificación y revocación RBAC quedan en A03/CT-02. |
+| USR-012 | TODO + AUD-USR | Tres fuentes de privilegio sin invariantes comunes. | A | A02/A03 | Media-alta | RESUELTO | `583863f`, `3e6cec1` | Identidad/tenant validados; RBAC versionado y revocación común. |
 | USR-013 | TODO + AUD-USR | Mutaciones de usuario sin auditoría de dominio. | A | A02 | Media | RESUELTO | `583863f` | Alta/actualización/estado con CT-01 en la transacción tenant. |
 | USR-014 | TODO + AUD-USR | IP confía en cualquier `X-Forwarded-For`. | A | A08 | Media | PENDIENTE | — | Proxy real + spoof adversarial. |
 | USR-015 | TODO + AUD-USR | `last_login` y `ultimo_acceso` divergen. | A | A02 | Media-baja | RESUELTO | `583863f` | Login local/portal persiste el mismo instante. |
@@ -252,7 +255,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | OPS-SUS-001 | Suscripción suspendida/null cambia de fail-open a módulos efectivos. | C | C03/C06 | Alta | OPERATIVO_PENDIENTE | — | Preflight sin editar datos. |
 | OPS-CFG-002 | `SUCURSAL_CODIGO` inválido debe abortar, no cruzar identidad. | C | C01/C03 | Alta | OPERATIVO_PENDIENTE | — | Preflight aislado. |
 | OPS-CFG-003 | Asignar `configuracion.administrar` a roles legítimos. | C | C03/C06 | Alta acceso | OPERATIVO_PENDIENTE | — | Sin lockout/403 correcto. |
-| DOC-RBAC-WORKERS | RBAC_PERMISOS aún dice single-worker; Docker usa 3. | A | A03/A07 | Baja | PENDIENTE | — | Documento contra Docker. |
+| DOC-RBAC-WORKERS | RBAC_PERMISOS aún dice single-worker; Docker usa 3. | A | A03/A07 | Baja | RESUELTO | `3e6cec1` | Documento alineado con caché/namespace vigente. |
 | USR-002-CLOUD-ADMIN | Cerrar `/admin/` cloud y cubrir alternativas; MFA/red queda fuera del código inmediato. | A+C | A02/C04 | Alta | PARCIAL_A02 | `583863f` | `/admin/` no se monta en cloud; alternativa visual sigue C04 y MFA/red queda diferido. |
 | OPS-RESTORE | Dumps verificados pero sin restauración end-to-end. | A+C | A08/C06 | Alta | PENDIENTE | — | Restaurar control plane + tenants aislados. |
 | OPS-PRO-007 | Categoría inactiva con producto activo cambia visibilidad efectiva. | A+C | A06/C04/C05 | Alta | OPERATIVO_PENDIENTE | — | Conteo preflight + UX motivo. |
@@ -270,8 +273,8 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | INV-RBAC-SCOPE | Gates inventario llaman permiso sin sucursal. | C | C05 | Alta auth | PENDIENTE | — | Asignaciones A/B. |
 | SYNC-VENTA-ID | Handler venta cloud carece identidad compuesta robusta. | A | A04 | Alta | PENDIENTE | — | Replay tenant/sucursal. |
 | TEN-API-AUDIT | Impersonación registra sesión, no cada mutación. | A | A02 | Alta | RESUELTO_CONTRATO | `583863f` | CT-01 conserva actor operativo e `impersonator_ref`; cada bloque acredita sus productores. |
-| PER-ADMIN-BYPASS | `ADMIN` conserva bypass transitorio. | A | A03 | Alta | PENDIENTE | — | Preflight lockout + asignación explícita. |
-| NOTIF-RBAC-GUARD | Notificaciones duplica filtros de `permisos.engine`. | A | A03 | Media | PENDIENTE | — | Helper único y matriz. |
+| PER-ADMIN-BYPASS | `ADMIN` conserva bypass transitorio. | A | A03/A08 | Alta | OPERATIVO_PENDIENTE | `3e6cec1` | Flag y preflight listos; ejecutar por tenant antes de retirarlo. |
+| NOTIF-RBAC-GUARD | Notificaciones duplica filtros de `permisos.engine`. | A | A03 | Media | RESUELTO | `3e6cec1` | `asignaciones_efectivas` es el helper único compartido. |
 | PAG-CXC-CAJA | Cartera corta 300 e historial turnos 50 sin aviso. | C | C05 | Media | PENDIENTE | — | Paginación y metadatos. |
 | AUD-002-ULTIMA | Borrar última fila no es detectable sin WORM/cadena. WORM excluido; se documenta el límite. | A | A02 | Riesgo aceptado | DIFERIDO_EXPLICITO | — | No prometer garantía total. |
 | REPORTES-CHART-CDN | Chart.js depende de CDN en POS offline. | C | C02/C05 | Media | PENDIENTE | — | Render sin red. |

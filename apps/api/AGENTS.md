@@ -43,5 +43,10 @@ tiene modelos propios (`models.py` vacío).
 - Throttling de login: `throttling.py`; paginación: `pagination.py`.
 - Todo token portal lleva `session_started_at`/`session_expires_at`; access y
   refresh rechazan la sesión al superar el máximo absoluto de 12 horas.
+- CT-02: login/perfil conservan `permisos`/`modulos` y agregan
+  `rbac.capabilities.v1`. Los pulls de roles/asignaciones sirven legacy por
+  defecto y `rbac.sync.v2` solo con `X-RBAC-Schema: rbac.sync.v2`.
+- Las mutaciones RBAC llaman `apps.permisos.services`; `X-RBAC-Revision` es el
+  precondition opt-in y un valor obsoleto responde `409 rbac_revision_conflict`.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-10** (A00-A02 del cierre: base aislada, baseline
-reproducible, CT-01 implementado y auditoria/identidad/tenancy cerradas en
-codigo; CT-02 sigue A03; sin despliegue ni consulta de datos operativos).
+Ultima revision: **2026-09-11** (A03/CT-02 implementado como candidato aislado
+desde `develop@e3635de`; el `develop` compartido avanzó en paralelo a `6ee21b8`
+con C01-C03 después del cierre documentado de sus tres bloqueadores).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -43,9 +43,11 @@ El [plan conjunto Codex / Claude](PLAN_CIERRE_PROD.md) define el alcance de cier
 propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
-[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **A00-A02 integrados en el
-`develop` local; C01 desbloqueado;
-A03/CT-02 y G1-G4 pendientes**. Inventario,
+[Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
+A00-A02 y C01-C03; MERGE-C01-ENVONLY, MERGE-C01-SECRET-CAMPO y
+MERGE-C03-ALIAS-ATOMIC se cerraron antes de ese merge; A03/CT-02 permanece en
+una rama basada en `e3635de` y requiere reconciliación combinada; G1-G4 siguen
+pendientes**. Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
 Sus decisiones de alcance prevalecen sobre
@@ -62,12 +64,12 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `TENANCY_DB_PER_TENANT.md` (diseno) + `apps/tenancy/AGENTS.md`; el roadmap se archivo en `docs/historico/` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
-| RBAC/permisos | En produccion | `RBAC_PERMISOS.md` | 2 roles y 3 asignaciones activas por tenant. Sin pendientes bloqueantes. |
+| RBAC/permisos | Contrato legacy en producción; hardening CT-02 candidato | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | Revisar A03; desplegar migración 0011 y retirar bypass ADMIN solo tras preflight verde por tenant. |
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Baseline Django 5.2.17 validado localmente | `TESTING.md` | A01: 1.173 pruebas Django + 72 de facturación verdes en Windows 3.11; repetición Linux 3.12.14 registrada en su handoff. |
-| Auditorias de codigo | 191 hallazgos en 18 modulos, mitigados | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | **2 bloqueantes de seguridad abiertos**: PER-006 (mover una asignacion no revoca la anterior en el POS local) y PER-007 (borrar un rol custom no se propaga). Los snapshots por modulo viven en `docs/exploracion/` y son historicos. |
+| Testing | Baseline Django 5.2.17 validado localmente | `TESTING.md` | A03: 1.244 Django + 72 e-CF verdes en Windows 3.11; repetición Linux 3.12.14 de A01 registrada en su handoff. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A03 cierra PER-006/007, PER-012 y PER-014–021; PER-013 queda en handoff a C02/C05. También queda el cutover operacional de ADMIN y pendientes de otros módulos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas (2026-08-22); Fase 3 implementada (2026-08-24)** | `ROADMAP_SYNC_CONFIABLE.md` | Desplegar Fase 3 (conciliacion diaria): cloud primero. Visita a SK Performance pendiente. |
 | Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-I/J/L/M corregidos y desplegados en dev/staging; BUG-M se confirmó físicamente. La reverificación visual de BUG-I/J se difirió con cobertura automática. BUG-K (ACK falso del sync) sigue fuera de producción. |

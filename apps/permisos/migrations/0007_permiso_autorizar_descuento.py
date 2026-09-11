@@ -14,15 +14,27 @@ Idempotente.
 from django.db import migrations
 
 PERMISO = 'ventas.autorizar_descuento'
+FILA_PERMISO = (
+    PERMISO,
+    'Autorizar descuentos',
+    'ventas',
+    'Emitir la autorizacion que habilita un descuento por encima de la '
+    'tolerancia configurada. Quien lo tiene tambien descuenta sin pedir '
+    'autorizacion a nadie: el gate solo aplica a quien NO lo tiene.',
+)
 
 
 def aplicar(apps, schema_editor):
     Permiso = apps.get_model('permisos', 'Permiso')
     Rol = apps.get_model('permisos', 'Rol')
 
-    from apps.permisos.catalogo import sembrar_catalogo
-
-    sembrar_catalogo(Permiso)
+    codigo, nombre, modulo, descripcion = FILA_PERMISO
+    Permiso.objects.update_or_create(
+        codigo=codigo,
+        defaults={
+            'nombre': nombre, 'modulo': modulo, 'descripcion': descripcion,
+        },
+    )
 
     permiso = Permiso.objects.filter(codigo=PERMISO).first()
     if permiso is None:

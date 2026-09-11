@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-10** · Rama de cierre local: `codex/cierre-prod-A02`
+Última actualización: **2026-09-11** · Rama de cierre local: `codex/cierre-prod-A03`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -27,8 +27,8 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
-| `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
-| `apps/usuarios` | 19 | **A02 cerrado salvo USR-012→A03 y USR-014→A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
+| `apps/permisos` | 21 | **20/21 mitigados; PER-013 entregado a C02/C05; cutover ADMIN operacional pendiente** | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
+| `apps/usuarios` | 19 | **A03 cierra invariantes RBAC de USR-012; USR-014 sigue A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 | `apps/negocios` | 17 | **Pendientes de código A02 cerrados; preflights reales en A08** | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
@@ -39,8 +39,8 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 1160 tests, OK** (base de pruebas recreada el
-2026-09-07; 1008 s).
+**Suite A03 completa, serial: 1244 tests, OK**, con base y dos tenants de prueba
+creados/destruidos el 2026-09-11; e-CF: **72 passed**.
 
 ### Actualización A02 — 2026-09-10
 
@@ -50,6 +50,18 @@ usuario/negocio, credenciales local/portal separadas, sesión absoluta de 12 h,
 provisioning por checkpoints sin fingir atomicidad distribuida, `/admin/`
 cerrado en cloud y gate TEN-016 con dos PostgreSQL físicos. No se aplicaron las
 migraciones A02 ni se consultaron/modificaron filas de producción o staging.
+
+### Actualización A03 / CT-02 — 2026-09-11
+
+El candidato local, basado exactamente en `develop@e3635de`, implementa
+`rbac.capabilities.v1` y `rbac.sync.v2`: identidad UUID, revisiones, tombstones,
+snapshots completos seguros, servicios RBAC transaccionales/auditados, seeds y
+comandos tenant-aware, y guard canónico para notificaciones. Los gates finales
+de anulación/reimpresión quedan en el handoff C02/C05 por ownership. A03 no
+integró la rama Claude ni ejecutó migraciones o preflights contra datos
+operativos. En paralelo, otro flujo cerró los tres bloqueadores y llevó C01-C03
+al `develop` compartido; antes de integrar A03 se debe repetir la validación
+combinada sobre ese tip vigente.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -78,8 +90,9 @@ fuera de este despliegue.
 
 ### 2.1 Migraciones
 
-**19 migraciones** en total (14 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
-transforman datos y merecen leerse antes de correrlas en producción.
+La tabla siguiente conserva el inventario acumulado de migraciones de auditoría
+y features. Ninguna es destructiva; las marcadas con ⚠️ transforman datos y
+merecen leerse antes de correrlas en producción.
 
 | Migración | Qué hace | Riesgo |
 |---|---|---|
@@ -109,6 +122,7 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
 | `permisos.0010_notificaciones_administrar` | Agrega el permiso al rol Administrador de sistema | No modifica roles personalizados |
+| `permisos.0011_ct02_identidad_revisiones` | UUID/revisión/tombstone/origen cloud para roles y asignaciones; estado de revisiones por negocio | Aditiva; el cutover de ADMIN es posterior y requiere preflight por tenant |
 | `notificaciones.0001_initial` | Tablas de reglas, eventos, bandeja, dispositivos, entregas y marcador durable | Ninguno; el motor nace apagado |
 | `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
 | `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
@@ -120,6 +134,11 @@ un snapshot de reportes es **dato derivado y regenerable**. Cuando se puede
 reconstruir, se limpia; cuando no, se detiene y te pide decidir.
 
 ### 2.2 Configuración nueva
+
+**`RBAC_LEGACY_ADMIN_BYPASS`** (default `True`). Mantenerla activa hasta que
+`preflight_rbac_admin_cutover --tenant <tenant_key>` termine verde para cada
+tenant. Solo entonces cambiarla a `False` y repetir smoke de administración
+RBAC. A03 aporta el mecanismo, pero no inspecciona ni modifica filas reales.
 
 **`REPORTES_PRIVATE_ROOT`** (opcional). Directorio donde se escriben los PDFs de
 cierre. Por defecto `BASE_DIR/private/reportes`.
@@ -466,16 +485,14 @@ Ninguno bloquea el despliegue.
 
 ### Deuda de contrato
 
-- **`_puede_anular` usa el rol legacy** (`ADMIN`/`SYSADMIN`) en vez de RBAC.
+- **Cutover de ADMIN.** El bypass queda deliberadamente activo hasta completar
+  el preflight y las asignaciones explícitas por tenant.
+- **PER-013 consumidor:** anulación aún revalida rol legacy y reimpresión no
+  aplica el gate/scope canónico. Son superficies de C02/C05; A03 publica el
+  helper y la prueba de aceptación sin modificarlas.
 - **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
   sin sucursal en varios puntos de esa app.
 - **Identidad compuesta en el cloud** para `_handler_venta_creada`.
-- **Guards RBAC duplicados en notificaciones.**
-  `notificaciones.services._asignaciones_en_alcance` replica a mano los filtros
-  `activo` de `permisos.engine._resolver_permisos` (rol, negocio y sucursal).
-  Hoy están sincronizados y con comentario cruzado en ambos lados; extraer un
-  único helper compartido evitaría que puedan divergir. Surgió del code review
-  de notificaciones (2026-09-05); no bloquea el despliegue.
 
 ### Presentación y rendimiento
 
@@ -501,8 +518,9 @@ errores aparecieron en casi todos.
    `select_for_update`. Aparece en crédito, FIFO, ajustes y cierre de turno.
 3. **`count()` como generador de correlativos.** Un borrado deja huecos y el
    siguiente número colisiona. Reemplazado por MAX + reintento.
-4. **`tiene_permiso(codigo)` sin sucursal.** El motor sin sucursal mira *todas*
-   las asignaciones: un rol de la sucursal A abría la puerta en B.
+4. **`tiene_permiso(codigo)` sin sucursal.** Ya significa solo asignaciones
+   globales; toda mutación concreta debe pasar la sucursal real para no denegar
+   de más un permiso correctamente acotado.
 5. **Django Admin editando hechos financieros** sin auditoría ni evento de sync.
 6. **Degradación silenciosa.** `except Exception: pass` sobre operaciones que
    sí importan, y respuestas `success: true` sobre trabajo que nunca ocurrió.

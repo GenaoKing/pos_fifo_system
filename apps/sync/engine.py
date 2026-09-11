@@ -33,6 +33,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.tenancy.context import get_current_tenant_key
+
 logger = logging.getLogger('sync')
 
 # Punto de partida para el primer pull de una tabla (cursor vacio). Ver
@@ -77,6 +79,15 @@ def _resultado_pull(count=0, ok=True, error=None, bloqueo=None, paginas=0):
         'bloqueo': bloqueo,
         'paginas': paginas,
     }
+
+
+def _tenant_key_rbac_local(negocio):
+    """Devuelve la identidad tecnica esperada por un envelope RBAC v2.
+
+    En DB-per-tenant el contexto conserva el ``tenant_key`` del control plane;
+    en instalaciones row-level/standalone se usa el slug estable del negocio.
+    """
+    return get_current_tenant_key() or negocio.slug
 
 
 def clasificar_ciclo(*, heartbeat, push, pull):
@@ -502,7 +513,11 @@ class SyncEngine:
         )
         return metricas
 
-    def _pull_generic(self, tabla, endpoint, apply_func):
+    def _pull_generic(
+        self, tabla, endpoint, apply_func, *, headers=None,
+        extra_params=None, response_key=None, on_snapshot_complete=None,
+        envelope_validator=None,
+    ):
         """
         Pull incremental con cursor KEYSET y marca de agua contigua.
 
@@ -546,6 +561,8 @@ class SyncEngine:
         error = None             # fallo de transporte/HTTP de esta corrida
         paginas = 0
         url = self._url(endpoint)
+        snapshot_complete = False
+        request_headers = {**self.headers, **(headers or {})}
 
         while True:
             # `desde` va SIEMPRE, incluso en el primer pull. El servidor solo
@@ -558,10 +575,11 @@ class SyncEngine:
                 'desde': (req_fecha or _EPOCH).isoformat(),
                 'desde_id': req_id,
             }
+            params.update(extra_params or {})
 
             try:
                 resp = requests.get(
-                    url, params=params, headers=self.headers, timeout=self.timeout,
+                    url, params=params, headers=request_headers, timeout=self.timeout,
                 )
             except requests.RequestException as exc:
                 logger.warning('pull %s: error de red: %s', tabla, exc)
@@ -575,7 +593,24 @@ class SyncEngine:
 
             data = resp.json()
             # Soporta respuesta paginada de DRF o lista directa.
-            items = data['results'] if isinstance(data, dict) and 'results' in data else data
+            if (
+                response_key
+                and isinstance(data, dict)
+                and data.get('schema_version') == 'rbac.sync.v2'
+            ):
+                if envelope_validator is not None:
+                    error_envelope = envelope_validator(data)
+                    if error_envelope:
+                        bloqueo = f'{tabla}: envelope invalido: {error_envelope}'
+                        logger.error('pull %s: %s', tabla, bloqueo)
+                        break
+                items = data.get(response_key, [])
+                snapshot_complete = bool(data.get('snapshot_complete'))
+            else:
+                items = (
+                    data['results']
+                    if isinstance(data, dict) and 'results' in data else data
+                )
             if not items:
                 break
 
@@ -668,6 +703,21 @@ class SyncEngine:
                 )
                 logger.warning('pull %s: %s', tabla, bloqueo)
                 break
+
+        if (
+            error is None
+            and bloqueo is None
+            and snapshot_complete
+            and on_snapshot_complete is not None
+        ):
+            try:
+                with transaction.atomic():
+                    count += int(on_snapshot_complete() or 0)
+            except Exception as exc:
+                logger.exception(
+                    'pull %s: fallo reconciliando snapshot completo: %s', tabla, exc,
+                )
+                bloqueo = f'{tabla}: fallo reconciliando snapshot completo: {exc}'
 
         self._guardar_cursor(cursor, commit_fecha, commit_id, count, bloqueo)
         return _resultado_pull(
@@ -1057,6 +1107,8 @@ class SyncEngine:
         cloud.
         Las signals del motor de permisos invalidan el cache automaticamente.
         """
+        import uuid
+
         from apps.permisos.catalogo import sembrar_catalogo
         from apps.permisos.models import Permiso, Rol
         from apps.sucursales.models import get_sucursal_actual
@@ -1069,8 +1121,58 @@ class SyncEngine:
         # Asegura el catalogo local para poder resolver los codigos de permiso.
         sembrar_catalogo(Permiso)
 
+        vistos = set()
+
         def apply(item):
-            codigos = list(item.get('permisos', []))
+            cloud_id_raw = item.get('cloud_id')
+            cloud_id = uuid.UUID(str(cloud_id_raw)) if cloud_id_raw else None
+            if cloud_id:
+                vistos.add(cloud_id)
+            revision_remota = int(item.get('revision') or 1)
+            activo = item.get('active', item.get('activo', True))
+            codigos = list(item.get('permission_codes', item.get('permisos', [])))
+            rol = (
+                Rol.objects.filter(cloud_id=cloud_id).first()
+                if cloud_id else None
+            )
+            if rol is not None and revision_remota < rol.revision:
+                logger.warning(
+                    'pull roles: revision vieja %s<%s ignorada para %s',
+                    revision_remota, rol.revision, cloud_id,
+                )
+                return
+
+            # La revocacion se aplica antes de validar capacidades nuevas. Un
+            # POS viejo puede no conocer un permiso, pero nunca por eso conserva
+            # activo un rol que el cloud dio de baja.
+            if not activo:
+                if rol is None and item.get('slug'):
+                    candidato = Rol.objects.filter(
+                        negocio=negocio, slug=item['slug'],
+                    ).first()
+                    if candidato is not None and (
+                        not candidato.origen_cloud or not cloud_id
+                        or candidato.cloud_id == cloud_id
+                    ):
+                        rol = candidato
+                if rol is None:
+                    return
+                rol.activo = False
+                rol.deleted_at = self._fecha_rbac(item.get('deleted_at')) or timezone.now()
+                if cloud_id:
+                    rol.cloud_id = cloud_id
+                    rol.origen_cloud = True
+                    rol.revision = revision_remota
+                rol.save(
+                    update_fields=[
+                        'activo', 'deleted_at', 'cloud_id', 'origen_cloud',
+                        'revision', 'fecha_modificacion',
+                    ],
+                    _preserve_rbac_revision=bool(cloud_id),
+                    _adopt_cloud_identity=bool(cloud_id),
+                )
+                return
+
             permisos = list(Permiso.objects.filter(codigo__in=codigos))
 
             # Un codigo que el catalogo local no conoce = desfase de version
@@ -1087,26 +1189,86 @@ class SyncEngine:
                 )
                 return DIFERIDO
 
-            rol, _ = Rol.objects.update_or_create(
-                negocio=negocio,
-                slug=item['slug'],
-                defaults={
-                    'nombre': item.get('nombre') or item['slug'],
-                    'activo': item.get('activo', True),
-                },
-            )
-            rol.permisos.set(permisos)
+            if rol is None:
+                candidato = Rol.objects.filter(
+                    negocio=negocio, slug=item['slug'],
+                ).first()
+                if candidato is not None and (
+                    not candidato.origen_cloud or not cloud_id
+                    or candidato.cloud_id == cloud_id
+                ):
+                    rol = candidato
+                elif candidato is not None:
+                    logger.error(
+                        'pull roles: slug %s ya pertenece al cloud_id %s; diferido',
+                        item['slug'], candidato.cloud_id,
+                    )
+                    return DIFERIDO
 
-        return self._pull_generic('roles', '/api/v1/sync/roles/', apply)
+            if rol is None:
+                rol = Rol(negocio=negocio, slug=item['slug'])
+            rol.nombre = item.get('nombre') or item['slug']
+            rol.activo = True
+            rol.deleted_at = None
+            if cloud_id:
+                rol.cloud_id = cloud_id
+                rol.origen_cloud = True
+                rol.revision = revision_remota
+            rol.save(
+                _preserve_rbac_revision=bool(cloud_id),
+                _adopt_cloud_identity=bool(cloud_id),
+            )
+            actuales = set(rol.permisos.values_list('pk', flat=True))
+            nuevos = {permiso.pk for permiso in permisos}
+            if actuales != nuevos:
+                if cloud_id:
+                    rol._preserve_rbac_revision = True
+                try:
+                    rol.permisos.set(permisos)
+                finally:
+                    if hasattr(rol, '_preserve_rbac_revision'):
+                        del rol._preserve_rbac_revision
+
+        def reconciliar():
+            instante = timezone.now()
+            return (
+                Rol.objects.filter(
+                    negocio=negocio, origen_cloud=True, activo=True,
+                )
+                .exclude(cloud_id__in=vistos)
+                .update(
+                    activo=False,
+                    deleted_at=instante,
+                    fecha_modificacion=instante,
+                )
+            )
+
+        def validar_envelope(data):
+            if data.get('tenant_key') != _tenant_key_rbac_local(negocio):
+                return 'tenant_key no coincide con el negocio local'
+            return None
+
+        return self._pull_generic(
+            'roles', '/api/v1/sync/roles/', apply,
+            headers={'X-RBAC-Schema': 'rbac.sync.v2'},
+            extra_params={'snapshot': 'full'},
+            response_key='roles',
+            on_snapshot_complete=reconciliar,
+            envelope_validator=validar_envelope,
+        )
 
     def _pull_asignaciones(self):
         """
         Sincroniza asignaciones usuario->rol desde el cloud para la sucursal
-        actual. La identidad cross-DB v1 es natural: username, rol.slug y
-        sucursal.codigo. No crea usuarios: si el usuario no existe localmente,
-        se omite para evitar provisionar credenciales desde sync.
+        actual. V2 usa cloud_id inmutable y conserva username, rol.slug y
+        sucursal.codigo para compatibilidad legacy. No crea usuarios: si el
+        usuario no existe localmente, se omite para evitar provisionar
+        credenciales desde sync.
         """
+        import uuid
+
         from django.contrib.auth import get_user_model
+        from django.db.models import Q
 
         from apps.permisos.models import AsignacionRol, Rol
         from apps.sucursales.models import get_sucursal_actual
@@ -1118,10 +1280,71 @@ class SyncEngine:
 
         User = get_user_model()
 
+        vistos = set()
+
         def apply(item):
             username = item.get('usuario_username')
             rol_slug = item.get('rol_slug')
             if not username or not rol_slug:
+                return
+
+            cloud_id_raw = item.get('cloud_id')
+            cloud_id = uuid.UUID(str(cloud_id_raw)) if cloud_id_raw else None
+            if cloud_id:
+                vistos.add(cloud_id)
+            revision_remota = int(item.get('revision') or 1)
+            activo = item.get('active', item.get('activo', True))
+            sucursal_codigo = item.get('sucursal_codigo')
+
+            existente = (
+                AsignacionRol.objects.filter(cloud_id=cloud_id)
+                .select_related('usuario', 'rol', 'sucursal').first()
+                if cloud_id else None
+            )
+            if existente is not None and revision_remota < existente.revision:
+                logger.warning(
+                    'pull asignaciones: revision vieja %s<%s ignorada para %s',
+                    revision_remota, existente.revision, cloud_id,
+                )
+                return
+
+            # Una baja no necesita que usuario/rol/permisos nuevos existan. Se
+            # buscan tambien duplicados por la terna legacy y la revocacion gana.
+            if not activo:
+                objetivos = AsignacionRol.objects.filter(rol__negocio=negocio)
+                filtro_natural = Q(
+                    usuario__username=username,
+                    rol__slug=rol_slug,
+                    sucursal__codigo=sucursal_codigo,
+                ) if sucursal_codigo else Q(
+                    usuario__username=username,
+                    rol__slug=rol_slug,
+                    sucursal__isnull=True,
+                )
+                if cloud_id:
+                    objetivos = objetivos.filter(
+                        Q(cloud_id=cloud_id) | filtro_natural
+                    )
+                else:
+                    objetivos = objetivos.filter(filtro_natural)
+                instante = self._fecha_rbac(item.get('deleted_at')) or timezone.now()
+                cantidad = 0
+                for objetivo in objetivos:
+                    objetivo.activo = False
+                    objetivo.deleted_at = instante
+                    if cloud_id and objetivo.cloud_id == cloud_id:
+                        objetivo.origen_cloud = True
+                        objetivo.revision = revision_remota
+                    objetivo.save(
+                        update_fields=[
+                            'activo', 'deleted_at', 'origen_cloud', 'revision',
+                            'fecha_modificacion',
+                        ],
+                        _preserve_rbac_revision=bool(
+                            cloud_id and objetivo.cloud_id == cloud_id
+                        ),
+                    )
+                    cantidad += 1
                 return
 
             usuario = User.objects.filter(username=username).first()
@@ -1144,7 +1367,15 @@ class SyncEngine:
                 usuario.negocio = negocio
                 usuario.save(update_fields=['negocio'])
 
-            rol = Rol.objects.filter(negocio=negocio, slug=rol_slug).first()
+            role_cloud_id = item.get('role_cloud_id')
+            rol = (
+                Rol.objects.filter(
+                    negocio=negocio, cloud_id=role_cloud_id,
+                ).first()
+                if role_cloud_id else None
+            )
+            if rol is None:
+                rol = Rol.objects.filter(negocio=negocio, slug=rol_slug).first()
             if rol is None:
                 # Caso tipico: el pull de roles fallo o difirio este rol. Si la
                 # asignacion se diera por aplicada, su cursor avanzaria y ya no
@@ -1156,7 +1387,6 @@ class SyncEngine:
                 return DIFERIDO
 
             sucursal = None
-            sucursal_codigo = item.get('sucursal_codigo')
             if sucursal_codigo:
                 if not sucursal_actual or sucursal_codigo != sucursal_actual.codigo:
                     logger.warning(
@@ -1166,18 +1396,92 @@ class SyncEngine:
                     return
                 sucursal = sucursal_actual
 
-            AsignacionRol.objects.update_or_create(
-                usuario=usuario,
-                rol=rol,
-                sucursal=sucursal,
-                defaults={'activo': item.get('activo', True)},
+            if existente is not None and (
+                existente.usuario_id != usuario.pk
+                or existente.rol_id != rol.pk
+                or existente.sucursal_id != getattr(sucursal, 'pk', None)
+            ):
+                logger.error(
+                    'pull asignaciones: cloud_id %s intento cambiar su terna; diferido',
+                    cloud_id,
+                )
+                return DIFERIDO
+
+            if existente is None:
+                candidato = AsignacionRol.objects.filter(
+                    usuario=usuario, rol=rol, sucursal=sucursal,
+                ).first()
+                if candidato is not None and (
+                    not candidato.origen_cloud or not cloud_id
+                    or candidato.cloud_id == cloud_id
+                ):
+                    existente = candidato
+                elif candidato is not None:
+                    logger.error(
+                        'pull asignaciones: la terna ya pertenece al cloud_id %s; diferido',
+                        candidato.cloud_id,
+                    )
+                    return DIFERIDO
+
+            if existente is None:
+                existente = AsignacionRol(
+                    usuario=usuario, rol=rol, sucursal=sucursal,
+                )
+            existente.activo = True
+            existente.deleted_at = None
+            if cloud_id:
+                existente.cloud_id = cloud_id
+                existente.origen_cloud = True
+                existente.revision = revision_remota
+            existente.save(
+                _preserve_rbac_revision=bool(cloud_id),
+                _adopt_cloud_identity=bool(cloud_id),
             )
+
+        def reconciliar():
+            instante = timezone.now()
+            return (
+                AsignacionRol.objects.filter(
+                    rol__negocio=negocio,
+                    origen_cloud=True,
+                    activo=True,
+                )
+                .filter(Q(sucursal__isnull=True) | Q(sucursal=sucursal_actual))
+                .exclude(cloud_id__in=vistos)
+                .update(
+                    activo=False,
+                    deleted_at=instante,
+                    fecha_modificacion=instante,
+                )
+            )
+
+        def validar_envelope(data):
+            if data.get('tenant_key') != _tenant_key_rbac_local(negocio):
+                return 'tenant_key no coincide con el negocio local'
+            scope = data.get('scope') or {}
+            if scope.get('branch_code') != sucursal_actual.codigo:
+                return 'scope.branch_code no coincide con esta sucursal'
+            return None
 
         return self._pull_generic(
             'asignaciones',
             '/api/v1/sync/asignaciones/',
             apply,
+            headers={'X-RBAC-Schema': 'rbac.sync.v2'},
+            extra_params={'snapshot': 'full'},
+            response_key='assignments',
+            on_snapshot_complete=reconciliar,
+            envelope_validator=validar_envelope,
         )
+
+    @staticmethod
+    def _fecha_rbac(valor):
+        if not valor:
+            return None
+        try:
+            return datetime.fromisoformat(str(valor).replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            return None
 
     def _pull_metodos_credito(self):
         """Sincroniza reglas de credito administradas desde cloud."""

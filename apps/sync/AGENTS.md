@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-09 -->
+<!-- Última revisión: 2026-09-10 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -46,6 +46,11 @@ mezclarlos:
 - La deduplicación cloud depende de `hash_unico` — no dupliques la lógica de hash.
 - Al construir `?desde=` en un cliente, `encodeURIComponent()` (el `+` del offset
   UTC rompe `parse_datetime`).
+- Roles/asignaciones negocian `rbac.sync.v2` pero aceptan la lista legacy. Solo
+  un envelope completo, sin error/bloqueo y del mismo tenant/sucursal puede
+  revocar por ausencia; además solo revoca filas `origen_cloud=True`.
+- Una baja `active=false` se aplica antes de resolver códigos/usuarios/roles
+  nuevos. Una revisión menor se ignora; `cloud_id` no puede cambiar de terna.
 
 ## Antes de tocar el contrato de sync
 

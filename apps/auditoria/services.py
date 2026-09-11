@@ -99,6 +99,15 @@ def _model_identity(obj, *, tenant_key, role):
     return _ref(tenant_key or 'control-plane', obj._meta.label_lower, obj.pk)
 
 
+def referencia_modelo(obj, *, tenant_key=None):
+    """Referencia opaca estable compartida por CT-01 y CT-02."""
+    return _model_identity(
+        obj,
+        tenant_key=_tenant_key(tenant_key) or get_current_tenant_key() or '',
+        role='entidad',
+    )
+
+
 def _tenant_key(value):
     if value is None:
         return ''

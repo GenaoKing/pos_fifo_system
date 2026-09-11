@@ -1,23 +1,5 @@
-"""
-apps/api/views/permisos.py
-Endpoints de administración de RBAC para el portal (PR2).
-
-Permiten al admin de un negocio configurar sus roles, los permisos de cada rol
-y la asignación de roles a usuarios. Todo está:
-  - gated por el permiso `permisos.administrar`, y
-  - scoped al negocio del solicitante (negocio_actual) → un admin del negocio A
-    no puede ver ni tocar los roles/asignaciones del negocio B.
-
-Contrato:
-    GET    /api/v1/permisos/catalogo/          catálogo global (read-only)
-    GET    /api/v1/permisos/roles/             roles del negocio
-    POST   /api/v1/permisos/roles/             crear rol
-    PATCH  /api/v1/permisos/roles/<id>/        editar (incl. lista de permisos)
-    DELETE /api/v1/permisos/roles/<id>/        borrar (no roles de sistema)
-    GET/POST/PATCH/DELETE /api/v1/permisos/asignaciones/
-"""
+"""Endpoints tenant-scoped de administracion RBAC (CT-02)."""
 from django.contrib.auth import get_user_model
-from django.utils.text import slugify
 from rest_framework import status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -25,6 +7,16 @@ from rest_framework.response import Response
 
 from apps.negocios.utils import negocio_actual
 from apps.permisos.models import AsignacionRol, Permiso, Rol
+from apps.permisos.services import (
+    RBACMutationError,
+    RBACRevisionConflict,
+    actualizar_asignacion,
+    actualizar_rol,
+    crear_o_reactivar_asignacion,
+    crear_rol,
+    revocar_asignacion,
+    revocar_rol,
+)
 from apps.sucursales.models import Sucursal
 
 from ..permissions import requiere_permiso
@@ -37,24 +29,31 @@ from ..serializers.permisos import (
 )
 
 Usuario = get_user_model()
-
-# Gating común: requiere el meta-permiso de administración.
 ADMIN_RBAC = [IsAuthenticated, requiere_permiso('permisos.administrar')]
 
 
-def _slug_rol_unico(negocio, nombre):
-    """Slug único del rol dentro del negocio (unique_together negocio, slug)."""
-    base = slugify(nombre)[:90] or 'rol'
-    slug = base
-    i = 2
-    while Rol.objects.filter(negocio=negocio, slug=slug).exists():
-        slug = f'{base}-{i}'
-        i += 1
-    return slug
+def _revision_esperada(request):
+    """Revision optimista opt-in; clientes legacy pueden omitir el header."""
+    valor = request.headers.get('X-RBAC-Revision')
+    if valor in (None, ''):
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        raise ValidationError({
+            'code': 'rbac_revision_invalid',
+            'detail': 'X-RBAC-Revision debe ser un entero.',
+        })
+
+
+def _conflicto_revision(exc):
+    return Response(
+        {'code': 'rbac_revision_conflict', 'detail': str(exc)},
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 class PermisoViewSet(viewsets.ReadOnlyModelViewSet):
-    """Catálogo global de permisos (read-only). Sin paginar: es pequeño."""
     permission_classes = ADMIN_RBAC
     serializer_class = PermisoSerializer
     pagination_class = None
@@ -62,7 +61,6 @@ class PermisoViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class RolViewSet(viewsets.ModelViewSet):
-    """CRUD de roles, scoped al negocio del solicitante."""
     permission_classes = ADMIN_RBAC
     serializer_class = RolSerializer
     pagination_class = None
@@ -73,28 +71,63 @@ class RolViewSet(viewsets.ModelViewSet):
             return Rol.objects.none()
         return Rol.objects.filter(negocio=negocio).prefetch_related('permisos')
 
-    def perform_create(self, serializer):
-        negocio = negocio_actual(self.request)
+    def create(self, request, *args, **kwargs):
+        negocio = negocio_actual(request)
         if negocio is None:
             raise ValidationError(
                 'No se pudo determinar el negocio. SYSADMIN debe pasar ?negocio=<id>.'
             )
-        serializer.save(
-            negocio=negocio,
-            slug=_slug_rol_unico(negocio, serializer.validated_data['nombre']),
-        )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        permisos = data.pop('permisos', [])
+        try:
+            rol = crear_rol(
+                actor=request.user,
+                negocio=negocio,
+                permisos=permisos,
+                using=negocio._state.db,
+                **data,
+            )
+        except RBACMutationError as exc:
+            raise ValidationError(str(exc))
+        return Response(self.get_serializer(rol).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            rol = actualizar_rol(
+                rol_id=instance.pk,
+                actor=request.user,
+                cambios=dict(serializer.validated_data),
+                expected_revision=_revision_esperada(request),
+                using=instance._state.db,
+            )
+        except RBACRevisionConflict as exc:
+            return _conflicto_revision(exc)
+        except RBACMutationError as exc:
+            raise ValidationError(str(exc))
+        return Response(self.get_serializer(rol).data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     def perform_destroy(self, instance):
-        if instance.es_sistema:
-            raise PermissionDenied(
-                'No se puede eliminar un rol de sistema. Puedes desactivarlo o '
-                'editar sus permisos.'
+        try:
+            revocar_rol(
+                rol_id=instance.pk,
+                actor=self.request.user,
+                using=instance._state.db,
             )
-        instance.delete()
+        except RBACMutationError as exc:
+            raise PermissionDenied(str(exc))
 
 
 class AsignacionRolViewSet(viewsets.ModelViewSet):
-    """Asignaciones usuario→rol del negocio (anti escalada cross-tenant)."""
     permission_classes = ADMIN_RBAC
     serializer_class = AsignacionRolSerializer
     pagination_class = None
@@ -109,69 +142,72 @@ class AsignacionRolViewSet(viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
-        """Crear o **reactivar** una asignación.
-
-        Como `perform_destroy` hace soft-delete (deja la fila con `activo=False`
-        para que la baja se pueda propagar por sync), un re-alta de la misma
-        terna (usuario, rol, sucursal) chocaría con el `unique_together`. En vez
-        de fallar, reactivamos la fila existente (idempotente). El serializer
-        tiene el `UniqueTogetherValidator` automático desactivado para permitirlo.
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         self._validar_tenant(data)
+        try:
+            asignacion, cambio = crear_o_reactivar_asignacion(
+                actor=request.user,
+                usuario=data['usuario'],
+                rol=data['rol'],
+                sucursal=data.get('sucursal'),
+                using=data['rol']._state.db,
+            )
+        except RBACMutationError as exc:
+            raise ValidationError(str(exc))
+        codigo = status.HTTP_201_CREATED if cambio else status.HTTP_200_OK
+        return Response(self.get_serializer(asignacion).data, status=codigo)
 
-        existente = AsignacionRol.objects.filter(
-            usuario=data['usuario'],
-            rol=data['rol'],
-            sucursal=data.get('sucursal'),
-        ).first()
-        if existente is not None:
-            existente.activo = True
-            existente.save(update_fields=['activo', 'fecha_modificacion'])
-            salida = self.get_serializer(existente)
-            return Response(salida.data, status=status.HTTP_200_OK)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self._validar_tenant(serializer.validated_data, instance=instance)
+        try:
+            asignacion = actualizar_asignacion(
+                asignacion_id=instance.pk,
+                actor=request.user,
+                cambios=dict(serializer.validated_data),
+                expected_revision=_revision_esperada(request),
+                using=instance._state.db,
+            )
+        except RBACRevisionConflict as exc:
+            return _conflicto_revision(exc)
+        except RBACMutationError as exc:
+            raise ValidationError(str(exc))
+        return Response(self.get_serializer(asignacion).data)
 
-        serializer.save()
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-    def perform_update(self, serializer):
-        self._validar_tenant(serializer.validated_data)
-        serializer.save()
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     def perform_destroy(self, instance):
-        # Soft-delete: permite propagar la baja por sync incremental. Un delete
-        # fisico no deja tombstone ni fecha_modificacion para la sucursal.
-        instance.activo = False
-        instance.save(update_fields=['activo', 'fecha_modificacion'])
+        revocar_asignacion(
+            asignacion_id=instance.pk,
+            actor=self.request.user,
+            using=instance._state.db,
+        )
 
-    def _validar_tenant(self, data):
-        """El rol/sucursal deben ser del negocio del solicitante; el usuario no
-        puede pertenecer a otro negocio."""
+    def _validar_tenant(self, data, instance=None):
         negocio = negocio_actual(self.request)
         if negocio is None:
             raise ValidationError(
                 'No se pudo determinar el negocio. SYSADMIN debe pasar ?negocio=<id>.'
             )
-        rol = data.get('rol')
-        usuario = data.get('usuario')
-        sucursal = data.get('sucursal')
+        rol = data.get('rol', getattr(instance, 'rol', None))
+        usuario = data.get('usuario', getattr(instance, 'usuario', None))
+        sucursal = data.get('sucursal', getattr(instance, 'sucursal', None))
         if rol is not None and rol.negocio_id != negocio.id:
             raise ValidationError({'rol': 'El rol no pertenece a tu negocio.'})
-        if usuario is not None and getattr(usuario, 'negocio_id', None) not in (None, negocio.id):
+        if usuario is not None and getattr(usuario, 'negocio_id', None) != negocio.id:
             raise ValidationError({'usuario': 'El usuario pertenece a otro negocio.'})
         if sucursal is not None and sucursal.negocio_id != negocio.id:
             raise ValidationError({'sucursal': 'La sucursal no pertenece a tu negocio.'})
 
 
 class UsuarioAsignableViewSet(viewsets.ReadOnlyModelViewSet):
-    """Usuarios del negocio del solicitante, para el selector de asignación.
-
-    Read-only: la gestión de usuarios (alta/baja) vive fuera de RBAC. Aquí solo
-    se enumeran para poder asignarles roles. Scoped al negocio (anti cross-tenant).
-    """
     permission_classes = ADMIN_RBAC
     serializer_class = UsuarioAsignableSerializer
     pagination_class = None
@@ -184,7 +220,6 @@ class UsuarioAsignableViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class SucursalAsignableViewSet(viewsets.ReadOnlyModelViewSet):
-    """Sucursales del negocio, para acotar opcionalmente una asignación."""
     permission_classes = ADMIN_RBAC
     serializer_class = SucursalAsignableSerializer
     pagination_class = None

@@ -5,11 +5,11 @@ Cubren: default-deny, acceso total (SYSADMIN/superuser), diferenciacion del
 mismo rol entre negocios, scope por sucursal, e invalidacion de cache.
 """
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.permisos import engine, testing
 from apps.permisos.catalogo import sembrar_catalogo
-from apps.permisos.models import Permiso
+from apps.permisos.models import Permiso, Rol
 from apps.sucursales.models import Sucursal
 
 User = get_user_model()
@@ -44,6 +44,19 @@ class EngineTests(TestCase):
     def test_superuser_tiene_todos(self):
         u = User.objects.create_superuser('root', 'root@example.com', 'x')
         self.assertTrue(u.tiene_permiso('ventas.anular'))
+
+    @override_settings(RBAC_LEGACY_ADMIN_BYPASS=False)
+    def test_admin_sin_bypass_depende_de_asignaciones_explicitas(self):
+        admin = _user('admin_sin_bypass', rol='ADMIN')
+        admin.negocio = self.negocio_a
+        admin.save(update_fields=['negocio'])
+        self.assertFalse(admin.tiene_permiso('permisos.administrar'))
+
+        rol = testing.crear_rol(
+            self.negocio_a, 'Administrador explicito', ['permisos.administrar']
+        )
+        testing.asignar(admin, rol, set_negocio=False)
+        self.assertTrue(admin.tiene_permiso('permisos.administrar'))
 
     def test_acceso_total_no_depende_de_la_tabla_de_permisos(self):
         """
@@ -112,6 +125,29 @@ class EngineTests(TestCase):
         self.assertFalse(u.tiene_permiso('clientes.crear'))  # cachea el set
         rol.permisos.add(Permiso.objects.get(codigo='clientes.crear'))  # m2m_changed
         self.assertTrue(u.tiene_permiso('clientes.crear'))
+
+    def test_m2m_actualiza_revision_y_timestamp_en_todas_las_operaciones(self):
+        rol = Rol.objects.create(
+            negocio=self.negocio_a,
+            nombre='Revisionable',
+            slug='revisionable',
+        )
+        p1 = Permiso.objects.get(codigo='ventas.crear')
+        p2 = Permiso.objects.get(codigo='clientes.ver')
+
+        for mutar in (
+            lambda: rol.permisos.add(p1),
+            lambda: rol.permisos.remove(p1),
+            lambda: rol.permisos.set([p1, p2]),
+            lambda: rol.permisos.clear(),
+            lambda: p1.roles.add(rol),
+        ):
+            revision_anterior = rol.revision
+            fecha_anterior = rol.fecha_modificacion
+            mutar()
+            rol.refresh_from_db()
+            self.assertGreater(rol.revision, revision_anterior)
+            self.assertGreaterEqual(rol.fecha_modificacion, fecha_anterior)
 
     def test_rol_inactivo_no_otorga_permisos(self):
         rol = testing.crear_rol(self.negocio_a, 'Temporal', ['clientes.crear'])
