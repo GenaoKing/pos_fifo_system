@@ -20,10 +20,11 @@ Actualización A03: **2026-09-11**; implementación `3e6cec1`, merge local
 `b7147fb` y matriz combinada validada. No modifica la captura base A00 ni
 acredita despliegue.
 
-Actualización A04+C05: **2026-09-11**; implementaciones `be15ea0` y `60c6dbc`
-integradas localmente en el árbol `9ff61c2`. La matriz conjunta acredita solo
-código local: la compatibilidad HTTP real y cualquier sonda o reparación de
-clientes permanecen en A09 con autorización.
+Actualización A04+C05: **2026-09-11**; A04 (`be15ea0`) y C05 parte 1
+(`60c6dbc`) se integraron primero en `9ff61c2`. C05 parte 2 fue revisada sobre
+esa base y sus hallazgos de integración se cerraron en `18e0898`. La evidencia
+acredita solo código local: CT-04, C04, la compatibilidad HTTP real y cualquier
+sonda o reparación de clientes permanecen pendientes en sus bloques.
 
 ## Base, ramas, worktrees y aislamiento
 
@@ -86,10 +87,10 @@ son ancestro directo una de otra; no se debe “alinear” con reset ni force-pu
 | --- | --- | --- | --- | --- |
 | DEC-MAESTROS-OFFLINE | El POS puede editar maestros con RBAC aun offline; cola durable, pendiente visible y conflicto explícito. | A A05/A06; C C04/C05 | DECIDIDO | Reinicio offline, dos escritores, rechazo por revocación y resolución CAS. |
 | DEC-INACTIVOS | Operación solo usa producto y categoría activos; administración ofrece Activos/Inactivos/Todos y reactivación. | A A06; C C04/C05 | DECIDIDO | Búsqueda, escaneo, checkout y >200 filas. |
-| CAJA-002 | Efectivo sin caja abierta se mantiene permitido y queda sin turno. | C C05 | ACREDITADO en base; revalidar | Tests de venta/cobro sin turno y arqueo distinguible. |
-| CXC-006 | Venta con abonos aplicados no se anula hasta revertirlos manualmente. | C C05 | ACREDITADO en base; revalidar | 409, reversa LIFO auditada y anulación posterior. |
-| RPT-004 | Cierre nace BORRADOR y se finaliza manualmente. | C C05 | ACREDITADO en base; revalidar | Recalcular borrador y congelar solo con `--finalizar`. |
-| RPT-005 | No habrá cierre automático; retirar/reemplazar launcher roto y documentar operación manual. | C C01/C05 | DECIDIDO; código pendiente | Ausencia de servicio one-shot y comando manual probado. |
+| CAJA-002 | Efectivo sin caja abierta se mantiene permitido y queda sin turno. | C C05 | ACREDITADO; revalidado C05 | Tests de venta/cobro sin turno y arqueo distinguible. |
+| CXC-006 | Venta con abonos aplicados no se anula hasta revertirlos manualmente. | C C05 | ACREDITADO; revalidado C05 | 409, reversa LIFO auditada y anulación posterior. |
+| RPT-004 | Cierre nace BORRADOR y se finaliza manualmente. | C C05 | ACREDITADO; revalidado C05 | Recalcular borrador y congelar solo con `--finalizar`. |
+| RPT-005 | No habrá cierre automático; el launcher roto se retira y la operación queda manual. | C C01/C05 | ACREDITADO | `ed47249`: launcher retirado, runbook manual y comando probado. |
 | DEC-BACKFILL-HIST | No atribuir sucursal/turno ni corregir duplicados financieros a ciegas. | A09/C06 | DECIDIDO | Toda reparación real empieza en dry-run y lista aprobada. |
 | DEC-COT-VENCIDAS | Cotizaciones vencidas existentes no bloquean; los bugs de cotizaciones sí. | C C05 | DECIDIDO | Reportar conteo en preflight, sin mutarlo. |
 | DEC-CACHE | Sin Redis en este release; BD + memo por request, consistentes entre workers. | A01/A03; C03 | DECIDIDO | Cambio visible en request siguiente de otro worker. |
@@ -239,16 +240,16 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| COT-008 | TODO + AUD-COT | Cantidades/importes imposibles persistibles. | C | C05 | Alta | PENDIENTE | — | Valores negativos/no finitos. |
-| COT-009 | TODO + AUD-COT | Acepta cliente/producto inactivo. | C | C05 | Media-alta | PENDIENTE | — | Desactivación tras cargar UI. |
-| COT-010 | TODO + AUD-COT | Numeración `count()+1` colisiona. | C | C05 | Media-alta | PENDIENTE | — | N altas concurrentes. |
-| COT-011 | TODO + AUD-COT | Cabecera/detalle quedan con totales distintos. | C | C05 | Media-alta | PENDIENTE | — | Constraint/service atómico. |
-| COT-012 | TODO + AUD-COT | Ciclo sin auditoría de negocio. | C | C05 | Media-alta | PENDIENTE | — | CT-01 transaccional. |
+| COT-008 | TODO + AUD-COT | Cantidades/importes imposibles persistibles. | C | C05 | Alta | ACREDITADO | `b6e898a`, `18e0898` | Constraints, preflight y 400 para valores inválidos. |
+| COT-009 | TODO + AUD-COT | Acepta cliente/producto inactivo. | C | C05 | Media-alta | PARCIAL_C05; bloqueado CT-04 | `460e05e`, `18e0898` | Revalidación server-side lista; selector activo y pendiente/conflicto esperan CT-04. |
+| COT-010 | TODO + AUD-COT | Numeración `count()+1` colisiona. | C | C05 | Media-alta | ACREDITADO | `460e05e`, `18e0898` | Máximo sufijo, unicidad legacy y retry/savepoint. |
+| COT-011 | TODO + AUD-COT | Cabecera/detalle quedan con totales distintos. | C | C05 | Media-alta | ACREDITADO | `b6e898a`, `18e0898` | Servicio atómico y reconciliación al editar/borrar líneas. |
+| COT-012 | TODO + AUD-COT | Ciclo sin auditoría de negocio. | C | C05 | Media-alta | ACREDITADO | `460e05e` | Crear/convertir auditan dentro de la transacción. |
 | COT-013 | TODO + AUD-COT | Borrado no converge local/cloud. | C+A | C05/A sync hook | Media-alta | PENDIENTE | — | Tombstone/replay. |
-| COT-014 | TODO + AUD-COT | Errores filtran internals/estatus incorrectos. | C | C05 | Media | PENDIENTE | — | Contrato 4xx/5xx. |
-| COT-015 | TODO + AUD-COT | Estado/vínculo venta sin invariante DB. | C | C05 | Media | PENDIENTE | — | Conversión concurrente. |
-| COT-017 | TODO + AUD-COT | Listados/stock sin límites. | C | C05 | Media-baja | PENDIENTE | — | >200/presupuesto queries. |
-| COT-018 | TODO + AUD-COT | Vistas conservan caminos ambiguos/floats. | C | C05 | Baja | PENDIENTE | — | Decimal y rutas únicas. |
+| COT-014 | TODO + AUD-COT | Errores filtran internals/estatus incorrectos. | C | C05 | Media | ACREDITADO | `460e05e`, `18e0898` | Errores 4xx/5xx seguros y casos cliente/producto ausente. |
+| COT-015 | TODO + AUD-COT | Estado/vínculo venta sin invariante DB. | C | C05 | Media | ACREDITADO | `b6e898a`, `18e0898` | Invariante bidireccional estado/venta + `PROTECT`. |
+| COT-017 | TODO + AUD-COT | Listados/stock sin límites. | C | C05 | Media-baja | PARCIAL_C05 | `460e05e` | Lista paginada; stock al convertir y presupuesto de queries siguen pendientes. |
+| COT-018 | TODO + AUD-COT | Vistas conservan caminos ambiguos/floats. | C | C05 | Baja | PENDIENTE | `18e0898` (parcial) | Cantidad ya usa Decimal; consolidar rutas y eliminar floats restantes. |
 
 ## Deuda transversal vigente sin ID único
 
@@ -272,16 +273,16 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | SYNC-CLAIM | Claim push no sobrevive crash; falta lease de 5 min. | A | A04 | Alta | ACREDITADO | `be15ea0` | Dos procesos, crash, lease vencido y ACK tardío verdes. |
 | SYNC-DIFERIDOS | Diferido congela cursor; falta cola durable/estado PARCIAL. | A | A04 | Alta | ACREDITADO | `be15ea0` | Reinicio, rollback entre pasos, fallo al persistir y cursor cubiertos. |
 | SYNC-LEGACY | `_pull_legacy` sigue por compatibilidad cloud viejo. | A | A04 | Media | DIFERIDO_EXPLICITO | `be15ea0` | Se conserva; matriz viejo/nuevo real queda A09 antes de retirarlo. |
-| DB-CONSTRAINTS | Ventas/inventario validan cantidades/importes solo en app. | C | C05 | Alta | PENDIENTE | — | Escritura directa rechazada. |
-| CXC-MIG-ALIAS | `cuentas_por_cobrar.0002` usa el manager sin `.using(schema_editor.connection.alias)` y en un grafo tenant desde cero intenta sembrar `default`. | C | C05/A08 | Alta migración | ENTREGADO_A_C | `583863f` (detección) | Corregir en superficie C y migrar desde cero dos BDs tenant físicas. |
-| CXC-IDEMP-CONC | Falta prueba N reintentos de cobro con misma clave. | C | C05 | Alta | PENDIENTE | — | Exactamente un efecto financiero. |
+| DB-CONSTRAINTS | Ventas/inventario validan cantidades/importes solo en app. | C | C05 | Alta | ACREDITADO | `b6e898a`, `18e0898` | Escritura directa rechazada y preflight identifica PKs. |
+| CXC-MIG-ALIAS | `cuentas_por_cobrar.0002` usaba el manager sin `.using(schema_editor.connection.alias)` y podía sembrar `default`. | C | C05/A08 | Alta migración | ACREDITADO | `95dddb3` | Grafo tenant desde cero conserva el alias de `schema_editor`. |
+| CXC-IDEMP-CONC | Faltaba prueba N reintentos de cobro con misma clave. | C | C05 | Alta | ACREDITADO | `b066636` | Seis reintentos producen exactamente un efecto financiero. |
 | VEN-ANULAR-LEGACY | `_puede_anular` usa rol legacy. | C | C05 | Alta auth | ACREDITADO | `60c6dbc` | CT-02 contra sucursal de la venta; roles custom A/B y venta legacy cubiertos. |
-| INV-RBAC-SCOPE | Gates inventario llaman permiso sin sucursal. | C | C05 | Alta auth | PENDIENTE | — | Asignaciones A/B. |
+| INV-RBAC-SCOPE | Gates inventario llamaban permiso sin sucursal. | C | C05 | Alta auth | ACREDITADO | `95dddb3` | Servicio reautoriza contra sucursal del lote; asignaciones A/B cubiertas. |
 | SYNC-VENTA-ID | Handler venta cloud carece identidad compuesta robusta. | A | A04 | Alta | ACREDITADO | `be15ea0` | Identidad/hash scopeados; replay cross-branch no adopta el hecho ajeno. |
 | TEN-API-AUDIT | Impersonación registra sesión, no cada mutación. | A | A02 | Alta | RESUELTO_CONTRATO | `583863f` | CT-01 conserva actor operativo e `impersonator_ref`; cada bloque acredita sus productores. |
 | PER-ADMIN-BYPASS | `ADMIN` conserva bypass transitorio. | A | A03/A08 | Alta | OPERATIVO_PENDIENTE | `3e6cec1` | Flag y preflight listos; ejecutar por tenant antes de retirarlo. |
 | NOTIF-RBAC-GUARD | Notificaciones duplica filtros de `permisos.engine`. | A | A03 | Media | RESUELTO | `3e6cec1` | `asignaciones_efectivas` es el helper único compartido. |
-| PAG-CXC-CAJA | Cartera corta 300 e historial turnos 50 sin aviso. | C | C05 | Media | PENDIENTE | — | Paginación y metadatos. |
+| PAG-CXC-CAJA | Cartera limita 300 con aviso e historial cortaba 50 sin aviso. | C | C05 | Media | ACREDITADO | `eb72f69` | Historial paginado; cartera conserva tope explícito y metadatos. |
 | AUD-002-ULTIMA | Borrar última fila no es detectable sin WORM/cadena. WORM excluido; se documenta el límite. | A | A02 | Riesgo aceptado | DIFERIDO_EXPLICITO | — | No prometer garantía total. |
 | REPORTES-CHART-CDN | Chart.js depende de CDN en POS offline. | C | C02/C05 | Media | PENDIENTE | — | Render sin red. |
 | REPO-TEMP-SETTINGS | TODO citaba `settings_auditoria_sucursales_temp.py` sin trackear; ya no existe. | A | A00 | Baja | ACREDITADO | `c4af604` base | `Test-Path`/`git status` limpios. |
@@ -298,8 +299,8 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | BUG-F | Migraciones figuraban aplicadas sin tablas tenant. | A | A02/A08 | Crítica | Corregido y reparado en prod | `migrate_tenants` guard | Migración limpia/copia y tablas reales. |
 | BUG-G | Update RP: backup locale, secret, orden y NSSM. | C | C01/C06 | Crítica | Correcciones previas; paquete final no ensayado | BUGS | Matriz interrupción/rollback. |
 | BUG-H | SKU local faltante tumbaba venta cloud. | A+C | A04/A06/C04/C06 | Alta | Prod backend `bcb8621` contiene fix; POS/foto y RC final pendientes | BUGS | Stub→portal→pull/foto. |
-| BUG-I | Chrome autocompleta credenciales en caja. | C | C05/C06 | Baja | Código + test; visual diferida | `45ca23a` base | Chrome con credenciales reales de laboratorio. |
-| BUG-J | Comentario Django aparecía en sidebar. | C | C06 | Baja | Código + test; visual diferida | BUGS | Inspección visual RC. |
+| BUG-I | Chrome autocompleta credenciales en caja. | C | C05/C06 | Baja | Código + test revalidados; visual diferida | `45ca23a`, matriz C05 | Chrome con credenciales reales de laboratorio. |
+| BUG-J | Comentario Django aparecía en sidebar. | C | C06 | Baja | Código + test revalidados; visual diferida | BUGS + matriz C05 | Inspección visual RC. |
 | BUG-K | `IntegrityError` falso se ACKeaba duplicado. | A | A04 | Alta | Herramienta/reconciliación A04 listas; prod y falsos ACK históricos pendientes | `d831535`, `be15ea0`; dev/staging previos | Ejecutar primero dry-run y revisar lista en A09; no replay ciego. |
 | BUG-L | Portal mostraba HTML 500 y confundía alta push. | C | C04/C06 | Media | Corregido dev/staging | Frontend staging `e0a2302` | RC integrado/backend real. |
 | BUG-M | Safari no instalado tocaba `pushManager`. | C | C04/C06 | Media | Corregido y validado físicamente en staging | Frontend staging `e0a2302` | Repetir RC sin asumir evidencia vieja. |

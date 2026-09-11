@@ -1,6 +1,7 @@
 # Handoff C05 (parte 2) — correcciones financieras de operación comercial
 
-- Estado: **REVISION** (implementado y validado localmente; **no** integrado a `develop`).
+- Estado: **INTEGRADA LOCALMENTE A `develop`** (hallazgos cruzados cerrados en
+  `18e0898`; sin push ni despliegue).
 - Fecha: **2026-09-11**
 - Propietario: **B / Claude**
 - Base exacta original: `develop@0b4fb7c`.
@@ -20,6 +21,12 @@
   → **564 tests OK** (240.8 s, serial, PostgreSQL, BD `pos_cierre_claude`).
   `check`, `makemigrations --check` y la migración `sync.0011_transporte_durable_bug_k`
   aplican limpias sobre el árbol combinado.
+- **Validación posterior a revisión (`18e0898`):** **95/95 focales OK**
+  (23,794 s); `manage.py check`, `makemigrations --check --dry-run`, `compileall`
+  y `git diff --check` verdes. El discovery total ejecutó 1.453 casos sin fallos
+  de comportamiento y terminó únicamente con tres errores de importación por
+  cargar los módulos e-CF con `manage.py test`; `TESTING.md` exige separarlos.
+  Con el runner correcto, e-CF quedó **72/72 OK** (104,27 s).
 - Rama aislada: `claude/cierre-prod-C05` (parte 2 sobre la base A04-C05).
 - Commits de esta entrega (sobre `44e571e`):
   - `b6e898a` DB-CONSTRAINTS + COT-008/011/015 (constraints de BD + preflight)
@@ -28,6 +35,8 @@
   - `b066636` Idempotencia de venta + CXC-IDEMP-CONC
   - `eb72f69` PAG-CXC-CAJA (paginar historial de turnos)
   - `ed47249` RPT-005 (cierre manual: retirar launcher + documentar)
+  - `18e0898` revisión cruzada: idempotencia POS/servicio, validación segura,
+    invariantes de cotización y cobertura del preflight
 - Contratos consumidos: **CT-01** (auditoría, vía el adaptador legacy
   `Auditoria.registrar` que el resto del dominio ya usa — ver nota abajo) y
   **CT-02** (`usuario.tiene_permiso(codigo, sucursal=…)` + decoradores de
@@ -57,40 +66,46 @@ Sin push, sin deploy, sin ejecución de launchers ni datos reales.
 
 ### Cotizaciones (deuda COT)
 
-- **COT-008** (`b6e898a` constraints + `460e05e` servicio): `DetalleCotizacion`
+- **COT-008** (`b6e898a` constraints + `460e05e`/`18e0898` servicio): `DetalleCotizacion`
   con cantidad`>=1`, precio`>=0.01`, descuento`>=0` y `<=subtotal`, `total_linea>=0`;
   `Cotizacion` subtotal/descuento/total`>=0`. Además `guardar_cotizacion` sanea
-  cantidad (entera, 1..1e6) y descuento (finito, `>=0`, `<=subtotal`) → **400**, no
-  el 500 de la constraint.
-- **COT-011** (`b6e898a`): consistencia cabecera↔línea por constraint de una fila
-  (`total_linea>=0`, `descuento<=subtotal`) + totales calculados en el servidor
-  dentro de la transacción.
-- **COT-015** (`b6e898a`): una `Cotizacion` `CONVERTIDA` **exige** `venta`
-  (constraint `cotizacion_convertida_exige_venta`) y `venta` pasa a
+  cantidad (Decimal finito, entero, 1..1e6), precio (finito, `>=0.01`) y
+  descuento (finito, `>=0`, `<=subtotal`) → **400**, no el 500 de la constraint.
+- **COT-011** (`b6e898a`, `18e0898`): constraints por fila + totales calculados
+  en el servidor dentro de la transacción. `DetalleCotizacion.save/delete`
+  reconcilia además la cabecera cuando se edita fuera de la vista y el admin no
+  permite editar manualmente subtotal/descuento/total.
+- **COT-015** (`b6e898a`, `18e0898`): la relación es bidireccional:
+  `CONVERTIDA` exige `venta` y cualquier otro estado exige `venta=NULL`
+  (constraint `cotizacion_estado_venta_consistente`); `venta` pasa a
   `on_delete=PROTECT` (antes `SET_NULL` dejaba orfandad al borrar la venta).
 - **COT-009** (`460e05e`): no se cotiza a un cliente **inactivo** (revalidación
   server-side al guardar; la UI pudo cargar la lista antes de la desactivación).
   El contado queda exento. *Los selectores de "solo maestros operativamente
   activos" y estados pendiente/conflicto siguen bloqueados por CT-04 (ver abajo).*
-- **COT-010** (`460e05e`): `Cotizacion.save()` numera por **máximo sufijo +
-  reintento en savepoint**, no `count()+1` (un hueco en la secuencia dejaba de
-  colisionar con un 500 tras cobrar).
+- **COT-010** (`460e05e`, `18e0898`): `Cotizacion.save()` numera por **máximo
+  sufijo + reintento en savepoint**, no `count()+1`; una única condicional cubre
+  también las cotizaciones legacy con `sucursal=NULL`.
 - **COT-012** (`460e05e`): crear (`guardar_cotizacion`) y convertir
   (`ventas_service._marcar_cotizacion_convertida` y el legacy `marcar_convertida`)
   dejan `Auditoria.registrar` **dentro** de la transacción (antes solo emitían el
   evento de sync).
-- **COT-014** (`460e05e`): `descargar_pdf_cotizacion` ya no filtra el texto de la
-  excepción (residual; `guardar_cotizacion` ya era genérico).
-- **COT-017** (`460e05e`): `lista_cotizaciones` pagina (Paginator 50) + controles.
+- **COT-014** (`460e05e`, `18e0898`): `descargar_pdf_cotizacion` ya no filtra el
+  texto de la excepción y `guardar_cotizacion` responde 400 seguro si el cliente
+  o producto desapareció, reservando 500 para fallos inesperados.
+- **COT-017 parcial** (`460e05e`): `lista_cotizaciones` pagina (Paginator 50) +
+  controles. El stock al convertir y el presupuesto de queries siguen abiertos.
 
 ### Concurrencia, idempotencia y autorización servicio+API
 
-- **Idempotencia de venta** (`b066636`): `procesar_venta_service` lee
-  `datos['clave_idempotencia']`; un reintento con la misma clave devuelve la venta
-  **original** sin cobrar ni consumir inventario otra vez. Campo
+- **Idempotencia de venta** (`b066636`, `18e0898`): el POS genera y conserva
+  `clave_idempotencia` durante reintentos de red, y la reinicia solo al cancelar
+  o completar. `procesar_venta_service` valida la clave, autoriza antes del replay
+  y restringe la venta existente al alcance de sucursal; un reintento válido
+  devuelve la venta **original** sin cobrar ni consumir inventario otra vez. Campo
   `Venta.clave_idempotencia` con única PARCIAL (`uniq_venta_clave_idempotencia`)
-  como respaldo. **Un solo efecto financiero** garantizado por la constraint
-  (paridad con los abonos CxC). `clave_idempotencia` es read-only en el admin.
+  como respaldo. Un savepoint captura la colisión de unicidad y recupera al
+  ganador visible. `clave_idempotencia` es read-only en el admin.
 - **CXC-IDEMP-CONC** (`b066636`): prueba de N reintentos (6) con la misma clave =
   un solo abono + respaldo de la única parcial ante inserción directa. Complementa
   la prueba de 2 llamadas ya existente (`IdempotenciaCobroTests`).
@@ -117,6 +132,16 @@ Sin push, sin deploy, sin ejecución de launchers ni datos reales.
   corre en bucle, no una tarea puntual). Runbook nuevo
   `docs/runbooks/CIERRE_DIARIO_MANUAL.md` con el comando manual y cómo programarlo
   vía Task Scheduler si un cliente lo pide. Test end-to-end del comando.
+
+### Revisión cruzada de integración
+
+Codex revisó el diff completo y no lo integró sin cambios. `18e0898` cierra ocho
+brechas encontradas: el cliente POS no enviaba la clave de idempotencia; el replay
+ocurría antes de autorización; la carrera de la única no se recuperaba; cantidad
+fraccionaria/precio cero podían llegar a la BD; cliente ausente caía en 500;
+faltaba unicidad legacy; la relación estado/venta era solo unidireccional; y los
+totales podían derivar por admin/modelo. `verificar_integridad_financiera` ahora
+incluye estas invariantes y tiene pruebas propias.
 
 ### Políticas ya decididas — revalidadas verdes (sin cambio de código)
 
@@ -211,8 +236,8 @@ test apps.cuentas_por_cobrar                              -> parte de 76 OK (con
 
 ## Pruebas omitidas / pendientes (no simuladas como hechas)
 
-- **Impresión física**, matrices multi-tenant/multi-BD y la suite serial completa
-  del proyecto (G1): las corre A/Codex al integrar.
+- **Impresión física** y la matriz de despliegue real (G1) siguen fuera; la suite
+  serial completa y e-CF se ejecutan como gate de esta integración.
 - **Reverificación visual** de BUG-I (Chrome con credenciales reales) y BUG-J:
   C06/visita.
 - **Carrera concurrente real** (dos procesos simultáneos) de venta e idempotencia:
@@ -235,7 +260,7 @@ test apps.cuentas_por_cobrar                              -> parte de 76 OK (con
 
 ## Rollback
 
-Revertir los commits `b6e898a..ed47249` en la rama. Las migraciones tienen reversa
+Revertir los commits `b6e898a..18e0898` en la rama. Las migraciones tienen reversa
 (las de constraint quitan el CHECK; la de idempotencia quita campo+constraint). El
 fix de `cuentas_por_cobrar.0002` es una edición de una data migration ya aplicada:
 revertirlo es re-editar el archivo (no hay estado de esquema que deshacer).
@@ -259,14 +284,9 @@ revertirlo es re-editar el archivo (no hay estado de esquema que deshacer).
    sync de A. Local: no hay borrado de cotización expuesto (solo admin). Cuando A
    defina el tombstone/replay de cotización, C ajusta el productor local. **Queda
    fuera de esta entrega**; se documenta el bloqueo.
-3. **Deltas documentales propuestos** (los edita Codex para evitar conflictos):
-   - `INVENTARIO.md`: marcar REVISION/commit para DB-CONSTRAINTS, COT-008/010/011/012/014/015/017,
-     INV-RBAC-SCOPE, CXC-MIG-ALIAS, CXC-IDEMP-CONC, PAG-CXC-CAJA, RPT-005,
-     VEN-ANULAR-LEGACY (parte 1). CAJA-002/CXC-006/RPT-004 → revalidadas.
-   - `ESTADO_AUDITORIAS.md`: constraints nuevas por desplegar (con nota de preflight),
-     migración `ventas.0010`, decisión RPT-005 código-hecho.
-   - `TODO_AUDITORIAS.md`: quitar los IDs cerrados arriba de los pendientes de C05.
-   - `BUGS.md`: BUG-I/J sin cambio (ya CORREGIDO+CUBIERTO; visual diferida a C06).
+3. **Deltas documentales aplicados por Codex:** `INVENTARIO.md`,
+   `ESTADO_AUDITORIAS.md`, `TODO_AUDITORIAS.md` y `BUGS.md` reflejan el cierre
+   revisado. COT-009/017 no se marcan completos y BUG-I/J conservan el gate visual.
 
 ## Bloqueos declarados
 
@@ -277,9 +297,9 @@ revertirlo es re-editar el archivo (no hay estado de esquema que deshacer).
   hizo, porque es un chequeo de integridad que no depende de la maquinaria offline.
 - **C04 (portal React) NO se inició** (depende de CT-04).
 
-## Siguiente tarea desbloqueada
+## Siguiente tarea
 
-- Revisión cruzada por Codex del diff `b6e898a..ed47249` e integración serial a
-  `develop` (A integra y publica el SHA verde), junto con la parte 1 (`60c6dbc`,
-  `44e571e`) que sigue en REVISION.
-- Cuando A publique CT-04: selectores comerciales y snapshots de C05/C04.
+- A05/A06 debe publicar CT-04; hasta entonces no iniciar C04 ni cerrar los
+  selectores comerciales/snapshots de C05.
+- La publicación de `develop` y cualquier release requieren autorización
+  separada; esta integración es únicamente local.

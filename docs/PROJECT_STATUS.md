@@ -1,7 +1,7 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-11** (A04 y la primera entrega C05 integrados y
-validados localmente en el árbol `9ff61c2`; sin push, despliegue ni lectura o
+Ultima revision: **2026-09-11** (A04 y C05 partes 1-2 integrados localmente;
+código de parte 2 revisado en `18e0898`; sin push, despliegue ni lectura o
 escritura de datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
@@ -44,9 +44,9 @@ propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
-A00-A04, C01-C03 y C05 parte 1; A04 y los consumidores C05 de CT-02/SUS-006
-quedaron reconciliados y validados en `9ff61c2`; G1-G4 siguen pendientes porque
-faltan A05-A08 y el resto de C04-C06**.
+A00-A04, C01-C03 y C05 partes 1-2. C05 parte 2 cerró su revisión cruzada en
+`18e0898`; G1-G4 siguen pendientes porque faltan A05-A08, CT-04, C04, los
+selectores comerciales dependientes de CT-04 y C06**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
@@ -66,10 +66,10 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | CT-02 y consumidores C05 integrados/validados localmente; producción aún legacy | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | PER-013 ya cubre anulación/reimpresión por sucursal; migración 0011 y retiro del bypass ADMIN requieren preflight verde por tenant. |
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
-| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; SUS-007–010 y el resto de C05 continúan. |
+| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; SUS-007–010 y los selectores C05 bloqueados por CT-04 continúan. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Integración A04+C05 parte 1 validada localmente | `TESTING.md` | 237 focales + 1.386 Django + 72 e-CF en Windows 3.11, seriales y con cuatro BDs nuevas; Linux/artefacto se repite en A09. |
-| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A04 cierra claim/diferidos/identidad scopeada; C05 cierra PER-013 y SUS-006. Cutover ADMIN y demás consumidores/operaciones siguen en sus bloques. |
+| Testing | Integración A04+C05 partes 1-2 validada localmente | `TESTING.md` | 95 focales C05 parte 2 y 72 e-CF; el discovery completo no mostró fallos Django y confirmó que e-CF debe separarse a pytest. Linux/artefacto se repite en A09. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 parte 2 acredita constraints, cotizaciones, alias/idempotencia CxC, scope inventario, paginación y cierre manual; CT-04/C04 y deuda residual siguen abiertos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable integrado localmente** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Compatibilidad HTTP real, dry-run de clientes y despliegue quedan para A09 con autorización. |
 | Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-K tiene sonda/plan dirigido integrado localmente desde A04; no se ejecutó contra clientes y producción/historia siguen pendientes de A09. |
@@ -181,15 +181,16 @@ Fuente viva: `TESTING.md`.
 
 Estado (2026-09-11):
 
-- **1.445 metodos de test en 117 archivos.** La unica app sin ningun archivo de
+- **1.509 metodos de test en 128 archivos.** La unica app sin ningun archivo de
   test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
   Con un solo archivo, y por lo tanto candidatas a reforzar:
   `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
-- Última corrida completa Windows 3.11/Django 5.2.17: **1.386 pruebas Django
-  verdes en 486,442 s** (integración A04+C05, 2026-09-11), seriales y con cuatro
-  BDs de test nuevas. La matriz focal conjunta fue **237/237 en 56,940 s** y
-  pytest de facturación quedó **72/72 en 20,70 s**. La repetición Linux 3.12
-  vive en el handoff A01 y se
+- Corrida de integración C05 parte 2 en Windows 3.11/Django 5.2.17: **95/95
+  focales en 23,794 s**. El discovery completo ejecutó 1.453 casos: no reportó
+  fallos de comportamiento y terminó con tres errores de importación porque
+  intentó cargar los tres módulos e-CF bajo `manage.py test`, combinación que
+  `TESTING.md` prohíbe; hubo 3 skips. Separada con su runner correcto, la suite
+  e-CF quedó **72/72 en 104,27 s**. La repetición Linux 3.12 vive en el handoff A01 y se
   repite sobre el RC en A09. El conteo estático de métodos no es directamente
   comparable con casos parametrizados y descubrimiento del runner.
 - `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->

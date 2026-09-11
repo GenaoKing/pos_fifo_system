@@ -655,7 +655,8 @@ lo que no existe") -- ahora aplica igual a productos.
   `apps/caja/tests/test_auditoria_caja.py`. Como `autocomplete="off"` es una
   indicacion y Chrome conserva heuristicas propias, el gate final sigue siendo
   repetir el caso con credenciales guardadas en la laptop. La matriz de cierre
-  no registra esa comprobación como aprobada.
+  no registra esa comprobación como aprobada. C05 parte 2 revalidó la regresión
+  automatizada; no sustituye el gate visual de C06.
 
 ### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
 
@@ -674,7 +675,8 @@ lo que no existe") -- ahora aplica igual a productos.
   formulario de logout como POST con token CSRF.
 - La matriz física de staging validó Web Push en Windows, pero no volvió a
   inspeccionar visualmente este comentario; queda registrado como diferido y
-  no como aprobado.
+  no como aprobado. C05 parte 2 revalidó la regresión automatizada y conserva
+  explícitamente esa inspección visual para C06.
 
 ### BUG-L — El portal mostraba HTML crudo de un 500 y declaraba push suscrito sin backend
 

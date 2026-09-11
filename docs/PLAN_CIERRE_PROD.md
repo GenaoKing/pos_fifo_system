@@ -1,6 +1,6 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-11**. Estado: **en ejecución; A04 y C05 parte 1 integrados/validados; gates pendientes**.
+Fecha: **2026-09-11**. Estado: **en ejecución; A04 y C05 partes 1-2 integrados localmente; gates pendientes**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 parte 1 integrados localmente** | Árbol de integración `9ff61c2`; A04 `be15ea0`; C05 `60c6dbc`. PER-013 y SUS-006 cerrados; A05 y el resto de C05 son los siguientes frentes. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; integración A04+C05 validada; G1-G4 pendientes** | 237 focales + 1.386 Django + 72 e-CF; worktrees, venvs y cuatro BDs PostgreSQL separadas; suites tenant multi-DB en serial. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 integrados localmente** | Código C05 parte 2 revisado en `18e0898`; CT-04/A05-A06, C04, selectores C05 y C06 son los siguientes frentes. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; integración A04+C05 validada localmente; G1-G4 pendientes** | Parte 2: 95 focales + discovery completo Django sin fallos funcionales + 72 e-CF; worktrees/BDs aislados y suites multi-DB seriales. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

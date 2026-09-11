@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-11** · Árbol local validado: `9ff61c2`
+Última actualización: **2026-09-11** · Código C05 parte 2 revisado: `18e0898`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -20,13 +20,13 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 
 | Módulo | Hallazgos | Estado | Documento |
 |---|---:|---|---|
-| `apps/ventas` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_VENTAS.md](exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md) |
-| `apps/inventario` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_INVENTARIO.md](exploracion/AUDITORIA_CODIGO_APPS_INVENTARIO.md) |
+| `apps/ventas` | 14 | **Mitigado; constraints e idempotencia C05 acreditadas** | [AUDITORIA_CODIGO_APPS_VENTAS.md](exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md) |
+| `apps/inventario` | 14 | **Mitigado; constraints y scope RBAC C05 acreditados** | [AUDITORIA_CODIGO_APPS_INVENTARIO.md](exploracion/AUDITORIA_CODIGO_APPS_INVENTARIO.md) |
 | `apps/sync` | 12 | Mitigado | [AUDITORIA_CODIGO_APPS_SYNC.md](exploracion/AUDITORIA_CODIGO_APPS_SYNC.md) |
 | `apps/tenancy` | 18 | **Mitigado; TEN-016 cerrado en A02** | [AUDITORIA_CODIGO_APPS_TENANCY.md](exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md) |
-| `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
-| `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
-| `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
+| `apps/cuentas_por_cobrar` | 16 | **Mitigado; alias e idempotencia C05 acreditados** | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
+| `apps/caja` | 13 | **Mitigado; historial paginado y CAJA-002 revalidado** | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
+| `apps/reportes` | 16 | **Mitigado; cierre manual RPT-004/005 acreditado** | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
 | `apps/permisos` | 21 | **21/21 mitigados en código; cutover ADMIN operacional pendiente** | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
 | `apps/usuarios` | 19 | **A03 cierra invariantes RBAC de USR-012; USR-014 sigue A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
@@ -35,7 +35,7 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
 | `apps/suscripciones` | 19 | **P1 mitigado (6/10)**; SUS-007..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
-| `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
+| `apps/cotizaciones` | 18 | **COT-008/010/011/012/014/015 acreditados**; CT-04 y deuda residual abiertos | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
@@ -73,6 +73,20 @@ reparación BUG-K dirigida/dry-run; C05 consume CT-02 en anulación y
 reimpresión, y aplica SUS-006 a las entradas HTML/API de CxC y reportes
 on-demand. Pasaron 237 focales, 1.386 Django y 72 e-CF. No se ejecutaron sondas,
 reparaciones, migraciones ni despliegues sobre entornos operativos.
+
+### Actualización C05 parte 2 — 2026-09-11
+
+La entrega Claude (`b6e898a..fc0aafd`) se revisó sobre la base A04+C05 ya
+integrada. El cierre de revisión `18e0898` agregó el uso efectivo de la clave de
+idempotencia desde el POS, autorización previa al replay, manejo de la carrera
+de unicidad, validación Decimal/HTTP segura, unicidad de numeración legacy,
+consistencia bidireccional estado/venta y reconciliación de totales de
+cotización. También agregó cobertura al preflight financiero.
+
+Quedan declaradamente fuera: **CT-04** y sus selectores comerciales de maestros
+operativamente activos/pendiente/conflicto; **C04** no se inició. COT-013,
+COT-018 y el tramo de stock/presupuesto de queries de COT-017 siguen abiertos.
+No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -138,6 +152,17 @@ merecen leerse antes de correrlas en producción.
 | `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
 | `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
 | `auditoria.0007_alter_auditoria_accion` | Nueva opción `COMPROBANTE_PDF` en `TipoAccion` (feature: comprobante de venta formal en PDF, `apps/ventas/pdf_comprobante.py`) | Ninguno: solo cambia `choices` |
+| `ventas.0009_detalleventa_detalleventa_cantidad_positiva_and_more` | ⚠️ Preflight y `CheckConstraint` financieros para venta, detalle y pago | **Aborta con las PK infractoras** antes de crear constraints; correr `verificar_integridad_financiera` primero |
+| `ventas.0010_venta_clave_idempotencia_and_more` | Clave de idempotencia de venta + índice único parcial | Aditiva; los `NULL` legacy no colisionan |
+| `inventario.0007_compra_compra_total_positivo_and_more` | ⚠️ Preflight y constraints de compra, detalle y lote | Aborta ante datos imposibles; `cantidad_actual` negativa sigue permitida por política |
+| `cotizaciones.0003_alter_cotizacion_venta_and_more` | ⚠️ `PROTECT`, constraints financieros, número legacy único y consistencia estado/venta | Aborta ante filas legacy incompatibles o números duplicados; no corrige datos automáticamente |
+
+Antes de aplicar estas cuatro migraciones en una copia o tenant, ejecutar:
+
+```powershell
+python manage.py verificar_integridad_financiera
+python manage.py verificar_integridad_financiera --tenant <tenant_key>
+```
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
@@ -402,22 +427,22 @@ ese corte quede marcado.
 
 ---
 
-## 3. Decisiones que te tocan a vos
+## 3. Decisiones financieras y operativas
 
-Ninguna de estas está tomada. Todas son de negocio, no de código.
+CAJA-002, CXC-006, RPT-004 y RPT-005 ya tienen política fijada y cobertura
+revalidada en C05. Los backfills históricos siguen requiriendo decisión por
+instalación y revisión previa de datos reales.
 
 ### 3.1 ¿Una tienda sin caja abierta puede cobrar en efectivo?
 
 **Contexto (CAJA-002).** La auditoría pedía "rechazar efectivo cuando no exista
-un turno operable". **No lo implementé**, porque frenaría las ventas de una
-tienda que no abrió caja.
+un turno operable". La política vigente mantiene la venta habilitada.
 
 **Estado actual:** cada pago en efectivo nace con su `turno_caja` cuando hay un
 turno abierto. Si no lo hay, la venta procede y el pago queda sin turno —
 distinguible de los que sí lo tienen. La atribución del arqueo ya es exacta.
 
-**Si querés el rechazo:** es un `if` en `_resolver_turno_caja`
-(`apps/ventas/services/ventas_service.py`).
+La matriz C05 revalidó el caso sin turno y su atribución contable.
 
 ### 3.2 ¿Qué pasa al anular una venta con abonos ya aplicados?
 
@@ -425,12 +450,9 @@ distinguible de los que sí lo tienen. La atribución del arqueo ya es exacta.
 automáticamente en LIFO con egreso de caja, o convertir el saldo en crédito a
 favor.
 
-**Elegí bloquear** (devuelve 409), porque es la única que no inventa un asiento
+**La política vigente es bloquear** (devuelve 409), porque no inventa un asiento
 contable. El operador revierte los abonos con `anular_pago_cxc_service` —que ya
 existía, es LIFO, exige motivo y deja auditoría— y después anula la venta.
-
-**Si preferís reversa automática o saldo a favor:** es un cambio en
-`anular_cuenta_por_venta` más el asiento correspondiente.
 
 ### 3.3 ¿Cuándo queda cerrado contablemente un día?
 
@@ -438,23 +460,18 @@ existía, es LIFO, exige motivo y deja auditoría— y después anula la venta.
 siempre: ventas tardías, anulaciones y reversas nunca lo tocaban, y reintentar
 el comando parecía idempotente sirviendo datos obsoletos.
 
-**Elegí BORRADOR por defecto**, con `--finalizar` explícito. Congelar
+**La política vigente usa BORRADOR por defecto**, con `--finalizar` explícito. Congelar
 automáticamente *era* el bug; no congelar nunca dejaría el cierre sin punto
 fijo. Ahora cerrar el día es un acto deliberado.
 
-**Falta decidir:** a qué hora corre el cierre y si debe finalizar solo cuando
-todos los turnos estén cerrados. El resumen ya reporta `turnos_abiertos`.
+### 3.4 Cierre diario manual
 
-### 3.4 Hora y zona del cierre automático
-
-**`instalar_cierre.ps1` está roto y lo dejé así a propósito.** Apunta a
-`scripts/ejecutar_servicio_cierre.bat`, que **no está en el repositorio**;
-configura un servicio de autoarranque (NSSM) para una tarea one-shot; y su
-descripción dice **7 PM** mientras el modelo documenta **10 PM**.
-
-El comando ya es correcto, reintentable y recorre tenants. Versionar un launcher
-real y pasarlo a Task Scheduler es trabajo de despliegue, y necesita que digas
-la hora y la zona.
+**RPT-005 quedó resuelto sin cierre automático.** `instalar_cierre.ps1` fue
+retirado porque apuntaba a un `.bat` ausente y usaba NSSM para una tarea
+one-shot. El procedimiento soportado está en
+`docs/runbooks/CIERRE_DIARIO_MANUAL.md`; el comando es reintentable, recorre
+tenants y solo finaliza con `--finalizar`. Si una instalación pide automatizarlo,
+se configura Task Scheduler con hora/zona explícitas como decisión local.
 
 ### 3.5 ¿Backfill de datos históricos?
 
@@ -487,14 +504,15 @@ Ninguno bloquea el despliegue.
 
 ### Robustez
 
-- **`CheckConstraint` de respaldo** en ventas e inventario. Las invariantes de
-  importes y cantidades se validan en la aplicación; falta el cinturón en la BD.
+- **`CheckConstraint` de respaldo: resuelto en C05** (`b6e898a`, `18e0898`).
+  Ventas, inventario y cotizaciones rechazan importes/cantidades imposibles en
+  BD y las migraciones hacen preflight antes del `ADD CONSTRAINT`.
 - **Cola durable de diferidos: resuelta en A04 (`be15ea0`).** El cursor avanza
   si el ítem aplicó o quedó almacenado, el reintento es transaccional y un
   pendiente mantiene el ciclo `PARCIAL`.
 - **`_pull_legacy` sigue existiendo** como fallback para clouds pre-Fase 2.
-- **Idempotencia concurrente del cobro CxC.** La constraint garantiza un solo
-  pago por clave; falta el test de N reintentos concurrentes.
+- **Idempotencia del cobro CxC: acreditada en C05** (`b066636`). Seis reintentos
+  con la misma clave producen un solo pago y la constraint cubre inserción directa.
 
 ### Deuda de contrato
 
@@ -503,17 +521,17 @@ Ninguno bloquea el despliegue.
 - **PER-013 consumidor: resuelto en C05 (`60c6dbc`).** Anulación y reimpresión
   usan los permisos CT-02 contra la sucursal de la venta y filtran el alcance;
   la matriz integrada cubre roles custom y acceso cruzado.
-- **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
-  sin sucursal en varios puntos de esa app.
+- **Scope por sucursal en inventario: resuelto en C05** (`95dddb3`). El servicio
+  reautoriza contra la sucursal del lote bloqueado, además del gate de la vista.
 - **Identidad compuesta del receptor/handler: resuelta en A04 (`be15ea0`).**
   `event_id` y hash se acotan por sucursal; ventas y CxC no adoptan una venta
   homónima de otra sucursal. Una colisión de dominio real se reporta `ERROR`.
 
 ### Presentación y rendimiento
 
-- **Paginación real** en tres listados: cartera CxC (corta a 300), historial de
-  turnos (corta a 50, sin avisar) e inventario valorizado (corta a 500). Los dos
-  primeros son los que faltan; el de inventario ya declara `productos_ocultos`.
+- **Historial de turnos paginado en C05** (`eb72f69`). La cartera CxC conserva
+  su tope de 300 pero lo declara con `cuentas_ocultas`/`tope_lista`; inventario
+  valorizado ya declara `productos_ocultos`.
 - **Chart.js viene de CDN** sin integridad ni fallback local
   (`templates/reportes/on_demand.html`). En un POS sin Internet estable los
   gráficos fallan aunque los datos estén.

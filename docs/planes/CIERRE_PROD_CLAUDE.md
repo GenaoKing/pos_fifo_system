@@ -1,6 +1,7 @@
 # Encargo del agente B — Claude
 
-Fecha: **2026-09-09**. Estado inicial: **pendiente**.
+Fecha: **2026-09-11**. Estado: **C01-C03 y C05 partes 1-2 integrados
+localmente; C04 y selectores C05 bloqueados por CT-04; C06 pendiente**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Codex](CIERRE_PROD_CODEX.md).
 
@@ -155,6 +156,11 @@ con SHA backend y advertencia de que main autodespliega; no fusionarlo aún.
 
 **Entrada:** CT-01/02/03; CT-04 para estado efectivo de maestros y selectores.
 Puede empezar por correcciones financieras independientes mientras A05 avanza.
+
+**Estado 2026-09-11:** la parte financiera independiente quedó integrada y su
+revisión cruzada cerró en `18e0898`; ver
+`docs/handoffs/cierre_prod/C05-financiero-parte2.md`. COT-009/017 conservan
+tramos abiertos y los selectores/snapshots no avanzan hasta publicar CT-04.
 
 1. Revalidar deuda de estas apps y cerrar cada ID vigente del inventario. Incluir
    COM/CFG/SUS asociados mediante C02/C03; no declarar deuda cerrada por omisión.

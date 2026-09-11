@@ -35,6 +35,15 @@ SUS-006 con gates HTML/API de CxC y reportes on-demand. La matriz conjunta pasó
 237 focales, 1.386 Django y 72 e-CF. No hubo push, despliegue ni operación sobre
 datos de clientes.
 
+## Cierre C05 parte 2 (sin despliegue)
+
+La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
+Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
+CXC-MIG-ALIAS, CXC-IDEMP-CONC, INV-RBAC-SCOPE, PAG-CXC-CAJA y RPT-005;
+CAJA-002, CXC-006, RPT-004 y VEN-ANULAR-LEGACY se revalidaron. COT-009 solo
+cierra su revalidación server-side: los selectores operativos y estados
+pendiente/conflicto siguen bloqueados por **CT-04**. **C04 no se inició**.
+
 ---
 
 ## ✅ Bloqueantes de seguridad cerrados por A03
@@ -79,20 +88,16 @@ de este cierre.
 Ninguna está tomada. El sistema funciona con la opción elegida; cambiarla es
 acotado. Ver §3 de ESTADO_AUDITORIAS.
 
-- [ ] **CAJA-002 — ¿Una tienda sin caja abierta puede cobrar en efectivo?**
-      Hoy: sí, y el pago queda sin turno (distinguible). Rechazarlo es un `if`
-      en `_resolver_turno_caja` (`apps/ventas/services/ventas_service.py`).
-- [ ] **CXC-006 — ¿Qué pasa al anular una venta con abonos aplicados?**
-      Hoy: se bloquea con 409 y el operador revierte los abonos a mano.
-      Alternativas: reversa automática LIFO con egreso de caja, o saldo a favor.
-- [ ] **RPT-004 — ¿Cuándo queda cerrado contablemente un día?**
-      Hoy: el resumen nace BORRADOR y se recalcula; `--finalizar` lo congela.
-      Falta decidir si debe finalizar solo cuando no queden turnos abiertos.
-- [ ] **RPT-005 — Hora y zona del cierre automático.**
-      `instalar_cierre.ps1` está roto a propósito: apunta a un `.bat` ausente,
-      usa NSSM autoarranque para una tarea one-shot, y dice 7 PM mientras el
-      modelo documenta 10 PM. El comando ya es correcto; falta el launcher real
-      y la hora acordada.
+- [x] **CAJA-002 — Efectivo sin caja abierta.** La política mantiene la venta
+      habilitada; el pago queda sin turno y la matriz C05 revalidó que sea
+      distinguible en el arqueo.
+- [x] **CXC-006 — Anulación con abonos aplicados.** Se bloquea con 409 hasta que
+      el operador revierta manualmente los abonos LIFO auditados.
+- [x] **RPT-004 — Cierre contable deliberado.** El resumen nace BORRADOR y se
+      recalcula; solo `--finalizar` lo congela.
+- [x] **RPT-005 — Sin cierre automático.** Se retiró el launcher NSSM roto y la
+      operación soportada quedó en `docs/runbooks/CIERRE_DIARIO_MANUAL.md`.
+      Automatizar con Task Scheduler es una decisión explícita por instalación.
 - [ ] **¿Backfill de datos históricos?** Tres posibles, ninguno hecho:
       `turno_caja` en pagos viejos, `sucursal` en cierres diarios,
       conciliación de movimientos de inventario duplicados.
@@ -101,6 +106,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: ejecutar el preflight financiero read-only.**
+      `python manage.py verificar_integridad_financiera` y, bajo tenancy,
+      `--tenant <tenant_key>`/`--todos-los-tenants`. Las migraciones nuevas de
+      ventas, inventario y cotizaciones abortan ante PKs incompatibles; no
+      corrigen historia automáticamente.
 - [ ] **Antes de desplegar: avisar del cambio de `$` a `RD$`** en todos los
       PDFs. Es visible para el cliente final; si hay plantillas, capturas o
       material impreso que lo referencien, conviene anticiparlo.
@@ -182,17 +192,15 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       haya pendientes (`be15ea0`).
 - [ ] **`_pull_legacy`** se conserva deliberadamente como compatibilidad con
       clouds pre-Fase 2; retirarlo requiere terminar la flota y la matriz real.
-- [ ] **`CheckConstraint` de respaldo** en ventas e inventario: las invariantes
-      de importes y cantidades se validan solo en la aplicación.
-- [ ] **Idempotencia concurrente del cobro CxC**: falta el test de N reintentos
-      con la misma clave.
+- [x] **`CheckConstraint` de respaldo** en ventas, inventario y cotizaciones:
+      constraints + preflight acreditados en `b6e898a`/`18e0898`.
+- [x] **Idempotencia del cobro CxC**: seis reintentos con la misma clave dejan
+      exactamente un efecto financiero (`b066636`).
 - [x] **PER-013 / consumidores C02-C05 — anulación y reimpresión usan RBAC y
       scope de la venta.** C05 consume el helper de A03 contra la sucursal de la
       propia venta y la integración repitió la matriz (`60c6dbc`, `9ff61c2`).
-- [ ] **Scope por sucursal en los gates de inventario**: `tiene_permiso` se
-      llama sin sucursal en varios puntos de esa app. Con el contrato nuevo del
-      motor (PER-003) esos gates ahora consultan solo asignaciones globales —
-      correcto pero más restrictivo de lo que probablemente se quiso.
+- [x] **Scope por sucursal en inventario**: el servicio reautoriza el ajuste
+      contra la sucursal del lote bloqueado y cubre asignaciones A/B (`95dddb3`).
 - [x] **Identidad compuesta en el receptor cloud**: A04 deduplica por identidad
       estable/hash + sucursal autenticada y los handlers de venta/CxC consultan
       la venta dentro de esa sucursal; una colisión real queda `ERROR`, no ACK
@@ -211,8 +219,10 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🔵 Presentación y rendimiento
 
-- [ ] **Paginación real** en cartera CxC (corta a 300) e historial de turnos
-      (corta a 50, **sin avisar**). El inventario ya declara `productos_ocultos`.
+- [x] **Paginación/visibilidad CxC-caja**: historial de turnos paginado
+      (`eb72f69`); cartera conserva el tope de 300 pero informa
+      `cuentas_ocultas`/`tope_lista`. El inventario ya declara
+      `productos_ocultos`.
 - [ ] **Cerrar el último tramo de AUD-002.** El historial ya es append-only
       contra la aplicación, y una edición externa es **detectable** por el
       hash de cada fila. Lo que falta: borrar la ÚLTIMA fila no deja hueco de
@@ -251,14 +261,12 @@ Los seis P2 de renderizado se dejaron fuera porque cada uno necesita
 decidir QUE hacer cuando falla —emitir sin logo, fallar, degradar— y esa
 decision conviene tomarla con el comportamiento observado en produccion.
 
-**Pendientes de `apps/cotizaciones`** (P1 cerrados, más COT-016):
-COT-008 (cantidades e importes imposibles), COT-009 (acepta clientes
-inactivos — los productos ya usan `productos_vendibles()`), **COT-010 (la
-numeración por `count()+1`: el mismo defecto ya corregido en ventas y
-lotes, aquí sigue vivo)**, COT-011 (cabecera y detalles con totales
-distintos), COT-012 (sin auditoría del ciclo), COT-013 (borrar no converge
-con cloud), COT-014 (parcial: faltan rutas), COT-015 (estado y vínculo a
-venta sin invariante de base), COT-017, COT-018.
+**Pendientes de `apps/cotizaciones`** después de C05 parte 2: COT-009 conserva
+pendientes el selector de maestros operativamente activos y los estados
+pendiente/conflicto, bloqueados por CT-04 (la revalidación server-side ya está);
+COT-013 (borrar no converge con cloud); COT-017 conserva el stock al convertir y
+el presupuesto de queries (la lista ya pagina); COT-018 conserva rutas/floats
+residuales. COT-008/010/011/012/014/015 quedaron acreditados en C05.
 
 **Pendientes de `apps/suscripciones`** (P1 6/10):
 SUS-007 (plantillas y sync leen flags legacy, servicios leen el entitlement),

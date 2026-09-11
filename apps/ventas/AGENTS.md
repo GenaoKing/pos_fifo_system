@@ -55,9 +55,10 @@ No hagas push directo desde aquí — solo emití el evento al outbox.
 - **DB-CONSTRAINTS:** `Venta.total >= 0.01`, `DetalleVenta` con cantidad `>= 1`,
   precio `>= 0.01`, descuento `>= 0` y `<= subtotal`, y `Pago.monto >= 0.01`.
   Preflight de datos: `manage.py verificar_integridad_financiera`.
-- **Idempotencia:** `procesar_venta_service` acepta `datos['clave_idempotencia']`;
-  un reintento con la misma clave devuelve la venta original (unica parcial
-  `uniq_venta_clave_idempotencia`), como los abonos CxC. Un solo efecto financiero.
+- **Idempotencia:** el POS genera `datos['clave_idempotencia']` y la conserva
+  durante reintentos de red. El servicio valida/normaliza la clave, autoriza
+  antes de buscar un replay y lo limita al alcance de sucursal; la única parcial
+  `uniq_venta_clave_idempotencia` respalda un solo efecto financiero.
 - `condicion_pago` a crédito y `turno_caja` cambian validaciones de pago.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md`) —
   **snapshot histórico**, verificar contra código.
