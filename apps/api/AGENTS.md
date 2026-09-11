@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -20,6 +20,7 @@ tiene modelos propios (`models.py` vacío).
 | Ver todas las rutas | `apps/api/urls.py` (`router_v1` + `auth_urls.py`, `sucursales_urls.py`, `views/sync_urls.py`, `views/reportes_urls.py`) |
 | Datos maestros (productos/categorías/clientes) | `views/maestros.py` → `ProductoViewSet` (**patrón canónico**), `CategoriaViewSet`, `ClienteViewSet`; mixins `SyncIncrementalMixin` (`?desde=`), `ReadAfterWriteMixin`, `MaestroPermisoMixin` |
 | **Recibir eventos de una sucursal** | `views/sync.py` → `recibir_eventos` + `_handler_<tipo>` por tipo de evento |
+| Reconciliar ACK históricos BUG-K (read-only) | `views/sync.py` → `reconciliar_eventos` (`sync.reconciliation.v1`) |
 | Endpoints de *pull* para la sucursal (roles, asignaciones, métodos de crédito, configuración, resumen) | `views/sync.py` → `*_para_sucursal`; `sync_status`, `heartbeat` |
 | Login/refresh/impersonación del portal (JWT tenant-aware) | `auth_views.py` → `PortalTokenObtainPairView`, `TenantTokenRefreshView`, `impersonar_tenant`, `logout`, `perfil_actual` |
 | Autenticar a una sucursal (token DRF) | `authentication.py` → `SucursalTokenAuthentication` |
@@ -33,8 +34,9 @@ tiene modelos propios (`models.py` vacío).
 ## Invariantes / trampas
 
 - `views/sync.py` **valida al importarse** que todo tipo de evento tenga handler:
-  si falta uno, Django no arranca. Idempotencia por hash: un reenvío responde
-  `DUPLICADO` sin reprocesar.
+  si falta uno, Django no arranca. Idempotencia por `event_id`/hash dentro del
+  scope autenticado: solo contenido equivalente responde `DUPLICADO`; conflicto
+  o `IntegrityError` real responde `ERROR`.
 - El alcance de tenant se resuelve **siempre** con
   `apps.negocios.utils.resolver_negocio(request)` (NEG-001); no leer
   `request.user.negocio` suelto.

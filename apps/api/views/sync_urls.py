@@ -11,6 +11,11 @@ from . import sync
 
 urlpatterns = [
     path('eventos/', sync.recibir_eventos, name='api-sync-eventos'),
+    path(
+        'reconciliacion-eventos/',
+        sync.reconciliar_eventos,
+        name='api-sync-reconciliacion-eventos',
+    ),
     path('heartbeat/', sync.heartbeat, name='api-sync-heartbeat'),
     path('status/', sync.sync_status, name='api-sync-status'),
     path('roles/', sync.roles_para_sucursal, name='api-sync-roles'),

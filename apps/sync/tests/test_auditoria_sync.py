@@ -25,7 +25,12 @@ from apps.sync import events as sync_events
 from apps.sync import registry
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
 from apps.sync.engine import SyncEngine, clasificar_ciclo
-from apps.sync.models import EventoSync, VersionMaestro, reactivar_eventos
+from apps.sync.models import (
+    DiferidoSync,
+    EventoSync,
+    VersionMaestro,
+    reactivar_eventos,
+)
 
 
 class _Resp:
@@ -259,7 +264,7 @@ class MigracionDedupTests(TestCase):
     en condiciones de aceptarla.
     """
 
-    CONSTRAINT = 'uniq_eventosync_hash_no_vacio'
+    CONSTRAINT = 'uniq_eventosync_sucursal_hash'
 
     def setUp(self):
         cache.clear()
@@ -608,6 +613,15 @@ class ClasificacionDeCicloTests(TestCase):
         self.assertEqual(estado, 'PARCIAL')
         self.assertIn('cursor bloqueado -> roles: item x diferido', motivos)
 
+    def test_cola_durable_pendiente_se_reporta(self):
+        estado, motivos = clasificar_ciclo(
+            heartbeat=True,
+            push=self._push(),
+            pull=self._pull(total=5, diferidos_pendientes=2),
+        )
+        self.assertEqual(estado, 'PARCIAL')
+        self.assertIn('2 item(s) diferido(s) pendiente(s)', motivos)
+
 
 # =============================================================================
 # SYNC-007 - identidad cloud estable
@@ -694,7 +708,7 @@ class IdentidadCloudTests(TestCase):
         Dos registros cloud distintos reclaman la misma clave natural local.
         No se le roba la identidad a la fila sellada ni se intenta crear una
         segunda con el mismo nombre (`nombre` es unique): se difiere y queda
-        visible como cursor bloqueado para que lo resuelva el operador.
+        visible en la cola durable para que lo resuelva el operador.
         """
         Categoria.objects.create(nombre='Vasos', origen_cloud_id=99)
 
@@ -705,14 +719,17 @@ class IdentidadCloudTests(TestCase):
         resultado = self.engine._pull_categorias()
 
         self.assertEqual(resultado['count'], 0)
-        self.assertIsNotNone(resultado['bloqueo'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
 
         self.assertEqual(Categoria.objects.count(), 1)
         vieja = Categoria.objects.get(origen_cloud_id=99)
         self.assertEqual(vieja.nombre, 'Vasos')
 
         cursor = VersionMaestro.objects.get(tabla='categorias')
-        self.assertIsNotNone(cursor.bloqueado_desde)
+        self.assertIsNone(cursor.bloqueado_desde)
+        self.assertEqual(cursor.ultimo_id, 7)
+        self.assertEqual(DiferidoSync.objects.get().estado, 'PENDIENTE')
 
     @mock.patch('apps.sync.engine.requests.get')
     def test_corregir_la_cedula_de_un_cliente_no_lo_duplica(self, mock_get):
@@ -808,8 +825,11 @@ class DependenciaDiferidaTests(TestCase):
         self.assertFalse(Producto.objects.filter(sku='DIF-001').exists())
 
         cursor = VersionMaestro.objects.get(tabla='productos')
-        self.assertIsNone(cursor.ultima_version)
-        self.assertIsNotNone(cursor.bloqueado_desde)
+        self.assertIsNotNone(cursor.ultima_version)
+        self.assertEqual(cursor.ultimo_id, 1)
+        self.assertIsNone(cursor.bloqueado_desde)
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
+        self.assertEqual(DiferidoSync.objects.get().estado, 'PENDIENTE')
 
     @mock.patch('apps.sync.engine.requests.get')
     def test_el_producto_diferido_se_aplica_cuando_llega_la_categoria(self, mock_get):
@@ -820,16 +840,19 @@ class DependenciaDiferidaTests(TestCase):
 
         Categoria.objects.create(nombre='Categoria Nueva')
 
-        # Mismo payload, sin cambiar en cloud: vuelve a bajar porque el cursor
-        # nunca lo dio por aplicado.
-        mock_get.side_effect = [_Resp(_pagina([item])), _Resp(_pagina([]))]
-        self.assertEqual(self.engine._pull_productos()['count'], 1)
+        # Mismo payload, sin cambiar en cloud: no vuelve a bajar; la cola lo
+        # reintenta aun despues de haber avanzado el cursor.
+        mock_get.side_effect = [_Resp(_pagina([]))]
+        resultado = self.engine._pull_productos()
+        self.assertEqual(resultado['count'], 1)
+        self.assertEqual(resultado['diferidos_resueltos'], 1)
 
         producto = Producto.objects.get(sku='DIF-002')
         self.assertEqual(producto.categoria.nombre, 'Categoria Nueva')
         self.assertIsNone(
             VersionMaestro.objects.get(tabla='productos').bloqueado_desde
         )
+        self.assertEqual(DiferidoSync.objects.get().estado, 'RESUELTO')
 
     @mock.patch('apps.sync.engine.requests.get')
     def test_rol_con_permiso_desconocido_se_difiere(self, mock_get):
@@ -862,4 +885,6 @@ class DependenciaDiferidaTests(TestCase):
 
         self.assertEqual(resultado['count'], 0)
         self.assertFalse(Rol.objects.filter(slug='supervisor').exists())
-        self.assertIsNotNone(resultado['bloqueo'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
+        self.assertEqual(DiferidoSync.objects.get().estado, 'PENDIENTE')

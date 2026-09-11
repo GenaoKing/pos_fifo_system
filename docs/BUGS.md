@@ -736,3 +736,8 @@ lo que no existe") -- ahora aplica igual a productos.
   realmente existe. Si no existe, responder `ERROR` sin detalles internos para
   que el POS lo reintente. La prueba de concurrencia existente sigue exigiendo
   exactamente un `CONFIRMADO` y un `DUPLICADO` para una colisión real.
+- A04 (`be15ea0`, 2026-09-11) agrega identidad estable y scopeada, lease
+  durable, sonda read-only `sync.reconciliation.v1` y el comando
+  `reparar_bug_k`, dry-run por defecto. El código/herramienta quedaron integrados
+  y validados localmente en `9ff61c2`; **no** se consultaron clientes ni se ejecutó una reparación
+  real y producción/historia continúan como pendiente operativo de A09.

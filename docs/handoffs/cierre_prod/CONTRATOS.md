@@ -12,7 +12,7 @@ las pruebas consumidoras.
 | Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
-| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 INTEGRADO/VALIDADO; CONSUMIDORES C PENDIENTES** | `3e6cec1`, merge `b7147fb` |
+| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
 | CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
@@ -273,6 +273,65 @@ clave legacy ni `_pull_legacy` durante esta transición.
 - Snapshot parcial/fallido no revoca ausentes.
 - Seed repetido preserva customizaciones y revocaciones.
 - Remover bypass `ADMIN` solo después de preflight que evita lockout.
+
+## Extensión A04 — transporte financiero durable
+
+Implementación productora/consumidora: `be15ea0`. Es una extensión aditiva del
+batch existente de eventos; no crea CT-04 ni adelanta la cola de maestros A05.
+
+### Push y ACK compatibles
+
+- Cada elemento puede agregar `event_id` UUID. Es obligatorio en un POS A04 y
+  opcional para un POS legacy. El cloud nuevo sigue aceptando elementos sin él.
+- Las reservas únicas son `(sucursal, event_id)` y
+  `(sucursal, hash_payload)`; el tenant ya está determinado por el alias de BD.
+  Misma identidad/hash solo es `DUPLICADO` si tipo, hash y payload coinciden.
+- `detalle[]` refleja `event_id` cuando vino en la solicitud y conserva `hash`.
+  `CONFIRMADO`/`DUPLICADO` son terminales; `ERROR` siempre se reintenta. Los
+  códigos nuevos son `EVENT_SCOPE_MISMATCH` y `EVENT_IDENTITY_CONFLICT`.
+- Un POS A04 tolera un ACK legacy sin `event_id` mediante el hash scopeado. Un
+  cloud A04 tolera un POS legacy sin `event_id`; le asigna identidad interna.
+
+El POS persiste `EN_VUELO`, `lease_id` y `lease_expires_at` antes del HTTP. Solo
+el dueño del lease puede aplicar el ACK. El valor default es 300 segundos y se
+configura con `SYNC_LEASE_SECONDS`; leases vencidos se reclaman sin descartar el
+evento ni cambiar su identidad.
+
+### Pull diferido
+
+`DiferidoSync` guarda tenant técnico, sucursal, tabla, cursor, identidad legible,
+hash y payload. Un cursor solo atraviesa el elemento tras aplicar o confirmar
+esa escritura local. Los pendientes se reintentan dentro de la misma
+transacción que cambia `PENDIENTE` a `RESUELTO`; cualquier crash revierte el
+efecto y conserva la fila. Un ciclo con pendientes es `PARCIAL`.
+
+### Sonda `sync.reconciliation.v1`
+
+`POST /api/v1/sync/reconciliacion-eventos/` requiere token de sucursal y no
+escribe. Solicitud:
+
+```json
+{
+  "schema_version": "sync.reconciliation.v1",
+  "eventos": [{
+    "event_id": "uuid",
+    "tipo_evento": "VENTA_CREADA",
+    "payload": {},
+    "hash_payload": "sha256",
+    "objeto_referencia": "SD-001-V20260911-0001"
+  }]
+}
+```
+
+La respuesta fija `scope.tenant_key`, `scope.branch_code`, `scope.branch_ref` y
+clasifica cada fila como `DUPLICADO_REAL`, `DIVERGENCIA_CONTENIDO`,
+`HECHO_SIN_EVENTO_CLOUD`, `FALSO_ACK`, `NO_VERIFICABLE` o `AMBITO_INVALIDO`.
+Solo `FALSO_ACK` y `HECHO_SIN_EVENTO_CLOUD` proponen reenvío dirigido.
+
+`reparar_bug_k` es dry-run por defecto. Una escritura exige simultáneamente
+`--ejecutar`, un archivo `sync.bug_k.repair_plan.v1` revisado y su digest con
+`--confirmar-plan`; revalida cloud y precondiciones locales, guarda antes/después
+y rechaza repetir el mismo plan. A04 no autoriza ejecutar esos flags en clientes.
 
 ## CT-03 — reserva para configuración efectiva
 

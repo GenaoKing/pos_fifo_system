@@ -26,6 +26,15 @@ entrega a C02/C05 porque sus consumidores son superficies Claude. El bypass de
 ADMIN no se retira en esta fase: queda condicionado al preflight por tenant de
 A08/A09.
 
+## Cierre A04 + C05 parte 1 (sin despliegue)
+
+A04 (`be15ea0`) y C05 parte 1 (`60c6dbc`) se integraron localmente en el árbol
+`9ff61c2`. A04 cierra claim/lease, diferidos durables, identidad scopeada y la
+herramienta dry-run de BUG-K; C05 cierra PER-013 en anulación/reimpresión y
+SUS-006 con gates HTML/API de CxC y reportes on-demand. La matriz conjunta pasó
+237 focales, 1.386 Django y 72 e-CF. No hubo push, despliegue ni operación sobre
+datos de clientes.
+
 ---
 
 ## ✅ Bloqueantes de seguridad cerrados por A03
@@ -165,23 +174,29 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟢 Robustez y deuda de contrato
 
-- [ ] **Claim durable del push de sync** (`IN_FLIGHT` + lease): el claim local
-      no sobrevive a un crash a mitad de envío.
-- [ ] **Cola durable de diferidos** en sync: un ítem diferido congela la marca
-      de agua.
-- [ ] **`_pull_legacy`** sigue existiendo como fallback para clouds pre-Fase 2.
+- [x] **Claim durable del push de sync** (`EN_VUELO` + lease): A04 persiste un
+      lease de cinco minutos antes del HTTP, recupera vencidos e ignora ACK de
+      un worker que perdió la propiedad (`be15ea0`).
+- [x] **Cola durable de diferidos** en sync: A04 avanza el cursor solo tras
+      aplicar o persistir; reintenta en transacción y reporta `PARCIAL` mientras
+      haya pendientes (`be15ea0`).
+- [ ] **`_pull_legacy`** se conserva deliberadamente como compatibilidad con
+      clouds pre-Fase 2; retirarlo requiere terminar la flota y la matriz real.
 - [ ] **`CheckConstraint` de respaldo** en ventas e inventario: las invariantes
       de importes y cantidades se validan solo en la aplicación.
 - [ ] **Idempotencia concurrente del cobro CxC**: falta el test de N reintentos
       con la misma clave.
-- [ ] **PER-013 / consumidores C02-C05 — anulación y reimpresión deben usar RBAC
-      y scope de la venta.** A03 publica el helper/contrato; Claude integra
-      `ventas.anular` y `ventas.reimprimir` en sus archivos y repite la matriz.
+- [x] **PER-013 / consumidores C02-C05 — anulación y reimpresión usan RBAC y
+      scope de la venta.** C05 consume el helper de A03 contra la sucursal de la
+      propia venta y la integración repitió la matriz (`60c6dbc`, `9ff61c2`).
 - [ ] **Scope por sucursal en los gates de inventario**: `tiene_permiso` se
       llama sin sucursal en varios puntos de esa app. Con el contrato nuevo del
       motor (PER-003) esos gates ahora consultan solo asignaciones globales —
       correcto pero más restrictivo de lo que probablemente se quiso.
-- [ ] **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- [x] **Identidad compuesta en el receptor cloud**: A04 deduplica por identidad
+      estable/hash + sucursal autenticada y los handlers de venta/CxC consultan
+      la venta dentro de esa sucursal; una colisión real queda `ERROR`, no ACK
+      exitoso (`be15ea0`).
 - [ ] **Auditoría de mutaciones API bajo tenancy**: `SesionImpersonacion`
       registra el acceso, no cada mutación de la sesión.
 - [ ] **Retirar el bypass de `ADMIN`** solo después de ejecutar
@@ -218,8 +233,8 @@ ya resueltos en junio de 2026 y re-verificados; su decisión de scope quedó
 superada por NEG-001). Lo que sigue abajo son hallazgos P2/P3 dentro de módulos
 ya procesados.
 
-**Pendientes de `apps/permisos`:** PER-013 en consumidores C02/C05. Permanece
-además el gate operacional de ADMIN documentado arriba.
+**Pendientes de `apps/permisos`:** no quedan hallazgos de código de la ronda;
+permanece el gate operacional de ADMIN documentado arriba.
 
 **Pendientes de `apps/common`** (P1 cerrado + COM-002/003/004/010/011/015):
 COM-005 (forma de tablas sin validar: una columna extra expandio la tabla
@@ -245,9 +260,8 @@ distintos), COT-012 (sin auditoría del ciclo), COT-013 (borrar no converge
 con cloud), COT-014 (parcial: faltan rutas), COT-015 (estado y vínculo a
 venta sin invariante de base), COT-017, COT-018.
 
-**Pendientes de `apps/suscripciones`** (P1 5/10):
-SUS-006 (CxC y reportes on-demand sin enforcement HTML de módulo), SUS-007
-(plantillas y sync leen flags legacy, servicios leen el entitlement),
+**Pendientes de `apps/suscripciones`** (P1 6/10):
+SUS-007 (plantillas y sync leen flags legacy, servicios leen el entitlement),
 SUS-008 (el bootstrap une flags entre sucursales: si A tenía e-CF y B no,
 ambas terminan con e-CF), SUS-009 (las configuraciones legacy sin sucursal
 se ignoran al migrar), **SUS-010 (los hooks de datos bloqueantes tragan
