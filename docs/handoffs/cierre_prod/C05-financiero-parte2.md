@@ -3,9 +3,24 @@
 - Estado: **REVISION** (implementado y validado localmente; **no** integrado a `develop`).
 - Fecha: **2026-09-11**
 - Propietario: **B / Claude**
-- Base exacta: `develop@0b4fb7c` (misma base que la parte 1; `develop` no se movió —
-  Codex trabaja A04 en su worktree pero aún no lo integró).
-- Rama aislada: `claude/cierre-prod-C05` (continúa sobre la parte 1).
+- Base exacta original: `develop@0b4fb7c`.
+- **Actualización — integrada la base A04-C05:** tras la integración de Codex
+  (`INTEGRACION_A04-C05.md`), se hizo `git merge develop@f48d2b3` sobre
+  `claude/cierre-prod-C05` (merge commit `eaff12b`). Ese `develop` trae **A04**
+  (transporte de sync durable + reparación BUG-K, `be15ea0`) y la **parte 1 de C05**
+  (`60c6dbc`) ya integradas. El merge fue **limpio, sin conflictos**: A04 solo tocó
+  `apps/sync/**`, `apps/api/**` de sync y `config/settings.py`; la parte 2 solo tocó
+  modelos/servicios de dominio (ventas, inventario, cotizaciones, caja, reportes,
+  CxC) y no editó los docs compartidos. Las firmas de `apps/sync/events.py` que la
+  parte 2 emite (`evento_venta_creada/anulada`, `evento_cotizacion_creada/convertida`,
+  `evento_inventario_snapshot`, `evento_ajuste_inventario`, `evento_cxc_*`) siguen
+  intactas; A04 cambió el transporte, no las firmas.
+- **Validación combinada (A04 + C05 parte 1 + parte 2):** suite conjunta de las 6
+  apps de dominio de C05 **más** `apps.sync` y `apps.api.tests.test_sync_reconciliacion_bug_k`
+  → **564 tests OK** (240.8 s, serial, PostgreSQL, BD `pos_cierre_claude`).
+  `check`, `makemigrations --check` y la migración `sync.0011_transporte_durable_bug_k`
+  aplican limpias sobre el árbol combinado.
+- Rama aislada: `claude/cierre-prod-C05` (parte 2 sobre la base A04-C05).
 - Commits de esta entrega (sobre `44e571e`):
   - `b6e898a` DB-CONSTRAINTS + COT-008/011/015 (constraints de BD + preflight)
   - `95dddb3` INV-RBAC-SCOPE + CXC-MIG-ALIAS
