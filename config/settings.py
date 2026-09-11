@@ -491,6 +491,14 @@ SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
 SYNC_BATCH_SIZE = int(os.environ.get('SYNC_BATCH_SIZE', '50'))
 SYNC_MAX_RETRIES = int(os.environ.get('SYNC_MAX_RETRIES', '10'))
 SYNC_HTTP_TIMEOUT = int(os.environ.get('SYNC_HTTP_TIMEOUT', '10'))
+# A04: el claim debe sobrevivir al commit anterior al HTTP. Cinco minutos es
+# el contrato del cierre; valores distintos sirven solo para laboratorio/tests.
+SYNC_LEASE_SECONDS = _env_int('SYNC_LEASE_SECONDS', 300)
+# El health puede tardar durante un arranque en frio. Ya no usa un guard fijo de
+# 3 s: timeout, cantidad de intentos y backoff son configurables sin tocar NSSM.
+SYNC_HEALTH_TIMEOUT = _env_int('SYNC_HEALTH_TIMEOUT', SYNC_HTTP_TIMEOUT)
+SYNC_HEALTH_RETRIES = _env_int('SYNC_HEALTH_RETRIES', 3)
+SYNC_HEALTH_RETRY_BACKOFF = _env_int('SYNC_HEALTH_RETRY_BACKOFF', 1)
 
 # Conciliacion diaria (Fase 3, anti-entropia). El daemon la corre como mucho
 # una vez por dia, a partir de esta hora local: la PC de una sucursal suele

@@ -138,7 +138,10 @@ def _crear_evento(tipo, serializar, referencia='', objeto_id_local=None,
     except IntegrityError as exc:
         # Hash repetido: el mismo hecho ya esta en la cola. No es un fallo,
         # es la constraint haciendo su trabajo (ver sync/migrations/0008).
-        existente = EventoSync.objects.filter(hash_payload=hash_payload).first()
+        existente = EventoSync.objects.filter(
+            sucursal=sucursal,
+            hash_payload=hash_payload,
+        ).first()
         if hash_payload and existente is not None:
             logger.info(
                 'Evento sync %s %s ya estaba encolado (id=%s); no se duplica.',

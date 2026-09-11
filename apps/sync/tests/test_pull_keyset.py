@@ -5,8 +5,8 @@ Lo que se garantiza aqui:
 
 1. Un registro editado llega aunque caiga en la ultima pagina (paginacion real).
 2. Dos registros con `fecha_modificacion` identica no se pierden en el borde.
-3. Un item que falla al aplicarse NO se salta: congela la marca de agua y el
-   siguiente ciclo lo reintenta.
+3. Un item que falla al aplicarse NO se pierde: se persiste en una cola durable,
+   el cursor avanza y el siguiente ciclo lo reintenta desde la cola.
 4. Un corte de red a media paginacion retoma donde iba, no desde cero.
 5. Un cursor congelado queda visible.
 """
@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from apps.productos.models import Categoria
 from apps.sync.engine import SyncEngine
-from apps.sync.models import VersionMaestro
+from apps.sync.models import DiferidoSync, VersionMaestro
 
 
 class _Resp:
@@ -120,11 +120,10 @@ class PullKeysetTests(TestCase):
     # ------------------------------------------------------------------
 
     @mock.patch('apps.sync.engine.requests.get')
-    def test_item_que_falla_congela_la_marca_de_agua(self, mock_get):
+    def test_item_que_falla_avanza_solo_despues_de_persistirlo(self, mock_get):
         """
-        El corazon de BUG-B: antes el cursor saltaba al maximo visto y el item
-        fallido no volvia a entrar en ningun pull. Ahora la marca de agua se
-        detiene ANTES del fallo.
+        A04 permite avanzar el cursor solamente despues de aplicar el item o
+        dejar una copia durable que sobreviva al reinicio del proceso.
         """
         items = [
             _item('Cat OK 1', self.base + timedelta(seconds=1), 1),
@@ -143,14 +142,15 @@ class PullKeysetTests(TestCase):
 
         with mock.patch.object(Categoria.objects, 'create',
                                side_effect=falla_en_la_mala):
-            self.engine._pull_categorias()
+            resultado = self.engine._pull_categorias()
 
         cursor = self._cursor()
-        # Se detuvo en el item 2, justo antes del que falla.
-        self.assertEqual(cursor.ultimo_id, 2)
-        # Y quedo marcado como bloqueado, con la referencia del culpable.
-        self.assertIsNotNone(cursor.bloqueado_desde)
-        self.assertIn('Cat MALA', cursor.bloqueado_detalle)
+        self.assertEqual(cursor.ultimo_id, 4)
+        self.assertIsNone(cursor.bloqueado_desde)
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
+        diferido = DiferidoSync.objects.get(tabla='categorias')
+        self.assertEqual(diferido.estado, 'PENDIENTE')
+        self.assertEqual(diferido.identidad, 'nombre=Cat MALA')
 
     @mock.patch('apps.sync.engine.requests.get')
     def test_los_items_posteriores_al_fallo_si_se_aplican(self, mock_get):
@@ -179,8 +179,35 @@ class PullKeysetTests(TestCase):
         self.assertFalse(Categoria.objects.filter(nombre='Cat MALA').exists())
 
     @mock.patch('apps.sync.engine.requests.get')
+    def test_si_no_puede_persistir_el_diferido_no_avanza_sobre_el(self, mock_get):
+        items = [
+            _item('Cat OK', self.base + timedelta(seconds=1), 1),
+            _item('Cat MALA', self.base + timedelta(seconds=2), 2),
+            _item('Cat POSTERIOR', self.base + timedelta(seconds=3), 3),
+        ]
+        mock_get.side_effect = [_Resp(_pagina(items)), _Resp(_pagina([]))]
+        real = Categoria.objects.create
+
+        def falla_en_la_mala(*args, **kwargs):
+            if kwargs.get('nombre') == 'Cat MALA':
+                raise ValueError('no se puede aplicar')
+            return real(*args, **kwargs)
+
+        with mock.patch.object(
+            Categoria.objects, 'create', side_effect=falla_en_la_mala,
+        ), mock.patch.object(
+            self.engine, '_guardar_diferido', side_effect=RuntimeError('disco lleno'),
+        ):
+            resultado = self.engine._pull_categorias()
+
+        self.assertEqual(self._cursor().ultimo_id, 1)
+        self.assertIn('no aplicado ni guardado', resultado['bloqueo'])
+        self.assertEqual(DiferidoSync.objects.count(), 0)
+        self.assertTrue(Categoria.objects.filter(nombre='Cat POSTERIOR').exists())
+
+    @mock.patch('apps.sync.engine.requests.get')
     def test_el_siguiente_ciclo_reintenta_el_item_fallido(self, mock_get):
-        """Cuando el item deja de fallar, el pull lo recupera y desbloquea."""
+        """Cuando el item deja de fallar, la cola lo recupera sin pedirlo otra vez."""
         items = [
             _item('Cat OK', self.base + timedelta(seconds=1), 1),
             _item('Cat MALA', self.base + timedelta(seconds=2), 2),
@@ -197,17 +224,50 @@ class PullKeysetTests(TestCase):
         with mock.patch.object(Categoria.objects, 'create', side_effect=falla):
             self.engine._pull_categorias()
 
-        self.assertEqual(self._cursor().ultimo_id, 1)
+        self.assertEqual(self._cursor().ultimo_id, 2)
+        self.assertEqual(DiferidoSync.objects.filter(estado='PENDIENTE').count(), 1)
 
-        # Segundo ciclo: el cloud vuelve a mandar el item (el cursor no lo paso)
-        # y esta vez aplica bien.
-        mock_get.side_effect = [_Resp(_pagina([items[1]])), _Resp(_pagina([]))]
-        self.engine._pull_categorias()
+        # Segundo ciclo: el cloud no lo repite porque el cursor avanzo. La copia
+        # local durable se reintenta y esta vez aplica bien.
+        mock_get.side_effect = [_Resp(_pagina([]))]
+        resultado = self.engine._pull_categorias()
 
         cursor = self._cursor()
         self.assertEqual(cursor.ultimo_id, 2)
         self.assertTrue(Categoria.objects.filter(nombre='Cat MALA').exists())
-        self.assertIsNone(cursor.bloqueado_desde, 'El bloqueo debio limpiarse')
+        self.assertEqual(resultado['diferidos_resueltos'], 1)
+        self.assertEqual(DiferidoSync.objects.get().estado, 'RESUELTO')
+
+    @mock.patch('apps.sync.engine.requests.get')
+    def test_crash_entre_aplicar_y_resolver_revierte_y_conserva_la_cola(self, mock_get):
+        item = _item('Cat CRASH', self.base + timedelta(seconds=1), 1)
+        mock_get.side_effect = [_Resp(_pagina([item])), _Resp(_pagina([]))]
+        real_create = Categoria.objects.create
+
+        with mock.patch.object(
+            Categoria.objects,
+            'create',
+            side_effect=ValueError('dependencia temporal'),
+        ):
+            self.engine._pull_categorias()
+
+        diferido = DiferidoSync.objects.get(estado='PENDIENTE')
+        real_save = DiferidoSync.save
+
+        def morir_al_resolver(instancia, *args, **kwargs):
+            if instancia.estado == 'RESUELTO':
+                raise RuntimeError('proceso terminado')
+            return real_save(instancia, *args, **kwargs)
+
+        mock_get.side_effect = [_Resp(_pagina([]))]
+        with mock.patch.object(Categoria.objects, 'create', wraps=real_create), \
+                mock.patch.object(DiferidoSync, 'save', new=morir_al_resolver):
+            with self.assertRaisesMessage(RuntimeError, 'proceso terminado'):
+                self.engine._pull_categorias()
+
+        diferido.refresh_from_db()
+        self.assertEqual(diferido.estado, 'PENDIENTE')
+        self.assertFalse(Categoria.objects.filter(nombre='Cat CRASH').exists())
 
     # ------------------------------------------------------------------
     # Resiliencia de red

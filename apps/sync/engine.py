@@ -26,11 +26,13 @@ Robustez:
   aparecen en 'confirmados' pasan a estado CONFIRMADO.
 """
 import logging
-from datetime import datetime, timezone as dt_timezone
+import time
+import uuid
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.tenancy.context import get_current_tenant_key
@@ -53,9 +55,9 @@ class _Diferido:
 
     Se usa para dependencias ausentes (el rol todavia no bajo, la categoria no
     existe local): no es un error -- no hay nada roto -- pero tampoco es un
-    exito, y sobre todo NO debe avanzar la marca de agua. Si el cursor avanza,
-    la fila no vuelve a bajar cuando la dependencia aparece, porque en el cloud
-    esa fila no cambio y el `?desde=` ya la dejo atras.
+    exito. A04 permite avanzar la marca de agua solo despues de guardar una
+    copia durable en ``DiferidoSync`` para reintentar aunque el cloud ya no la
+    vuelva a enviar.
     """
 
     def __repr__(self):
@@ -65,7 +67,10 @@ class _Diferido:
 DIFERIDO = _Diferido()
 
 
-def _resultado_pull(count=0, ok=True, error=None, bloqueo=None, paginas=0):
+def _resultado_pull(
+    count=0, ok=True, error=None, bloqueo=None, paginas=0,
+    diferidos_pendientes=0, diferidos_resueltos=0,
+):
     """Resultado estructurado de un pull por entidad.
 
     `pull_maestros` devolvia solo conteos, asi que un 401 en todos los
@@ -78,6 +83,8 @@ def _resultado_pull(count=0, ok=True, error=None, bloqueo=None, paginas=0):
         'error': error,
         'bloqueo': bloqueo,
         'paginas': paginas,
+        'diferidos_pendientes': diferidos_pendientes,
+        'diferidos_resueltos': diferidos_resueltos,
     }
 
 
@@ -117,6 +124,10 @@ def clasificar_ciclo(*, heartbeat, push, pull):
         motivos.append(f'pull {error}')
     for bloqueo in pull.get('bloqueos', []):
         motivos.append(f'cursor bloqueado -> {bloqueo}')
+    if pull.get('diferidos_pendientes'):
+        motivos.append(
+            f"{pull['diferidos_pendientes']} item(s) diferido(s) pendiente(s)"
+        )
 
     if not motivos:
         return 'EXITOSO', motivos
@@ -136,13 +147,30 @@ class SyncConfigError(Exception):
 class SyncEngine:
     """Engine de sync para la sucursal actual."""
 
-    def __init__(self, cloud_url=None, token=None, timeout=None, batch_size=None,
-                 max_retries=None):
+    def __init__(
+        self, cloud_url=None, token=None, timeout=None, batch_size=None,
+        max_retries=None, lease_seconds=None, health_timeout=None,
+        health_retries=None, health_backoff=None,
+    ):
         self.cloud_url = (cloud_url or getattr(settings, 'CLOUD_API_URL', '')).rstrip('/')
         self.token = token or getattr(settings, 'CLOUD_API_TOKEN', '')
         self.timeout = timeout or getattr(settings, 'SYNC_HTTP_TIMEOUT', 10)
         self.batch_size = batch_size or getattr(settings, 'SYNC_BATCH_SIZE', 50)
         self.max_retries = max_retries or getattr(settings, 'SYNC_MAX_RETRIES', 10)
+        self.lease_seconds = lease_seconds or getattr(settings, 'SYNC_LEASE_SECONDS', 300)
+        self.health_timeout = health_timeout or getattr(
+            settings, 'SYNC_HEALTH_TIMEOUT', self.timeout,
+        )
+        self.health_retries = (
+            health_retries
+            if health_retries is not None
+            else getattr(settings, 'SYNC_HEALTH_RETRIES', 3)
+        )
+        self.health_backoff = (
+            health_backoff
+            if health_backoff is not None
+            else getattr(settings, 'SYNC_HEALTH_RETRY_BACKOFF', 1)
+        )
         self.max_paginas_pull = getattr(settings, 'SYNC_MAX_PAGINAS_PULL', MAX_PAGINAS_PULL)
 
     # ------------------------------------------------------------------
@@ -177,11 +205,20 @@ class SyncEngine:
         """
         if not self.cloud_url:
             return False
-        try:
-            r = requests.get(self._url('/api/v1/health/'), timeout=3)
-            return r.status_code == 200
-        except requests.RequestException:
-            return False
+        intentos = max(1, int(self.health_retries))
+        for intento in range(intentos):
+            try:
+                r = requests.get(
+                    self._url('/api/v1/health/'),
+                    timeout=self.health_timeout,
+                )
+                if r.status_code == 200:
+                    return True
+            except requests.RequestException:
+                pass
+            if intento + 1 < intentos and self.health_backoff > 0:
+                time.sleep(self.health_backoff)
+        return False
 
     def heartbeat(self):
         """
@@ -200,6 +237,38 @@ class SyncEngine:
         except requests.RequestException as exc:
             logger.warning('heartbeat: fallo de red: %s', exc)
             return False
+
+    def consultar_reconciliacion_eventos(self, eventos):
+        """Sonda read-only de BUG-K; no depende de un ping previo."""
+        self._require_config()
+        try:
+            resp = requests.post(
+                self._url('/api/v1/sync/reconciliacion-eventos/'),
+                json={
+                    'schema_version': 'sync.reconciliation.v1',
+                    'eventos': eventos,
+                },
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise SyncConfigError(f'No se pudo reconciliar eventos: {exc}') from exc
+
+        if resp.status_code >= 400:
+            raise SyncConfigError(
+                f'Reconciliacion HTTP {resp.status_code}: {resp.text[:300]}'
+            )
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise SyncConfigError('Reconciliacion devolvio una respuesta no JSON.') from exc
+        if (
+            not isinstance(data, dict)
+            or data.get('schema_version') != 'sync.reconciliation.v1'
+            or not isinstance(data.get('resultados'), list)
+        ):
+            raise SyncConfigError('Reconciliacion devolvio un contrato invalido.')
+        return data
 
     # ------------------------------------------------------------------
     # RESUMEN: agregados para conciliacion (Fase 3)
@@ -296,6 +365,65 @@ class SyncEngine:
 
         return enviables
 
+    def _reclamar_eventos(self):
+        """Reserva un batch con lease durable y devuelve ``(eventos, lease)``.
+
+        El lock de PostgreSQL solo protege la seleccion. ``EN_VUELO`` y el
+        lease sobreviven al commit que necesariamente ocurre antes del HTTP;
+        otro proceso no puede tomar esas filas hasta que el lease venza.
+        """
+        from .models import EventoSync
+
+        ahora = timezone.now()
+        vencimiento = ahora + timedelta(seconds=self.lease_seconds)
+        lease_id = uuid.uuid4()
+        base_qs = EventoSync.objects.all()
+        using = base_qs.db
+
+        with transaction.atomic(using=using):
+            eventos = list(
+                base_qs
+                .select_for_update(skip_locked=True)
+                .filter(
+                    models.Q(
+                        estado__in=EventoSync.ESTADOS_ENVIABLES,
+                        intentos__lt=self.max_retries,
+                    )
+                    | models.Q(
+                        estado='EN_VUELO',
+                        lease_expires_at__lte=ahora,
+                    )
+                )
+                .order_by('created_at')[:self.batch_size]
+            )
+            if not eventos:
+                return [], None
+
+            # Un lease vencido vuelve a ser propiedad del proceso que lo toma.
+            # Todavia no consume un intento: pudo haber commit remoto con ACK
+            # perdido, y el replay por event_id/hash es precisamente la salida.
+            for evento in eventos:
+                if evento.estado == 'EN_VUELO':
+                    evento.estado = 'PENDIENTE' if evento.payload else 'SIN_PAYLOAD'
+                    evento.lease_id = None
+                    evento.lease_expires_at = None
+
+            eventos = self._completar_payloads(eventos)
+            if not eventos:
+                return [], None
+
+            for evento in eventos:
+                evento.estado = 'EN_VUELO'
+                evento.lease_id = lease_id
+                evento.lease_expires_at = vencimiento
+                evento.sent_at = ahora
+            EventoSync.objects.using(using).bulk_update(
+                eventos,
+                ['estado', 'lease_id', 'lease_expires_at', 'sent_at'],
+            )
+
+        return eventos, lease_id
+
     def push_eventos(self):
         """
         Empuja hasta batch_size eventos al cloud.
@@ -308,37 +436,9 @@ class SyncEngine:
 
         metricas = {'procesados': 0, 'confirmados': 0, 'fallidos': 0}
 
-        # Claim: toma eventos pendientes con lock para que otro worker no los tome
-        with transaction.atomic():
-            eventos_qs = (
-                EventoSync.objects
-                .select_for_update(skip_locked=True)
-                .filter(estado__in=EventoSync.ESTADOS_ENVIABLES)
-                .exclude(intentos__gte=self.max_retries)
-                .order_by('created_at')[:self.batch_size]
-            )
-            eventos = list(eventos_qs)
-
-            if not eventos:
-                return metricas
-
-            # Los eventos SIN_PAYLOAD se encolaron porque el hecho ocurrio, pero
-            # su serializacion fallo en su momento. Se reintenta aqui, contra el
-            # estado actual de la BD. Los que sigan fallando no entran al batch:
-            # `EventoSyncSerializer` rechaza payloads vacios.
-            eventos = self._completar_payloads(eventos)
-
-            if not eventos:
-                return metricas
-
-            # Marca todos como "sent_at" ANTES de enviar: si el cloud los recibe
-            # pero la respuesta se pierde, el hash garantiza idempotencia en la
-            # proxima corrida. Peor caso: reintento con el mismo hash => cloud
-            # responde "ya confirmado".
-            now = timezone.now()
-            for e in eventos:
-                e.sent_at = now
-                e.save(update_fields=['sent_at'])
+        eventos, lease_id = self._reclamar_eventos()
+        if not eventos:
+            return metricas
 
         metricas['procesados'] = len(eventos)
 
@@ -348,6 +448,7 @@ class SyncEngine:
         payload = {
             'eventos': [
                 {
+                    'event_id': str(e.event_id),
                     'tipo_evento': e.tipo_evento,
                     'payload': e.payload,
                     'hash_payload': e.hash_payload,
@@ -369,7 +470,11 @@ class SyncEngine:
             # Fallo de red: marca error a todos (pero no los pierde)
             logger.warning('push_eventos: fallo de red: %s', exc)
             for e in eventos:
-                e.marcar_error(f'Conexion: {exc}', max_retries=self.max_retries)
+                e.marcar_error(
+                    f'Conexion: {exc}',
+                    max_retries=self.max_retries,
+                    lease_id=lease_id,
+                )
             metricas['fallidos'] = len(eventos)
             return metricas
 
@@ -378,7 +483,9 @@ class SyncEngine:
             mensaje = f'HTTP {resp.status_code}: {resp.text[:500]}'
             logger.error('push_eventos: %s', mensaje)
             for e in eventos:
-                e.marcar_error(mensaje, max_retries=self.max_retries)
+                e.marcar_error(
+                    mensaje, max_retries=self.max_retries, lease_id=lease_id,
+                )
             metricas['fallidos'] = len(eventos)
             return metricas
 
@@ -388,7 +495,11 @@ class SyncEngine:
         except ValueError:
             logger.error('push_eventos: respuesta no es JSON valido')
             for e in eventos:
-                e.marcar_error('Respuesta cloud invalida (no JSON)', max_retries=self.max_retries)
+                e.marcar_error(
+                    'Respuesta cloud invalida (no JSON)',
+                    max_retries=self.max_retries,
+                    lease_id=lease_id,
+                )
             metricas['fallidos'] = len(eventos)
             return metricas
 
@@ -410,17 +521,27 @@ class SyncEngine:
             )
             logger.error('push_eventos: %s', mensaje)
             for e in eventos:
-                e.marcar_error(mensaje, max_retries=self.max_retries)
+                e.marcar_error(
+                    mensaje, max_retries=self.max_retries, lease_id=lease_id,
+                )
             metricas['fallidos'] = len(eventos)
             return metricas
 
         estado_por_hash = {}
+        estado_por_event_id = {}
         for item in data['detalle']:
-            if isinstance(item, dict) and item.get('hash'):
+            if not isinstance(item, dict):
+                continue
+            if item.get('hash'):
                 estado_por_hash[item['hash']] = item
+            if item.get('event_id'):
+                estado_por_event_id[str(item['event_id'])] = item
 
         for e in eventos:
-            item = estado_por_hash.get(e.hash_payload)
+            item = (
+                estado_por_event_id.get(str(e.event_id))
+                or estado_por_hash.get(e.hash_payload)
+            )
             if item is None:
                 # Se envio y el cloud no dijo nada de este evento. ANTES esto
                 # solo sumaba a `fallidos`: el evento quedaba enviable con el
@@ -431,18 +552,29 @@ class SyncEngine:
                     'El cloud no incluyo este evento en el ACK '
                     '(hash ausente en "detalle")',
                     max_retries=self.max_retries,
+                    lease_id=lease_id,
                 )
                 metricas['fallidos'] += 1
                 continue
 
             estado_cloud = item.get('estado')
             if estado_cloud in ('CONFIRMADO', 'DUPLICADO'):
-                e.marcar_confirmado()
-                metricas['confirmados'] += 1
+                if e.marcar_confirmado(lease_id=lease_id):
+                    metricas['confirmados'] += 1
+                else:
+                    metricas['fallidos'] += 1
+                    logger.warning(
+                        'push_eventos: ACK tardio ignorado para event_id=%s; '
+                        'el lease ya no pertenece a este proceso', e.event_id,
+                    )
             else:
                 # ERROR u otro: reintentar
                 error_msg = item.get('error') or f'Estado cloud: {estado_cloud}'
-                e.marcar_error(error_msg, max_retries=self.max_retries)
+                e.marcar_error(
+                    error_msg,
+                    max_retries=self.max_retries,
+                    lease_id=lease_id,
+                )
                 metricas['fallidos'] += 1
 
         logger.info(
@@ -488,7 +620,15 @@ class SyncEngine:
             ('configuracion', self._pull_configuracion),
         )
 
-        metricas = {'total': 0, 'ok': True, 'entidades': {}, 'errores': [], 'bloqueos': []}
+        metricas = {
+            'total': 0,
+            'ok': True,
+            'entidades': {},
+            'errores': [],
+            'bloqueos': [],
+            'diferidos_pendientes': 0,
+            'diferidos_resueltos': 0,
+        }
 
         for nombre, funcion in entidades:
             try:
@@ -500,6 +640,12 @@ class SyncEngine:
             metricas['entidades'][nombre] = resultado
             metricas[nombre] = resultado['count']
             metricas['total'] += resultado['count']
+            metricas['diferidos_pendientes'] += resultado.get(
+                'diferidos_pendientes', 0,
+            )
+            metricas['diferidos_resueltos'] += resultado.get(
+                'diferidos_resueltos', 0,
+            )
 
             if not resultado['ok']:
                 metricas['ok'] = False
@@ -513,20 +659,164 @@ class SyncEngine:
         )
         return metricas
 
+    @staticmethod
+    def _ambito_diferidos():
+        """Scope tecnico estable de la cola local de diferidos."""
+        tenant_key = get_current_tenant_key() or ''
+        if not tenant_key:
+            try:
+                from apps.negocios.models import Negocio
+
+                claves = list(
+                    Negocio.objects.filter(activo=True)
+                    .values_list('slug', flat=True)[:2]
+                )
+                if len(claves) == 1:
+                    tenant_key = claves[0]
+            except Exception:
+                tenant_key = ''
+        return tenant_key, getattr(settings, 'SUCURSAL_CODIGO', '') or ''
+
+    def _diferidos_qs(self, tabla):
+        from .models import DiferidoSync
+
+        tenant_key, sucursal_codigo = self._ambito_diferidos()
+        return DiferidoSync.objects.filter(
+            tenant_key=tenant_key,
+            sucursal_codigo=sucursal_codigo,
+            tabla=tabla,
+        )
+
+    def _guardar_diferido(self, tabla, item, clave, motivo):
+        """Persiste un item no aplicado; solo entonces el cursor puede pasarlo."""
+        from .events import _calcular_hash
+        from .models import DiferidoSync
+
+        tenant_key, sucursal_codigo = self._ambito_diferidos()
+        payload_hash = _calcular_hash(item)
+        fecha, cursor_id = clave if clave is not None else (None, 0)
+        base_qs = self._diferidos_qs(tabla)
+        using = base_qs.db
+
+        with transaction.atomic(using=using):
+            diferido, creado = (
+                DiferidoSync.objects.using(using)
+                .select_for_update()
+                .get_or_create(
+                    tenant_key=tenant_key,
+                    sucursal_codigo=sucursal_codigo,
+                    tabla=tabla,
+                    payload_hash=payload_hash,
+                    defaults={
+                        'identidad': self._ref_item(item),
+                        'cursor_fecha': fecha,
+                        'cursor_id': cursor_id,
+                        'payload': item,
+                        'ultimo_error': motivo[:2000],
+                    },
+                )
+            )
+            if not creado:
+                diferido.identidad = self._ref_item(item)
+                diferido.cursor_fecha = fecha
+                diferido.cursor_id = cursor_id
+                diferido.payload = item
+                diferido.estado = 'PENDIENTE'
+                diferido.intentos += 1
+                diferido.ultimo_error = motivo[:2000]
+                diferido.resuelto_at = None
+                diferido.save()
+        return diferido
+
+    def _procesar_diferidos(self, tabla, apply_func):
+        """Reintenta diferidos de forma transaccional y recuperable ante crash."""
+        base_qs = self._diferidos_qs(tabla)
+        using = base_qs.db
+        ids = list(
+            base_qs
+            .filter(estado='PENDIENTE')
+            .order_by('creado_at', 'id')
+            .values_list('id', flat=True)
+        )
+        resueltos = 0
+        for diferido_id in ids:
+            with transaction.atomic(using=using):
+                diferido = (
+                    base_qs.select_for_update(skip_locked=True)
+                    .filter(pk=diferido_id, estado='PENDIENTE')
+                    .first()
+                )
+                if diferido is None:
+                    continue
+                try:
+                    resultado = apply_func(diferido.payload)
+                except Exception as exc:
+                    diferido.intentos += 1
+                    diferido.ultimo_error = (
+                        f'{type(exc).__name__}: {exc}'
+                    )[:2000]
+                    diferido.save(update_fields=[
+                        'intentos', 'ultimo_error', 'actualizado_at',
+                    ])
+                    continue
+
+                if resultado is DIFERIDO:
+                    diferido.intentos += 1
+                    diferido.ultimo_error = 'Dependencia ausente al reintentar.'
+                    diferido.save(update_fields=[
+                        'intentos', 'ultimo_error', 'actualizado_at',
+                    ])
+                    continue
+
+                diferido.estado = 'RESUELTO'
+                diferido.resuelto_at = timezone.now()
+                diferido.ultimo_error = ''
+                diferido.save(update_fields=[
+                    'estado', 'resuelto_at', 'ultimo_error', 'actualizado_at',
+                ])
+                resueltos += 1
+        return resueltos
+
+    def _aplicar_o_diferir(self, tabla, item, apply_func, clave):
+        """Retorna ``(aplicado, almacenado, motivo)`` para un item de pull."""
+        try:
+            using = self._diferidos_qs(tabla).db
+            with transaction.atomic(using=using):
+                resultado = apply_func(item)
+            if resultado is not DIFERIDO:
+                return True, False, ''
+            motivo = 'Dependencia ausente.'
+        except Exception as exc:
+            logger.exception(
+                'pull %s: error aplicando item %s: %s',
+                tabla, item.get('id') or item.get('cursor_id'), exc,
+            )
+            motivo = f'{type(exc).__name__}: {exc}'
+
+        try:
+            self._guardar_diferido(tabla, item, clave, motivo)
+            return False, True, motivo
+        except Exception as exc:
+            logger.exception(
+                'pull %s: no se pudo guardar el diferido %s: %s',
+                tabla, self._ref_item(item), exc,
+            )
+            return False, False, f'no se pudo persistir diferido: {type(exc).__name__}'
+
     def _pull_generic(
         self, tabla, endpoint, apply_func, *, headers=None,
         extra_params=None, response_key=None, on_snapshot_complete=None,
         envelope_validator=None,
     ):
         """
-        Pull incremental con cursor KEYSET y marca de agua contigua.
+        Pull incremental con cursor KEYSET y cola durable de diferidos.
 
         Dos cursores, y esa es la idea central (ver BUG-B en docs/BUGS.md):
 
           req    -> clave del ultimo item RECIBIDO. Sirve para pedir la pagina
                     siguiente. Avanza siempre.
-          commit -> clave del ultimo item aplicado con exito EN SECUENCIA
-                    CONTIGUA. Es lo unico que se persiste.
+          commit -> clave del ultimo item aplicado o capturado durablemente EN
+                    SECUENCIA CONTIGUA. Es lo unico que se persiste.
 
         Antes habia un solo cursor que saltaba al maximo visto aunque un item
         hubiera fallado, y ese registro no volvia a entrar en ningun pull: se
@@ -534,13 +824,13 @@ class SyncEngine:
 
             items:  [ok, ok, FALLA, ok, ok]
             antes:  cursor = clave del ultimo  -> el fallido se pierde
-            ahora:  commit = clave del 2o      -> el proximo ciclo lo reintenta
+            ahora:  commit = ultimo si FALLA quedo en DiferidoSync; si tampoco
+                    pudo persistirse, queda antes del fallo.
 
         Los items posteriores al fallo SI se aplican (son idempotentes,
-        `update_or_create`), asi que la sucursal no se queda con datos viejos
-        por culpa de un registro problematico. Lo unico que se congela es la
-        marca de agua persistida, y el bloqueo queda visible en el propio
-        cursor (`bloqueado_desde` / `bloqueado_detalle`).
+        `update_or_create`). Un diferido durable queda visible y vuelve a
+        intentarse al inicio del proximo ciclo. El cursor solo se congela si ni
+        aplicar ni persistir el item fue posible.
 
         Pedir cada pagina por su clave -- en vez de seguir el `next` de DRF, que
         es por offset -- hace ademas que un corte de red a media paginacion
@@ -555,7 +845,8 @@ class SyncEngine:
         commit_id = cursor.ultimo_id or 0
         req_fecha, req_id = commit_fecha, commit_id
 
-        count = 0
+        diferidos_resueltos = self._procesar_diferidos(tabla, apply_func)
+        count = diferidos_resueltos
         contiguo = True          # mientras nadie falle, commit sigue a req
         bloqueo = None           # primer fallo de esta corrida
         error = None             # fallo de transporte/HTTP de esta corrida
@@ -630,8 +921,13 @@ class SyncEngine:
                     'pull %s: el cloud no respeta el orden del cursor (version '
                     'anterior a Fase 2). Degradando a paginacion legacy.', tabla,
                 )
-                return _resultado_pull(
-                    count=self._pull_legacy(tabla, endpoint, apply_func, cursor),
+                return self._pull_legacy(
+                    tabla,
+                    endpoint,
+                    apply_func,
+                    cursor,
+                    count_inicial=count,
+                    diferidos_resueltos=diferidos_resueltos,
                 )
 
             frontera_antes = (req_fecha, req_id)
@@ -639,40 +935,29 @@ class SyncEngine:
             for item in items:
                 clave = self._clave_cursor(item)
 
-                try:
-                    # Savepoint por item: si `apply` falla con un error de BD
-                    # (constraint, tipo), en Postgres la transaccion queda
-                    # abortada y ni siquiera se podria guardar el cursor. Con
-                    # el savepoint el fallo se aisla y el recorrido sigue.
-                    with transaction.atomic():
-                        resultado = apply_func(item)
-                    aplicado = resultado is not DIFERIDO
-                    if aplicado:
-                        count += 1
-                    elif bloqueo is None:
-                        # Dependencia ausente: no es un error, pero TAMPOCO es
-                        # "aplicado". Antes cualquier retorno sin excepcion
-                        # contaba como exito y el cursor avanzaba, asi que la
-                        # fila no volvia a bajar cuando la dependencia llegaba
-                        # (el registro cloud no cambio, el `?desde=` ya paso).
-                        bloqueo = (
-                            f'{tabla}: item {self._ref_item(item)} diferido '
-                            f'(dependencia ausente)'
-                        )
-                except Exception as exc:
-                    logger.exception('pull %s: error aplicando item %s: %s',
-                                     tabla, item.get('id') or item.get('cursor_id'), exc)
-                    aplicado = False
-                    if bloqueo is None:
-                        bloqueo = f"{tabla}: item {self._ref_item(item)} falla al aplicarse: {exc}"
+                aplicado, almacenado, motivo = self._aplicar_o_diferir(
+                    tabla, item, apply_func, clave,
+                )
+                if aplicado:
+                    count += 1
+                elif almacenado:
+                    logger.warning(
+                        'pull %s: item %s guardado en cola durable: %s',
+                        tabla, self._ref_item(item), motivo,
+                    )
+                elif bloqueo is None:
+                    bloqueo = (
+                        f'{tabla}: item {self._ref_item(item)} no aplicado ni '
+                        f'guardado: {motivo}'
+                    )
 
                 if clave is not None:
                     req_fecha, req_id = clave
-                    # La marca de agua solo avanza mientras la racha sea limpia.
-                    if aplicado and contiguo:
+                    # Aplicado o capturado durablemente son posiciones seguras.
+                    if (aplicado or almacenado) and contiguo:
                         commit_fecha, commit_id = clave
 
-                if not aplicado:
+                if not (aplicado or almacenado):
                     contiguo = False
 
             # Sin paginacion (lista plana) se termina en una sola vuelta.
@@ -704,9 +989,14 @@ class SyncEngine:
                 logger.warning('pull %s: %s', tabla, bloqueo)
                 break
 
+        diferidos_pendientes = self._diferidos_qs(tabla).filter(
+            estado='PENDIENTE',
+        ).count()
+
         if (
             error is None
             and bloqueo is None
+            and diferidos_pendientes == 0
             and snapshot_complete
             and on_snapshot_complete is not None
         ):
@@ -726,6 +1016,8 @@ class SyncEngine:
             error=error,
             bloqueo=bloqueo,
             paginas=paginas,
+            diferidos_pendientes=diferidos_pendientes,
+            diferidos_resueltos=diferidos_resueltos,
         )
 
     @classmethod
@@ -746,20 +1038,26 @@ class SyncEngine:
             anterior = clave
         return True
 
-    def _pull_legacy(self, tabla, endpoint, apply_func, cursor):
+    def _pull_legacy(
+        self, tabla, endpoint, apply_func, cursor, *, count_inicial=0,
+        diferidos_resueltos=0,
+    ):
         """
         Recorrido antiguo: seguir el `next` de DRF y avanzar el cursor al maximo
         `fecha_modificacion` visto.
 
         Solo se usa contra un cloud que no soporta el cursor keyset. Conserva el
-        comportamiento historico -- incluido su punto debil de saltarse un item
-        que falla -- pero al menos recorre el catalogo completo sin perder
-        registros por solapamiento de paginas.
+        Los items que no aplican tambien se guardan en la cola durable. Eso
+        conserva compatibilidad de transporte sin conservar la perdida
+        silenciosa del cliente viejo.
         """
-        count = 0
+        count = count_inicial
         max_fecha = cursor.ultima_version
         url = self._url(endpoint)
         params = {'desde': cursor.ultima_version.isoformat()} if cursor.ultima_version else {}
+        error = None
+        bloqueo = None
+        paginas = 0
 
         while url:
             try:
@@ -767,9 +1065,11 @@ class SyncEngine:
                                     timeout=self.timeout)
             except requests.RequestException as exc:
                 logger.warning('pull %s (legacy): error de red: %s', tabla, exc)
+                error = f'red: {exc}'
                 break
             if resp.status_code >= 400:
                 logger.error('pull %s (legacy): HTTP %s', tabla, resp.status_code)
+                error = f'HTTP {resp.status_code}: {resp.text[:200]}'
                 break
 
             data = resp.json()
@@ -782,22 +1082,46 @@ class SyncEngine:
                 url = None
 
             for item in items:
-                try:
-                    apply_func(item)
-                    count += 1
-                except Exception as exc:
-                    logger.exception('pull %s (legacy): error aplicando item: %s', tabla, exc)
-                    continue
                 clave = self._clave_cursor(item)
-                if clave and (max_fecha is None or clave[0] > max_fecha):
+                aplicado, almacenado, motivo = self._aplicar_o_diferir(
+                    tabla, item, apply_func, clave,
+                )
+                if aplicado:
+                    count += 1
+                elif not almacenado and bloqueo is None:
+                    bloqueo = (
+                        f'{tabla}: item {self._ref_item(item)} no aplicado ni '
+                        f'guardado: {motivo}'
+                    )
+                if (
+                    (aplicado or almacenado)
+                    and clave
+                    and (max_fecha is None or clave[0] > max_fecha)
+                ):
                     max_fecha = clave[0]
+            paginas += 1
 
-        if count:
+        if (count or max_fecha != cursor.ultima_version) and bloqueo is None:
             cursor.ultima_version = max_fecha
+            cursor.ultimo_id = 0
             cursor.ultima_sync_exitosa = timezone.now()
             cursor.registros_ultima_sync = count
             cursor.save()
-        return count
+        if bloqueo:
+            cursor.marcar_bloqueado(bloqueo)
+        else:
+            cursor.limpiar_bloqueo()
+
+        pendientes = self._diferidos_qs(tabla).filter(estado='PENDIENTE').count()
+        return _resultado_pull(
+            count=count,
+            ok=error is None,
+            error=error,
+            bloqueo=bloqueo,
+            paginas=paginas,
+            diferidos_pendientes=pendientes,
+            diferidos_resueltos=diferidos_resueltos,
+        )
 
     @staticmethod
     def _clave_cursor(item):
@@ -873,7 +1197,7 @@ class SyncEngine:
             # nombre/cedula fallaria igual. Es una colision real: dos registros
             # cloud distintos reclaman la misma clave natural local. Quien la
             # resuelve es el operador (renombrar, fusionar), no el sync. Se
-            # difiere para que quede visible en el cursor bloqueado.
+            # difiere para que quede visible en la cola durable.
             logger.warning(
                 '%s: la fila local %s ya esta sellada con origen_cloud_id=%s; '
                 'el registro cloud %s no puede adoptarla. Resolver manualmente.',
