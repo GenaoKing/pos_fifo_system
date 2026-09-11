@@ -738,6 +738,6 @@ lo que no existe") -- ahora aplica igual a productos.
   exactamente un `CONFIRMADO` y un `DUPLICADO` para una colisión real.
 - A04 (`be15ea0`, 2026-09-11) agrega identidad estable y scopeada, lease
   durable, sonda read-only `sync.reconciliation.v1` y el comando
-  `reparar_bug_k`, dry-run por defecto. El código/herramienta están listos para
-  revisión local; **no** se consultaron clientes, no se ejecutó una reparación
+  `reparar_bug_k`, dry-run por defecto. El código/herramienta quedaron integrados
+  y validados localmente en `9ff61c2`; **no** se consultaron clientes ni se ejecutó una reparación
   real y producción/historia continúan como pendiente operativo de A09.

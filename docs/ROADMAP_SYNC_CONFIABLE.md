@@ -6,8 +6,8 @@ Fuentes relacionadas: `docs/BUGS.md` (BUG-A, BUG-B),
 `docs/runbooks/SYNC_EMULACION_SUCURSAL_PROD.md`, `docs/historico/ROADMAP_TENANCY_DBPERTENANT.md`.
 
 Actualización de cierre 2026-09-11: A04 (`be15ea0`) agrega lease/outbox
-durables, cola de diferidos y reparación dirigida de BUG-K. Está listo para
-revisión local, **sin integrar ni desplegar**. No altera los estados históricos
+durables, cola de diferidos y reparación dirigida de BUG-K. Quedó integrado y
+validado localmente en `9ff61c2`, **sin desplegar**. No altera los estados históricos
 de las fases de abajo; la matriz HTTP real y cualquier operación sobre clientes
 siguen pendientes en A09.
 

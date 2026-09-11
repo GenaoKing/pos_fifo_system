@@ -1,8 +1,8 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-11** (A03/CT-02 integrado localmente en `b7147fb`;
-A04 implementado en la rama aislada `codex/cierre-prod-A04@be15ea0` y listo
-para revisión, todavía sin integrar; sin push, despliegue ni datos operativos).
+Ultima revision: **2026-09-11** (A04 y la primera entrega C05 integrados y
+validados localmente en el árbol `9ff61c2`; sin push, despliegue ni lectura o
+escritura de datos operativos).
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -44,9 +44,9 @@ propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
-A00-A03 y C01-C03; A04 está listo para revisión en una rama separada y no se ha
-fusionado; CT-02 quedó reconciliado/validado en `b7147fb`; G1-G4 siguen
-pendientes**.
+A00-A04, C01-C03 y C05 parte 1; A04 y los consumidores C05 de CT-02/SUS-006
+quedaron reconciliados y validados en `9ff61c2`; G1-G4 siguen pendientes porque
+faltan A05-A08 y el resto de C04-C06**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
@@ -64,15 +64,15 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Deploy Azure backend | dev/staging/prod vivos | `ROADMAP_DEPLOY_AZURE.md` | Prod corre imagen de junio: promover `develop`->`main` + job de migraciones. |
 | Tenancy cloud | **Fases 1-5 CERRADAS** | `TENANCY_DB_PER_TENANT.md` (diseno) + `apps/tenancy/AGENTS.md`; el roadmap se archivo en `docs/historico/` | Royal Plast (2026-06-20) y SK (2026-06-23) en prod, sincronizando. Media de RP subida (2026-08-23). BUG-F (login caido ~5h por migracion fantasma) resuelto (2026-08-23), con guard `migrate_tenants` nuevo. |
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
-| RBAC/permisos | CT-02 integrado/validado localmente; producción aún legacy | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | C02/C05 consumen PER-013; migración 0011 y retiro del bypass ADMIN requieren preflight verde por tenant. |
+| RBAC/permisos | CT-02 y consumidores C05 integrados/validados localmente; producción aún legacy | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | PER-013 ya cubre anulación/reimpresión por sucursal; migración 0011 y retiro del bypass ADMIN requieren preflight verde por tenant. |
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
-| Modulos vendibles | Fundacion completa | `ARQUITECTURA_MODULOS.md` | BUG-D corregido (2026-08-24): negocio sin aprovisionar falla abierto, ya no apaga la impresion en silencio. Sin pendientes. |
+| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; SUS-007–010 y el resto de C05 continúan. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | A04 validado localmente; combinación A03+C conserva su baseline | `TESTING.md` | A04: 215 focales sync/API + 1.364 Django en Windows 3.11, seriales y con BDs nuevas. Baseline anterior: 957 focales A03+C + 72 e-CF; Linux/artefacto se repite en A09. |
-| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A04 cierra localmente claim/diferidos e identidad scopeada; PER-013, cutover ADMIN y demás consumidores/operaciones siguen en sus bloques. |
+| Testing | Integración A04+C05 parte 1 validada localmente | `TESTING.md` | 237 focales + 1.386 Django + 72 e-CF en Windows 3.11, seriales y con cuatro BDs nuevas; Linux/artefacto se repite en A09. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | A04 cierra claim/diferidos/identidad scopeada; C05 cierra PER-013 y SUS-006. Cutover ADMIN y demás consumidores/operaciones siguen en sus bloques. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
-| Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable listo para revisión local** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Revisar/integrar A04; compatibilidad real, dry-run de clientes y despliegue quedan para A09 con autorización. |
-| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-K tiene sonda/plan dirigido en A04 `be15ea0`, aún sin integrar ni ejecutar contra clientes; producción e historia siguen pendientes de A09. |
+| Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable integrado localmente** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Compatibilidad HTTP real, dry-run de clientes y despliegue quedan para A09 con autorización. |
+| Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-K tiene sonda/plan dirigido integrado localmente desde A04; no se ejecutó contra clientes y producción/historia siguen pendientes de A09. |
 | Innovacion | Exploracion | `docs/exploracion/OPORTUNIDADES_INNOVACION.md` | Releer despues de estabilizar SaaS/dev cloud. |
 
 ## Cloud, portal y deploy
@@ -181,15 +181,15 @@ Fuente viva: `TESTING.md`.
 
 Estado (2026-09-11):
 
-- **1.423 metodos de test en 113 archivos.** La unica app sin ningun archivo de
+- **1.445 metodos de test en 117 archivos.** La unica app sin ningun archivo de
   test es `apps/sucursales` (su cobertura vive en las apps que la consumen).
   Con un solo archivo, y por lo tanto candidatas a reforzar:
   `auditoria`, `clientes`, `negocios`, `notificaciones` y `usuarios`.
-- Última corrida completa Windows 3.11/Django 5.2.17: **1.364 pruebas Django
-  verdes en 469,692 s** (A04, 2026-09-11), seriales y con cuatro BDs de test
-  nuevas. La matriz focal sync/API fue **215/215 en 51,391 s**. La última
-  corrida pytest de facturación sigue siendo **72 verdes en 18 s** (A01): A04
-  no tocó esa superficie. La repetición Linux 3.12 vive en el handoff A01 y se
+- Última corrida completa Windows 3.11/Django 5.2.17: **1.386 pruebas Django
+  verdes en 486,442 s** (integración A04+C05, 2026-09-11), seriales y con cuatro
+  BDs de test nuevas. La matriz focal conjunta fue **237/237 en 56,940 s** y
+  pytest de facturación quedó **72/72 en 20,70 s**. La repetición Linux 3.12
+  vive en el handoff A01 y se
   repite sobre el RC en A09. El conteo estático de métodos no es directamente
   comparable con casos parametrizados y descubrimiento del runner.
 - `apps/facturacion_electronica` corre con **pytest** (`pytest.ini` ->

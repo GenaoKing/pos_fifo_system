@@ -1,6 +1,6 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-11**. Estado: **A00-A03 integrados; A04 listo para revisión**.
+Fecha: **2026-09-11**. Estado: **A00-A04 integrados/validados; A05 es el siguiente bloque**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -89,7 +89,7 @@ dominio/auditoría, errores de log y permisos. Contrato CT-01 integrado, no solo
 publicado y [handoff A03](../handoffs/cierre_prod/A03-rbac-ct02.md). Claude
 reconcilió el merge después de cerrar sus tres bloqueadores y Codex repitió la
 matriz combinada: 957 focales, 1346 completas y 72 e-CF, más imagen/check cloud
-verdes. PER-013 consumidor continúa en C02/C05.
+verdes. PER-013 consumidor quedó integrado después por C05 (`60c6dbc`).
 
 1. PER-006: identidad cloud estable; terna usuario/rol/sucursal inmutable.
    Cambiarla es revocar la relación anterior y crear otra en una transacción.
@@ -114,10 +114,9 @@ seed repetido. Claude consume un único helper/contrato de autorización.
 
 ## A04 — Transporte durable y reparación de BUG-K
 
-**Estado 2026-09-11:** implementación local `be15ea0` en
-`codex/cierre-prod-A04`, contrato y handoff publicados, sin merge/push/deploy ni
-datos operativos. La revisión cruzada y la integración explícita siguen
-pendientes; no comenzar A05 automáticamente.
+**Estado 2026-09-11:** implementación `be15ea0`, contrato y handoff publicados,
+integrada con C05 y validada en el árbol `9ff61c2`; sin push/deploy ni datos
+operativos. A05 puede comenzar desde el nuevo `develop` común.
 
 **Entrada:** A01 y contrato de identidad; integrar A03 para pruebas de RBAC.
 

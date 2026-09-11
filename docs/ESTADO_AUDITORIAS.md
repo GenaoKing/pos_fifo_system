@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-11** · Merge local validado: `b7147fb`
+Última actualización: **2026-09-11** · Árbol local validado: `9ff61c2`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -27,21 +27,21 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
 | `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
 | `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
-| `apps/permisos` | 21 | **20/21 mitigados; PER-013 entregado a C02/C05; cutover ADMIN operacional pendiente** | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
+| `apps/permisos` | 21 | **21/21 mitigados en código; cutover ADMIN operacional pendiente** | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
 | `apps/usuarios` | 19 | **A03 cierra invariantes RBAC de USR-012; USR-014 sigue A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 | `apps/negocios` | 17 | **Pendientes de código A02 cerrados; preflights reales en A08** | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
-| `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
+| `apps/suscripciones` | 19 | **P1 mitigado (6/10)**; SUS-007..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 | `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite combinada A03+C, serial: 1346 tests, OK**, con `default`, una tenant de
-atomicidad y dos tenants TEN-016 creadas/destruidas el 2026-09-11; focal:
-**957 OK**; e-CF: **72 passed**.
+**Suite integrada A04+C05 parte 1, serial: 1.386 tests, OK**, con `default`, una
+tenant de atomicidad y dos tenants TEN-016 creadas/destruidas el 2026-09-11;
+focal conjunta: **237 OK**; e-CF: **72 passed**.
 
 ### Actualización A02 — 2026-09-10
 
@@ -58,12 +58,21 @@ El candidato local, basado exactamente en `develop@e3635de`, implementa
 `rbac.capabilities.v1` y `rbac.sync.v2`: identidad UUID, revisiones, tombstones,
 snapshots completos seguros, servicios RBAC transaccionales/auditados, seeds y
 comandos tenant-aware, y guard canónico para notificaciones. Los gates finales
-de anulación/reimpresión quedan en el handoff C02/C05 por ownership. A03 no
+de anulación/reimpresión se entregaron entonces a C02/C05 por ownership. A03 no
 integró la rama Claude ni ejecutó migraciones o preflights contra datos
 operativos. Claude cerró los tres bloqueadores, llevó C01-C03 a `develop` y
 reconcilió A03 mediante `b7147fb`; Codex repitió la matriz combinada sobre ese
-merge y la dejó verde. PER-013 continúa en C02/C05 y el cutover ADMIN sigue
+merge y la dejó verde. C05 completó después PER-013; el cutover ADMIN sigue
 siendo operacional.
+
+### Actualización A04 + C05 parte 1 — 2026-09-11
+
+La integración local `9ff61c2` combina A04 (`be15ea0`) con C05 (`60c6dbc`)
+desde la misma base `develop@0b4fb7c`. A04 agrega transporte durable y una
+reparación BUG-K dirigida/dry-run; C05 consume CT-02 en anulación y
+reimpresión, y aplica SUS-006 a las entradas HTML/API de CxC y reportes
+on-demand. Pasaron 237 focales, 1.386 Django y 72 e-CF. No se ejecutaron sondas,
+reparaciones, migraciones ni despliegues sobre entornos operativos.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -491,9 +500,9 @@ Ninguno bloquea el despliegue.
 
 - **Cutover de ADMIN.** El bypass queda deliberadamente activo hasta completar
   el preflight y las asignaciones explícitas por tenant.
-- **PER-013 consumidor:** anulación aún revalida rol legacy y reimpresión no
-  aplica el gate/scope canónico. Son superficies de C02/C05; A03 publica el
-  helper y la prueba de aceptación sin modificarlas.
+- **PER-013 consumidor: resuelto en C05 (`60c6dbc`).** Anulación y reimpresión
+  usan los permisos CT-02 contra la sucursal de la venta y filtran el alcance;
+  la matriz integrada cubre roles custom y acceso cruzado.
 - **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
   sin sucursal en varios puntos de esa app.
 - **Identidad compuesta del receptor/handler: resuelta en A04 (`be15ea0`).**
