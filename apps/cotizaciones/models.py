@@ -121,6 +121,14 @@ class Cotizacion(models.Model):
                 fields=['sucursal', 'numero_cotizacion'],
                 name='unique_cotizacion_por_sucursal_numero',
             ),
+            # PostgreSQL considera distintos dos NULL en una unique compuesta.
+            # Las cotizaciones legacy no tienen sucursal, por lo que necesitan
+            # esta segunda guarda para no admitir numeros indistinguibles.
+            models.UniqueConstraint(
+                fields=['numero_cotizacion'],
+                condition=models.Q(sucursal__isnull=True),
+                name='unique_cotizacion_legacy_numero',
+            ),
             # COT-008: importes imposibles no persistibles ni por escritura directa.
             models.CheckConstraint(
                 condition=models.Q(subtotal__gte=Decimal('0.00')),
@@ -134,12 +142,20 @@ class Cotizacion(models.Model):
                 condition=models.Q(total__gte=Decimal('0.00')),
                 name='cotizacion_total_no_negativo',
             ),
-            # COT-015: una cotizacion CONVERTIDA exige el vinculo a su venta.
+            # COT-015: estado y vinculo son una sola invariante. Una convertida
+            # exige venta y una pendiente no puede venir ya vinculada.
             models.CheckConstraint(
                 condition=(
-                    ~models.Q(estado='CONVERTIDA') | models.Q(venta__isnull=False)
+                    (
+                        models.Q(estado='CONVERTIDA')
+                        & models.Q(venta__isnull=False)
+                    )
+                    | (
+                        ~models.Q(estado='CONVERTIDA')
+                        & models.Q(venta__isnull=True)
+                    )
                 ),
-                name='cotizacion_convertida_exige_venta',
+                name='cotizacion_estado_venta_consistente',
             ),
         ]
 
@@ -332,3 +348,27 @@ class DetalleCotizacion(models.Model):
             self.descuento_porcentaje = (self.descuento_monto / self.subtotal) * 100
         self.total_linea = self.subtotal - self.descuento_monto
         super().save(*args, **kwargs)
+        self._reconciliar_cabecera(self.cotizacion_id, self._state.db)
+
+    def delete(self, *args, **kwargs):
+        cotizacion_id = self.cotizacion_id
+        using = kwargs.get('using') or self._state.db
+        resultado = super().delete(*args, **kwargs)
+        self._reconciliar_cabecera(cotizacion_id, using)
+        return resultado
+
+    @classmethod
+    def _reconciliar_cabecera(cls, cotizacion_id, using):
+        """Mantiene la cabecera derivada al editar/borrar lineas (COT-011)."""
+        totales = cls.objects.using(using).filter(
+            cotizacion_id=cotizacion_id,
+        ).aggregate(
+            subtotal=models.Sum('subtotal'),
+            descuento=models.Sum('descuento_monto'),
+            total=models.Sum('total_linea'),
+        )
+        Cotizacion.objects.using(using).filter(pk=cotizacion_id).update(
+            subtotal=totales['subtotal'] or Decimal('0.00'),
+            descuento_total=totales['descuento'] or Decimal('0.00'),
+            total=totales['total'] or Decimal('0.00'),
+        )

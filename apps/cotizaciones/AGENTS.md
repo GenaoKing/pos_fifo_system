@@ -34,12 +34,16 @@ cotización en el POS para convertirla en venta. `apps/cotizaciones/models.py`,
   unidades que las cotizadas (ver `tests/test_auditoria_cotizaciones.py`).
 - **Invariantes de BD (COT-008/015):** `DetalleCotizacion` con cantidad `>= 1`,
   precio `>= 0.01`, descuento `>= 0` y `<= subtotal`; una `Cotizacion` en estado
-  `CONVERTIDA` **exige** `venta` (constraint `cotizacion_convertida_exige_venta`),
-  y por eso `venta` usa `on_delete=PROTECT`. Preflight:
+  `CONVERTIDA` **exige** `venta` y una no convertida no puede quedar vinculada
+  (constraint `cotizacion_estado_venta_consistente`); `venta` usa
+  `on_delete=PROTECT`. Los números legacy sin sucursal también son únicos.
+  Preflight:
   `manage.py verificar_integridad_financiera`.
 - Permisos: `cotizaciones.ver`, `cotizaciones.crear`; módulo `cotizaciones`.
 - **Numeración (COT-010):** `Cotizacion.save()` usa máximo sufijo + reintento en
   savepoint (no `count()+1`), igual que `Venta`/`_guardar_con_correlativo`.
+- **Totales (COT-011):** guardar o borrar un `DetalleCotizacion` reconcilia la
+  cabecera; el Admin muestra sus totales como campos derivados de solo lectura.
 - **Auditoría (COT-012):** crear (`guardar_cotizacion`) y convertir
   (`ventas_service._marcar_cotizacion_convertida` y el legacy `marcar_convertida`)
   dejan `Auditoria.registrar` DENTRO de la transacción. `lista_cotizaciones` pagina

@@ -176,20 +176,9 @@ def procesar_venta_service(
     cliente_id = datos.get('cliente_id')
     cotizacion_id = datos.get('cotizacion_id')
     tipo_ecf = (datos.get('tipo_ecf') or TIPO_ECF_DEFAULT).strip()
-    clave_idempotencia = (datos.get('clave_idempotencia') or '').strip() or None
-
-    # ----------------------- Idempotencia: chequeo previo barato
-    # Un reintento (doble click, reintento de red tras timeout) con la misma
-    # clave devuelve la venta ORIGINAL sin cobrar ni consumir inventario otra
-    # vez. La unica parcial de `Venta.clave_idempotencia` es el respaldo real
-    # para la carrera verdadera (ver el try/except IntegrityError abajo). Sin
-    # clave, la conducta es la de antes (cada llamada crea una venta).
-    if clave_idempotencia:
-        existente = Venta.objects.filter(
-            clave_idempotencia=clave_idempotencia,
-        ).first()
-        if existente is not None:
-            return existente
+    clave_idempotencia = _normalizar_clave_idempotencia(
+        datos.get('clave_idempotencia')
+    )
 
     # ----------------------- Validaciones pre-transacción (lectura pura)
     if not carrito:
@@ -217,6 +206,16 @@ def procesar_venta_service(
     # Autorización server-side. El catálogo RBAC declara estos permisos; hasta
     # ahora sólo los aplicaba la UI, así que un POST directo los saltaba.
     _autorizar(usuario=usuario, items=items, sucursal=sucursal)
+
+    # ----------------------- Idempotencia: chequeo previo barato
+    # Va despues de autenticar/autorizar el payload para que conocer una clave
+    # no permita recuperar una venta sin pasar el mismo gate de negocio.
+    if clave_idempotencia:
+        existente = _venta_idempotente_existente(
+            clave_idempotencia, usuario=usuario, sucursal=sucursal,
+        )
+        if existente is not None:
+            return existente
 
     # Gate opcional de descuentos (lo activa el negocio en su configuración).
     # Se evalúa ANTES de la transacción para no tocar inventario ni FIFO cuando
@@ -318,15 +317,28 @@ def procesar_venta_service(
         if ecf_activo:
             _validar_precondiciones_ecf(tipo_ecf=tipo_ecf, cliente=cliente)
 
-        venta = _crear_venta(
-            usuario=usuario,
-            items=items,
-            cliente=cliente,
-            sucursal=sucursal,
-            total_esperado=total_esperado,
-            condicion_pago='CREDITO' if es_credito else 'CONTADO',
-            clave_idempotencia=clave_idempotencia,
-        )
+        try:
+            # Savepoint propio: si dos requests pasan el chequeo previo, la
+            # unica parcial rechaza al perdedor sin romper el atomic exterior.
+            with transaction.atomic():
+                venta = _crear_venta(
+                    usuario=usuario,
+                    items=items,
+                    cliente=cliente,
+                    sucursal=sucursal,
+                    total_esperado=total_esperado,
+                    condicion_pago='CREDITO' if es_credito else 'CONTADO',
+                    clave_idempotencia=clave_idempotencia,
+                )
+        except IntegrityError:
+            if not clave_idempotencia:
+                raise
+            existente = _venta_idempotente_existente(
+                clave_idempotencia, usuario=usuario, sucursal=sucursal,
+            )
+            if existente is None:
+                raise
+            return existente
 
         # El consumo va DENTRO de la transacción: si la venta falla más
         # adelante, la autorización del supervisor se libera con el rollback en
@@ -433,6 +445,50 @@ def _decimal(valor: Any) -> Decimal:
 def _dinero(valor: Any) -> Decimal:
     """Decimal redondeado a centavos, para comparar importes entre fuentes."""
     return _decimal(valor).quantize(CENTAVO)
+
+
+def _normalizar_clave_idempotencia(valor: Any) -> str | None:
+    """Clave opaca de hasta 64 caracteres; valores mal formados son un 400."""
+    if valor in (None, ''):
+        return None
+    if not isinstance(valor, str):
+        raise ItemCarritoInvalidoError(
+            'La clave de idempotencia de la venta debe ser texto.'
+        )
+    clave = valor.strip()
+    if not clave:
+        return None
+    if len(clave) > 64:
+        raise ItemCarritoInvalidoError(
+            'La clave de idempotencia de la venta excede 64 caracteres.'
+        )
+    return clave
+
+
+def _venta_idempotente_existente(clave: str, *, usuario, sucursal):
+    """Devuelve la venta reintentada solo dentro del alcance autorizado."""
+    existente = Venta.objects.select_related('sucursal').filter(
+        clave_idempotencia=clave,
+    ).first()
+    if existente is None:
+        return None
+
+    if (
+        existente.sucursal_id is not None
+        and (
+            sucursal is None
+            or existente.sucursal_id != getattr(sucursal, 'pk', None)
+        )
+    ):
+        raise PermisoDenegadoError(
+            'La clave de idempotencia ya pertenece a otra sucursal.'
+        )
+    scope = existente.sucursal or sucursal
+    if not _tiene_permiso(usuario, 'ventas.crear', scope):
+        raise PermisoDenegadoError(
+            'No tienes permisos para recuperar esta venta.'
+        )
+    return existente
 
 
 # -----------------------------------------------------------------------------

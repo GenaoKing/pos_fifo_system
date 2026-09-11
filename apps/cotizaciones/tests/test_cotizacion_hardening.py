@@ -79,6 +79,19 @@ class COT008ImportesTests(CotizacionHardeningBase):
     def test_cantidad_negativa_es_400(self):
         self.assertEqual(self._cotizar(cantidad=-3).status_code, 400)
 
+    def test_cantidad_fraccionaria_es_400_y_no_se_trunca(self):
+        resp = self._cotizar(cantidad=1.5)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
+    def test_precio_cero_es_400_aun_con_permiso_negociado(self):
+        self.user = self._usuario(
+            'coth_precio_cero', permisos=COTIZAR + ['cotizaciones.precio_negociado'],
+        )
+        resp = self._cotizar(precio='0.00')
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
     def test_descuento_negativo_es_400(self):
         self.assertEqual(self._cotizar(descuento=-5).status_code, 400)
 
@@ -117,6 +130,12 @@ class COT009ClienteActivoTests(CotizacionHardeningBase):
         resp = self._cotizar()
         self.assertEqual(resp.status_code, 400)
         self.assertIn('inactivo', resp.json()['error'].lower())
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
+    def test_cliente_inexistente_es_400_y_no_filtra_internals(self):
+        resp = self._cotizar(cliente_id=999999)
+        self.assertEqual(resp.status_code, 400)
+        self.assertNotIn('DoesNotExist', resp.json()['error'])
         self.assertEqual(Cotizacion.objects.count(), 0)
 
 

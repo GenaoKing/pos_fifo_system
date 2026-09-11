@@ -9,6 +9,8 @@ inventario). Espeja la idempotencia de abonos CxC (PagoCxC.clave_idempotencia).
 - la unica parcial de BD rechaza dos ventas con la misma clave (respaldo real).
 """
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -20,6 +22,7 @@ from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
 from apps.ventas.models import Venta
 from apps.ventas.services import procesar_venta_service
+from apps.ventas.services.exceptions import ItemCarritoInvalidoError
 
 
 class VentaIdempotenciaTests(TestCase):
@@ -97,6 +100,24 @@ class VentaIdempotenciaTests(TestCase):
                     estado='COMPLETADA', clave_idempotencia='V-DUP',
                 )
 
+    def test_colision_concurrente_recupera_la_venta_ganadora(self):
+        ganadora = self._vender(clave='V-RACE-WINNER')
+
+        with (
+            patch(
+                'apps.ventas.services.ventas_service._venta_idempotente_existente',
+                side_effect=[None, ganadora],
+            ),
+            patch(
+                'apps.ventas.services.ventas_service._crear_venta',
+                side_effect=IntegrityError('uniq_venta_clave_idempotencia'),
+            ),
+        ):
+            recuperada = self._vender(clave='V-RACE-WINNER')
+
+        self.assertEqual(recuperada.pk, ganadora.pk)
+        self.assertEqual(Venta.objects.count(), 1)
+
     def test_dos_ventas_sin_clave_conviven(self):
         # La unica es PARCIAL: null no colisiona con null.
         self._vender()
@@ -104,3 +125,17 @@ class VentaIdempotenciaTests(TestCase):
         self.assertEqual(
             Venta.objects.filter(clave_idempotencia__isnull=True).count(), 2
         )
+
+    def test_clave_no_textual_o_demasiado_larga_se_rechaza(self):
+        with self.assertRaisesRegex(ItemCarritoInvalidoError, 'debe ser texto'):
+            self._vender(clave=123)
+        with self.assertRaisesRegex(ItemCarritoInvalidoError, 'excede 64'):
+            self._vender(clave='x' * 65)
+
+    def test_pos_envia_y_conserva_clave_para_reintento(self):
+        fuente = (
+            Path(__file__).resolve().parents[3]
+            / 'static' / 'js' / 'pos' / 'punto_venta.js'
+        ).read_text(encoding='utf-8')
+        self.assertIn('clave_idempotencia: this.claveIdempotenciaVenta', fuente)
+        self.assertIn('globalThis.crypto?.randomUUID?.()', fuente)

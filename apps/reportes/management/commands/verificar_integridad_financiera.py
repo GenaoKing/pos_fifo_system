@@ -68,6 +68,9 @@ ESPECIFICACIONES = [
     ('cotizaciones', 'Cotizacion', 'COT-015',
      'CONVERTIDA sin venta',
      models.Q(estado='CONVERTIDA') & models.Q(venta__isnull=True)),
+    ('cotizaciones', 'Cotizacion', 'COT-015',
+     'no CONVERTIDA con venta',
+     ~models.Q(estado='CONVERTIDA') & models.Q(venta__isnull=False)),
     ('cotizaciones', 'DetalleCotizacion', 'COT-008',
      'cantidad < 1', models.Q(cantidad__lt=1)),
     ('cotizaciones', 'DetalleCotizacion', 'COT-008',
@@ -134,6 +137,21 @@ class Command(TenantCommandMixin, BaseCommand):
             self.stderr.write(self.style.ERROR(
                 f'{prefijo}{hallazgo} {app_label}.{model_name}: {descripcion} '
                 f'-> filas {infractoras}'
+            ))
+
+        Cotizacion = django_apps.get_model('cotizaciones', 'Cotizacion')
+        duplicados_legacy = list(
+            Cotizacion.objects.filter(sucursal__isnull=True)
+            .values('numero_cotizacion')
+            .annotate(total=models.Count('pk'))
+            .filter(total__gt=1)
+            .values_list('numero_cotizacion', 'total')[:20]
+        )
+        if duplicados_legacy:
+            total += sum(cantidad for _, cantidad in duplicados_legacy)
+            self.stderr.write(self.style.ERROR(
+                f'{prefijo}COT-010 cotizaciones.Cotizacion: numeros legacy '
+                f'duplicados -> {duplicados_legacy}'
             ))
         if not total:
             self.stdout.write(self.style.SUCCESS(

@@ -16,6 +16,8 @@ def _preflight(apps, schema_editor):
         ('Cotizacion', 'total < 0', models.Q(total__lt=Decimal('0.00'))),
         ('Cotizacion', 'CONVERTIDA sin venta',
          models.Q(estado='CONVERTIDA') & models.Q(venta__isnull=True)),
+        ('Cotizacion', 'no CONVERTIDA con venta',
+         ~models.Q(estado='CONVERTIDA') & models.Q(venta__isnull=False)),
         ('DetalleCotizacion', 'cantidad < 1', models.Q(cantidad__lt=1)),
         ('DetalleCotizacion', 'precio_unitario < 0.01',
          models.Q(precio_unitario__lt=Decimal('0.01'))),
@@ -38,6 +40,20 @@ def _preflight(apps, schema_editor):
                 f'filas con {descripcion}: {infractoras}. Corregir antes de '
                 f'migrar (o correr verificar_integridad_financiera).'
             )
+
+    duplicados_legacy = list(
+        apps.get_model('cotizaciones', 'Cotizacion').objects.using(alias)
+        .filter(sucursal__isnull=True)
+        .values('numero_cotizacion')
+        .annotate(total=models.Count('pk'))
+        .filter(total__gt=1)
+        .values_list('numero_cotizacion', 'total')[:20]
+    )
+    if duplicados_legacy:
+        raise RuntimeError(
+            f'COT-010: cotizaciones.Cotizacion en "{alias}" tiene numeros '
+            f'legacy duplicados: {duplicados_legacy}. Resolverlos antes de migrar.'
+        )
 
 
 def _sin_reversa(apps, schema_editor):
@@ -97,11 +113,25 @@ class Migration(migrations.Migration):
             model_name="cotizacion",
             constraint=models.CheckConstraint(
                 condition=models.Q(
-                    models.Q(("estado", "CONVERTIDA"), _negated=True),
-                    ("venta__isnull", False),
+                    models.Q(
+                        ("estado", "CONVERTIDA"),
+                        ("venta__isnull", False),
+                    ),
+                    models.Q(
+                        models.Q(("estado", "CONVERTIDA"), _negated=True),
+                        ("venta__isnull", True),
+                    ),
                     _connector="OR",
                 ),
-                name="cotizacion_convertida_exige_venta",
+                name="cotizacion_estado_venta_consistente",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="cotizacion",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("sucursal__isnull", True)),
+                fields=("numero_cotizacion",),
+                name="unique_cotizacion_legacy_numero",
             ),
         ),
         migrations.AddConstraint(

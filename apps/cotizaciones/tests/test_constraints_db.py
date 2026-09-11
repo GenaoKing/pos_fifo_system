@@ -63,6 +63,26 @@ class CotizacionDBConstraintsTests(TestCase):
         self.cotizacion.refresh_from_db()
         self.assertEqual(self.cotizacion.estado, 'CONVERTIDA')
 
+    def test_pendiente_con_venta_rechazada(self):
+        from apps.ventas.models import Venta
+
+        venta = Venta.objects.create(
+            numero_venta='DBC-COT-V-2', usuario=self.user,
+            subtotal=Decimal('10.00'), total=Decimal('10.00'), estado='COMPLETADA',
+        )
+        self._rechaza(lambda: Cotizacion.objects.create(
+            numero_cotizacion='DBC-COT-BAD-PEND', cliente=self.cliente,
+            usuario=self.user, fecha_creacion=timezone.now(),
+            total=Decimal('10.00'), estado='PENDIENTE', venta=venta,
+        ))
+
+    def test_numero_legacy_duplicado_rechazado(self):
+        self._rechaza(lambda: Cotizacion.objects.create(
+            numero_cotizacion=self.cotizacion.numero_cotizacion,
+            cliente=self.cliente, usuario=self.user,
+            fecha_creacion=timezone.now(), total=Decimal('10.00'),
+        ))
+
     # -- COT-008: importes imposibles ----------------------------------------
 
     def test_cotizacion_total_negativo_rechazada(self):
@@ -97,3 +117,21 @@ class CotizacionDBConstraintsTests(TestCase):
         )
         self.assertEqual(detalle.subtotal, Decimal('20.00'))
         self.assertEqual(detalle.total_linea, Decimal('15.00'))
+
+    def test_editar_y_borrar_detalle_reconcilia_la_cabecera(self):
+        detalle = DetalleCotizacion.objects.create(
+            cotizacion=self.cotizacion, producto=self.producto, cantidad=2,
+            precio_unitario=Decimal('10.00'), descuento_monto=Decimal('5.00'),
+        )
+        self.cotizacion.refresh_from_db()
+        self.assertEqual(self.cotizacion.total, Decimal('15.00'))
+
+        detalle.cantidad = 3
+        detalle.save()
+        self.cotizacion.refresh_from_db()
+        self.assertEqual(self.cotizacion.subtotal, Decimal('30.00'))
+        self.assertEqual(self.cotizacion.total, Decimal('25.00'))
+
+        detalle.delete()
+        self.cotizacion.refresh_from_db()
+        self.assertEqual(self.cotizacion.total, Decimal('0.00'))

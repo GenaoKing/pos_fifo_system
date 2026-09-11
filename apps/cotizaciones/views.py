@@ -48,9 +48,17 @@ CANTIDAD_MAXIMA_LINEA = 1_000_000
 def _cantidad_valida(crudo, nombre_producto):
     """Cantidad entera de una linea de cotizacion, saneada (COT-008)."""
     try:
-        cantidad = int(crudo)
-    except (TypeError, ValueError, OverflowError):
+        cantidad_decimal = Decimal(str(crudo))
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
         raise ValueError(f'Cantidad invalida para "{nombre_producto}".')
+    if (
+        not cantidad_decimal.is_finite()
+        or cantidad_decimal != cantidad_decimal.to_integral_value()
+    ):
+        raise ValueError(
+            f'La cantidad de "{nombre_producto}" debe ser un numero entero.'
+        )
+    cantidad = int(cantidad_decimal)
     if cantidad < 1:
         raise ValueError(
             f'La cantidad de "{nombre_producto}" debe ser mayor que cero.'
@@ -188,8 +196,10 @@ def _precio_autorizado(producto, item, *, puede_negociar):
     except (InvalidOperation, TypeError, ValueError):
         raise ValueError(f'Precio invalido para "{producto.nombre}".')
 
-    if pedido < Decimal('0'):
-        raise ValueError(f'El precio de "{producto.nombre}" no puede ser negativo.')
+    if not pedido.is_finite() or pedido < Decimal('0.01'):
+        raise ValueError(
+            f'El precio de "{producto.nombre}" debe ser al menos $0.01.'
+        )
 
     if pedido >= vigente or pedido == vigente:
         return pedido
@@ -345,10 +355,13 @@ def guardar_cotizacion(request):
 
     except PermissionDenied as exc:
         return JsonResponse({'success': False, 'error': str(exc)}, status=403)
-    except Producto.DoesNotExist:
+    except (Producto.DoesNotExist, Cliente.DoesNotExist):
         return JsonResponse({
             'success': False,
-            'error': 'Uno de los productos no existe o no esta disponible para la venta'
+            'error': (
+                'El cliente o uno de los productos no existe o no esta '
+                'disponible para la venta'
+            ),
         }, status=400)
     except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError,
             TypeError, OverflowError) as exc:
@@ -559,7 +572,7 @@ def marcar_convertida(request, cotizacion_id):
         logger.exception('Error marcando una cotizacion como convertida')
         return JsonResponse(
             {'success': False, 'error': 'No se pudo marcar la cotizacion.'},
-            status=400,
+            status=500,
         )
     
 
