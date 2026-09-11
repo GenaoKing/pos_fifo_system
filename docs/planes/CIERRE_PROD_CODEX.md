@@ -1,6 +1,6 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-11**. Estado: **A00-A02 integrados localmente; A03 en REVISION**.
+Fecha: **2026-09-11**. Estado: **A00-A03 integrados y A03 validado localmente**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -85,11 +85,11 @@ dominio/auditoría, errores de log y permisos. Contrato CT-01 integrado, no solo
 
 **Entrada:** A02. **Desbloquea:** CT-02 para C02/C03/C04/C05.
 
-**Estado 2026-09-11:** implementación `3e6cec1`, contrato publicado y
-[handoff A03](../handoffs/cierre_prod/A03-rbac-ct02.md). A03 no está integrado a
-`develop`; el tip compartido avanzó en paralelo con C01-C03 después de que otro
-flujo cerrara sus tres bloqueadores. Falta reconciliar y repetir la matriz
-combinada antes de integrar CT-02.
+**Estado 2026-09-11:** implementación `3e6cec1`, merge `b7147fb`, contrato
+publicado y [handoff A03](../handoffs/cierre_prod/A03-rbac-ct02.md). Claude
+reconcilió el merge después de cerrar sus tres bloqueadores y Codex repitió la
+matriz combinada: 957 focales, 1346 completas y 72 e-CF, más imagen/check cloud
+verdes. PER-013 consumidor continúa en C02/C05.
 
 1. PER-006: identidad cloud estable; terna usuario/rol/sucursal inmutable.
    Cambiarla es revocar la relación anterior y crear otra en una transacción.

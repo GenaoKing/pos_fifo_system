@@ -16,8 +16,9 @@ Estados usados: `PENDIENTE`, `DECIDIDO` (política fijada, falta o no código),
 y `DIFERIDO_EXPLICITO`. Un despliegue anterior nunca equivale a validación del
 nuevo candidato.
 
-Actualización A03: **2026-09-11** sobre `develop@e3635de`; implementación
-`3e6cec1`. No modifica la captura base A00 ni acredita despliegue.
+Actualización A03: **2026-09-11**; implementación `3e6cec1`, merge local
+`b7147fb` y matriz combinada validada. No modifica la captura base A00 ni
+acredita despliegue.
 
 ## Base, ramas, worktrees y aislamiento
 

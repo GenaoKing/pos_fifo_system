@@ -1,17 +1,18 @@
 # Handoff A03 — RBAC y compatibilidad de revocaciones
 
-- Estado: **REVISION**
+- Estado: **INTEGRADO / VALIDADO LOCALMENTE**
 - Fecha: **2026-09-11**
 - Propietario: **A / Codex**
 - Base exacta: `develop@e3635de`
 - Rama aislada: `codex/cierre-prod-A03`
 - Commit de implementación: `3e6cec1`
+- Merge a `develop`: `b7147fb`
 - Contratos: `rbac.capabilities.v1` + `rbac.sync.v2`
 
 No hubo push, despliegue, ejecución de launchers ni lectura/escritura de datos
-operativos. A03 no integró ni modificó la rama o el worktree de Claude. Durante
-esta validación, otro flujo avanzó el `develop` compartido hasta `6ee21b8`; esa
-deriva concurrente no forma parte de los commits A03.
+operativos. Claude revisó A03 y creó el merge explícito `b7147fb` sobre el
+`develop` que ya contenía C01-C03 y sus tres bloqueadores cerrados. Codex repitió
+la matriz combinada sobre ese árbol antes de acreditarlo como validado.
 
 ## Alcance cerrado
 
@@ -79,7 +80,7 @@ El preflight es read-only y falla si algún ADMIN activo no tiene una asignació
 explícita que otorgue `permisos.administrar`. Corregir los casos reportados y
 repetirlo es gate de A08/A09, no parte de este commit.
 
-## Evidencia automatizada
+## Evidencia automatizada del candidato aislado
 
 Entorno: Windows, CPython 3.11.14, Django 5.2.17, PostgreSQL 16 y venv aislado
 `C:\Proyectos\.venvs\pos_cierre_codex_a01_20260910`.
@@ -118,7 +119,7 @@ y destruyó `default` y dos BDs tenant aisladas. La BD desechable conservada por
 pytest (`test_pos_cierre_codex_a03ecf2`) se verificó por nombre exacto y se
 eliminó al terminar.
 
-## Handoff de revisión Claude preservado
+## Reconciliación con la línea Claude
 
 La copia de `docs/handoffs/cierre_prod/REVISION_MERGE_A02-C03.md` en la base
 fija `e3635de` no fue modificada por A03 y sigue siendo el contrato que exigía
@@ -130,14 +131,36 @@ cerrar y probar estos tres bloqueadores antes de integrar Claude:
    alias equivocado.
 
 A03 no modifica esas superficies ni convierte sus observaciones no bloqueantes
-en aceptación. Mientras A03 estaba aislado, otro flujo registró el cierre en
-`8fd83a0`/`b3e8685`, la validación combinada en `cefea92` y el merge explícito a
-`develop` en `484d080`; la versión actual del handoff en `develop@6ee21b8`
-contiene esa evidencia. A03 no participó en esos commits ni los incorporó.
+en aceptación. Claude registró el cierre en `8fd83a0`/`b3e8685`, la validación
+combinada previa en `cefea92` y el merge de C01-C03 a `develop` en `484d080`.
+Después revisó A03 y creó `b7147fb`, un merge sin conflictos de texto cuyo
+segundo padre es `0cd341d`; `3e6cec1` y los tres cierres son ancestros del árbol
+resultante.
 
-Por tanto, el siguiente integrador no debe mergear esta rama histórica de forma
-directa: debe reconciliar `3e6cec1` con el `develop` vigente y repetir la matriz
-combinada A03+C antes de acreditar los consumidores CT-02.
+Codex validó `develop@b7147fb` con la matriz combinada siguiente:
+
+```text
+focal A02/C01-C03/A03; 11 apps, 78 módulos, 4 BDs PostgreSQL nuevas
+957 pruebas OK en 256.270 s
+
+suite CI completa sin e-CF; 107 módulos, 4 BDs PostgreSQL nuevas
+1346 pruebas OK en 465.276 s
+
+pytest e-CF sobre BD nueva
+72 passed en 17.90 s
+
+Windows CPython 3.11.14 / Django 5.2.17
+pip check, check, makemigrations --check, compileall, diff --check: OK
+
+imagen Linux CPython 3.12.14
+docker build + collectstatic: 169 copiados, 158 postprocesados
+pip check + manage.py check --settings=config.settings_cloud: OK
+```
+
+Las suites focal/completa crearon y destruyeron `default`, una BD tenant para
+atomicidad de suscripciones y dos BDs físicas TEN-016. La BD reutilizable de
+e-CF (`test_pos_cierre_ct02_comb_ecf`) se verificó por nombre exacto y se
+eliminó. No se publicó la imagen Docker ni se hizo push de `develop`.
 
 ## Riesgos y rollback
 
@@ -146,13 +169,14 @@ combinada A03+C antes de acreditar los consumidores CT-02.
   omite usuarios ausentes y congela el cursor.
 - `_pull_legacy` se conserva durante la transición de flota.
 
-Rollback antes de despliegue: abandonar la rama A03; no hay estado externo que
-revertir. Después de desplegar, seguir el runbook de rollback del candidato y
-no intentar revertir migraciones o tombstones sin backup y plan de datos.
+Rollback antes de publicar: revertir el merge `b7147fb` con mainline 1 mediante
+un commit explícito, nunca reescribir el `develop` compartido. No hay estado
+externo que revertir. Después de desplegar, seguir el runbook del candidato y no
+intentar revertir migraciones o tombstones sin backup y plan de datos.
 
 ## Siguiente paso desbloqueado
 
-Revisión de A03/CT-02 contra el `develop` vigente. Tras aceptarla, A04 puede
-consumir identidad/revisión RBAC. Los consumidores C02–C05 solo se marcan
-integrados después de incorporar `3e6cec1` y repetir sus suites; los cierres
-previos de C01/C03 no acreditan por sí solos el consumo de CT-02.
+A04 ya puede consumir identidad/revisión RBAC desde `develop`. PER-013 permanece
+`PARCIAL_A03`: C02/C05 todavía deben integrar los gates de anulación y
+reimpresión en sus superficies, con su matriz cross-branch. Los cierres previos
+de C01/C03 no acreditan por sí solos esos consumidores de CT-02.

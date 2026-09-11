@@ -1,6 +1,6 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-11** · Rama de cierre local: `codex/cierre-prod-A03`
+Última actualización: **2026-09-11** · Merge local validado: `b7147fb`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -39,8 +39,9 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite A03 completa, serial: 1244 tests, OK**, con base y dos tenants de prueba
-creados/destruidos el 2026-09-11; e-CF: **72 passed**.
+**Suite combinada A03+C, serial: 1346 tests, OK**, con `default`, una tenant de
+atomicidad y dos tenants TEN-016 creadas/destruidas el 2026-09-11; focal:
+**957 OK**; e-CF: **72 passed**.
 
 ### Actualización A02 — 2026-09-10
 
@@ -59,9 +60,10 @@ snapshots completos seguros, servicios RBAC transaccionales/auditados, seeds y
 comandos tenant-aware, y guard canónico para notificaciones. Los gates finales
 de anulación/reimpresión quedan en el handoff C02/C05 por ownership. A03 no
 integró la rama Claude ni ejecutó migraciones o preflights contra datos
-operativos. En paralelo, otro flujo cerró los tres bloqueadores y llevó C01-C03
-al `develop` compartido; antes de integrar A03 se debe repetir la validación
-combinada sobre ese tip vigente.
+operativos. Claude cerró los tres bloqueadores, llevó C01-C03 a `develop` y
+reconcilió A03 mediante `b7147fb`; Codex repitió la matriz combinada sobre ese
+merge y la dejó verde. PER-013 continúa en C02/C05 y el cutover ADMIN sigue
+siendo operacional.
 
 ### Auditorías escritas pero todavía sin procesar
 

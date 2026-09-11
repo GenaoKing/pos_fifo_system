@@ -18,12 +18,13 @@ abiertos para A08; A02 no leyó ni modificó datos reales.
 
 ## Cierre A03 / CT-02 (sin despliegue)
 
-El candidato `codex/cierre-prod-A03`, basado en `develop@e3635de`, cierra en
-código PER-006/007, PER-012 y PER-014–021: identidad/revisión/tombstones RBAC,
-servicios atómicos y auditados, seed/comandos tenant-aware y migraciones
-históricas congeladas. PER-013 se entrega a C02/C05 porque sus consumidores son
-superficies Claude. El bypass de ADMIN no se retira en esta fase: queda
-condicionado al preflight por tenant de A08/A09.
+La implementación `3e6cec1`, integrada localmente en `develop` por `b7147fb` y
+validada con la matriz combinada, cierra en código PER-006/007, PER-012 y
+PER-014–021: identidad/revisión/tombstones RBAC, servicios atómicos y auditados,
+seed/comandos tenant-aware y migraciones históricas congeladas. PER-013 se
+entrega a C02/C05 porque sus consumidores son superficies Claude. El bypass de
+ADMIN no se retira en esta fase: queda condicionado al preflight por tenant de
+A08/A09.
 
 ---
 

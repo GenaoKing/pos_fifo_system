@@ -12,7 +12,7 @@ las pruebas consumidoras.
 | Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
-| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 IMPLEMENTADO; CONSUMIDORES C PENDIENTES** | `3e6cec1` |
+| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 INTEGRADO/VALIDADO; CONSUMIDORES C PENDIENTES** | `3e6cec1`, merge `b7147fb` |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
 | CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |

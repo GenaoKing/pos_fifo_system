@@ -1053,15 +1053,15 @@ corregido ahí).
   modifica datos operativos: cada tenant debe obtener un preflight verde antes
   de cambiar la bandera. `SYSADMIN` y superusuarios conservan acceso global.
 
-## Validación A03 — 2026-09-11
+## Validación A03 integrada — 2026-09-11
 
-- Focal CT-02: **109 pruebas OK**, incluidas **3 PostgreSQL de concurrencia**.
-- Django completa sin e-CF: **1244 OK**, con base y dos BDs tenant desechables
-  creadas y destruidas.
+- Focal combinada A02/C01-C03/A03: **957 pruebas OK**, con cuatro BDs
+  PostgreSQL desechables creadas y destruidas.
+- Django completa sin e-CF: **1346 OK**, con los gates tenant/atomicidad activos.
 - e-CF separada: **72 passed**.
 - PostgreSQL nueva desde cero hasta `permisos.0011`: **7 pruebas de seed OK**.
-- `check`, `makemigrations --check --dry-run`, `compileall` y
-  `git diff --check`: verdes.
+- `check`, `makemigrations --check --dry-run`, `compileall`, `git diff --check`
+  e imagen/check cloud Python 3.12.14: verdes.
 
 Evidencia y comandos exactos:
 `docs/handoffs/cierre_prod/A03-rbac-ct02.md`.

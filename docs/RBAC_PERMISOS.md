@@ -296,11 +296,11 @@ es trabajo separado — ver `docs/ARQUITECTURA_MODULOS.md`.)
 
 ## 11. Estado / cómo seguir
 
-**Candidato A03/CT-02:** motor + DRF + endpoints admin + payload versionado +
-revocación cloud→local por identidad estable. El productor queda listo para
-revisión; los gates finales de anulación/reimpresión pertenecen al handoff C y
-siguen pendientes. Desplegar y retirar el bypass ADMIN son gates operacionales
-separados, no ejecutados por esta tarea.
+**A03/CT-02 integrado y validado localmente:** motor + DRF + endpoints admin +
+payload versionado + revocación cloud→local por identidad estable. Los gates
+finales de anulación/reimpresión pertenecen al handoff C y siguen pendientes.
+Desplegar y retirar el bypass ADMIN son gates operacionales separados, no
+ejecutados por esta tarea.
 
 ### Mini-handoff — qué desarrollar a futuro (ordenado por valor/esfuerzo)
 
@@ -340,9 +340,9 @@ Esta sección es el punto de entrada para quien retome el RBAC.
 # Suite completa (especificar módulos; el discovery por app-label falla con el runner)
 python manage.py test <módulos> --settings=config.settings_development
 ```
-- **Candidato A03:** 109 pruebas focales (incluidas 3 de concurrencia);
-  suite Django completa 1244 OK; e-CF separada 72 passed. Ver el handoff A03
-  para comandos, entorno y tiempos exactos.
+- **Combinación A03+C en `develop@b7147fb`:** 957 focales y suite Django
+  completa 1346 OK; e-CF separada 72 passed; imagen/check cloud Python 3.12.14
+  verdes. Ver el handoff A03 para comandos, aislamiento y tiempos exactos.
 - **Aceptación (el caso del usuario):** mismo rol "Cajero" con permisos distintos por negocio →
   en `/api/v1/maestros/clientes/`, el cajero con `clientes.crear` recibe **201** y el otro **403**
   (`apps/api/tests/test_clientes_permisos_negocio.py`).
