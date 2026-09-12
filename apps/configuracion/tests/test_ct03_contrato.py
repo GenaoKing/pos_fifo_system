@@ -105,6 +105,15 @@ class CT03ContratoTests(TestCase):
             self.assertEqual(ctx['modulos_efectivos'], CORE | PLAN_PRO_MODULOS)
 
     def test_codigo_no_resuelto_con_varias_configs_levanta_no_resuelta(self):
+        # CFG-002 exige ambiguedad real: con una sola config en la base, un
+        # codigo que no resuelve cae al modo legacy de una sola instalacion
+        # (ver ResolucionEstrictaTests en test_auditoria_configuracion.py).
+        # Aca se agrega una segunda config para que "NO-EXISTE" sea de verdad
+        # ambiguo entre dos, no solo "distinto de la unica que hay".
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.suc_02, nombre_negocio='Ferreteria Demo - Segunda',
+        )
+
         with self.settings(SUCURSAL_CODIGO='CT03-NO-EXISTE'):
             cache.clear()
             with self.assertRaises(ConfiguracionNoResuelta):

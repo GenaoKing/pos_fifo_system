@@ -294,6 +294,8 @@ def bootstrap(
                 SucursalOverrideModel, resumen, using=alias,
             )
 
+    return resumen
+
 
 class PlanDesconocido(ValueError):
     """
@@ -329,5 +331,3 @@ def validar_plan_slug(slug, *, using=None):
             f'"{slug}" no es un Plan existente en esta base. '
             f'Planes disponibles: {", ".join(existentes) or "(ninguno)"}'
         )
-
-    return resumen
