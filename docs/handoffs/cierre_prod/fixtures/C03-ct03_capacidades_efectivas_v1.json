@@ -1,0 +1,93 @@
+{
+  "schema_version": "config.effective.v1",
+  "descripcion": "CT-03 tiene DOS resolutores independientes -- este fixture ilustra ambos a la vez, y el punto clave: uno puede estar 'sin aprovisionar' mientras el otro funciona normal, porque no dependen entre si.",
+  "negocio": {
+    "nombre": "Ferreteria Demo"
+  },
+  "suscripcion": {
+    "activa": true,
+    "plan_slug": "pro",
+    "plan_modulos": [
+      "impresion_termica",
+      "barcode_scanner",
+      "cuentas_por_cobrar",
+      "cotizaciones",
+      "reportes_ondemand",
+      "dashboard",
+      "etiquetas_zebra"
+    ]
+  },
+  "core_siempre_activo": ["productos", "inventario", "clientes", "ventas", "caja"],
+  "sucursales": [
+    {
+      "codigo": "01",
+      "comentario": "Caso normal: config propia + un override negativo de sucursal.",
+      "configuracion_negocio": {
+        "existe": true,
+        "nombre_negocio": "Ferreteria Demo - Centro"
+      },
+      "overrides_negativos_sucursal": ["cotizaciones"],
+      "resolutor_A_config": {
+        "llamada": "apps.configuracion.utils.get_config()",
+        "resultado": "ConfiguracionNegocio(sucursal='01')",
+        "error": null
+      },
+      "resolutor_B_capacidades": {
+        "llamada": "apps.suscripciones.engine.modulos_activos(negocio, sucursal='01')",
+        "resultado": [
+          "productos", "inventario", "clientes", "ventas", "caja",
+          "impresion_termica", "barcode_scanner", "cuentas_por_cobrar",
+          "reportes_ondemand", "dashboard", "etiquetas_zebra"
+        ],
+        "nota": "'cotizaciones' esta en el plan pero el override de sucursal la apaga."
+      }
+    },
+    {
+      "codigo": "02",
+      "comentario": "CFG-012: la sucursal existe y tiene negocio, pero todavia no le crearon su ConfiguracionNegocio (nadie corrio crear_config_inicial --sucursal 02). El resolutor de MODULOS no necesita esa fila -- solo el de CONFIGURACION.",
+      "configuracion_negocio": {
+        "existe": false
+      },
+      "overrides_negativos_sucursal": [],
+      "resolutor_A_config": {
+        "llamada": "apps.configuracion.utils.get_config()",
+        "resultado": null,
+        "error": {
+          "tipo": "ConfiguracionNoInicializada",
+          "mensaje_contiene": "crear_config_inicial --sucursal 02"
+        },
+        "variante_render_segura": {
+          "llamada": "apps.configuracion.utils.config_o_none()",
+          "resultado": null,
+          "usada_por": "context_processors.config_negocio -- nunca propaga esta excepcion a un render"
+        }
+      },
+      "resolutor_B_capacidades": {
+        "llamada": "apps.suscripciones.engine.modulos_activos(negocio, sucursal='02')",
+        "resultado": [
+          "productos", "inventario", "clientes", "ventas", "caja",
+          "impresion_termica", "barcode_scanner", "cuentas_por_cobrar",
+          "cotizaciones", "reportes_ondemand", "dashboard", "etiquetas_zebra"
+        ],
+        "nota": "Set COMPLETO del plan: el resolutor B no lee ConfiguracionNegocio, solo negocio/plan/overrides. No hay override de sucursal '02', asi que no apaga nada."
+      }
+    }
+  ],
+  "casos_de_error_adicionales": [
+    {
+      "escenario": "SUCURSAL_CODIGO configurado pero no resuelve a ninguna Sucursal, y hay 2+ ConfiguracionNegocio en la base",
+      "tipo_error": "ConfiguracionNoResuelta",
+      "quien_lo_levanta": "apps.configuracion.utils.get_config() via _config_sin_sucursal"
+    },
+    {
+      "escenario": "Tenancy activo (TENANCY_DB_PER_TENANT_ENABLED=True) sin tenant activo en contexto (BUG-E)",
+      "tipo_error": "apps.tenancy.context.TenantContextError",
+      "quien_lo_levanta": "apps.configuracion.utils.cache_key_config() via _namespace()"
+    },
+    {
+      "escenario": "key de modulo fuera del registro (typo)",
+      "tipo_error": "no levanta -- deniega (False) siempre, con o sin negocio (SUS-018)",
+      "quien_lo_resuelve": "apps.suscripciones.engine.modulo_activo"
+    }
+  ]
+}
