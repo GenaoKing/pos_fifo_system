@@ -161,6 +161,22 @@ class AdopcionProductoA05Tests(TestCase):
             DiferidoSync.objects.get().ultimo_error,
         )
 
+    def test_categoria_natural_sellada_por_otro_id_se_difiere(self):
+        item = self._producto_item()
+        item['categoria'] = 72
+        item['categoria_nombre'] = self.categoria.nombre
+
+        resultado = self._pull(item)
+
+        self.assertEqual(resultado['count'], 0)
+        self.assertFalse(Producto.objects.filter(sku='A05-SKU').exists())
+        self.categoria.refresh_from_db()
+        self.assertEqual(self.categoria.origen_cloud_id, 71)
+        self.assertIn(
+            'MASTER_NATURAL_ID_CONFLICT',
+            DiferidoSync.objects.get().ultimo_error,
+        )
+
     def test_stub_pendiente_del_cloud_no_se_convierte_en_identidad(self):
         local = Producto.objects.create(
             sku='A05-SKU',

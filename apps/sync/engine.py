@@ -1313,6 +1313,26 @@ class SyncEngine:
                     )
                 if categorias_naturales:
                     categoria = categorias_naturales[0]
+                    if (
+                        categoria_cloud_id is not None
+                        and categoria.origen_cloud_id is not None
+                        and categoria.origen_cloud_id != categoria_cloud_id
+                    ):
+                        raise ConflictoAdopcionMaestro(
+                            'MASTER_NATURAL_ID_CONFLICT',
+                            f'Categoria nombre={cat_nombre!r} pertenece a '
+                            f'cloud_id={categoria.origen_cloud_id}, no a '
+                            f'cloud_id={categoria_cloud_id}.',
+                        )
+                    if (
+                        categoria_cloud_id is not None
+                        and categoria.origen_cloud_id is None
+                    ):
+                        # El producto trae la PK cloud de su categoria. Si la
+                        # coincidencia natural es exacta e inequivoca, sellar
+                        # ahora evita que un replay vuelva a depender del nombre.
+                        categoria.origen_cloud_id = categoria_cloud_id
+                        categoria.save(update_fields=['origen_cloud_id'])
                 else:
                     # Antes esto solo avisaba y guardaba el producto con su
                     # categoria vieja, avanzando el cursor: cuando la categoria

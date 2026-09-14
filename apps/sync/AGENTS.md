@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 -->
+<!-- Última revisión: 2026-09-14 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -62,7 +62,8 @@ mezclarlos:
 - Producto, Categoría y Cliente se buscan primero por `origen_cloud_id`; la
   clave natural solo adopta una fila no sellada en la primera bajada. Colisiones
   o coincidencias ambiguas quedan en `DiferidoSync` con código `MASTER_*`, nunca
-  crean un duplicado ni eligen una fila con `.first()`.
+  crean un duplicado ni eligen una fila con `.first()`. La categoría referida
+  por Producto sigue la misma regla: ID primero; nombre exacto solo para adoptar.
 - El SKU de Producto es inmutable. `origen_sucursal` y `pendiente_revision`
   conservan el patrón de stub BUG-H y no forman parte de la identidad cloud.
 
