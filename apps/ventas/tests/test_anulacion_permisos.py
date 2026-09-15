@@ -47,11 +47,11 @@ class AnulacionPermisosBase(TestCase):
         self.suc_b = Sucursal.objects.create(
             negocio=self.negocio, codigo='SUC-B', nombre='Sucursal B',
         )
-        # Config propia de la sucursal operativa, creada por la secuencia (no por
-        # el atajo pk=1 de `load()` sin sucursal, que envenena la secuencia y hace
-        # chocar el siguiente INSERT). Con una sola config, `get_config()` resuelve
-        # sin ambigüedad tanto bajo el código por defecto como bajo SUC-A.
-        ConfiguracionNegocio.load(sucursal=self.suc_a)
+        # Config propia de la sucursal operativa, creada explicitamente
+        # (CFG-012: `load()` ya no crea, es lectura pura). Con una sola
+        # config, `get_config()` resuelve sin ambigüedad tanto bajo el
+        # código por defecto como bajo SUC-A.
+        ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
 
         # Quien crea las ventas: acceso total, no es el sujeto de la prueba.
         self.admin = User.objects.create_user(

@@ -18,7 +18,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase
 
-from apps.configuracion.utils import get_config
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.inventario.models import Compra, DetalleCompra, Lote, MovimientoLote
 from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
@@ -82,10 +82,10 @@ class ConcurrenciaTestCase(TransactionTestCase):
             subtotal=Decimal('200.00'),
         )
 
-        # Materializa la ConfiguracionNegocio ANTES de lanzar los hilos: si la
-        # crean ellos, la carrera bajo prueba se confunde con la del singleton
-        # de configuracion (que en produccion ya existe).
-        get_config()
+        # Materializa la ConfiguracionNegocio ANTES de lanzar los hilos: ya no
+        # se crea sola al leer (CFG-012), pero sigue conviniendo crearla aqui
+        # para no mezclar su escritura con la carrera bajo prueba.
+        ConfiguracionNegocio.objects.create()
 
     def tearDown(self):
         cache.clear()

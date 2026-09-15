@@ -42,6 +42,17 @@ class ConfiguracionNoInicializada(RuntimeError):
     """
 
 
+class ConfiguracionAmbigua(RuntimeError):
+    """
+    `ConfiguracionNegocio.bootstrap(sucursal=None)` con mas de una fila
+    legacy candidata en la base. Elegir `.first()` seria el mismo hallazgo
+    que CFG-002 (`_config_sin_sucursal`) pero al escribir en vez de leer:
+    la instalacion terminaria operando -o creando una tercera fila- sobre
+    una identidad fiscal arbitraria. Se resuelve a mano, ligando cada fila
+    a su sucursal.
+    """
+
+
 class _ConfiguracionQuerySet(models.QuerySet):
     def delete(self):
         raise ConfiguracionProtegidaError(
@@ -459,24 +470,44 @@ class ConfiguracionNegocio(models.Model):
     def bootstrap(cls, sucursal=None, **defaults):
         """
         Unico punto de creacion IMPLICITA permitido (get-or-create), fuera
-        de `crear_config_inicial`. Transaccional e idempotente: una sola
-        sentencia `get_or_create()` (Django la corre en su propio
-        savepoint), correrla dos veces con los mismos argumentos no
-        duplica ni pisa una fila existente.
+        de `crear_config_inicial`. Es la misma semantica que tenia `load()`
+        antes de CFG-012 — se conserva a proposito, con otro nombre, para
+        quien de verdad necesite "crear si no existe": fixtures de test, o
+        un futuro primer-pull de sync que deba materializar la fila local.
+        Ningun call site de produccion la necesita hoy: la instalacion real
+        corre `crear_config_inicial` antes de aceptar trafico (ver runbook).
 
-        Es la misma semantica que tenia `load()` antes de CFG-012 — se
-        conserva a proposito, con otro nombre, para quien de verdad
-        necesite "crear si no existe": fixtures de test, o un futuro
-        primer-pull de sync que deba materializar la fila local. Ningun
-        call site de produccion la necesita hoy: la instalacion real corre
-        `crear_config_inicial` antes de aceptar trafico (ver runbook).
+        Con `sucursal`: una sola sentencia `get_or_create()` (Django la
+        corre en su propio savepoint, atomica por la unicidad real de la
+        FK) — idempotente, correrla dos veces no duplica ni pisa la fila.
+
+        Sin `sucursal` (legacy): NO hay unicidad de FK que proteja "una
+        sola fila sin sucursal", asi que `get_or_create(pk=1)` era un
+        atajo enganoso — ignoraba cualquier fila legacy real con un PK
+        distinto (una base importada, o una secuencia ya avanzada) y podia
+        terminar con dos filas "unicas". Ahora replica la misma regla que
+        `_config_sin_sucursal` (CFG-002) usa para LEER, aplicada a
+        escribir: cero filas -> crea una sola, sin forzar el PK; exactamente
+        una, sea cual sea su PK -> es esa, no se crea otra; mas de una ->
+        `ConfiguracionAmbigua` — elegir `.first()` seria el mismo hallazgo
+        que CFG-002 pero al escribir.
         """
         if sucursal:
             defaults.setdefault('nombre_negocio', sucursal.nombre)
             obj, _ = cls.objects.get_or_create(sucursal=sucursal, defaults=defaults)
             return obj
-        obj, _ = cls.objects.get_or_create(pk=1, defaults=defaults)
-        return obj
+
+        candidatas = list(cls.objects.all()[:2])
+        if not candidatas:
+            return cls.objects.create(**defaults)
+        if len(candidatas) == 1:
+            return candidatas[0]
+        raise ConfiguracionAmbigua(
+            'Hay mas de una ConfiguracionNegocio legacy en esta base: '
+            'bootstrap() sin sucursal no puede elegir una arbitrariamente. '
+            'Ligar cada fila a su sucursal (crear_config_inicial --sucursal '
+            '<codigo>) antes de volver a llamar a bootstrap() sin sucursal.'
+        )
 
     def get_metodos_pago_activos(self):
         """Retorna lista de metodos de pago habilitados"""
