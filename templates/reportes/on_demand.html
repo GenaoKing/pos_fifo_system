@@ -4,7 +4,7 @@
 {% block title %}Reportes On-Demand - Sistema POS{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{% static 'js/chart.min.js' %}"></script>
 
 {# Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
    nombre de usuario con `</script>` viaja como texto y no cierra el bloque.
