@@ -64,6 +64,10 @@ class VentaServiceTestCase(TestCase):
         )
         habilitar_cajero(self.cajera)
 
+        # Una unica ConfiguracionNegocio legacy -> get_config()/load() la
+        # resuelve sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Ventas Service Test')
         self.producto = self._crear_producto('VSVC-001', Decimal('100.00'))
         self._ingresar_stock(self.producto, cantidad=10, costo=Decimal('40.00'))
@@ -499,6 +503,10 @@ class IdentidadDeSucursalTests(VentaServiceTestCase):
             codigo=settings.SUCURSAL_CODIGO,
             nombre='Sucursal de prueba',
         )
+        # `SUCURSAL_CODIGO` ahora resuelve a ESTA sucursal, y `get_config()`
+        # busca su config propia (no la legacy de `setUp`): sin esto,
+        # `ConfiguracionNegocio.load(sucursal=sucursal)` fallaria (CFG-012).
+        ConfiguracionNegocio.objects.create(sucursal=sucursal)
         cache.clear()
 
         venta = self._vender()

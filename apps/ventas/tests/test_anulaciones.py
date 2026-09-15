@@ -51,6 +51,10 @@ class AnulacionTestCase(TestCase):
         )
         habilitar_cajero(self.cajera)
 
+        # Una unica ConfiguracionNegocio legacy -> get_config()/load() la
+        # resuelve sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Anulaciones Test')
         self.producto = self._crear_producto('ANUL-SVC-001', Decimal('100.00'))
         self._ingresar_stock(self.producto, cantidad=10, costo=Decimal('40.00'))

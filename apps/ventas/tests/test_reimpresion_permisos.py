@@ -46,7 +46,7 @@ class ReimpresionPermisosTests(TestCase):
         self.suc_b = Sucursal.objects.create(
             negocio=self.negocio, codigo='SUC-B', nombre='Sucursal B',
         )
-        ConfiguracionNegocio.load(sucursal=self.suc_a)
+        ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
 
         self.admin = User.objects.create_user(
             username='admin_reimp', email='admin_reimp@t.local', password='x',

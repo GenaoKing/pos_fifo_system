@@ -17,6 +17,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.inventario.models import Compra, DetalleCompra, Lote
 from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
@@ -34,6 +35,10 @@ class VentaIdempotenciaTests(TestCase):
             password='x', rol='CAJERA', activo=True,
         )
         habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
 
         self.categoria = Categoria.objects.create(nombre='Idempotencia')
         self.producto = Producto.objects.create(
