@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cotizaciones.models import Cotizacion
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto
@@ -32,6 +33,11 @@ COTIZAR = ['ventas.crear', 'cotizaciones.ver', 'cotizaciones.crear']
 class CotizacionHardeningBase(TestCase):
     def setUp(self):
         cache.clear()
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Cotizables', activa=True)
         self.producto = Producto.objects.create(
             sku='COTH-001', codigo_barras='COTH-001', nombre='Tuberia',

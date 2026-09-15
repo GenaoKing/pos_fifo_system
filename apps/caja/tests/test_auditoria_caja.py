@@ -12,6 +12,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.caja.models import Caja, MovimientoCaja, TurnoCaja, turno_abierto_de
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.inventario.models import Compra, DetalleCompra
 from apps.permisos import testing as permisos_testing
 from apps.permisos.testing import PERMISOS_VENTA
@@ -41,6 +42,10 @@ class CajaTestCase(TestCase):
         )
 
         self.caja = Caja.objects.create(nombre='Caja Auditoria', activa=True)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
 
         self.categoria = Categoria.objects.create(nombre='Caja Auditoria')
         self.producto = Producto.objects.create(
