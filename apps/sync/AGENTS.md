@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-14 -->
+<!-- Última revisión: 2026-09-15 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -66,6 +66,10 @@ mezclarlos:
   por Producto sigue la misma regla: ID primero; nombre exacto solo para adoptar.
 - El SKU de Producto es inmutable. `origen_sucursal` y `pendiente_revision`
   conservan el patrón de stub BUG-H y no forman parte de la identidad cloud.
+- El primer pull de `ConfiguracionNegocio` es el bootstrap explícito del POS:
+  puede crear solo la fila local de su sucursal y los replays no duplican. El
+  endpoint cloud sigue siendo lectura pura: si no hay fila, devuelve una lista
+  vacía, nunca la inventa.
 
 ## Antes de tocar el contrato de sync
 

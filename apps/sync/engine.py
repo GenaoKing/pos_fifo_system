@@ -1973,7 +1973,10 @@ class SyncEngine:
         from apps.sucursales.models import get_sucursal_actual
 
         sucursal = get_sucursal_actual()
-        config = ConfiguracionNegocio.load(sucursal=sucursal)
+        # El primer pull materializa de forma explícita la configuración local.
+        # `load()` es lectura pura desde CFG-012 y debe seguir siéndolo para
+        # todos los consumidores que no están inicializando una sucursal.
+        config = ConfiguracionNegocio.bootstrap(sucursal=sucursal)
         count = 0
         cursor_tabla = 'configuracion'
 

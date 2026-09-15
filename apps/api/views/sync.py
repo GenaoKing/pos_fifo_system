@@ -642,13 +642,21 @@ def metodos_credito_para_sucursal(request):
 @permission_classes([EsSucursalAutenticada])
 def configuracion_para_sucursal(request):
     """Devuelve solo configuracion cloud-safe; excluye hardware/local."""
-    from apps.configuracion.models import ConfiguracionNegocio
+    from apps.configuracion.models import (
+        ConfiguracionNegocio,
+        ConfiguracionNoInicializada,
+    )
 
     sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
     if sucursal is None:
         return Response([])
 
-    config = ConfiguracionNegocio.load(sucursal=sucursal)
+    # El cloud es fuente de lectura: la ausencia de configuración no autoriza
+    # inventar una fila. Para el contrato de pull equivale a no tener cambios.
+    try:
+        config = ConfiguracionNegocio.load(sucursal=sucursal)
+    except ConfiguracionNoInicializada:
+        return Response([])
 
     # Sync incremental: si la sucursal ya tiene una version igual o mas
     # reciente, no devolvemos nada (evita reescribir la config local en cada
