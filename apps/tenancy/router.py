@@ -32,7 +32,9 @@ DEFAULT_ONLY_APPS = {'admin', 'sessions'}
 # base afectada y volver a migrar. `migrate_tenants` ahora lo detecta.
 DUAL_HOME_APPS = {
     'auth', 'auditoria', 'contenttypes', 'usuarios', 'negocios',
-    'token_blacklist',
+    # Auditoria tiene una FK a Sucursal desde 0002. Separarlas deja una FK
+    # cruzada entre control plane y tenant y permite registrar 0001 sin tabla.
+    'sucursales', 'token_blacklist',
 }
 
 
