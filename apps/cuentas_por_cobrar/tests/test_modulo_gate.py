@@ -33,7 +33,7 @@ class CxCModuloGateTests(TestCase):
         self.suc_a = Sucursal.objects.create(
             negocio=self.negocio, codigo='SUC-A', nombre='Sucursal A',
         )
-        ConfiguracionNegocio.load(sucursal=self.suc_a)
+        ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
 
         # Usuario CON permiso de ver CxC: prueba que es el MÓDULO —no el permiso—
         # el que deniega cuando el plan no lo incluye.
