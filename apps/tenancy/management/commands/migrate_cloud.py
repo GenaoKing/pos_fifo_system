@@ -1,5 +1,7 @@
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+
+from apps.tenancy.migration_repair import inspeccionar_sucursales
 
 
 class Command(BaseCommand):
@@ -12,6 +14,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         verbosity = options.get('verbosity', 1)
         interactive = not options.get('noinput')
+
+        estado = inspeccionar_sucursales('default')
+        if estado.reparacion_requerida:
+            raise CommandError(estado.mensaje_reparacion(
+                'python manage.py reparar_sucursales_dual_home '
+                '--database default --dry-run',
+            ))
 
         self.stdout.write('Migrando control plane...')
         call_command('migrate', interactive=interactive, verbosity=verbosity)

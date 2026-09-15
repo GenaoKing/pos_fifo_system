@@ -1,6 +1,6 @@
 # apps/sucursales — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-15 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,6 +34,10 @@ instalación local **es** una sucursal, identificada por
   código" no prueba que alguien lo configuró (CFG-002).
 - `ConfiguracionNegocio.sucursal` es OneToOne: la identidad fiscal es de la
   sucursal, no del negocio.
+- En cloud `sucursales` es **dual-home**: la FK de `Auditoria` debe vivir en la
+  misma base que la sucursal. Si una instalacion heredada registro migraciones
+  sin materializar la tabla, usar `reparar_sucursales_dual_home` con dry-run;
+  no borrar `django_migrations` a mano.
 - Sin `tests/` propios; la cobertura vive en las apps que la consumen.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUCURSALES.md`)
   — **snapshot histórico**, verificar contra código.

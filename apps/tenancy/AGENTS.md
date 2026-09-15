@@ -37,7 +37,10 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
 - Mover una app entre los tres conjuntos del router **es una migración de
   datos**, no configuración (BUG-F): hay que desregistrar sus migraciones en
   cada base afectada. `usuarios`, `negocios`, `auth`, `contenttypes` y
-  `token_blacklist` son dual-home por sus FKs.
+  `token_blacklist` son dual-home por sus FKs. `sucursales` tambien es
+  dual-home: `auditoria.0002` tiene una FK a `Sucursal`. La reparacion del
+  historial fantasma es solo `reparar_sucursales_dual_home` (dry-run primero),
+  nunca un borrado SQL manual ni algo que se ejecute al arrancar.
 - Las rutas de templates del POS **no existen** en cloud (`config/urls.py`,
   BUG-E). `/admin/` en cloud exige identidad global
   (`apps/usuarios/admin_site.py`).
