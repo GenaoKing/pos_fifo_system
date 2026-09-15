@@ -8,12 +8,14 @@ La app no tenia cobertura propia (USR-018); este modulo es el arranque.
 from unittest.mock import patch
 
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.db.models import ProtectedError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.negocios.models import Negocio
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.permisos.models import Rol
 from apps.sucursales.models import Sucursal
 from apps.auditoria.models import Auditoria
@@ -27,6 +29,7 @@ User = get_user_model()
 class UsuariosTestCase(TestCase):
     def setUp(self):
         cache.clear()
+        ConfiguracionNegocio.objects.create(nombre_negocio='Usuarios Test')
         self.negocio = Negocio.objects.create(nombre='Negocio USR', slug='negocio-usr')
 
     def tearDown(self):
@@ -315,6 +318,59 @@ class FrenoDeFuerzaBrutaTests(UsuariosTestCase):
             'username': 'victima', 'password': 'x',
         })
         self.assertEqual(inexistente.status_code, 429)
+
+
+class LoginSinConfiguracionTests(TestCase):
+    """CFG-012: los renders de error del login no materializan ni exigen config."""
+
+    def setUp(self):
+        cache.clear()
+        self.negocio = Negocio.objects.create(
+            nombre='Negocio USR sin configuracion', slug='negocio-usr-sin-config',
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _usuario(self, username, rol='CAJERA', **extra):
+        return User.objects.create_user(
+            username=username, email=f'{username}@test.local',
+            password='Prueba123', rol=rol, negocio=self.negocio, **extra,
+        )
+
+    def test_bloqueado_sin_configuracion_no_da_500_ni_crea_fila(self):
+        self._usuario('limite_sin_config', rol='ADMIN')
+
+        for _ in range(limite_login.rafaga_max):
+            respuesta = self.client.post(reverse('usuarios:login'), {
+                'username': 'limite_sin_config', 'password': 'incorrecta',
+            })
+            self.assertEqual(respuesta.status_code, 200)
+
+        respuesta = self.client.post(reverse('usuarios:login'), {
+            'username': 'limite_sin_config', 'password': 'incorrecta',
+        })
+
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+    def test_usuario_inactivo_sin_configuracion_no_da_500_ni_crea_fila(self):
+        usuario = self._usuario('inactivo_sin_config', rol='ADMIN')
+        usuario.activo = False
+        usuario.save(update_fields=['activo'])
+
+        # El backend normal rechaza inactivos antes de que la vista llegue a
+        # su rama defensiva. Se fuerza un formulario valido para cubrir ese
+        # render sin volver a abrir la autenticacion de cuentas inactivas.
+        with patch(
+            'django.contrib.auth.forms.authenticate', return_value=usuario,
+        ), patch.object(AuthenticationForm, 'confirm_login_allowed', return_value=None):
+            respuesta = self.client.post(reverse('usuarios:login'), {
+                'username': 'inactivo_sin_config', 'password': 'Prueba123',
+            })
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
 
 
 class NegocioNoSeVuelveNuloTests(UsuariosTestCase):

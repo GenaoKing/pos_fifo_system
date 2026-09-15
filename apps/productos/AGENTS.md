@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-14 -->
+<!-- Última revisión: 2026-09-15 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -47,5 +47,8 @@ imágenes: `python manage.py descargar_imagenes_productos`.
 - `Producto.origen_cloud_id` admite solo la adopción `NULL → id`; luego es
   inmutable. Una colisión de identidad/SKU se difiere explícitamente en sync.
 - `Categoria "Sin clasificar"` tiene manejo especial (ver `test_categoria_sin_clasificar`).
+- Las respuestas JSON de fallos inesperados son genéricas y se registran con
+  traza; no devuelven `str(exc)`. Los fixtures que necesitan código de barras
+  crean `ConfiguracionNegocio` explícitamente: el catálogo no la crea por sí mismo.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md`) —
   **snapshot histórico**, verificar contra código.

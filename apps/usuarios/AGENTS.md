@@ -1,6 +1,6 @@
 # apps/usuarios — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-15 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,6 +34,9 @@ Login/logout del POS local y el gate de Django Admin en cloud.
 - `activo` es la fuente de `is_active` (propiedad con setter).
 - `next` se valida antes de redirigir (USR-008); el logout audita **después** de
   cerrar la sesión (USR-004).
+- Los renders de error del login dependen del context processor seguro
+  (`config_o_none()`); no llaman `get_config()` ni crean configuración al
+  bloquear una cuenta o informar que está inactiva (CFG-012).
 - `Usuario.negocio` es `PROTECT` (`usuarios.0004`). App **dual-home** en el
   router: vive en la base tenant, y `token_blacklist` la sigue por FK.
 - En cloud, el portal autentica `Identity` + `Membership` (`apps/tenancy`), no

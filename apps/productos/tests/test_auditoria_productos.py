@@ -15,6 +15,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto, productos_vendibles
 from apps.ventas.services import procesar_venta_service
@@ -35,6 +36,7 @@ def _png_valido(color=(255, 0, 0)):
 class ProductosTestCase(TestCase):
     def setUp(self):
         cache.clear()
+        ConfiguracionNegocio.objects.create(nombre_negocio='Productos Test')
         self.categoria = Categoria.objects.create(nombre='Herramientas', activa=True)
         self.producto = Producto.objects.create(
             sku='PRO-001', codigo_barras='PRO-001',
@@ -63,6 +65,53 @@ class ProductosTestCase(TestCase):
             url, data=json.dumps(cuerpo),
             content_type='application/json', **extra,
         )
+
+
+class CrearProductoSinConfiguracionTests(TestCase):
+    """CFG-012: crear catálogo no oculta una instalación sin configurar."""
+
+    def setUp(self):
+        cache.clear()
+        self.categoria = Categoria.objects.create(
+            nombre='Sin configuracion', activa=True,
+        )
+        self.usuario = User.objects.create_user(
+            username='crear_sin_config',
+            email='crear_sin_config@test.local',
+            password='Prueba123',
+            rol='CAJERA',
+            activo=True,
+        )
+        permisos_testing.habilitar_cajero(
+            self.usuario, permisos=['productos.crear'],
+        )
+        self.client.force_login(self.usuario)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_error_de_configuracion_se_sanea_sin_crear_producto_ni_config(self):
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+        respuesta = self.client.post(
+            reverse('productos:crear'),
+            data=json.dumps({
+                'nombre': 'Producto sin configuracion',
+                'precio_venta': '100.00',
+                'categoria_id': self.categoria.id,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(respuesta.json(), {
+            'success': False,
+            'message': 'No se pudo procesar la solicitud.',
+        })
+        self.assertFalse(
+            Producto.objects.filter(nombre='Producto sin configuracion').exists(),
+        )
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
 
 
 class GatesDelCatalogoTests(ProductosTestCase):

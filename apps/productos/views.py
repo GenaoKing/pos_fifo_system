@@ -1,6 +1,7 @@
 """
 Views para gestión de Productos y Categorías
 """
+import logging
 
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
@@ -20,6 +21,19 @@ from apps.permisos.decorators import (
     requiere_permiso_json,
     requiere_permiso_local,
 )
+
+
+logger = logging.getLogger(__name__)
+MENSAJE_ERROR_GENERICO = 'No se pudo procesar la solicitud.'
+
+
+def _respuesta_error_generico():
+    """No expone detalles internos de errores inesperados al cliente."""
+    logger.exception('Error inesperado en una operación de productos')
+    return JsonResponse({
+        'success': False,
+        'message': MENSAJE_ERROR_GENERICO,
+    }, status=400)
 
 
 # ==========================================
@@ -129,11 +143,8 @@ def crear_producto(request):
             'codigo_barras': producto.codigo_barras,
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 @requiere_conexion_cloud(redirect_url='productos:lista')
@@ -178,11 +189,8 @@ def editar_producto(request, producto_id):
             'message': 'Producto actualizado exitosamente'
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 @login_required
@@ -204,11 +212,8 @@ def toggle_estado_producto(request, producto_id):
             'activo': producto.activo
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 # ==========================================
@@ -286,11 +291,8 @@ def crear_categoria(request):
             'categoria_id': categoria.id
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 @login_required
@@ -324,11 +326,8 @@ def editar_categoria(request, categoria_id):
             'message': 'Categoría actualizada exitosamente'
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 
@@ -360,11 +359,8 @@ def imprimir_etiqueta(request, producto_id):
         
         return JsonResponse(resultado)
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 
@@ -387,11 +383,8 @@ def toggle_estado_categoria(request, categoria_id):
             'activa': categoria.activa
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 @login_required
 @requiere_permiso_json('productos.fotografiar')
@@ -436,11 +429,8 @@ def subir_imagen_producto(request, producto_id):
             'imagen': producto.imagen_preview.url if producto.imagen_preview else None
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
 
 
 @login_required
@@ -464,11 +454,8 @@ def eliminar_imagen_producto(request, producto_id):
             'success': True
         })
         
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()
     
 
 @login_required
@@ -485,8 +472,5 @@ def obtener_config_atributos(request, categoria_id):
             'tipo_negocio': categoria.tipo_negocio,
             'atributos_configurados': categoria.atributos_configurados or {}
         })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=400)
+    except Exception:
+        return _respuesta_error_generico()

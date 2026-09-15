@@ -37,7 +37,6 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
 
 from apps.auditoria.models import Auditoria, get_client_ip, get_user_agent
-from apps.configuracion.utils import get_config
 
 from .throttling import limite_login
 
@@ -114,7 +113,7 @@ def login_view(request):
             )
             return render(
                 request, 'usuarios/login.html',
-                {'form': AuthenticationForm(), 'config': get_config()},
+                {'form': AuthenticationForm()},
                 status=429,
             )
 
@@ -136,7 +135,7 @@ def login_view(request):
                 messages.error(request, 'Tu cuenta esta desactivada.')
                 return render(
                     request, 'usuarios/login.html',
-                    {'form': form, 'config': get_config()},
+                    {'form': form},
                 )
 
             login(request, user)
