@@ -17,9 +17,11 @@ Fecha: **2026-09-15**. Agente: Claude (implementador/revisor de este residual).
 - **Worktree**: `C:/Proyectos/pos_fifo_system_c02_chart_offline`, rama nueva
   `claude/cierre-prod-C02-chart-offline` creada desde ese SHA con
   `git worktree add`.
-- **Resultado**: commit `<COMPLETAR_TRAS_COMMIT>` en esa rama, único, con los
-  archivos listados abajo. Working tree limpio al cierre (`git status` sin
-  cambios pendientes). **No publicado a `origin`; no fusionado** a
+- **Resultado**: commit `b778e24b469353ccf526c5b3a671a492715a5f91` en esa
+  rama, con los archivos listados abajo (más este ajuste de handoff en un
+  segundo commit sobre la misma rama). Working tree limpio al cierre
+  (`git status` sin cambios pendientes). **No publicado a `origin`; no
+  fusionado** a
   `integration/*`, `develop`, `staging` ni `main` — igual criterio que el
   resto de los bloques C0x: cada entrega queda en su rama, la integración se
   decide en un checkpoint mayor.
@@ -176,7 +178,7 @@ ni backend de `apps/reportes`.
 
 ## Rollback
 
-`git revert <COMPLETAR_TRAS_COMMIT>` sobre esta rama. Sin estado persistente,
+`git revert b778e24b469353ccf526c5b3a671a492715a5f91` sobre esta rama. Sin estado persistente,
 sin migración, sin dato de producción tocado — revertir el commit deja el
 template exactamente como estaba (CDN) sin ningún otro efecto.
 
