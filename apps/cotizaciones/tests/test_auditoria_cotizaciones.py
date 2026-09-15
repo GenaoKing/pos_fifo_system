@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cotizaciones.models import Cotizacion, DetalleCotizacion
 from apps.inventario.models import Compra, DetalleCompra
 from apps.permisos import testing as permisos_testing
@@ -38,6 +39,12 @@ class CotizacionesTestCase(TestCase):
         self.suc_b = Sucursal.objects.create(
             codigo='COT-B', nombre='Tienda B', activa=True, negocio=self.negocio,
         )
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer). Ninguna de
+        # las dos sucursales de este fixture tiene la propia por defecto.
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Cotizables', activa=True)
         self.producto = Producto.objects.create(
             sku='COT-001', codigo_barras='COT-001', nombre='Tuberia',
@@ -266,6 +273,10 @@ class AlcanceDeLaConversionTests(CotizacionesTestCase):
 
         with self.settings(SUCURSAL_CODIGO='COT-A'):
             cache.clear()
+            # Con SUCURSAL_CODIGO='COT-A', get_config() resuelve suc_a de
+            # verdad y ya no cae al legacy del setUp -- necesita su propia
+            # ConfiguracionNegocio (CFG-012).
+            ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
             with self.assertRaises(CotizacionInvalidaError) as ctx:
                 self._vender(cotizacion)
 
