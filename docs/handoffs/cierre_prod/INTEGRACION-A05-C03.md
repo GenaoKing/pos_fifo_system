@@ -1,11 +1,11 @@
-# Integración A05.1 + C03 parte 2 — checkpoint de fase 1
+# Integración A05.1 + C03 parte 2 — gate final de fase 2
 
 Fecha: **2026-09-15**
-Estado: **CHECKPOINT LIMPIO; no publicable y sin merge a `develop`**.
+Estado: **INTEGRADA; BLOQUEADA PARA PUBLICACIÓN y sin merge a `develop`**.
 
-Esta rama integra solamente A05.1 y el corte inicial de C03 parte 2. La fase 2
-queda detenida hasta recibir por este chat un SHA concreto, descendiente de
-`29bd07f`, de Claude.
+Esta rama integra A05.1 y C03 parte 2. Las secciones iniciales preservan el
+checkpoint de fase 1; la sección «Fase 2» documenta el SHA correctivo recibido,
+su merge exacto y el resultado de los gates finales.
 
 ## Base e historia verificadas
 
@@ -105,15 +105,85 @@ Resultados: `pip check` sin requisitos rotos; `check` sin incidencias;
 **CT-03 permanece sin publicar. CT-04 permanece PENDIENTE/reservado.** No se
 modificaron `CONTRATOS.md`, ledgers compartidos, C04 ni A05.2–A05.4.
 
+## Fase 2 — corrección C03 e integración verificada
+
+Esta sección reemplaza los gates pendientes del checkpoint de fase 1.
+
+### Entrada y merge exactos
+
+- SHA correctivo recibido y verificado: `9e3d8c7f75bbb09920ecb8e3da3c70fa566754ff`
+  (`docs(cierre-C03): handoff de correcciones parte2 - bootstrap legacy + fixtures CFG-012`).
+- Es descendiente de `29bd07f7fa5ef7d39272b19b9034c66a6b746782`; el ref
+  `claude/cierre-prod-C03-parte2-fixes` y su worktree estaban limpios y
+  apuntaban exactamente a ese objeto antes de integrarlo.
+- Merge realizado sin conflictos: `a1064be90a92f97c69b0135042492427d66d4e34`,
+  con padres `0104c652521083038b609a1a37fb07c0b09576cb` y
+  `9e3d8c7f75bbb09920ecb8e3da3c70fa566754ff`.
+
+La corrección de Claude aplica CFG-002 también a
+`ConfiguracionNegocio.bootstrap(sucursal=None)`: cero filas crea una sin PK
+forzado; una sola fila de cualquier PK se reutiliza; dos o más filas levantan
+`ConfiguracionAmbigua`. También migra los fixtures explícitos de los cuatro
+módulos C05 originalmente cubiertos y documenta el residuo conocido.
+
+### Gates verdes
+
+Todas las corridas usaron bases y namespaces aislados, serialmente en Windows.
+
+| Gate | Resultado |
+| --- | --- |
+| Configuración, suscripciones y consumidores C03/C05 (`configuracion`, `suscripciones`, API de suscripciones, ventas, inventario, cuentas por cobrar y reportes) | **537 OK** en 192.065 s |
+| Consumidores A05 (`sync`, producto/API, tenancy, usuarios) | **292 OK** en 57.621 s |
+| TEN-016 de aislamiento físico | **2 OK** en 0.518 s |
+| e-CF por pytest | **72 passed** en 18.50 s |
+| `pip check`, `manage.py check`, `makemigrations --check --dry-run`, `compileall`, `git diff --check` | Correctos; sin requisitos rotos, incidencias ni cambios de migración |
+
+### Bloqueos descubiertos
+
+1. **Discovery Django global:** 131 módulos de prueba (excluido e-CF, que se
+   ejecutó por pytest) hallaron 1,508 pruebas; finalizaron en 512.583 s con
+   **48 errores**. Los 35 ya documentados se reproducen al correr
+   `apps.caja apps.cotizaciones` (96 pruebas, 52.020 s). Los 13 restantes se
+   aíslan en `apps.permisos` (89 pruebas, 32.713 s). Todos alcanzan
+   `caja:api_validar_admin` sin una `ConfiguracionNegocio` creada por el
+   fixture y terminan en `ConfiguracionNoInicializada`; no apareció otro
+   mecanismo ni un fallo de A05. El residuo de permisos no estaba enumerado en
+   el handoff correctivo de Claude, aunque comparte el mismo endpoint de caja.
+
+2. **Grafo de migraciones cloud desde cero:** se creó la base desechable
+   `pos_cierre_codex_a05c03_migrationgraph_20260915_r1`, previamente
+   verificada inexistente, con `TENANCY_DB_PER_TENANT_ENABLED=true`. El
+   `migrate` del control plane registró `sucursales.0001_initial` sin crear
+   `sucursales_sucursal` y falló en `auditoria.0002_auditoria_sucursal_and_more`
+   con `ProgrammingError: relation "sucursales_sucursal" does not exist`.
+   Por ello el bootstrap no llegó a crear/migrar el alias tenant y no se puede
+   declarar verde la cadena `sync`/`tenancy` aplicada desde cero. La base
+   parcial se eliminó inmediatamente y se verificó que ni ella ni
+   `tnt_miggraph_a05c03_r1` quedaran en PostgreSQL. El router y esas
+   migraciones no cambiaron entre `fdd02b18`, `29bd07f` y este merge: es un
+   bloqueo de baseline, no una regresión introducida por A05/C03.
+
+No se corrigieron esos residuos: están fuera del alcance autorizado de esta
+integración y requieren una corrección explícita de fixtures/contrato para
+caja, cotizaciones y permisos, además de una decisión separada sobre el
+router/grafo cloud.
+
+**CT-03 no se publica. CT-04 sigue reservado.** No hubo push, merge a
+`develop`, staging, producción ni escrituras sobre datos operativos.
+
 ## Rollback y siguiente paso
 
-No hay efecto fuera de Git. Si hay que retirar la fase 1, revertir en orden
-inverso los commits `9097bdd`, `c003af8` y `d3257bf`, conservando el merge de
-revisión y sin resetear `develop` ni la rama de Claude.
+No hay efecto fuera de Git. Si hay que retirar solo la fase 2, revertir el
+merge `a1064be90a92f97c69b0135042492427d66d4e34` con `git revert -m 1`,
+conservando la fase 1. Si hay que retirar también la fase 1, revertir luego en
+orden inverso `9097bdd`, `c003af8` y `d3257bf`; no resetear `develop` ni la
+rama de Claude. El commit de este handoff se revierte separadamente si el
+historial debe volver a describir el checkpoint anterior.
 
-La siguiente base recomendada es
-`integration/cierre-prod-A05-C03@9097bdd30467e5c9125667efe618f1c3e45193d1`.
-Cuando llegue el SHA exacto de Claude, verificar que sea descendiente de
-`29bd07f`, que su worktree esté limpio y que el SHA exista; fusionar solo ese
-SHA y repetir todos los gates combinados antes de considerar CT-03 o cualquier
-publicación.
+La base de código integrada es
+`integration/cierre-prod-A05-C03@a1064be90a92f97c69b0135042492427d66d4e34`.
+Antes de cualquier publicación hace falta un SHA correctivo con alcance
+explícito para los fixtures residuales y una resolución independiente del
+grafo cloud; después deben repetirse el discovery global, el bootstrap/migrate
+desde cero, TEN-016, los consumidores A05/C03 y e-CF. No se debe publicar
+CT-03 mientras alguno de esos gates permanezca rojo.
