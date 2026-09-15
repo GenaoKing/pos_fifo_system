@@ -23,9 +23,14 @@ def _snapshot_tenant(tenant):
 
 
 def preparar_tenant_provisioning(
-    *, tenant_key, slug, nombre, rnc='', plan_slug='', actor=None,
+    *, tenant_key, slug, nombre, rnc='', plan_slug=None, actor=None,
 ):
-    """Crea/actualiza la identidad control-plane junto con su evento CT-01."""
+    """Crea/actualiza la identidad control-plane junto con su evento CT-01.
+
+    ``plan_slug=None`` conserva el valor actual durante el provisioning. El
+    comando valida y persiste un plan solicitado solo despues de que exista la
+    BD tenant donde vive su ``Plan``.
+    """
     with transaction.atomic(using='default'):
         tenant = (
             Tenant.objects.using('default').select_for_update()
@@ -42,7 +47,7 @@ def preparar_tenant_provisioning(
                 rnc=rnc,
                 db_name=f'tnt_{tenant_key}',
                 media_prefix=f'{tenant_key}/',
-                plan_slug=plan_slug,
+                plan_slug=plan_slug or '',
                 activo=False,
                 estado_provisioning=Tenant.EstadoProvisioning.PENDING,
             )
@@ -51,7 +56,8 @@ def preparar_tenant_provisioning(
                 raise ValueError('El slug existente no coincide con la identidad solicitada.')
             tenant.nombre = nombre
             tenant.rnc = rnc
-            tenant.plan_slug = plan_slug
+            if plan_slug is not None:
+                tenant.plan_slug = plan_slug
         tenant.save(using='default')
         registrar_mutacion(
             accion='tenant.provisioning.prepared',
@@ -66,6 +72,40 @@ def preparar_tenant_provisioning(
             using='default',
         )
     return tenant, creado, activo_previo
+
+
+def persistir_plan_slug_validado(tenant, plan_slug):
+    """Publica en ``default`` un slug que ya fue validado en la BD tenant.
+
+    La suscripcion operativa conserva su transaccion propia; esta actualizacion
+    queda auditada y es reanudable, pero no pretende simular atomicidad
+    distribuida entre ambas bases.
+    """
+    with transaction.atomic(using='default'):
+        actual = (
+            Tenant.objects.using('default')
+            .select_for_update()
+            .get(pk=tenant.pk)
+        )
+        if actual.plan_slug == plan_slug:
+            return actual
+
+        antes = _snapshot_tenant(actual)
+        actual.plan_slug = plan_slug
+        actual.save(using='default', update_fields=['plan_slug', 'fecha_modificacion'])
+        registrar_mutacion(
+            accion='tenant.provisioning.plan_validated',
+            actor=None,
+            entidad=actual,
+            antes=antes,
+            despues=_snapshot_tenant(actual),
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.COMMAND,
+            tenant=actual,
+            metadata={'recoverable': True, 'cross_db_atomicity': False},
+            using='default',
+        )
+    return actual
 
 
 def divergencias_identidad(tenant, negocio, configuraciones):

@@ -1,6 +1,6 @@
 # apps/tenancy — mapa para agentes
 
-<!-- Última revisión: 2026-09-14 -->
+<!-- Última revisión: 2026-09-15 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -45,6 +45,10 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
 - `tenant_key`, `slug`, `db_name` y `media_prefix` son identidad física
   inmutable. El provisioning confirma por checkpoints cada base por separado:
   no existe una transacción atómica distribuida control-plane/tenant.
+- `bootstrap_tenant --plan` se valida con `validar_plan_slug(...,
+  using='tnt_<tenant_key>')` una vez migrada la BD tenant y antes de sembrar su
+  suscripción o publicar `Tenant.plan_slug`; un slug inválido conserva el plan
+  previo y deja el checkpoint reanudable.
 - El JWT tenant-aware conserva un inicio de sesión absoluto y el servidor lo
   limita a 12 horas tanto en access como en refresh.
 - TEN-016 usa dos bases PostgreSQL físicas con nombres bajo

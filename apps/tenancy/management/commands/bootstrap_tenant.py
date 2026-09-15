@@ -15,8 +15,10 @@ from apps.tenancy.models import Identity, Membership, SyncToken, Tenant
 from apps.tenancy.registry import configure_tenant_database
 from apps.tenancy.services import (
     marcar_estado_provisioning,
+    persistir_plan_slug_validado,
     preparar_tenant_provisioning,
 )
+from apps.suscripciones.seed import PlanDesconocido, validar_plan_slug
 
 
 class Command(BaseCommand):
@@ -113,6 +115,7 @@ class Command(BaseCommand):
         opts['admin_username'] = opts['admin_username'].strip().casefold()
         sucursal_codigo = opts['sucursal_codigo'].strip().upper()
         sucursal_nombre = opts.get('sucursal_nombre') or f'{nombre} - Principal'
+        plan_slug = opts.get('plan') or ''
         dry_run = opts['dry_run']
 
         if admin_password:
@@ -194,7 +197,6 @@ class Command(BaseCommand):
             slug=slug,
             nombre=nombre,
             rnc=opts.get('rnc', ''),
-            plan_slug=opts.get('plan') or '',
         )
 
         try:
@@ -217,6 +219,10 @@ class Command(BaseCommand):
             with force_tenancy(True):
                 with tenant_context(tenant, permitir_inactivo=True):
                     alias = f'tnt_{tenant.tenant_key}'
+                    try:
+                        validar_plan_slug(plan_slug, using=alias)
+                    except PlanDesconocido as exc:
+                        raise CommandError(str(exc)) from exc
                     with transaction.atomic(using=alias):
                         result = self._seed_tenant(
                             tenant=tenant,
@@ -229,8 +235,12 @@ class Command(BaseCommand):
                             admin_username=opts['admin_username'],
                             sucursal_codigo=sucursal_codigo,
                             sucursal_nombre=sucursal_nombre,
-                            plan_slug=opts.get('plan') or '',
+                            plan_slug=plan_slug,
                         )
+            # La suscripcion ya se escribio en la transaccion tenant. Solo
+            # despues se publica el slug validado en el control plane; un
+            # plan desconocido no llega a escribir ninguna de las dos cosas.
+            tenant = persistir_plan_slug_validado(tenant, plan_slug)
             tenant = marcar_estado_provisioning(tenant, Tenant.EstadoProvisioning.TENANT_READY)
 
             with transaction.atomic(using='default'):
@@ -474,12 +484,16 @@ class Command(BaseCommand):
             ConfiguracionModel=ConfiguracionNegocio,
         )
         if plan_slug:
-            plan = Plan.objects.filter(slug=plan_slug).first()
-            if plan is not None:
-                SuscripcionNegocio.objects.update_or_create(
-                    negocio=negocio,
-                    defaults={'plan': plan, 'activa': True},
-                )
+            try:
+                plan = Plan.objects.get(slug=plan_slug)
+            except Plan.DoesNotExist as exc:
+                raise CommandError(
+                    f'El plan validado "{plan_slug}" ya no existe en la BD tenant.'
+                ) from exc
+            SuscripcionNegocio.objects.update_or_create(
+                negocio=negocio,
+                defaults={'plan': plan, 'activa': True},
+            )
 
         service_username = f'sucursal_service_{sucursal_codigo}'
         service_user = User.objects.filter(username__iexact=service_username).first()

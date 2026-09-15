@@ -175,10 +175,11 @@ class BootstrapTenantLifecycleTests(TestCase):
                 },
             ),
             patch.object(bootstrap_tenant.transaction, 'atomic', side_effect=atomic_selectivo),
+            patch.object(bootstrap_tenant, 'validar_plan_slug'),
         )
         with (
             base_patches[0], base_patches[1], base_patches[2],
-            base_patches[3], base_patches[4], base_patches[5],
+            base_patches[3], base_patches[4], base_patches[5], base_patches[6],
         ):
             with patch.object(
                 bootstrap_tenant.Command,
@@ -220,12 +221,13 @@ class BootstrapTenantLifecycleTests(TestCase):
                 },
             ),
             patch.object(bootstrap_tenant.transaction, 'atomic', side_effect=atomic_selectivo),
+            patch.object(bootstrap_tenant, 'validar_plan_slug'),
             patch.object(bootstrap_tenant.Command, '_seed_control_plane'),
         )
         with (
             base_patches[0], base_patches[1], base_patches[2],
             base_patches[3], base_patches[4], base_patches[5],
-            base_patches[6],
+            base_patches[6], base_patches[7],
         ):
             call_command(
                 'bootstrap_tenant',
