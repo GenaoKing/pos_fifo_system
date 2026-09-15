@@ -18,7 +18,11 @@ from django.core.management import call_command
 from django.test import RequestFactory, TestCase
 
 from apps.configuracion.context_processors import config_negocio
-from apps.configuracion.models import ConfiguracionNegocio, ConfiguracionNoInicializada
+from apps.configuracion.models import (
+    ConfiguracionAmbigua,
+    ConfiguracionNegocio,
+    ConfiguracionNoInicializada,
+)
 from apps.configuracion.utils import (
     ConfiguracionNoResuelta,
     config_o_none,
@@ -207,6 +211,71 @@ class BootstrapExplicitoTests(TestCase):
         self.assertEqual(ConfiguracionNegocio.objects.count(), 1)
         config.refresh_from_db()
         self.assertEqual(config.nombre_negocio, 'Negocio Renombrado')
+
+
+class BootstrapLegacySinPk1Tests(TestCase):
+    """
+    bootstrap(sucursal=None) usaba `get_or_create(pk=1)`: un atajo que
+    ignoraba cualquier fila legacy real con un PK distinto (base importada,
+    secuencia ya avanzada) y podia terminar creando una SEGUNDA fila "unica".
+    Ahora replica, al escribir, la misma regla que `_config_sin_sucursal`
+    (CFG-002) ya usaba al leer: cero filas crea una sola; exactamente una,
+    sea cual sea su PK, se reutiliza; mas de una es un error explicito.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_sin_filas_crea_una_sola_sin_forzar_el_pk(self):
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+        creada = ConfiguracionNegocio.bootstrap()
+
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 1)
+        self.assertEqual(ConfiguracionNegocio.objects.get().pk, creada.pk)
+
+    def test_fila_legacy_unica_con_pk_distinto_de_1_se_reutiliza(self):
+        existente = ConfiguracionNegocio.objects.create(
+            pk=7, nombre_negocio='Legacy PK 7',
+        )
+
+        encontrada = ConfiguracionNegocio.bootstrap()
+
+        self.assertEqual(encontrada.pk, existente.pk)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 1)
+
+    def test_replay_sobre_fila_con_pk_distinto_de_1_es_idempotente(self):
+        existente = ConfiguracionNegocio.objects.create(
+            pk=42, nombre_negocio='Legacy PK 42',
+        )
+
+        primero = ConfiguracionNegocio.bootstrap()
+        segundo = ConfiguracionNegocio.bootstrap()
+
+        self.assertEqual(primero.pk, existente.pk)
+        self.assertEqual(segundo.pk, existente.pk)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 1)
+
+    def test_mas_de_una_candidata_es_ambiguedad_explicita_no_first(self):
+        primera = ConfiguracionNegocio.objects.create(
+            pk=1, nombre_negocio='Legacy Uno',
+        )
+        segunda = ConfiguracionNegocio.objects.create(
+            pk=2, nombre_negocio='Legacy Dos',
+        )
+
+        with self.assertRaises(ConfiguracionAmbigua):
+            ConfiguracionNegocio.bootstrap()
+
+        # La ambiguedad no crea una tercera fila ni pisa las existentes.
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 2)
+        primera.refresh_from_db()
+        segunda.refresh_from_db()
+        self.assertEqual(primera.nombre_negocio, 'Legacy Uno')
+        self.assertEqual(segunda.nombre_negocio, 'Legacy Dos')
 
 
 class SinTenantActivoTests(TestCase):

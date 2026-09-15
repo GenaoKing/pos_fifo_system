@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 (CFG-012: parte2 de C03) -->
+<!-- Última revisión: 2026-09-15 (CFG-012: correccion de la semantica legacy de bootstrap(), parte2 de C03) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -22,7 +22,7 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | --- | --- |
 | **Leer la config del contexto actual** | `utils.get_config()` — por `SUCURSAL_CODIGO`, cacheada con clave por tenant (CFG-001), TTL 30 s local / 600 s compartido (CFG-005). **Nunca crea** (CFG-012): sin fila, levanta `ConfiguracionNoInicializada` |
 | **Leer solo para MOSTRAR** (login, nav, error) sin tumbar el render si no hay config | `utils.config_o_none()` / `modulos_efectivos_o_vacio()` — devuelven `None`/`set()` en vez de propagar (CFG-012) |
-| **Crear la config si no existe** (fixtures de test, futuro primer-pull de sync) | `ConfiguracionNegocio.bootstrap(sucursal=...)` — get-or-create explícito, idempotente. La instalación real usa `crear_config_inicial`, no esto |
+| **Crear la config si no existe** (fixtures de test, futuro primer-pull de sync) | `ConfiguracionNegocio.bootstrap(sucursal=...)` — get-or-create explícito, idempotente. Sin `sucursal` (legacy), no es un get-or-create ciego: cero filas crea una sola, una fila existente (sea cual sea su PK) se reutiliza, y más de una levanta `ConfiguracionAmbigua` en vez de elegir. La instalación real usa `crear_config_inicial`, no esto |
 | Config para **encabezar un documento** | `utils.config_para_documento(sucursal)` (COM-001) · `config_de_sucursal` |
 | ¿Módulo activo? | `utils.modulo_activo(key)` → delega en `apps.suscripciones.engine` si resuelve negocio; si no, flag legacy |
 | Gatear una vista por módulo | `decorators.requiere_modulo` (HTML → 404) · `requiere_modulo_json` (fetch → 404 JSON) · `requiere_sysadmin` |
@@ -41,7 +41,11 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
   variantes `_o_none()`/`_o_vacio()` a propósito — una decisión de negocio
   real (medios de pago, e-CF) sigue usando `get_config()` directo, que sigue
   fallando fuerte. Crear la fila fuera de `crear_config_inicial` es
-  `ConfiguracionNegocio.bootstrap(...)`, explícito y con otro nombre.
+  `ConfiguracionNegocio.bootstrap(...)`, explícito y con otro nombre. Su rama
+  legacy (sin `sucursal`) ya no es un `get_or_create(pk=1)` ciego: sigue la
+  misma regla que `_config_sin_sucursal` (CFG-002) aplicada a escribir — cero
+  filas crea una, una existente con cualquier PK se reutiliza, más de una
+  levanta `ConfiguracionAmbigua` (nunca `.first()`, nunca crea otra).
 - `save()` invalida el cache (`utils.cache_key_config`); `delete()` **y**
   `QuerySet.delete()` levantan `ConfiguracionProtegidaError` (CFG-011; antes
   `delete()` era un `pass` silencioso y el QuerySet borraba de verdad). Ya **no**
