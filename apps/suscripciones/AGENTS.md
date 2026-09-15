@@ -1,6 +1,6 @@
 # apps/suscripciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-11 (SUS-014: validación de plan_slug, parte2 de C03) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -26,6 +26,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 | Declarar un módulo | `registry.CATALOGO_MODULOS` (`key`, `depende_de`, `core`, `flag_legacy`) → `manage.py sync_modulos` |
 | Aprovisionar negocios existentes | `manage.py bootstrap_suscripciones` · `seed.py` |
 | Resincronizar los planes default (Basico/Pro/Empresarial) | `manage.py sync_modulos` · `seed.sincronizar_planes_preset` — solo toca planes con `preset_version` no nulo (SUS-017) |
+| Validar un `plan_slug` antes de escribirlo en dos bases | `seed.validar_plan_slug(slug, using=<alias>)` (SUS-014) — pensada para `bootstrap_tenant --plan`; slug vacío es válido, uno inexistente levanta `PlanDesconocido` sin tocar nada |
 | Gate en vistas / DRF | `apps.configuracion.decorators.requiere_modulo` · `apps/api/permissions.RequiereModulo` |
 | Admin por API | `apps/api/views/suscripciones.py` (permiso `suscripciones.administrar`, solo operador global) |
 | ¿Quién cambió un plan/override? | `Auditoria` (CT-01), acción `suscripciones.suscripcion.*` / `suscripciones.override_negocio.*` — la registra `GuardDegradacionMixin._aplicar` en la misma transacción que la escritura (SUS-015) |
@@ -59,7 +60,12 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 - `Plan.preset_version=None` = personalizado: `sync_modulos` nunca lo toca.
   Un valor = versión de `seed.TIERS` aplicada; desactualizado se resincroniza
   solo, con la sincronizacion real, al correr el comando (SUS-017).
+- **SUS-014 — `validar_plan_slug` es la mitad C03; falta cablearla.** Valida
+  contra la base del `using` dado, no contra `default` por defecto: quien la
+  llame bajo tenancy debe pasar el alias del tenant explícito. Todavía no la
+  consume nadie (`bootstrap_tenant` es de Codex — ver handoff parte2 para el
+  pedido exacto de dónde y cuándo llamarla).
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
   — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
   -010, -012, -013, -015, -016 (parcial), -017, -018; abiertos SUS-006, -007,
-  -011, -014, -019.
+  -011, -014 (mitad C, falta cableado A), -019.
