@@ -171,19 +171,57 @@ router/grafo cloud.
 **CT-03 no se publica. CT-04 sigue reservado.** No hubo push, merge a
 `develop`, staging, producción ni escrituras sobre datos operativos.
 
+## Fase 3 — grafo cloud/tenant corregido; fixture residual pendiente
+
+- Entrada Codex verificada: `b6b71c383928100c43e6b6e507a2ca5e1734e451`,
+  descendiente de `c95b9aff86fa6ef67d2bb90fe91d5a78b1b679b3`, con worktree
+  `codex/cierre-prod-tenant-migration-graph` limpio.
+- Merge exacto y sin conflictos: `39ed373589596b731df59d611a5c81a8878ccbe8`,
+  con padres `c95b9aff86fa6ef67d2bb90fe91d5a78b1b679b3` y
+  `b6b71c383928100c43e6b6e507a2ca5e1734e451`.
+- `sucursales` ahora es dual-home, coherente con la FK de
+  `auditoria.0002_auditoria_sucursal_and_more`. El estado heredado se detecta
+  antes de migrar; `reparar_sucursales_dual_home` es dirigido, emite ledger y
+  requiere `--apply`. No hay autoreparación al iniciar ni SQL manual sugerido.
+
+Validación independiente sobre PostgreSQL temporal, ya eliminado:
+
+- 104 pruebas de tenancy, OK; `pip check`, `check`, migraciones en seco y
+  `compileall`, OK.
+- Control plane cloud vacío: `migrate_cloud`, bootstrap de tenant, segundo
+  `migrate_tenants`, `verificar_identidad_tenant`, `verificar_sync --json` y
+  `tablas_faltantes == []`, todos correctos; existen
+  `sucursales_sucursal` y `sync_eventosync` en el tenant.
+- Estado heredado reproducido con el código anterior: el nuevo preflight lo
+  bloqueó sin escribir; dry-run dejó ledger; `--apply` desregistró exactamente
+  las tres migraciones `sucursales` presentes, reaplicó la app y permitió que
+  `migrate_cloud` terminara correctamente.
+
+El SHA presentado para fixtures, `3d29772b5d33bb8b426090e021726622d445c4fe`,
+**no se integró**: no es descendiente de `c95b9af` (su merge-base es
+`9e3d8c7`), y su diff contra esa base elimina cambios A05/C03 ya integrados.
+Se requiere un SHA de reemplazo rebasado sobre la punta actual de esta rama,
+limitado a los fixtures de caja, cotizaciones y permisos.
+
+El único bloqueo conocido para el gate global es ahora ese SHA de fixtures:
+al integrarlo habrá que repetir discovery Django completo, e-CF, los gates
+focales A05/C03 y los checks estáticos. CT-03 sigue sin publicar.
+
 ## Rollback y siguiente paso
 
-No hay efecto fuera de Git. Si hay que retirar solo la fase 2, revertir el
-merge `a1064be90a92f97c69b0135042492427d66d4e34` con `git revert -m 1`,
-conservando la fase 1. Si hay que retirar también la fase 1, revertir luego en
-orden inverso `9097bdd`, `c003af8` y `d3257bf`; no resetear `develop` ni la
-rama de Claude. El commit de este handoff se revierte separadamente si el
-historial debe volver a describir el checkpoint anterior.
+No hay efecto fuera de Git. Si hay que retirar solo el grafo cloud/tenant,
+revertir `39ed373589596b731df59d611a5c81a8878ccbe8` con `git revert -m 1`.
+Si hay que retirar también la fase 2, revertir después
+`a1064be90a92f97c69b0135042492427d66d4e34` con `git revert -m 1`, conservando
+la fase 1. Para retirar también la fase 1, revertir luego en orden inverso
+`9097bdd`, `c003af8` y `d3257bf`; no resetear `develop` ni la rama de Claude.
+El commit de este handoff se revierte separadamente si el historial debe volver
+a describir un checkpoint anterior.
 
 La base de código integrada es
-`integration/cierre-prod-A05-C03@a1064be90a92f97c69b0135042492427d66d4e34`.
-Antes de cualquier publicación hace falta un SHA correctivo con alcance
-explícito para los fixtures residuales y una resolución independiente del
-grafo cloud; después deben repetirse el discovery global, el bootstrap/migrate
-desde cero, TEN-016, los consumidores A05/C03 y e-CF. No se debe publicar
-CT-03 mientras alguno de esos gates permanezca rojo.
+`integration/cierre-prod-A05-C03@39ed373589596b731df59d611a5c81a8878ccbe8`.
+Antes de cualquier publicación falta un SHA correctivo, descendiente de esta
+línea, con alcance explícito para los fixtures residuales. Después se repiten
+el discovery global, el bootstrap/migrate desde cero, TEN-016, los consumidores
+A05/C03 y e-CF. No se debe publicar CT-03 mientras alguno de esos gates
+permanezca rojo.
