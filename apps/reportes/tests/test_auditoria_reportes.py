@@ -16,6 +16,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.inventario.models import Compra, DetalleCompra, Lote, MovimientoLote
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto
@@ -58,6 +59,11 @@ class ReportesTestCase(TestCase):
         self.sucursal_b = Sucursal.objects.create(
             codigo='RPT-B', nombre='Sucursal B', activa=True,
         )
+
+        # Una unica ConfiguracionNegocio legacy -> get_config()/config_para_documento
+        # la resuelven sin ambiguedad (CFG-012: ya no se crea sola al leer);
+        # ninguna sucursal de este fixture tiene la propia.
+        ConfiguracionNegocio.objects.create()
 
         self.admin = User.objects.create_user(
             username='admin_rpt', email='admin_rpt@test.local',

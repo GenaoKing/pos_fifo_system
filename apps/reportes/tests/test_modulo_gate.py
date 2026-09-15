@@ -32,7 +32,7 @@ class ReportesOnDemandModuloGateTests(TestCase):
         self.suc_a = Sucursal.objects.create(
             negocio=self.negocio, codigo='SUC-A', nombre='Sucursal A',
         )
-        ConfiguracionNegocio.load(sucursal=self.suc_a)
+        ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
 
         # Usuario CON alcance de reportes (consolidado global): prueba que es el
         # MÓDULO —no el permiso— el que deniega cuando el plan no lo incluye.
