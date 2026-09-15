@@ -225,3 +225,130 @@ línea, con alcance explícito para los fixtures residuales. Después se repiten
 el discovery global, el bootstrap/migrate desde cero, TEN-016, los consumidores
 A05/C03 y e-CF. No se debe publicar CT-03 mientras alguno de esos gates
 permanezca rojo.
+
+## Fase 4 — fixtures residuales CFG-012 r2 integrados y gate global verde
+
+Fecha: **2026-09-15**. Esta sección reemplaza el siguiente paso pendiente de la
+fase 3. No modifica la evidencia histórica anterior.
+
+### Recepción, revisión y merge
+
+- Worktree destino: `C:\Proyectos\pos_fifo_system_cierre_codex`, limpio en
+  `integration/cierre-prod-A05-C03@355de7c45979f220b71fb01171abcf460a56e95d`
+  antes de recibir el candidato.
+- Worktree fuente: `C:\Proyectos\pos_fifo_system_cierre_claude_residual_r2`,
+  limpio en `claude/cierre-prod-C03-residual-fixtures-r2@1092756366de9d75ae52a12968ddd7868346c178`.
+- Se verificó el objeto y
+  `git merge-base --is-ancestor 355de7c45979f220b71fb01171abcf460a56e95d 1092756366de9d75ae52a12968ddd7868346c178`: OK.
+- El diff `355de7c..1092756` contiene exclusivamente cuatro fixtures de test
+  (`apps/caja/tests/test_auditoria_caja.py`,
+  `apps/cotizaciones/tests/test_auditoria_cotizaciones.py`,
+  `apps/cotizaciones/tests/test_cotizacion_hardening.py`,
+  `apps/permisos/tests/test_credencial_fisica.py`) y el handoff
+  `C03-residual-fixtures-r2.md`. `git diff --check` fue limpio. No toca código
+  productivo, A05, sync/API, settings, tenancy, migraciones ni datos
+  operativos.
+- Se revisaron los hunks contra los mapas de caja, cotizaciones y permisos. Cada
+  fixture crea `ConfiguracionNegocio` explícitamente; el caso con
+  `SUCURSAL_CODIGO='COT-A'` crea además la configuración de esa sucursal. No
+  se reintroduce auto-bootstrap de lecturas.
+- Merge exacto, sin conflictos:
+
+  ```powershell
+  git merge --no-ff 1092756366de9d75ae52a12968ddd7868346c178 `
+    -m "merge(cierre): integrar fixtures residuales C03 CFG-012 r2"
+  ```
+
+  Resultado: `ca68ad62670674a9365d70030bfc597764fdc3d4`, padres `355de7c` y
+  `1092756`.
+
+### Validación propia serial y aislada
+
+Se usó `C:\Proyectos\pos_fifo_system_cierre_codex\.venv\Scripts\python.exe`,
+`config.settings_development`, Windows serial y nombres exclusivos
+`pos_a05c03_integrator_r4*` / `a05c03_integrator_r4*`; ningún comando apuntó
+a staging, producción ni una BD compartida.
+
+| Gate | Comando / alcance | Resultado real |
+| --- | --- | --- |
+| Fixtures residuales | `manage.py test apps.caja apps.cotizaciones apps.permisos --settings=config.settings_development --noinput --verbosity 0` | **185 OK** en **87.385 s** |
+| C03/C05 focal | Todos los módulos `test_*.py` bajo `apps/configuracion`, `suscripciones`, `api`, `ventas`, `inventario`, `cuentas_por_cobrar` y `reportes` | **781 OK** en **388.343 s** |
+| A05 focal | Todos los módulos `test_*.py` bajo `apps/sync`, `productos`, `tenancy` y `usuarios` | **377 OK** en **61.958 s** |
+| TEN-016 | `manage.py test apps.tenancy.tests.test_multidb_isolation --settings=config.settings_development --noinput --verbosity 0` | **2 OK** en **0.644 s** |
+| Discovery Django | `manage.py test apps.api apps.auditoria apps.caja apps.clientes apps.common apps.configuracion apps.cotizaciones apps.cuentas_por_cobrar apps.inventario apps.negocios apps.notificaciones apps.permisos apps.productos apps.reportes apps.sucursales apps.suscripciones apps.sync apps.tenancy apps.usuarios apps.ventas --settings=config.settings_development --noinput --verbosity 0` | **1,516 OK** en **569.625 s**; 0 fallos, 0 errores, 0 skips |
+| e-CF separado | `python -m pytest apps/facturacion_electronica/tests --ds=config.settings_development -q` | **72 passed** en **20.72 s** |
+
+Los dos gates focales de la tabla se ejecutaron con estos comandos exactos
+(cada uno con un `DB_NAME` y `TENANT_TEST_DB_NAMESPACE` exclusivos):
+
+```powershell
+$testModules = rg --files apps/configuracion/tests apps/suscripciones/tests apps/api/tests apps/ventas/tests apps/inventario/tests apps/cuentas_por_cobrar/tests apps/reportes/tests |
+  Where-Object { $_ -match '(\\|/)test_.*\.py$' } |
+  ForEach-Object { ($_ -replace '[\\/]', '.') -replace '\.py$', '' }
+python manage.py test @testModules --settings=config.settings_development --noinput --verbosity 0
+
+$testModules = rg --files apps/sync/tests apps/productos/tests apps/tenancy/tests apps/usuarios/tests |
+  Where-Object { $_ -match '(\\|/)test_.*\.py$' } |
+  ForEach-Object { ($_ -replace '[\\/]', '.') -replace '\.py$', '' }
+python manage.py test @testModules --settings=config.settings_development --noinput --verbosity 0
+```
+
+Los warnings y trazas de HTTP 4xx/429, red, PDF, sync y configuración ausente
+son casos negativos esperados de las suites. En particular, el discovery no
+reprodujo `ConfiguracionNoInicializada` como error de fixture en caja,
+cotizaciones o permisos.
+
+### Migración cloud/tenant limpia
+
+Con control plane temporal `pos_a05c03_integrator_r4mig`,
+`TENANCY_DB_PER_TENANT_ENABLED=true` y tenant temporal `intgcfgr4`:
+
+```powershell
+python manage.py migrate_cloud --skip-tenants --noinput --verbosity 0
+python manage.py bootstrap_tenant --tenant intgcfgr4 --nombre 'Integracion CFG R4' `
+  --admin-password $adminPassword --identity-password $identityPassword `
+  --plan empresarial --verbosity 0
+python manage.py migrate_tenants --tenant intgcfgr4 --incluir-inactivos --noinput --verbosity 0
+python manage.py verificar_identidad_tenant --tenant intgcfgr4
+$env:SUCURSAL_CODIGO='SD-001'
+python manage.py with_tenant --tenant intgcfgr4 verificar_sync -- --json
+```
+
+`$adminPassword` y `$identityPassword` se generaron distintos en memoria del
+proceso y no se imprimieron. Resultado: control plane y tenant migrados; se
+aplicó `sucursales.0001` antes de `auditoria.0002`; el segundo pase terminó
+1/1; `verificar_identidad_tenant` informó identidad consistente;
+`verificar_sync --json` quedó sin alertas; y la verificación directa devolvió
+`tablas_faltantes('tnt_intgcfgr4') == []`.
+
+El primer intento de `bootstrap_tenant` con `--noinput` fue rechazado por su
+parser antes de escribir. El reintento documentado arriba, sin ese flag, fue
+el que creó y validó el tenant.
+
+### Higiene y limpieza
+
+```powershell
+python -m pip check
+python manage.py check --settings=config.settings_development
+python manage.py makemigrations --check --dry-run --settings=config.settings_development
+python -m compileall -q apps config
+git diff --check
+```
+
+Todos correctos: requisitos sin roturas, 0 incidencias, sin migraciones nuevas,
+bytecode compilable y diff sin whitespace roto. Tras los gates se verificaron y
+eliminaron exclusivamente las BDs desechables
+`pos_a05c03_integrator_r4mig`, `tnt_intgcfgr4` y
+`test_pos_a05c03_integrator_r4ecf`; la comprobación posterior devolvió lista
+vacía. No hubo media temporal que remover.
+
+### Estado, rollback y frontera
+
+- **CT-03 queda verde localmente y puede considerarse cerrado como gate de
+  integración.** No se publicó: no hubo push, merge a `develop`, staging,
+  producción ni escrituras sobre datos operativos.
+- CT-04, C04 y A05.2--A05.4 continúan fuera de alcance de este bloque.
+- Rollback de esta recepción: `git revert -m 1
+  ca68ad62670674a9365d70030bfc597764fdc3d4`. No hacer `reset`, no mover
+  `develop` ni alterar las ramas/worktrees de Claude. El commit documental de
+  esta fase se revierte separadamente sólo si también se revierte el merge.
