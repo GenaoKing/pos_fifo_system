@@ -1,16 +1,30 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from django.db.models import Sum, Count
 from .models import Categoria, Producto
 
 
-from django.contrib import admin
-from django.utils.html import format_html
-import json
-from .models import Categoria, Producto
+class CatalogoLocalSoloLecturaAdmin(admin.ModelAdmin):
+    """Evita que el admin local salte CT-01/CT-02 y la cola A05.2a.
+
+    El catalogo se muta desde las vistas POS, que resuelven la sucursal y usan
+    ``services.py``. El admin conserva consulta operativa, pero no puede crear,
+    editar, borrar ni ejecutar acciones masivas sobre maestros.
+    """
+
+    actions = []
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Categoria)
-class CategoriaAdmin(admin.ModelAdmin):
+class CategoriaAdmin(CatalogoLocalSoloLecturaAdmin):
     list_display = ('nombre', 'tipo_negocio', 'activa', 'cantidad_atributos', 'fecha_creacion')
     list_filter = ('tipo_negocio', 'activa')
     search_fields = ('nombre', 'descripcion')
@@ -70,7 +84,7 @@ class CategoriaAdmin(admin.ModelAdmin):
 
 
 @admin.register(Producto)
-class ProductoAdmin(admin.ModelAdmin):
+class ProductoAdmin(CatalogoLocalSoloLecturaAdmin):
     """Administración de productos con integración FIFO"""
     
     list_display = (
@@ -127,12 +141,7 @@ class ProductoAdmin(admin.ModelAdmin):
         return (*campos, 'sku') if obj is not None else campos
     
     # Acciones personalizadas
-    actions = [
-        'activar_productos', 
-        'desactivar_productos',
-        'generar_reporte_stock',
-        'ver_lotes_producto'
-    ]
+    actions = []
     
     def stock_actual_display(self, obj):
         """Stock actual con badge de color"""

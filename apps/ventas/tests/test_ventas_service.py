@@ -9,6 +9,7 @@ produce (o una carrera que la UI no puede evitar) no debe poder crear una venta
 que descuadre inventario, caja o el documento fiscal.
 """
 from decimal import Decimal
+import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -22,6 +23,7 @@ from apps.inventario.models import Compra, DetalleCompra, Lote, MovimientoLote
 from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
+from apps.sync.models import EventoSync, MutacionMaestro
 from apps.ventas.models import Venta
 from apps.ventas.services import (
     CotizacionInvalidaError,
@@ -493,6 +495,58 @@ class PrecondicionFiscalTests(VentaServiceTestCase):
     def test_tipo_32_sin_cliente_sigue_permitido(self):
         venta = self._vender(tipo_ecf='32')
         self.assertIsNone(venta.cliente_id)
+
+
+@override_settings(SUCURSAL_CODIGO='A052-VENTAS')
+class ConflictoMaestroEnVentaTests(VentaServiceTestCase):
+    """A05.2a: conflicto bloquea ventas nuevas, no altera una venta historica."""
+
+    def setUp(self):
+        super().setUp()
+        self.sucursal = Sucursal.objects.create(
+            negocio=self.cajera.negocio,
+            codigo=settings.SUCURSAL_CODIGO,
+            nombre='Sucursal A05.2a ventas',
+        )
+        ConfiguracionNegocio.objects.create(sucursal=self.sucursal)
+        cache.clear()
+
+    def test_pendiente_se_vende_y_conflicto_bloquea_sin_reescribir_historia(self):
+        mutacion = MutacionMaestro.objects.create(
+            mutacion_id=uuid.uuid4(),
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=self.producto.id,
+            operacion=MutacionMaestro.Operacion.ACTUALIZAR,
+            actor=self.cajera,
+            actor_username=self.cajera.username,
+            sucursal=self.sucursal,
+            sucursal_codigo=self.sucursal.codigo,
+            tenant_key=self.cajera.negocio.slug,
+        )
+
+        venta_historica = self._vender()
+        lote_despues_venta = Lote.objects.get(producto=self.producto)
+        stock_despues_venta = lote_despues_venta.cantidad_actual
+        movimientos_despues_venta = MovimientoLote.objects.count()
+        eventos_despues_venta = EventoSync.objects.count()
+
+        mutacion.marcar_conflicto('CAS_REVISION_MISMATCH')
+        with self.assertRaisesRegex(
+            ProductoInexistenteError,
+            'conflicto de maestro pendiente de resolver',
+        ):
+            self._vender()
+
+        self.assertEqual(Venta.objects.count(), 1)
+        self.assertTrue(Venta.objects.filter(pk=venta_historica.pk).exists())
+        self.assertEqual(
+            Lote.objects.get(producto=self.producto).cantidad_actual,
+            stock_despues_venta,
+        )
+        self.assertEqual(MovimientoLote.objects.count(), movimientos_despues_venta)
+        self.assertEqual(EventoSync.objects.count(), eventos_despues_venta)
+        mutacion.refresh_from_db()
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.CONFLICTO)
 
 
 class IdentidadDeSucursalTests(VentaServiceTestCase):

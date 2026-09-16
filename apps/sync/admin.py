@@ -12,6 +12,7 @@ from .models import (
     InventarioMovimientoSync,
     InventarioSucursalSnapshot,
     LogSync,
+    MutacionMaestro,
     VersionMaestro,
 )
 
@@ -106,6 +107,46 @@ class DiferidoSyncAdmin(admin.ModelAdmin):
     list_filter = ('estado', 'tabla', 'tenant_key', 'sucursal_codigo')
     search_fields = ('identidad', 'payload_hash', 'ultimo_error')
     readonly_fields = [field.name for field in DiferidoSync._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MutacionMaestro)
+class MutacionMaestroAdmin(admin.ModelAdmin):
+    """Visor inmutable: A05.2a no habilita resolucion manual ni envio."""
+
+    list_display = (
+        'mutacion_id', 'entidad', 'entidad_id', 'operacion', 'estado_badge',
+        'actor_username', 'sucursal_codigo', 'creado_at',
+    )
+    list_filter = ('estado', 'entidad', 'operacion', 'sucursal_codigo')
+    search_fields = (
+        'mutacion_id', 'actor_username', 'sucursal_codigo', 'ultimo_error',
+        'conflicto_detalle',
+    )
+    readonly_fields = [field.name for field in MutacionMaestro._meta.fields]
+    date_hierarchy = 'creado_at'
+
+    def estado_badge(self, obj):
+        colors = {
+            'PENDIENTE': '#f59e0b',
+            'ENVIANDO': '#2563eb',
+            'CONFIRMADA': '#10b981',
+            'CONFLICTO': '#dc2626',
+            'RECHAZADA': '#6b7280',
+        }
+        return format_html(
+            '<span style="background:{};color:white;padding:3px 8px;border-radius:10px;font-size:11px;">{}</span>',
+            colors.get(obj.estado, '#6b7280'), obj.get_estado_display(),
+        )
+    estado_badge.short_description = 'Estado'
 
     def has_add_permission(self, request):
         return False

@@ -35,6 +35,9 @@ mezclarlos:
 - `EventoSync` — outbox local; `event_id`/hash scopeados por sucursal, estado,
   payload y lease durable `EN_VUELO`.
 - `DiferidoSync` — cola durable de elementos de pull que todavía no aplican.
+- `MutacionMaestro` — cola A05.2a de Producto/Categoría local, con UUID/CAS,
+  actor, sucursal, delta, auditoría CT-01 y conflicto. Es independiente de
+  `EventoSync`; A05.2a no agrega receptor ni la envía.
 - `VersionMaestro` — cursor/versión por tabla maestra (soporte del pull keyset).
 - `InventarioMovimientoSync`, `InventarioSucursalSnapshot` — replicación de stock.
 - `LogSync` — bitácora de ciclos.
@@ -47,6 +50,10 @@ mezclarlos:
   vuelven el ciclo `PARCIAL`.
 - El `INSERT` en el outbox es parte de la transacción del hecho de negocio: si el
   hecho ocurre, el evento existe. No tragarse errores de inserción.
+- Una mutación local de Producto/Categoría usa su propia transacción de
+  maestro + `audit.event.v1` + `MutacionMaestro`; nunca se convierte en un
+  hecho financiero ni comparte la cola/ACK de `EventoSync`. Un `CONFLICTO`
+  persistido bloquea uso comercial nuevo, pero una propuesta `PENDIENTE` no.
 - El push reclama con `select_for_update(skip_locked=True)` y persiste un lease
   antes del HTTP. Un proceso solo puede confirmar/fallar el lease que posee;
   otro recupera el evento después de `SYNC_LEASE_SECONDS`.

@@ -20,6 +20,19 @@ from utils.imagenes import ImagenInvalida, nombre_seguro, validar_imagen_subida
 from apps.permisos.decorators import (
     requiere_permiso_json,
     requiere_permiso_local,
+    sucursal_del_request,
+)
+from .services import (
+    CodigoBarrasDuplicado,
+    IdempotenciaMutacionMaestroEnConflicto,
+    IdempotenciaMutacionMaestroInvalida,
+    NombreCategoriaDuplicado,
+    cambiar_estado_categoria_local,
+    cambiar_estado_producto_local,
+    crear_categoria_local,
+    crear_producto_local,
+    editar_categoria_local,
+    editar_producto_local,
 )
 
 
@@ -34,6 +47,48 @@ def _respuesta_error_generico():
         'success': False,
         'message': MENSAJE_ERROR_GENERICO,
     }, status=400)
+
+
+def _mutacion_id(request, data=None):
+    """UUID obligatorio en HTTP: un reintento debe conservar su intencion."""
+    identificador = (
+        request.headers.get('X-Master-Mutation-ID')
+        or (data or {}).get('mutation_id')
+    )
+    if not identificador:
+        raise IdempotenciaMutacionMaestroInvalida(
+            'Se requiere X-Master-Mutation-ID para mutar el catalogo local.'
+        )
+    return identificador
+
+
+def _respuesta_error_idempotencia(exc):
+    if isinstance(exc, IdempotenciaMutacionMaestroEnConflicto):
+        return JsonResponse({
+            'success': False,
+            'code': 'master_mutation_id_conflict',
+            'message': str(exc),
+        }, status=409)
+    return JsonResponse({
+        'success': False,
+        'code': 'master_mutation_id_invalid',
+        'message': str(exc),
+    }, status=400)
+
+
+def _estado_deseado(request, campo):
+    """El estado objetivo hace distinguible un retry de otro cambio distinto."""
+    try:
+        valor = json.loads(request.body or '{}').get(campo)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise IdempotenciaMutacionMaestroInvalida(
+            'El estado objetivo debe enviarse como JSON valido.'
+        ) from exc
+    if not isinstance(valor, bool):
+        raise IdempotenciaMutacionMaestroInvalida(
+            f'El campo {campo} debe ser booleano.'
+        )
+    return valor
 
 
 # ==========================================
@@ -111,26 +166,13 @@ def crear_producto(request):
     try:
         data = json.loads(request.body)
         
-        # Generar SKU automático
-        sku = Producto.generar_sku()
-        
-        # Generar código de barras interno siempre
-        codigo_barras = generar_codigo_barra_interno()
-        
-        # Crear el producto
-        producto = Producto.objects.create(
-            sku=sku,
-            codigo_barras=codigo_barras,
-            nombre=data['nombre'],
-            descripcion=data.get('descripcion', ''),
-            categoria_id=data['categoria_id'],
-            precio_venta=data['precio_venta'],
-            stock_minimo=data.get('stock_minimo', 5),
-            activo=True,
-            atributos=data.get('atributos', {}),
-            estado=data.get('estado', 'nuevo'),
-            marca=data.get('marca', '')
+        resultado = crear_producto_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            datos=data,
+            mutacion_id=_mutacion_id(request, data),
         )
+        producto = resultado.entidad
         
         messages.success(request, f'Producto "{producto.nombre}" creado exitosamente')
         
@@ -141,8 +183,13 @@ def crear_producto(request):
             'producto_id': producto.id,
             'sku': producto.sku,
             'codigo_barras': producto.codigo_barras,
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 
@@ -158,37 +205,32 @@ def editar_producto(request, producto_id):
         producto = get_object_or_404(Producto, id=producto_id)
         data = json.loads(request.body)
         
-        # Validar unicidad del codigo de barras (excluyendo el producto actual).
-        # El SKU queda inmutable despues del alta. Se acepta en el payload por
-        # compatibilidad con el modal actual, pero se conserva el valor
-        # persistido y se aplican los demas atributos.
-        if Producto.objects.filter(codigo_barras=data['codigo_barras']).exclude(id=producto_id).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe otro producto con ese código de barras'
-            })
-        
-        # Actualizar campos
-        producto.codigo_barras = data['codigo_barras']
-        producto.nombre = data['nombre']
-        producto.descripcion = data.get('descripcion', '')
-        producto.categoria_id = data['categoria_id']
-        producto.precio_venta = data['precio_venta']
-        producto.stock_minimo = data.get('stock_minimo', 5)
-        producto.activo = data.get('activo', True)
-        producto.atributos = data.get('atributos', {})
-        producto.estado = data.get('estado', 'nuevo')
-        producto.marca = data.get('marca', '')
-        
-        producto.save()
+        resultado = editar_producto_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            producto_id=producto.id,
+            datos=data,
+            mutacion_id=_mutacion_id(request, data),
+        )
+        producto = resultado.entidad
         
         messages.success(request, f'Producto "{producto.nombre}" actualizado exitosamente')
         
         return JsonResponse({
             'success': True,
-            'message': 'Producto actualizado exitosamente'
+            'message': 'Producto actualizado exitosamente',
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
+    except CodigoBarrasDuplicado:
+        return JsonResponse({
+            'success': False,
+            'message': 'Ya existe otro producto con ese código de barras',
+        })
     except Exception:
         return _respuesta_error_generico()
 
@@ -201,17 +243,28 @@ def toggle_estado_producto(request, producto_id):
     
     try:
         producto = get_object_or_404(Producto, id=producto_id)
-        producto.activo = not producto.activo
-        producto.save()
+        resultado = cambiar_estado_producto_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            producto_id=producto.id,
+            activo=_estado_deseado(request, 'activo'),
+            mutacion_id=_mutacion_id(request),
+        )
+        producto = resultado.entidad
         
         estado = "activado" if producto.activo else "desactivado"
         messages.success(request, f'Producto "{producto.nombre}" {estado} exitosamente')
         
         return JsonResponse({
             'success': True,
-            'activo': producto.activo
+            'activo': producto.activo,
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 
@@ -269,28 +322,32 @@ def crear_categoria(request):
     try:
         data = json.loads(request.body)
         
-        # Validar que el nombre sea único
-        if Categoria.objects.filter(nombre=data['nombre']).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe una categoría con ese nombre'
-            })
-        
-        # Crear la categoría
-        categoria = Categoria.objects.create(
-            nombre=data['nombre'],
-            descripcion=data.get('descripcion', ''),
-            activa=True
+        resultado = crear_categoria_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            datos=data,
+            mutacion_id=_mutacion_id(request, data),
         )
+        categoria = resultado.entidad
         
         messages.success(request, f'Categoría "{categoria.nombre}" creada exitosamente')
         
         return JsonResponse({
             'success': True,
             'message': 'Categoría creada exitosamente',
-            'categoria_id': categoria.id
+            'categoria_id': categoria.id,
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
+    except NombreCategoriaDuplicado:
+        return JsonResponse({
+            'success': False,
+            'message': 'Ya existe una categoría con ese nombre',
+        })
     except Exception:
         return _respuesta_error_generico()
 
@@ -305,27 +362,32 @@ def editar_categoria(request, categoria_id):
         categoria = get_object_or_404(Categoria, id=categoria_id)
         data = json.loads(request.body)
         
-        # Validar unicidad del nombre (excluyendo la categoría actual)
-        if Categoria.objects.filter(nombre=data['nombre']).exclude(id=categoria_id).exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Ya existe otra categoría con ese nombre'
-            })
-        
-        # Actualizar campos
-        categoria.nombre = data['nombre']
-        categoria.descripcion = data.get('descripcion', '')
-        categoria.activa = data.get('activa', True)
-        
-        categoria.save()
+        resultado = editar_categoria_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            categoria_id=categoria.id,
+            datos=data,
+            mutacion_id=_mutacion_id(request, data),
+        )
+        categoria = resultado.entidad
         
         messages.success(request, f'Categoría "{categoria.nombre}" actualizada exitosamente')
         
         return JsonResponse({
             'success': True,
-            'message': 'Categoría actualizada exitosamente'
+            'message': 'Categoría actualizada exitosamente',
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
+    except NombreCategoriaDuplicado:
+        return JsonResponse({
+            'success': False,
+            'message': 'Ya existe otra categoría con ese nombre',
+        })
     except Exception:
         return _respuesta_error_generico()
 
@@ -372,17 +434,28 @@ def toggle_estado_categoria(request, categoria_id):
     
     try:
         categoria = get_object_or_404(Categoria, id=categoria_id)
-        categoria.activa = not categoria.activa
-        categoria.save()
+        resultado = cambiar_estado_categoria_local(
+            actor=request.user,
+            sucursal=sucursal_del_request(request),
+            categoria_id=categoria.id,
+            activa=_estado_deseado(request, 'activa'),
+            mutacion_id=_mutacion_id(request),
+        )
+        categoria = resultado.entidad
         
         estado = "activada" if categoria.activa else "desactivada"
         messages.success(request, f'Categoría "{categoria.nombre}" {estado} exitosamente')
         
         return JsonResponse({
             'success': True,
-            'activa': categoria.activa
+            'activa': categoria.activa,
+            'master_mutation_id': str(resultado.mutacion.mutacion_id),
+            'master_mutation_state': resultado.mutacion.estado,
+            'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 

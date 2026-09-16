@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 -->
+<!-- Última revisión: 2026-09-16 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -52,5 +52,9 @@ tiene modelos propios (`models.py` vacío).
   defecto y `rbac.sync.v2` solo con `X-RBAC-Schema: rbac.sync.v2`.
 - Las mutaciones RBAC llaman `apps.permisos.services`; `X-RBAC-Revision` es el
   precondition opt-in y un valor obsoleto responde `409 rbac_revision_conflict`.
+- Los ViewSets maestros solo aceptan escritura en la instancia cloud. En un POS
+  local responden `403`, para no saltar maestro + auditoría CT-01 +
+  `MutacionMaestro`. El flag de compatibilidad de sus tests exige además una
+  base `test_*`; no habilita ninguna instalación productiva local.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -7,6 +7,7 @@ from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class ProductoViewSetPermissionTests(TestCase):
     productos_url = '/api/v1/maestros/productos/'
 
@@ -231,3 +232,46 @@ class ProductoViewSetPermissionTests(TestCase):
         )
         self.assertEqual(atributos_response.status_code, 400)
         self.assertIn('atributos', atributos_response.data)
+
+
+@override_settings(
+    TENANCY_DB_PER_TENANT_ENABLED=False,
+    API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=False,
+)
+class ProductoViewSetPosLocalSoloLecturaTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre='Local solo lectura')
+        self.producto = Producto.objects.create(
+            sku='LOCAL-READONLY',
+            codigo_barras='LOCAL-READONLY',
+            nombre='Producto local',
+            descripcion='',
+            categoria=self.categoria,
+            precio_venta='10.00',
+            stock_minimo=1,
+            activo=True,
+            estado='nuevo',
+            marca='',
+            atributos={},
+        )
+        self.usuario = get_user_model().objects.create_user(
+            username='portal_fuera_de_cloud',
+            email='portal_fuera_de_cloud@test.local',
+            password='pass',
+            rol='ADMIN',
+            activo=True,
+        )
+
+    def test_pos_local_rechaza_escritura_del_viewset_de_portal(self):
+        client = APIClient()
+        client.force_authenticate(user=self.usuario)
+
+        response = client.patch(
+            f'/api/v1/maestros/productos/{self.producto.id}/',
+            {'precio_venta': '99.00'},
+            format='json',
+        )
+
+        self.producto.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.producto.precio_venta, 10)
