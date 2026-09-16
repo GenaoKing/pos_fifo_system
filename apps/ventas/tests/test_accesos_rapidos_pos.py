@@ -1,8 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 
 from apps.configuracion.models import AccesoRapidoPOS
+from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto
+from apps.sucursales.models import Sucursal
 
 
 class AccesosRapidosPOSTests(TestCase):
@@ -95,3 +98,67 @@ class AccesosRapidosPOSTests(TestCase):
         productos = response.json()['productos']
         self.assertEqual(len(productos), 1)
         self.assertEqual(productos[0]['id'], self.producto.id)
+
+
+class AccesosRapidosPorSucursalTests(TestCase):
+    """CFG-010 pata 2 — el endpoint acota los accesos a la sucursal actual.
+
+    La reproduccion del hallazgo: un acceso creado en la sucursal A aparecia al
+    consultar el POS como sucursal B. Ahora cada sucursal ve SOLO los suyos mas
+    los legacy sin sucursal (NULL = global), y `get_sucursal_actual()` decide
+    cual es la actual por `SUCURSAL_CODIGO`.
+    """
+
+    def setUp(self):
+        cache.clear()
+        User = get_user_model()
+        self.usuario = User.objects.create_user(
+            username='cajera_scope', email='cajera_scope@example.com',
+            password='pass', rol='CAJERA', activo=True,
+        )
+        self.client.force_login(self.usuario)
+
+        self.negocio = permisos_testing.crear_negocio('Negocio Scope')
+        self.suc_a = Sucursal.objects.create(
+            codigo='SCOPE-A', nombre='Tienda A', activa=True, negocio=self.negocio,
+        )
+        self.suc_b = Sucursal.objects.create(
+            codigo='SCOPE-B', nombre='Tienda B', activa=True, negocio=self.negocio,
+        )
+
+        self.categoria = Categoria.objects.create(nombre='Vasos')
+        self.producto = Producto.objects.create(
+            sku='SCOPE-1', codigo_barras='SCOPE-1', nombre='Vaso', descripcion='',
+            categoria=self.categoria, precio_venta='100.00', stock_minimo=5,
+            activo=True, estado='nuevo', marca='', atributos={},
+        )
+
+        # Mismo producto vendible en los tres: lo que diferencia es la sucursal.
+        AccesoRapidoPOS.objects.create(
+            etiqueta='SoloA', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            producto=self.producto, sucursal=self.suc_a,
+        )
+        AccesoRapidoPOS.objects.create(
+            etiqueta='SoloB', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            producto=self.producto, sucursal=self.suc_b,
+        )
+        AccesoRapidoPOS.objects.create(
+            etiqueta='Legacy', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            producto=self.producto,  # sucursal=None
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _etiquetas_como(self, codigo):
+        with self.settings(SUCURSAL_CODIGO=codigo):
+            cache.clear()
+            response = self.client.get('/pos/api/accesos-rapidos/')
+        self.assertEqual(response.status_code, 200)
+        return {a['etiqueta'] for a in response.json()['accesos']}
+
+    def test_cada_sucursal_ve_los_suyos_mas_los_legacy(self):
+        self.assertEqual(self._etiquetas_como('SCOPE-A'), {'SoloA', 'Legacy'})
+
+    def test_la_otra_sucursal_no_ve_los_de_la_primera(self):
+        self.assertEqual(self._etiquetas_como('SCOPE-B'), {'SoloB', 'Legacy'})

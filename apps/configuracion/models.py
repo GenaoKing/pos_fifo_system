@@ -523,6 +523,24 @@ class AccesoRapidoPOS(models.Model):
         ('gris', 'Gris'),
     )
 
+    # CFG-010 pata 2 — ambito por sucursal. Antes el modelo no tenia sucursal y
+    # el POS listaba TODOS los accesos activos: un boton creado en la sucursal A
+    # aparecia en la B, con catalogos/prioridades distintos. Ahora cada acceso es
+    # de una sucursal. `null=True` es deliberado: las filas creadas antes de este
+    # campo quedan en NULL y se tratan como "legacy global" (visibles en toda
+    # sucursal) hasta que un operador las reasigne, para no romper instalaciones
+    # existentes en el `migrate`.
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.CASCADE,
+        related_name='accesos_rapidos_pos',
+        blank=True,
+        null=True,
+        verbose_name='Sucursal',
+        help_text='Sucursal dueña de este acceso. Vacio = acceso legacy global '
+                  '(visible en todas las sucursales); asignalo para acotarlo.',
+    )
+
     etiqueta = models.CharField(
         'Etiqueta',
         max_length=80,

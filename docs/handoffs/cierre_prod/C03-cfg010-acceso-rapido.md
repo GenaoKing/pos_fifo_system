@@ -1,9 +1,14 @@
-# Handoff C03 — CFG-010 (invariante de AccesoRapidoPOS), PARCIAL
+# Handoff C03 — CFG-010 (AccesoRapidoPOS: integridad + ámbito por sucursal)
 
-Estado: **PARCIAL — cerrada la mitad self-contained (integridad de fila);
-la mitad de ámbito por sucursal queda ABIERTA por requerir decisión de
-negocio.** Ítem `CFG-010` de `docs/handoffs/cierre_prod/INVENTARIO.md` (fila 212).
+Estado: **CERRADO en código** (pata 1 integridad de fila + pata 2 ámbito por
+sucursal). Queda **un preflight operativo** antes de "endurecer": el
+`CheckConstraint` de exclusividad y el backfill de las filas legacy (NULL). Ítem
+`CFG-010` de `docs/handoffs/cierre_prod/INVENTARIO.md` (fila 212).
 Fecha: **2026-09-16**. Agente: Claude.
+
+> **Actualización 2026-09-16:** la pata 2 (ámbito) tenía una decisión de negocio
+> pendiente; el usuario decidió **ámbito = por sucursal**, y se implementó (ver
+> sección "Pata 2" abajo). El handoff original la dejaba ABIERTA.
 
 ## SHA base / resultado
 
@@ -54,38 +59,63 @@ además que la fila inválida **no** quedó en la tabla.
 DB_NAME=pos_fifo_dev_cfg010 python manage.py test \
   apps.configuracion apps.ventas.tests.test_accesos_rapidos_pos \
   --settings=config.settings_development --noinput
-# Ran 118 tests ... OK  (4 nuevos + configuracion completo + accesos de ventas, 0 regresiones)
+# Ran 120 tests ... OK  (pata 1: 4 + pata 2: 2 nuevos + configuracion + accesos, 0 regresiones)
 
-python manage.py makemigrations configuracion --check --dry-run   # No changes detected
-python manage.py check                                            # 0 issues
+python manage.py makemigrations --check --dry-run   # No changes detected (0011 captura todo)
+python manage.py check                              # 0 issues (related_name compartido OK)
 ```
 
-## Lo que queda ABIERTO en CFG-010 (pata 2 — DECISIÓN PENDIENTE)
+## Pata 2 — ámbito por sucursal (IMPLEMENTADO, ámbito = por sucursal)
 
-El ámbito por sucursal **no** se implementó porque requiere una decisión de
-negocio + backfill de datos reales, fuera de un cambio self-contained:
+Decisión de negocio (usuario, 2026-09-16): **cada acceso pertenece a una
+sucursal.** Implementado de forma **no destructiva** para no romper instalaciones
+existentes en el `migrate`:
 
-1. **Decidir el ámbito**: ¿los accesos rápidos son por **negocio** o por
-   **sucursal**? La arquitectura (config por sucursal, POS corre como un
-   `SUCURSAL_CODIGO`, catálogos por tienda) apunta a **sucursal**, pero es una
-   decisión explícita.
-2. **Migración + backfill**: agregar `FK sucursal` obliga a asignar las filas
-   existentes a una sucursal. En una instalación de una sola sucursal es
-   directo; en multi-sucursal es ambiguo y es dato real → decisión operativa.
-3. **Consumidor**: filtrar `apps/ventas/views.py` (endpoint `accesos-rapidos`)
-   por la sucursal actual. Es superficie POS local (C), no toca a Codex/A05.
+- **Modelo** (`apps/configuracion/models.py`): nuevo `AccesoRapidoPOS.sucursal`
+  = FK a `sucursales.Sucursal`, `null=True, blank=True`, `on_delete=CASCADE`
+  (los botones de una sucursal mueren con ella). **`null` deliberado**: las filas
+  creadas antes de este campo quedan en NULL = **legacy global** (visibles en
+  toda sucursal) hasta que un operador las reasigne.
+- **Migración** `apps/configuracion/migrations/0011_accesorapidopos_sucursal.py`
+  — solo `AddField` nullable, sin backfill: el `migrate` no toca datos.
+- **Consumidor** (`apps/ventas/views.py`, endpoint `accesos-rapidos`): filtra
+  `Q(sucursal=get_sucursal_actual()) | Q(sucursal__isnull=True)`. Cada sucursal
+  ve los suyos + los legacy globales. En modo legacy (sin `SUCURSAL_CODIGO`,
+  `get_sucursal_actual()` = None) solo se ven los NULL.
+- **Admin** (`apps/configuracion/admin.py`): `sucursal` en el fieldset "Boton",
+  `list_display` y `list_filter`, con nota de "vacío = legacy global".
+- **Tests** (`apps/ventas/tests/test_accesos_rapidos_pos.py::
+  AccesosRapidosPorSucursalTests`, 2): un acceso de la sucursal A NO aparece al
+  consultar como B; cada sucursal ve los suyos + los legacy.
 
-Recomendación: tratar la pata 2 como su propio mini-bloque una vez decidido el
-ámbito; el `CheckConstraint` de exclusividad producto/categoría puede sumarse en
-esa misma migración, detrás del preflight.
+### Preflight operativo pendiente (NO ejecutar a ciegas)
+
+1. **Backfill de las filas legacy (NULL)**: en una instalación de una sola
+   sucursal, asignarlas a esa sucursal es directo; en multi-sucursal hay que
+   decidir por fila. Mientras tanto siguen visibles en todas (comportamiento
+   previo, sin regresión).
+2. **`CheckConstraint` de exclusividad producto/categoría**: se deja para el
+   mismo preflight (criterio CFG-006). Hoy la invariante está garantizada a
+   nivel app por `full_clean()` en `save()` (pata 1); el constraint de base
+   endurece contra escrituras que salteen el modelo, pero podría fallar el
+   `migrate` si hubiera filas inválidas preexistentes.
 
 ## Rollback
 
-`git revert` del commit de esta rama. Sin migración, sin estado persistente.
+`git revert` de los commits de esta rama. La migración `0011` solo agrega una
+columna nullable; revertirla es un `RemoveField` sin pérdida de datos operativos
+(los accesos siguen existiendo, sin ámbito).
+
+## Migraciones / BDs
+
+`0011_accesorapidopos_sucursal` (AddField nullable, no destructiva). **Al
+integrar sobre `integration/cierre-prod-A05-C03`**: verificar que no colisione el
+número `0011` con otra migración de `configuracion` que haya entrado allí; si
+colisiona, `makemigrations --merge`.
 
 ## Deltas propuestos a documentos de seguimiento
 
-- `INVENTARIO.md` fila 212 (`CFG-010`): mantener `PENDIENTE` pero anotar
-  "integridad de fila acreditada (`c64255f`); ámbito por sucursal abierto por
-  decisión". No pasar a `ACREDITADO` hasta cerrar la pata 2.
-- `TODO_AUDITORIAS.md`: idem, dejar CFG-010 con la nota de decisión pendiente.
+- `INVENTARIO.md` fila 212 (`CFG-010`): `PENDIENTE`→`ACREDITADO` con los commits
+  de esta rama, anotando que el `CheckConstraint` de exclusividad y el backfill
+  de filas legacy quedan como **preflight operativo** (no bloquean el código).
+- `TODO_AUDITORIAS.md`: quitar CFG-010 de abiertos; dejar la nota del preflight.
