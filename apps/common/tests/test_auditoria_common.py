@@ -15,6 +15,7 @@ from apps.common.pdf.standard import (
     LOGO_MAX_BYTES,
     MAX_TEXTO,
     SIMBOLO_MONEDA,
+    TABLA_MAX_FILAS,
     ImporteInvalido,
     TablaInvalida,
     _logo_flowable,
@@ -574,4 +575,53 @@ class EstructurasVaciasTests(TestCase):
         buffer = BytesIO()
         doc = document(buffer, pagesize=(3 * 72, 6 * 72))
         doc.build(business_header(Config(), width=1.5 * 72))
+        self.assertTrue(buffer.getvalue().startswith(b'%PDF'))
+
+
+class TablaTopeFilasTests(TestCase):
+    """COM-012: `standard_table` acota las filas y no materializa el iterable.
+
+    El hallazgo: `list(rows)` incondicional consumia un generador de miles de
+    filas completo antes de maquetar, con la memoria del worker atada al tamano
+    del dato. Ahora se recorre perezosamente y se corta en un tope, informando
+    el excedente en vez de romper el documento.
+    """
+
+    def _filas_infinitas(self):
+        # Si standard_table volviera a hacer `list(rows)`, iterar esto colgaria
+        # el test / agotaria la memoria: es la prueba de que el corte es real.
+        indice = 0
+        while True:
+            indice += 1
+            yield [f'Item {indice}', str(indice)]
+
+    def test_iterable_no_acotado_se_corta_en_el_tope(self):
+        tabla = standard_table(['Nombre', 'N'], self._filas_infinitas(), max_rows=10)
+        # header + 10 filas dibujadas + 1 fila de aviso.
+        self.assertEqual(len(tabla._cellvalues), 12)
+
+    def test_excedente_agrega_fila_de_aviso(self):
+        tabla = standard_table(['Nombre', 'N'], self._filas_infinitas(), max_rows=3)
+        aviso = tabla._cellvalues[-1][0].getPlainText()
+        self.assertIn('primeras 3 filas', aviso)
+
+    def test_debajo_del_tope_no_agrega_aviso(self):
+        tabla = standard_table(['Nombre', 'N'], [['a', '1'], ['b', '2']], max_rows=10)
+        self.assertEqual(len(tabla._cellvalues), 3)  # header + 2 filas
+
+    def test_tope_por_defecto_generoso_no_trunca_documento_real(self):
+        self.assertEqual(TABLA_MAX_FILAS, 5000)
+        filas = [[f'x{i}', str(i)] for i in range(500)]
+        tabla = standard_table(['Nombre', 'N'], filas)  # sin max_rows explicito
+        self.assertEqual(len(tabla._cellvalues), 501)  # header + 500, sin aviso
+
+    def test_max_rows_negativo_se_rechaza(self):
+        with self.assertRaises(TablaInvalida):
+            standard_table(['A', 'B'], [['1', '2']], max_rows=-1)
+
+    def test_tabla_truncada_sigue_generando_pdf(self):
+        tabla = standard_table(['Nombre', 'N'], self._filas_infinitas(), max_rows=5)
+        buffer = BytesIO()
+        doc = document(buffer)
+        doc.build([tabla])
         self.assertTrue(buffer.getvalue().startswith(b'%PDF'))

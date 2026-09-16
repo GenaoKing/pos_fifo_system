@@ -578,6 +578,15 @@ def _cell_style(styles, align: str):
     return styles['PdfCell']
 
 
+# COM-012 — tope de seguridad de filas por tabla. No es una paginacion: es una
+# valvula contra entradas no acotadas (un generador de miles/millones de filas)
+# que, materializadas, podian bloquear un worker sincrono. Un documento real
+# (estado de cuenta, reporte) queda muy por debajo de este techo, asi que no
+# cambia; solo el volumen patologico se corta y se informa. Para el detalle
+# completo la salida correcta es una exportacion asincrona/streaming aparte.
+TABLA_MAX_FILAS = 5000
+
+
 def standard_table(
     headers: Sequence[object],
     rows: Iterable[Sequence[object]],
@@ -586,15 +595,40 @@ def standard_table(
     aligns: Sequence[str] | None = None,
     status_col: int | None = None,
     width: float = CONTENT_WIDTH,
+    max_rows: int | None = None,
 ):
     styles = get_styles()
     headers = list(headers)
     if not headers:
         raise TablaInvalida('standard_table necesita al menos un encabezado.')
-    rows = list(rows)
     column_count = len(headers)
 
+    if aligns is not None and len(aligns) != column_count:
+        raise TablaInvalida(
+            f'aligns trae {len(aligns)} valores para {column_count} columnas.'
+        )
+    if status_col is not None and not (0 <= status_col < column_count):
+        raise TablaInvalida(f'status_col {status_col} fuera de rango para {column_count} columnas.')
+
+    tope = TABLA_MAX_FILAS if max_rows is None else max_rows
+    if tope is not None and tope < 0:
+        raise TablaInvalida(f'max_rows no puede ser negativo: {tope}.')
+
+    widths = _normalize_widths(col_widths, column_count, width)
+    aligns = list(aligns or ['LEFT'] * column_count)
+    data = [[para(h, styles['PdfHeaderCell'], bold=True) for h in headers]]
+
+    # COM-012: se recorre `rows` perezosamente y se corta en `tope`. No se hace
+    # `list(rows)`: un iterable no acotado rinde a lo sumo `tope` filas y la
+    # memoria del worker queda acotada. La validacion de forma (COM-005) se
+    # mantiene por cada fila efectivamente dibujada.
+    filas_rendidas = 0
+    hay_excedente = False
     for indice, row in enumerate(rows):
+        if tope is not None and filas_rendidas >= tope:
+            hay_excedente = True
+            break
+        row = list(row)
         if len(row) != column_count:
             # COM-005: una fila con mas o menos valores que headers no se
             # detectaba aca; ReportLab ampliaba `_ncols` al maximo encontrado
@@ -603,18 +637,6 @@ def standard_table(
                 f'standard_table: la fila {indice} trae {len(row)} valores '
                 f'para {column_count} encabezados.'
             )
-    if aligns is not None and len(aligns) != column_count:
-        raise TablaInvalida(
-            f'aligns trae {len(aligns)} valores para {column_count} columnas.'
-        )
-    if status_col is not None and not (0 <= status_col < column_count):
-        raise TablaInvalida(f'status_col {status_col} fuera de rango para {column_count} columnas.')
-
-    widths = _normalize_widths(col_widths, column_count, width)
-    aligns = list(aligns or ['LEFT'] * column_count)
-    data = [[para(h, styles['PdfHeaderCell'], bold=True) for h in headers]]
-
-    for row in rows:
         rendered = []
         for index, value in enumerate(row):
             style = _cell_style(styles, aligns[index] if index < len(aligns) else 'LEFT')
@@ -623,14 +645,30 @@ def standard_table(
                 color = STATUS_COLORS.get(str(value).upper())
             rendered.append(para(value, style, color=color, bold=bool(color)))
         data.append(rendered)
+        filas_rendidas += 1
 
-    if not rows:
+    fila_aviso = None
+    if hay_excedente:
+        # COM-012: el exceso no rompe el documento; se informa en una fila.
+        logger.warning(
+            'standard_table: alcanzado el tope de %s filas; el resto no se '
+            'dibuja (COM-012).', tope,
+        )
+        fila_aviso = len(data)
+        mensaje = (
+            f'Se muestran las primeras {tope} filas; el resto no se incluye en '
+            f'este documento. Exporta el detalle completo por otra via.'
+        )
+        aviso = [para(mensaje, styles['PdfCellCenter'])]
+        aviso.extend(['' for _ in range(max(column_count - 1, 0))])
+        data.append(aviso)
+    elif filas_rendidas == 0:
         empty = [para('Sin datos', styles['PdfCellCenter'])]
         empty.extend(['' for _ in range(max(column_count - 1, 0))])
         data.append(empty)
 
     table = Table(data, colWidths=widths, repeatRows=1)
-    table.setStyle(TableStyle([
+    estilo = [
         ('BACKGROUND', (0, 0), (-1, 0), PRIMARY),
         ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
@@ -642,7 +680,12 @@ def standard_table(
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-    ]))
+    ]
+    if fila_aviso is not None:
+        estilo.append(('SPAN', (0, fila_aviso), (-1, fila_aviso)))
+        estilo.append(('BACKGROUND', (0, fila_aviso), (-1, fila_aviso), LIGHT_BLUE))
+        estilo.append(('TEXTCOLOR', (0, fila_aviso), (-1, fila_aviso), MUTED))
+    table.setStyle(TableStyle(estilo))
     return table
 
 
