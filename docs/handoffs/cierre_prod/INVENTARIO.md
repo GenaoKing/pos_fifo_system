@@ -26,6 +26,18 @@ esa base y sus hallazgos de integración se cerraron en `18e0898`. La evidencia
 acredita solo código local: CT-04, C04, la compatibilidad HTTP real y cualquier
 sonda o reparación de clientes permanecen pendientes en sus bloques.
 
+Reconciliación de ledger C02/C03: **2026-09-16** (Claude, read-only + doc). La
+sección "Configuración, suscripciones y documentos" arrastraba `PENDIENTE` en
+filas ya cerradas por C02/C03 en `develop`: el ledger se actualizó para
+A03/A04/C05 pero no a nivel-ítem de C03. Revalidado contra código+test en
+`develop`, se pasan a `ACREDITADO` con su commit: COM-005/006/007/008/009/014
+(`d937db5`), CFG-006/011 (`38e5647`), CFG-009 (`b19c4a5`), CFG-013/014/015
+(`fe5c8de`), CFG-017 + SUS-015 (`7201043`), SUS-008/009 (`1ca1688`), SUS-010/012/018
+(`d968e3f`), SUS-011 (`506edf2`), SUS-013 (`6e3d551`), SUS-017 (`3018ce8`). Siguen
+`PENDIENTE` a propósito: CFG-012 (resuelto solo en `integration/cierre-prod-A05-C03`,
+no en `develop`), SUS-007 y SUS-016 (C+A: mitad C hecha, falta la mitad de Codex),
+y el resto sin código todavía. No hubo cambios de código ni de rama en esta pasada.
+
 ## Base, ramas, worktrees y aislamiento
 
 | Elemento | Resultado verificado | Evidencia / acción |
@@ -197,43 +209,43 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| COM-005 | TODO + AUD-COM | Tabla mal formada desborda página sin error. | C | C02 | P2 | PENDIENTE | — | Geometría/columnas inválidas. |
-| COM-006 | TODO + AUD-COM | Vacíos/dimensiones propagan excepciones crudas. | C | C02 | P2 | PENDIENTE | — | Aceptación COM-006. |
-| COM-007 | TODO + AUD-COM | Logo corrupto rompe documento. | C | C02 | P2 | PENDIENTE | — | Degradación con aviso. |
-| COM-008 | TODO + AUD-COM | Fallo storage se oculta y quita logo. | C | C02 | P2 | PENDIENTE | — | Señal/auditoría. |
-| COM-009 | TODO + AUD-COM | Logo remoto ilimitado agota memoria. | C | C02 | P2 urgente | PENDIENTE | — | Límite 8 MiB/stream. |
+| COM-005 | TODO + AUD-COM | Tabla mal formada desborda página sin error. | C | C02 | P2 | ACREDITADO | `d937db5` | `_validar_forma_tabla` rechaza geometría/columnas inválidas; test en `apps/common/tests`. |
+| COM-006 | TODO + AUD-COM | Vacíos/dimensiones propagan excepciones crudas. | C | C02 | P2 | ACREDITADO | `d937db5` | Vacíos/dimensiones degradan con aviso; test en `apps/common/tests`. |
+| COM-007 | TODO + AUD-COM | Logo corrupto rompe documento. | C | C02 | P2 | ACREDITADO | `d937db5` | `_logo_es_valido` degrada logo corrupto con warning; test en `apps/common/tests`. |
+| COM-008 | TODO + AUD-COM | Fallo storage se oculta y quita logo. | C | C02 | P2 | ACREDITADO | `d937db5` | Fallo de storage se registra distinto de "no hay logo"; test en `apps/common/tests`. |
+| COM-009 | TODO + AUD-COM | Logo remoto ilimitado agota memoria. | C | C02 | P2 urgente | ACREDITADO | `d937db5` | `_leer_acotado` lee por chunks con tope `LOGO_MAX_BYTES` + pre-check de `size`; test en `apps/common/tests`. |
 | COM-012 | TODO + AUD-COM | Tabla materializa todos los registros. | C | C02 | P2 | PENDIENTE | — | Lista grande/memoria acotada. |
 | COM-013 | TODO + AUD-COM | ReportLab/Pillow no fijados en build. | A+C | A01/C02 | P2 | PENDIENTE | — | Locks Windows/cloud. |
-| COM-014 | TODO + AUD-COM | Logo se deforma a cuadrado fijo. | C | C02 | P3 | PENDIENTE | — | Proporción visual. |
-| CFG-006 | TODO + AUD-CFG | Combinaciones operativas/fiscales inseguras. | C | C03 | Alta | PENDIENTE | — | Validaciones negativas. |
+| COM-014 | TODO + AUD-COM | Logo se deforma a cuadrado fijo. | C | C02 | P3 | ACREDITADO | `d937db5` | `_logo_flowable` escala manteniendo proporción dentro de la caja; test en `apps/common/tests`. |
+| CFG-006 | TODO + AUD-CFG | Combinaciones operativas/fiscales inseguras. | C | C03 | Alta | ACREDITADO | `38e5647` | `full_clean()` rechaza combinaciones inseguras; test `test_auditoria_configuracion`. |
 | CFG-007 | TODO + AUD-CFG | Pull omite validadores/choices. | C+A | C03/A sync hook | Alta | PENDIENTE | — | Payload inválido no aplica. |
 | CFG-008 | TODO + AUD-CFG | Controles e-CF no forman unidad. | C | C03 | Alta diferida | PENDIENTE | — | Matriz MSeller; nativo no activo. |
-| CFG-009 | TODO + AUD-CFG | Templates/gates leen dos verdades. | C | C03 | Media-alta | PENDIENTE | — | Resolutor único CT-03. |
+| CFG-009 | TODO + AUD-CFG | Templates/gates leen dos verdades. | C | C03 | Media-alta | ACREDITADO | `b19c4a5` | UI/menús leen `modulos_efectivos()`, no `config.modulo_*`; test de configuración. Nota: la mitad de SUS-007 (sync) sigue en Codex. |
 | CFG-010 | TODO + AUD-CFG | Acceso rápido sin scope/invariantes DB. | C | C03 | Media-alta | PENDIENTE | — | Multi-sucursal/constraints. |
-| CFG-011 | TODO + AUD-CFG | `QuerySet.delete()` salta protección. | C | C03 | Media-alta | PENDIENTE | — | Borrado masivo protegido. |
-| CFG-012 | TODO + AUD-CFG | Leer configuración puede crearla. | C | C03 | Media | PENDIENTE | — | Lectura sin escritura. |
-| CFG-013 | TODO + AUD-CFG | Verificador acepta legacy con módulos apagados. | C | C03 | Media-alta | PENDIENTE | — | Exit no-cero/config incompleta. |
-| CFG-014 | TODO + AUD-CFG | Diagnóstico muestra otra sucursal y sale 0. | C | C03 | Media | PENDIENTE | — | Scope + exit code. |
-| CFG-015 | TODO + AUD-CFG | `crear_config_inicial` sin sucursal pisa primera. | C | C03/C01 | Media-alta | PENDIENTE | — | Multi-sucursal negativa. |
+| CFG-011 | TODO + AUD-CFG | `QuerySet.delete()` salta protección. | C | C03 | Media-alta | ACREDITADO | `38e5647` | `delete()` de instancia y de QuerySet levantan `ConfiguracionProtegidaError`; test de configuración. |
+| CFG-012 | TODO + AUD-CFG | Leer configuración puede crearla. | C | C03 | Media | PENDIENTE | — | Lectura sin escritura. **Resuelto en `integration/cierre-prod-A05-C03` (parte 2), NO en `develop`: `models.py` aún hace `get_or_create` en la lectura.** |
+| CFG-013 | TODO + AUD-CFG | Verificador acepta legacy con módulos apagados. | C | C03 | Media-alta | ACREDITADO | `fe5c8de` | `verificar_instalacion` sale distinto de cero ante config incompleta. |
+| CFG-014 | TODO + AUD-CFG | Diagnóstico muestra otra sucursal y sale 0. | C | C03 | Media | ACREDITADO | `fe5c8de` | Diagnóstico usa la sucursal actual y `--strict` sale no-cero; test `test_verificar_instalacion`. |
+| CFG-015 | TODO + AUD-CFG | `crear_config_inicial` sin sucursal pisa primera. | C | C03/C01 | Media-alta | ACREDITADO | `fe5c8de` | `crear_config_inicial` sin sucursal ya no pisa la primera fila. |
 | CFG-016 | TODO + AUD-CFG | Conversión BAT→env no garantiza round-trip/ACL. | C | C01 | Media-alta | PENDIENTE | — | Matriz caracteres/idempotencia. |
-| CFG-017 | TODO + AUD-CFG | Cambios de config sin auditoría uniforme. | C | C03 | Media-alta | PENDIENTE | — | CT-01 transaccional. |
+| CFG-017 | TODO + AUD-CFG | Cambios de config sin auditoría uniforme. | C | C03 | Media-alta | ACREDITADO | `7201043` | Admin registra evento CT-01 en la misma transacción; test de configuración. |
 | CFG-018 | TODO + AUD-CFG | Logo sin lifecycle/propagación. | C | C02/C03 | Media-baja | PENDIENTE | — | Commit cleanup/retry. |
 | CFG-019 | TODO + AUD-CFG | Superficies declaradas sin flujo soportado. | C | C03 | Baja-media | PENDIENTE | — | Aceptación CFG-019. |
 | CFG-020 | TODO + AUD-CFG | Formato barcode promete más que generador. | C | C02/C03 | Baja-media | PENDIENTE | — | Contrato único. |
 | CFG-021 | TODO + AUD-CFG | Suite no cubre fronteras críticas. | C | C03 | Media | PENDIENTE | — | Matriz CT-03. |
 | SUS-006 | TODO + AUD-SUS | CxC/reportes HTML sin gate de módulo. | C | C05 | P1 | ACREDITADO | `60c6dbc` | Gates HTML/API responden 404 con módulo apagado y conservan permiso ortogonal. |
 | SUS-007 | TODO + AUD-SUS | Templates, sync y servicio leen fuentes distintas. | C+A | C03/A hook | P1 | PENDIENTE | — | Resolutor único. |
-| SUS-008 | TODO + AUD-SUS | Bootstrap une flags entre sucursales. | C | C03 | P1 | PENDIENTE | — | Sucursales con flags opuestos. |
-| SUS-009 | TODO + AUD-SUS | Config legacy sin sucursal se pierde al migrar. | C | C03 | P1 | PENDIENTE | — | Preflight/ambigüedad. |
-| SUS-010 | TODO + AUD-SUS | Error DB se interpreta como permiso de baja. | C | C03 | P1 crítico | PENDIENTE | — | Excepción bloquea baja. |
-| SUS-011 | TODO + AUD-SUS | Señales invalidan antes del commit. | C | C03 | P2 | PENDIENTE | — | Rollback no publica cambio. |
-| SUS-012 | TODO + AUD-SUS | Registro código y espejo DB divergen. | C | C03 | P2 | PENDIENTE | — | Reconciliación fail-loud. |
-| SUS-013 | TODO + AUD-SUS | `activo`/estados sin semántica efectiva. | C | C03 | P2 | PENDIENTE | — | Plan inactivo vs suscripción. |
+| SUS-008 | TODO + AUD-SUS | Bootstrap une flags entre sucursales. | C | C03 | P1 | ACREDITADO | `1ca1688` | Bootstrap preserva flags por sucursal; test `test_auditoria_suscripciones`. |
+| SUS-009 | TODO + AUD-SUS | Config legacy sin sucursal se pierde al migrar. | C | C03 | P1 | ACREDITADO | `1ca1688` | Config legacy `sucursal=NULL` ya no se ignora en silencio; test de suscripciones. |
+| SUS-010 | TODO + AUD-SUS | Error DB se interpreta como permiso de baja. | C | C03 | P1 crítico | ACREDITADO | `d968e3f` | Hook de datos en vuelo es fail-closed: la excepción bloquea la baja; test de suscripciones. |
+| SUS-011 | TODO + AUD-SUS | Señales invalidan antes del commit. | C | C03 | P2 | ACREDITADO | `506edf2` | Invalidación de cache diferida a `transaction.on_commit`; test de suscripciones. |
+| SUS-012 | TODO + AUD-SUS | Registro código y espejo DB divergen. | C | C03 | P2 | ACREDITADO | `d968e3f` | `checks.py` falla ruidoso si el catálogo en código y el espejo DB divergen; test de suscripciones. |
+| SUS-013 | TODO + AUD-SUS | `activo`/estados sin semántica efectiva. | C | C03 | P2 | ACREDITADO | `6e3d551` | `Plan.activo` bloquea nuevas altas sin suspender el core; test de suscripciones. |
 | SUS-014 | TODO + AUD-SUS | Plan control-plane diverge del operativo. | C | C03 | P2 | PENDIENTE | — | Cross-DB consistente. |
-| SUS-015 | TODO + AUD-SUS | Cambios comerciales sin auditoría. | C | C03 | P2 | PENDIENTE | — | CT-01. |
-| SUS-016 | TODO + AUD-SUS | Bootstrap/sync parcial reporta éxito pobre. | C+A | C03/A hook | P2 | PENDIENTE | — | Crash/retry/estado parcial. |
-| SUS-017 | TODO + AUD-SUS | `sync_modulos` no sincroniza planes default. | C | C03 | P2 | PENDIENTE | — | Seed repetido/presets. |
-| SUS-018 | TODO + AUD-SUS | Key desconocida puede aprobarse fail-open. | C | C03 | P3 | PENDIENTE | — | Default deny de key desconocida. |
+| SUS-015 | TODO + AUD-SUS | Cambios comerciales sin auditoría. | C | C03 | P2 | ACREDITADO | `7201043` | `GuardDegradacionMixin` registra evento CT-01 en la misma transacción; productor de auditoría. |
+| SUS-016 | TODO + AUD-SUS | Bootstrap/sync parcial reporta éxito pobre. | C+A | C03/A hook | P2 | PENDIENTE | — | Crash/retry/estado parcial. Mitad C hecha (`--dry-run` + bootstrap atómico, `1ca1688`); falta la mitad A (reporte de sync parcial). |
+| SUS-017 | TODO + AUD-SUS | `sync_modulos` no sincroniza planes default. | C | C03 | P2 | ACREDITADO | `3018ce8` | `Plan.preset_version` + `sync_modulos` resincroniza planes gestionados desactualizados; test `test_sync_modulos`. |
+| SUS-018 | TODO + AUD-SUS | Key desconocida puede aprobarse fail-open. | C | C03 | P3 | ACREDITADO | `d968e3f` | Una key fuera del catálogo deniega aun en el camino fail-open; test de suscripciones. |
 | SUS-019 | TODO + AUD-SUS | Suite omite fronteras contractuales. | C | C03 | P3 | PENDIENTE | — | Matriz multi-worker/scope. |
 
 ### Cotizaciones y operación comercial — dueño C, C05/B09
