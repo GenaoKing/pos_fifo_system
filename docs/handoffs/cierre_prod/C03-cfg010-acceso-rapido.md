@@ -86,6 +86,6 @@ esa misma migración, detrás del preflight.
 ## Deltas propuestos a documentos de seguimiento
 
 - `INVENTARIO.md` fila 212 (`CFG-010`): mantener `PENDIENTE` pero anotar
-  "integridad de fila acreditada (`<commit>`); ámbito por sucursal abierto por
+  "integridad de fila acreditada (`c64255f`); ámbito por sucursal abierto por
   decisión". No pasar a `ACREDITADO` hasta cerrar la pata 2.
 - `TODO_AUDITORIAS.md`: idem, dejar CFG-010 con la nota de decisión pendiente.
