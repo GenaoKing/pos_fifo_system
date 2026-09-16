@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -7,6 +7,7 @@ from apps.clientes.models import Cliente
 from apps.sucursales.models import Sucursal
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class ClienteViewSetPermissionTests(TestCase):
     clientes_url = '/api/v1/maestros/clientes/'
 

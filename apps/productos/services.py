@@ -37,6 +37,10 @@ class IdempotenciaMutacionMaestroInvalida(MutacionMaestroError):
     pass
 
 
+class IdempotenciaMutacionMaestroEnConflicto(MutacionMaestroError):
+    """El UUID existe, pero no pertenece a la misma intencion autorizada."""
+
+
 class CodigoBarrasDuplicado(MutacionMaestroError):
     pass
 
@@ -135,7 +139,23 @@ def _entidad_repetida(mutacion: MutacionMaestro, *, using: str):
     return modelo.objects.using(using).get(pk=mutacion.entidad_id)
 
 
-def _resultado_si_repetida(mutacion_id: uuid.UUID, *, using: str):
+def _resultado_si_repetida(
+    mutacion_id: uuid.UUID,
+    *,
+    actor,
+    sucursal,
+    entidad_tipo: str,
+    entidad_id: int | None,
+    operacion: str | None,
+    using: str,
+):
+    """Recupera solo el replay de la misma intencion POS.
+
+    ``mutacion_id`` es globalmente unico para que la constraint tambien cubra
+    carreras reales. No es, sin embargo, una autorizacion: una clave conocida
+    de otra sucursal/actor, entidad u operacion debe ser una colision visible,
+    nunca una respuesta de replay ajena.
+    """
     existente = (
         MutacionMaestro.objects.using(using)
         .filter(mutacion_id=mutacion_id)
@@ -143,6 +163,19 @@ def _resultado_si_repetida(mutacion_id: uuid.UUID, *, using: str):
     )
     if existente is None:
         return None
+
+    mismo_contexto = (
+        existente.sucursal_id == sucursal.pk
+        and existente.actor_id == actor.pk
+        and existente.entidad == entidad_tipo
+    )
+    misma_entidad = entidad_id is None or existente.entidad_id == entidad_id
+    misma_operacion = operacion is None or existente.operacion == operacion
+    if not (mismo_contexto and misma_entidad and misma_operacion):
+        raise IdempotenciaMutacionMaestroEnConflicto(
+            'El identificador de mutacion ya pertenece a otra intencion autorizada.'
+        )
+
     return ResultadoMutacionMaestro(
         entidad=_entidad_repetida(existente, using=using),
         mutacion=existente,
@@ -156,7 +189,8 @@ def _ejecutar_mutacion(
     sucursal,
     permiso: str,
     entidad_tipo: str,
-    operacion: str | Callable[[dict, dict], str],
+    entidad_id: int | None,
+    operacion: str,
     accion_auditoria: str,
     mutacion_id,
     mutar: Callable[[], tuple[Producto | Categoria, dict, dict]],
@@ -167,17 +201,24 @@ def _ejecutar_mutacion(
     _validar_contexto(
         actor=actor, sucursal=sucursal, permiso=permiso, using=using,
     )
+    operacion_replay = operacion
 
     try:
         with transaction.atomic(using=using):
-            repetida = _resultado_si_repetida(identificador, using=using)
+            repetida = _resultado_si_repetida(
+                identificador,
+                actor=actor,
+                sucursal=sucursal,
+                entidad_tipo=entidad_tipo,
+                entidad_id=entidad_id,
+                operacion=operacion_replay,
+                using=using,
+            )
             if repetida is not None:
                 return repetida
 
             entidad, antes, despues = mutar()
-            operacion_final = (
-                operacion(antes, despues) if callable(operacion) else operacion
-            )
+            operacion_final = operacion
             delta = _delta(antes, despues)
             evento = registrar_mutacion(
                 accion=accion_auditoria,
@@ -218,7 +259,15 @@ def _ejecutar_mutacion(
         # Dos reintentos simultaneos pueden llegar antes de que la segunda
         # transaccion observe el UUID. La constraint convierte el segundo en
         # replay, sin duplicar maestro ni auditoria.
-        repetida = _resultado_si_repetida(identificador, using=using)
+        repetida = _resultado_si_repetida(
+            identificador,
+            actor=actor,
+            sucursal=sucursal,
+            entidad_tipo=entidad_tipo,
+            entidad_id=entidad_id,
+            operacion=operacion_replay,
+            using=using,
+        )
         if repetida is not None:
             return repetida
         raise
@@ -252,6 +301,7 @@ def crear_producto_local(*, actor, sucursal, datos: dict, mutacion_id=None, usin
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='productos.crear',
         entidad_tipo=MutacionMaestro.Entidad.PRODUCTO,
+        entidad_id=None,
         operacion=MutacionMaestro.Operacion.CREAR,
         accion_auditoria='productos.producto.creado', mutacion_id=mutacion_id,
         mutar=mutar, using=using,
@@ -284,26 +334,30 @@ def editar_producto_local(*, actor, sucursal, producto_id: int, datos: dict, mut
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='productos.editar',
         entidad_tipo=MutacionMaestro.Entidad.PRODUCTO,
+        entidad_id=producto_id,
         operacion=MutacionMaestro.Operacion.ACTUALIZAR,
         accion_auditoria='productos.producto.actualizado', mutacion_id=mutacion_id,
         mutar=mutar, using=using,
     )
 
 
-def cambiar_estado_producto_local(*, actor, sucursal, producto_id: int, mutacion_id=None, using='default'):
+def cambiar_estado_producto_local(
+    *, actor, sucursal, producto_id: int, activo: bool, mutacion_id=None, using='default',
+):
     def mutar():
         producto = Producto.objects.using(using).select_for_update().get(pk=producto_id)
         antes = _snapshot_producto(producto)
-        producto.activo = not producto.activo
+        producto.activo = activo
         producto.save(using=using)
         return producto, antes, _snapshot_producto(producto)
 
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='productos.eliminar',
         entidad_tipo=MutacionMaestro.Entidad.PRODUCTO,
-        operacion=lambda _antes, despues: (
+        entidad_id=producto_id,
+        operacion=(
             MutacionMaestro.Operacion.ACTIVAR
-            if despues['activo'] else MutacionMaestro.Operacion.DESACTIVAR
+            if activo else MutacionMaestro.Operacion.DESACTIVAR
         ),
         accion_auditoria='productos.producto.estado_actualizado',
         mutacion_id=mutacion_id, mutar=mutar, using=using,
@@ -325,6 +379,7 @@ def crear_categoria_local(*, actor, sucursal, datos: dict, mutacion_id=None, usi
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='categorias.crear',
         entidad_tipo=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=None,
         operacion=MutacionMaestro.Operacion.CREAR,
         accion_auditoria='productos.categoria.creada', mutacion_id=mutacion_id,
         mutar=mutar, using=using,
@@ -347,26 +402,30 @@ def editar_categoria_local(*, actor, sucursal, categoria_id: int, datos: dict, m
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='categorias.editar',
         entidad_tipo=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=categoria_id,
         operacion=MutacionMaestro.Operacion.ACTUALIZAR,
         accion_auditoria='productos.categoria.actualizada', mutacion_id=mutacion_id,
         mutar=mutar, using=using,
     )
 
 
-def cambiar_estado_categoria_local(*, actor, sucursal, categoria_id: int, mutacion_id=None, using='default'):
+def cambiar_estado_categoria_local(
+    *, actor, sucursal, categoria_id: int, activa: bool, mutacion_id=None, using='default',
+):
     def mutar():
         categoria = Categoria.objects.using(using).select_for_update().get(pk=categoria_id)
         antes = _snapshot_categoria(categoria)
-        categoria.activa = not categoria.activa
+        categoria.activa = activa
         categoria.save(using=using)
         return categoria, antes, _snapshot_categoria(categoria)
 
     return _ejecutar_mutacion(
         actor=actor, sucursal=sucursal, permiso='categorias.eliminar',
         entidad_tipo=MutacionMaestro.Entidad.CATEGORIA,
-        operacion=lambda _antes, despues: (
+        entidad_id=categoria_id,
+        operacion=(
             MutacionMaestro.Operacion.ACTIVAR
-            if despues['activa'] else MutacionMaestro.Operacion.DESACTIVAR
+            if activa else MutacionMaestro.Operacion.DESACTIVAR
         ),
         accion_auditoria='productos.categoria.estado_actualizado',
         mutacion_id=mutacion_id, mutar=mutar, using=using,

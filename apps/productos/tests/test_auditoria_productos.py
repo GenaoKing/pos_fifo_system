@@ -7,6 +7,7 @@ La app no aportaba casos propios (PRO-018); este modulo es el arranque.
 """
 import io
 import json
+import uuid
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -74,6 +75,7 @@ class ProductosTestCase(TestCase):
     def _post(self, user, nombre, args=None, cuerpo=None, **extra):
         self.client.force_login(user)
         url = reverse(nombre, args=args or [])
+        extra.setdefault('HTTP_X_MASTER_MUTATION_ID', str(uuid.uuid4()))
         if cuerpo is None:
             return self.client.post(url, **extra)
         return self.client.post(
@@ -116,6 +118,7 @@ class CrearProductoSinConfiguracionTests(TestCase):
                 'categoria_id': self.categoria.id,
             }),
             content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(uuid.uuid4()),
         )
 
         self.assertEqual(respuesta.status_code, 400)

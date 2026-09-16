@@ -10,7 +10,7 @@ El enforcement es server-side (default-deny); demuestra que cerrar la UI ya no
 es necesario para proteger el endpoint.
 """
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.permisos import testing
@@ -24,6 +24,7 @@ def _cajera(username):
     )
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class ClientesPermisoPorNegocioTests(TestCase):
     url = '/api/v1/maestros/clientes/'
 

@@ -24,6 +24,8 @@ from apps.permisos.decorators import (
 )
 from .services import (
     CodigoBarrasDuplicado,
+    IdempotenciaMutacionMaestroEnConflicto,
+    IdempotenciaMutacionMaestroInvalida,
     NombreCategoriaDuplicado,
     cambiar_estado_categoria_local,
     cambiar_estado_producto_local,
@@ -48,8 +50,45 @@ def _respuesta_error_generico():
 
 
 def _mutacion_id(request, data=None):
-    """UUID de replay opcional; el servicio genera uno cuando falta."""
-    return request.headers.get('X-Master-Mutation-ID') or (data or {}).get('mutation_id')
+    """UUID obligatorio en HTTP: un reintento debe conservar su intencion."""
+    identificador = (
+        request.headers.get('X-Master-Mutation-ID')
+        or (data or {}).get('mutation_id')
+    )
+    if not identificador:
+        raise IdempotenciaMutacionMaestroInvalida(
+            'Se requiere X-Master-Mutation-ID para mutar el catalogo local.'
+        )
+    return identificador
+
+
+def _respuesta_error_idempotencia(exc):
+    if isinstance(exc, IdempotenciaMutacionMaestroEnConflicto):
+        return JsonResponse({
+            'success': False,
+            'code': 'master_mutation_id_conflict',
+            'message': str(exc),
+        }, status=409)
+    return JsonResponse({
+        'success': False,
+        'code': 'master_mutation_id_invalid',
+        'message': str(exc),
+    }, status=400)
+
+
+def _estado_deseado(request, campo):
+    """El estado objetivo hace distinguible un retry de otro cambio distinto."""
+    try:
+        valor = json.loads(request.body or '{}').get(campo)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise IdempotenciaMutacionMaestroInvalida(
+            'El estado objetivo debe enviarse como JSON valido.'
+        ) from exc
+    if not isinstance(valor, bool):
+        raise IdempotenciaMutacionMaestroInvalida(
+            f'El campo {campo} debe ser booleano.'
+        )
+    return valor
 
 
 # ==========================================
@@ -149,6 +188,8 @@ def crear_producto(request):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 
@@ -183,6 +224,8 @@ def editar_producto(request, producto_id):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except CodigoBarrasDuplicado:
         return JsonResponse({
             'success': False,
@@ -204,6 +247,7 @@ def toggle_estado_producto(request, producto_id):
             actor=request.user,
             sucursal=sucursal_del_request(request),
             producto_id=producto.id,
+            activo=_estado_deseado(request, 'activo'),
             mutacion_id=_mutacion_id(request),
         )
         producto = resultado.entidad
@@ -219,6 +263,8 @@ def toggle_estado_producto(request, producto_id):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 
@@ -295,6 +341,8 @@ def crear_categoria(request):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except NombreCategoriaDuplicado:
         return JsonResponse({
             'success': False,
@@ -333,6 +381,8 @@ def editar_categoria(request, categoria_id):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except NombreCategoriaDuplicado:
         return JsonResponse({
             'success': False,
@@ -388,6 +438,7 @@ def toggle_estado_categoria(request, categoria_id):
             actor=request.user,
             sucursal=sucursal_del_request(request),
             categoria_id=categoria.id,
+            activa=_estado_deseado(request, 'activa'),
             mutacion_id=_mutacion_id(request),
         )
         categoria = resultado.entidad
@@ -403,6 +454,8 @@ def toggle_estado_categoria(request, categoria_id):
             'idempotent_replay': resultado.repetida,
         })
         
+    except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
+        return _respuesta_error_idempotencia(exc)
     except Exception:
         return _respuesta_error_generico()
 

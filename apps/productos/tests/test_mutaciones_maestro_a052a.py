@@ -1,11 +1,15 @@
 """Contrato A05.2a: cola durable local de Producto y Categoria."""
+import json
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.db import IntegrityError
+from django.test import RequestFactory, TestCase, override_settings
 
 from apps.auditoria.models import Auditoria
 from apps.auditoria.services import AuditContractError
@@ -14,6 +18,7 @@ from apps.negocios.models import Negocio
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto, productos_vendibles
 from apps.productos.services import (
+    IdempotenciaMutacionMaestroEnConflicto,
     PermisoMutacionMaestroDenegado,
     cambiar_estado_categoria_local,
     cambiar_estado_producto_local,
@@ -45,7 +50,8 @@ class MutacionesMaestroA052aTests(TestCase):
     def tearDown(self):
         cache.clear()
 
-    def _actor(self, *permisos):
+    def _actor(self, *permisos, sucursal=None):
+        sucursal = sucursal or self.sucursal
         actor = User.objects.create_user(
             username=f'actor_{User.objects.count()}',
             email=f'actor_{User.objects.count()}@a052.test',
@@ -54,7 +60,7 @@ class MutacionesMaestroA052aTests(TestCase):
         permisos_testing.habilitar_cajero(
             actor,
             negocio=self.negocio,
-            sucursal=self.sucursal,
+            sucursal=sucursal,
             permisos=list(permisos),
         )
         return actor
@@ -73,11 +79,11 @@ class MutacionesMaestroA052aTests(TestCase):
         datos.update(extra)
         return datos
 
-    def _crear_producto(self, actor=None, mutacion_id=None, **extra):
+    def _crear_producto(self, actor=None, mutacion_id=None, sucursal=None, **extra):
         actor = actor or self._actor('productos.crear')
         return crear_producto_local(
             actor=actor,
-            sucursal=self.sucursal,
+            sucursal=sucursal or self.sucursal,
             datos=self._datos_producto(**extra),
             mutacion_id=mutacion_id,
         )
@@ -219,6 +225,7 @@ class MutacionesMaestroA052aTests(TestCase):
             actor=actor,
             sucursal=self.sucursal,
             producto_id=producto.id,
+            activo=False,
             mutacion_id=uuid.uuid4(),
         )
 
@@ -257,6 +264,7 @@ class MutacionesMaestroA052aTests(TestCase):
             actor=actor,
             sucursal=self.sucursal,
             categoria_id=self.categoria.id,
+            activa=False,
             mutacion_id=uuid.uuid4(),
         )
 
@@ -266,3 +274,205 @@ class MutacionesMaestroA052aTests(TestCase):
         self.assertEqual(resultado.mutacion.operacion, MutacionMaestro.Operacion.DESACTIVAR)
         self.assertEqual(resultado.mutacion.delta['activa'], {'before': True, 'after': False})
         self.assertTrue(Auditoria.objects.filter(event_id=resultado.mutacion.auditoria_event_id).exists())
+
+    def test_http_exige_uuid_y_replay_no_duplica_la_creacion(self):
+        actor = self._actor('productos.crear')
+        datos = {
+            'nombre': 'Producto HTTP A05.2a',
+            'descripcion': 'creado por fetch',
+            'categoria_id': self.categoria.id,
+            'precio_venta': '25.50',
+            'stock_minimo': 2,
+            'atributos': {'color': 'azul'},
+            'estado': 'nuevo',
+            'marca': 'A05',
+        }
+        self.client.force_login(actor)
+
+        sin_uuid = self.client.post(
+            '/productos/crear/',
+            data=json.dumps(datos),
+            content_type='application/json',
+        )
+        self.assertEqual(sin_uuid.status_code, 400)
+        self.assertEqual(sin_uuid.json()['code'], 'master_mutation_id_invalid')
+        self.assertEqual(Producto.objects.count(), 0)
+
+        identificador = uuid.uuid4()
+        primero = self.client.post(
+            '/productos/crear/',
+            data=json.dumps(datos),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(identificador),
+        )
+        segundo = self.client.post(
+            '/productos/crear/',
+            data=json.dumps({**datos, 'nombre': 'No debe duplicarse'}),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(identificador),
+        )
+
+        self.assertEqual(primero.status_code, 200, primero.content)
+        self.assertEqual(segundo.status_code, 200, segundo.content)
+        self.assertFalse(primero.json()['idempotent_replay'])
+        self.assertTrue(segundo.json()['idempotent_replay'])
+        self.assertEqual(Producto.objects.count(), 1)
+        self.assertEqual(MutacionMaestro.objects.count(), 1)
+        self.assertEqual(Auditoria.objects.filter(schema_version=Auditoria.SCHEMA_V1).count(), 1)
+
+    def test_replay_de_toggle_http_aplica_un_solo_cambio(self):
+        actor = self._actor('productos.crear', 'productos.eliminar')
+        producto = self._crear_producto(actor, uuid.uuid4()).entidad
+        self.client.force_login(actor)
+        identificador = uuid.uuid4()
+
+        primero = self.client.post(
+            f'/productos/{producto.id}/toggle-estado/',
+            data=json.dumps({'activo': False}),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(identificador),
+        )
+        segundo = self.client.post(
+            f'/productos/{producto.id}/toggle-estado/',
+            data=json.dumps({'activo': False}),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(identificador),
+        )
+        colision = self.client.post(
+            f'/productos/{producto.id}/toggle-estado/',
+            data=json.dumps({'activo': True}),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(identificador),
+        )
+
+        producto.refresh_from_db()
+        self.assertEqual(primero.status_code, 200, primero.content)
+        self.assertEqual(segundo.status_code, 200, segundo.content)
+        self.assertEqual(colision.status_code, 409, colision.content)
+        self.assertEqual(colision.json()['code'], 'master_mutation_id_conflict')
+        self.assertTrue(segundo.json()['idempotent_replay'])
+        self.assertFalse(producto.activo)
+        self.assertEqual(MutacionMaestro.objects.count(), 2)
+
+    def test_uuid_reutilizado_en_otra_sucursal_es_conflicto_sin_efecto(self):
+        sucursal_b = Sucursal.objects.create(
+            negocio=self.negocio, codigo='A052-B', nombre='Sucursal B',
+        )
+        actor_a = self._actor('productos.crear', sucursal=self.sucursal)
+        actor_b = self._actor('productos.crear', sucursal=sucursal_b)
+        identificador = uuid.uuid4()
+        original = self._crear_producto(actor_a, identificador)
+
+        with self.assertRaises(IdempotenciaMutacionMaestroEnConflicto):
+            self._crear_producto(actor_b, identificador, sucursal=sucursal_b)
+
+        self.assertEqual(Producto.objects.count(), 1)
+        self.assertEqual(MutacionMaestro.objects.count(), 1)
+        self.assertEqual(MutacionMaestro.objects.get().pk, original.mutacion.pk)
+
+    def test_uuid_no_reproduce_otra_operacion_sobre_la_misma_entidad(self):
+        actor = self._actor('productos.crear', 'productos.editar')
+        identificador = uuid.uuid4()
+        producto = self._crear_producto(actor, identificador).entidad
+
+        with self.assertRaises(IdempotenciaMutacionMaestroEnConflicto):
+            editar_producto_local(
+                actor=actor,
+                sucursal=self.sucursal,
+                producto_id=producto.id,
+                datos=self._datos_producto(codigo_barras=producto.codigo_barras),
+                mutacion_id=identificador,
+            )
+
+        producto.refresh_from_db()
+        self.assertEqual(producto.nombre, 'Producto A052')
+        self.assertEqual(MutacionMaestro.objects.count(), 1)
+
+    def test_uuid_de_edicion_no_reproduce_un_cambio_de_estado(self):
+        actor = self._actor(
+            'productos.crear', 'productos.editar', 'productos.eliminar',
+        )
+        producto = self._crear_producto(actor, uuid.uuid4()).entidad
+        identificador = uuid.uuid4()
+        editar_producto_local(
+            actor=actor,
+            sucursal=self.sucursal,
+            producto_id=producto.id,
+            datos=self._datos_producto(
+                codigo_barras=producto.codigo_barras,
+                nombre='Editado primero',
+            ),
+            mutacion_id=identificador,
+        )
+
+        with self.assertRaises(IdempotenciaMutacionMaestroEnConflicto):
+            cambiar_estado_producto_local(
+                actor=actor,
+                sucursal=self.sucursal,
+                producto_id=producto.id,
+                activo=False,
+                mutacion_id=identificador,
+            )
+
+        producto.refresh_from_db()
+        self.assertTrue(producto.activo)
+        self.assertEqual(MutacionMaestro.objects.count(), 2)
+
+    def test_ct02_deniega_actor_de_a_en_sucursal_b_sin_efectos(self):
+        sucursal_b = Sucursal.objects.create(
+            negocio=self.negocio, codigo='A052-B', nombre='Sucursal B',
+        )
+        actor_a = self._actor('productos.crear', sucursal=self.sucursal)
+
+        with self.assertRaises(PermisoMutacionMaestroDenegado):
+            self._crear_producto(actor_a, uuid.uuid4(), sucursal=sucursal_b)
+
+        self.assertEqual(Producto.objects.count(), 0)
+        self.assertEqual(MutacionMaestro.objects.count(), 0)
+
+    def test_fallo_al_crear_cola_revierte_maestro_y_auditoria(self):
+        actor = self._actor('productos.crear')
+        with patch(
+            'apps.sync.models.MutacionMaestro.save',
+            side_effect=IntegrityError('fallo inducido de cola'),
+        ):
+            with self.assertRaises(IntegrityError):
+                self._crear_producto(actor, uuid.uuid4(), nombre='Debe revertir cola')
+
+        self.assertFalse(Producto.objects.filter(nombre='Debe revertir cola').exists())
+        self.assertEqual(MutacionMaestro.objects.count(), 0)
+        self.assertEqual(Auditoria.objects.filter(schema_version=Auditoria.SCHEMA_V1).count(), 0)
+
+    def test_admin_local_de_catalogo_es_solo_lectura_y_sin_acciones(self):
+        request = RequestFactory().get('/admin/productos/producto/')
+        request.user = self._actor('productos.ver')
+        producto_admin = admin.site._registry[Producto]
+        categoria_admin = admin.site._registry[Categoria]
+
+        self.assertFalse(producto_admin.has_add_permission(request))
+        self.assertFalse(producto_admin.has_change_permission(request))
+        self.assertFalse(producto_admin.has_delete_permission(request))
+        self.assertEqual(producto_admin.get_actions(request), {})
+        self.assertFalse(categoria_admin.has_add_permission(request))
+        self.assertFalse(categoria_admin.has_change_permission(request))
+        self.assertFalse(categoria_admin.has_delete_permission(request))
+        self.assertEqual(categoria_admin.get_actions(request), {})
+
+    def test_ui_conserva_uuid_por_intencion_y_lo_envia_en_header(self):
+        raiz = Path(__file__).resolve().parents[3]
+        utilidades = (raiz / 'static' / 'js' / 'utils.js').read_text(encoding='utf-8')
+        productos = (
+            raiz / 'templates' / 'productos' / 'lista_productos.html'
+        ).read_text(encoding='utf-8')
+        categorias = (
+            raiz / 'templates' / 'productos' / 'lista_categorias.html'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('function crearUuidMutacionMaestro()', utilidades)
+        self.assertIn("'X-Master-Mutation-ID': mutacionId", utilidades)
+        for fuente in (productos, categorias):
+            self.assertIn('mutacionMaestroId', fuente)
+            self.assertIn('mutacionesEstado', fuente)
+            self.assertIn('headersMutacionMaestro', fuente)
+        self.assertIn("JSON.stringify({ activo: !producto.activo })", productos)
+        self.assertIn("JSON.stringify({ activa: !categoria.activa })", categorias)

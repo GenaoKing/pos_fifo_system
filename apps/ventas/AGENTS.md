@@ -1,6 +1,6 @@
 # apps/ventas — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 -->
+<!-- Última revisión: 2026-09-16 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -60,5 +60,8 @@ No hagas push directo desde aquí — solo emití el evento al outbox.
   antes de buscar un replay y lo limita al alcance de sucursal; la única parcial
   `uniq_venta_clave_idempotencia` respalda un solo efecto financiero.
 - `condicion_pago` a crédito y `turno_caja` cambian validaciones de pago.
+- La carga final del carrito usa `productos_vendibles()`: una propuesta
+  `MutacionMaestro` en `PENDIENTE` no frena la venta, pero `CONFLICTO` bloquea
+  solo ventas nuevas y nunca reescribe ventas, FIFO o eventos ya persistidos.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md`) —
   **snapshot histórico**, verificar contra código.

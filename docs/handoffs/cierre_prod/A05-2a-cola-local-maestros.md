@@ -1,7 +1,7 @@
 # Handoff A05.2a — cola local durable de maestros
 
-Fecha: **2026-09-15**
-Estado: **LISTO PARA REVISIÓN; sin merge, push, despliegue ni datos reales.**
+Fecha: **2026-09-16**
+Estado: **LISTO PARA RE-REVISIÓN; sin merge, push, despliegue ni datos reales.**
 
 ## Base y aislamiento
 
@@ -26,6 +26,13 @@ sucursal resuelta y reevalúa CT-02 con esa sucursal antes de
 `audit.event.v1` y cola. Un fallo de auditoría/cola revierte todo; un replay del
 mismo UUID devuelve la propuesta ya creada sin duplicar maestro ni auditoría.
 Las respuestas JSON incluyen UUID, estado y marca de replay.
+
+El UUID es obligatorio en HTTP y la UI lo conserva por intención ante un retry.
+Un replay solo es válido si conserva actor, sucursal, entidad y operación;
+una reutilización distinta responde `409`. Los cambios de estado mandan el
+estado objetivo, no un toggle ambiguo. En el POS, el admin de Producto/Categoria
+es de solo lectura y los ViewSets maestros del portal rechazan escritura (`403`),
+por lo que no queda una ruta local que salte maestro + auditoría + cola.
 
 Se preserva A05.1: SKU y `Producto.origen_cloud_id` no se modifican por el
 servicio; siguen vigentes `MASTER_*` en pull. No hay referencias a `EventoSync`,
@@ -103,6 +110,47 @@ git diff --check
 
 Todos correctos: dependencias sin roturas, check sin incidencias, sin cambios
 de modelo pendientes, compilación correcta y diff sin whitespace roto.
+
+### Corrección de revisión 2026-09-16
+
+En la misma venv aislada y contra la DB temporal `test_pos_fifo_dev` creada por
+el runner se reejecutaron en serie:
+
+```powershell
+& $py manage.py test `
+  apps.productos.tests.test_auditoria_productos `
+  apps.productos.tests.test_identidad_a05 `
+  apps.productos.tests.test_categoria_sin_clasificar `
+  apps.productos.tests.test_miniaturas `
+  apps.productos.tests.test_mutaciones_maestro_a052a `
+  apps.sync.tests.test_engine `
+  apps.sync.tests.test_identidad_maestros_a05 `
+  apps.sync.tests.test_auditoria_sync `
+  apps.sync.tests.test_outbox_transaccional `
+  apps.auditoria.tests.test_ct01 `
+  apps.ventas.tests.test_ventas_service `
+  --settings=config.settings_development --keepdb --noinput --verbosity 1
+```
+
+Resultado: **175 OK**. Los 19 casos A05.2a incluyen UUID HTTP obligatorio,
+replay exacto y colisión visible, CT-02 por sucursal, rollback inducido de cola,
+admin local de solo lectura, SKU A05.1 y la venta real PENDIENTE/CONFLICTO sin
+alterar venta, FIFO ni `EventoSync` históricos.
+
+```powershell
+& $py manage.py test `
+  apps.api.tests.test_producto_viewset `
+  apps.api.tests.test_categoria_viewset `
+  apps.api.tests.test_cliente_viewset `
+  apps.api.tests.test_clientes_permisos_negocio `
+  apps.api.tests.test_producto_stub_anti_clobber `
+  --settings=config.settings_development --keepdb --noinput --verbosity 1
+```
+
+Resultado: **65 OK**. Confirma lecturas cloud preservadas, contratos
+`MASTER_*`/SKU intactos y `403` para escritura del ViewSet en POS local. El
+warning `suscripciones.W001` procede del seed ausente de esa DB efímera
+reutilizada; no se sembró ni cambió dato operativo.
 
 ## Límites y bloqueos deliberados
 

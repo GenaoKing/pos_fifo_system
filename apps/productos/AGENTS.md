@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 -->
+<!-- Última revisión: 2026-09-16 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -46,6 +46,13 @@ Las escrituras locales del catálogo pasan por `services.py` (`crear_*_local`,
 `EventoSync`, no se empuja aún y requiere actor, sucursal y permiso CT-02.
 Solo un estado `CONFLICTO` bloquea la vendibilidad nueva; `PENDIENTE` sigue
 usable hasta que A05.3/A06 reciba y resuelva la propuesta.
+
+El POS envía `X-Master-Mutation-ID` por cada intención y conserva el UUID al
+reintentar. Un replay se limita a actor, sucursal, entidad y operación; una
+colisión responde `409`. Los cambios de activo mandan el estado objetivo, no un
+toggle ambiguo. En POS, el admin del catálogo es solo lectura y el ViewSet DRF
+de maestros rechaza escrituras: no abrir rutas alternativas que salten la
+transacción maestro + auditoría + cola.
 
 ## Trampas
 
