@@ -13,7 +13,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.configuracion.models import ConfiguracionNegocio
@@ -36,6 +36,7 @@ def _png_valido(color=(255, 0, 0)):
     return buffer.getvalue()
 
 
+@override_settings(SUCURSAL_CODIGO='SD-001')
 class ProductosTestCase(TestCase):
     def setUp(self):
         cache.clear()
