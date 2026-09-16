@@ -526,6 +526,118 @@ class DiferidoSync(models.Model):
         return f'{self.tabla} {self.identidad or self.payload_hash[:12]} [{self.estado}]'
 
 
+class MutacionMaestro(models.Model):
+    """Outbox local de cambios de catálogo, separada de ``EventoSync``.
+
+    A05.2a guarda propuestas de Producto/Categoria hechas en un POS antes de
+    que exista el receptor cloud.  No es un hecho financiero, no participa del
+    batch de ``EventoSync`` y tampoco la consume todavia ``SyncEngine``.  La
+    fila conserva el CAS que el receptor A05.3 debera comparar y el vinculo
+    opaco con la auditoria CT-01 creada en la misma transaccion.
+    """
+
+    class Entidad(models.TextChoices):
+        PRODUCTO = 'PRODUCTO', 'Producto'
+        CATEGORIA = 'CATEGORIA', 'Categoria'
+
+    class Operacion(models.TextChoices):
+        CREAR = 'CREAR', 'Crear'
+        ACTUALIZAR = 'ACTUALIZAR', 'Actualizar'
+        ACTIVAR = 'ACTIVAR', 'Activar'
+        DESACTIVAR = 'DESACTIVAR', 'Desactivar'
+
+    class Estado(models.TextChoices):
+        PENDIENTE = 'PENDIENTE', 'Pendiente de enviar'
+        ENVIANDO = 'ENVIANDO', 'Enviando'
+        CONFIRMADA = 'CONFIRMADA', 'Confirmada por cloud'
+        CONFLICTO = 'CONFLICTO', 'Conflicto visible'
+        RECHAZADA = 'RECHAZADA', 'Rechazada por cloud'
+
+    mutacion_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name='UUID idempotente',
+    )
+    entidad = models.CharField(max_length=16, choices=Entidad.choices, db_index=True)
+    entidad_id = models.PositiveIntegerField(db_index=True)
+    operacion = models.CharField(max_length=16, choices=Operacion.choices)
+    revision_base = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Revision local observada antes de editar; vacia solo al crear.',
+    )
+    revision_resultante = models.CharField(max_length=64, blank=True, default='')
+    delta = models.JSONField(
+        default=dict,
+        help_text='Cambios JSON seguros: campo -> {before, after}.',
+    )
+    estado = models.CharField(
+        max_length=16,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+        db_index=True,
+    )
+    actor = models.ForeignKey(
+        'usuarios.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mutaciones_maestro_locales',
+    )
+    actor_username = models.CharField(max_length=150, blank=True, default='')
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='mutaciones_maestro_locales',
+    )
+    sucursal_codigo = models.CharField(max_length=40, editable=False)
+    tenant_key = models.CharField(max_length=64, blank=True, default='', editable=False)
+    auditoria_event_id = models.UUIDField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True,
+        help_text='event_id CT-01, no una FK mutable al historial.',
+    )
+    intentos = models.PositiveIntegerField(default=0)
+    ultimo_error = models.TextField(blank=True, default='')
+    conflicto_detalle = models.TextField(blank=True, default='')
+    creado_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    actualizado_at = models.DateTimeField(auto_now=True)
+    conflicto_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Mutacion local de maestro'
+        verbose_name_plural = 'Mutaciones locales de maestros'
+        ordering = ['creado_at', 'id']
+        indexes = [
+            models.Index(
+                fields=['sucursal', 'estado', 'creado_at'],
+                name='sync_master_suc_est_idx',
+            ),
+            models.Index(
+                fields=['entidad', 'entidad_id', 'estado'],
+                name='sync_master_ent_est_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.entidad}:{self.entidad_id} {self.operacion} '
+            f'[{self.estado}] {self.mutacion_id}'
+        )
+
+    def marcar_conflicto(self, detalle):
+        """Marca el resultado que A05.3/A06 hara visible sin borrar la propuesta."""
+        self.estado = self.Estado.CONFLICTO
+        self.conflicto_detalle = str(detalle or '')
+        self.conflicto_at = timezone.now()
+        self.save(update_fields=['estado', 'conflicto_detalle', 'conflicto_at', 'actualizado_at'])
+
+
 class InventarioMovimientoSync(models.Model):
     """
     Ledger cloud de movimientos de inventario recibidos por sync.

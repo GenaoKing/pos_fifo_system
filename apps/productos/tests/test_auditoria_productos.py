@@ -16,8 +16,10 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.configuracion.models import ConfiguracionNegocio
+from apps.negocios.models import Negocio
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto, productos_vendibles
+from apps.sucursales.models import Sucursal
 from apps.ventas.services import procesar_venta_service
 from apps.ventas.services.exceptions import ProductoInexistenteError
 
@@ -36,7 +38,15 @@ def _png_valido(color=(255, 0, 0)):
 class ProductosTestCase(TestCase):
     def setUp(self):
         cache.clear()
-        ConfiguracionNegocio.objects.create(nombre_negocio='Productos Test')
+        self.negocio = Negocio.objects.create(
+            nombre='Negocio Productos Test', slug='negocio-productos-test',
+        )
+        self.sucursal = Sucursal.objects.create(
+            negocio=self.negocio, codigo='SD-001', nombre='Sucursal Productos Test',
+        )
+        ConfiguracionNegocio.objects.create(
+            nombre_negocio='Productos Test', sucursal=self.sucursal,
+        )
         self.categoria = Categoria.objects.create(nombre='Herramientas', activa=True)
         self.producto = Producto.objects.create(
             sku='PRO-001', codigo_barras='PRO-001',
@@ -53,7 +63,12 @@ class ProductosTestCase(TestCase):
             username=username, email=f'{username}@test.local',
             password='Prueba123', rol=rol, activo=True,
         )
-        permisos_testing.habilitar_cajero(user, permisos=list(permisos))
+        permisos_testing.habilitar_cajero(
+            user,
+            negocio=self.negocio,
+            permisos=list(permisos),
+            sucursal=self.sucursal,
+        )
         return user
 
     def _post(self, user, nombre, args=None, cuerpo=None, **extra):

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Exists, OuterRef
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.contrib.postgres.indexes import GinIndex
@@ -123,8 +124,47 @@ def productos_vendibles(queryset=None):
     La baja administrativa tiene que ser una garantia del backend, no una
     convencion de la UI.
     """
+    from apps.sync.models import MutacionMaestro
+
     base = Producto.objects.all() if queryset is None else queryset
-    return base.filter(activo=True, categoria__activa=True)
+    conflictos_producto = MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.PRODUCTO,
+        entidad_id=OuterRef('pk'),
+        estado=MutacionMaestro.Estado.CONFLICTO,
+    )
+    conflictos_categoria = MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=OuterRef('categoria_id'),
+        estado=MutacionMaestro.Estado.CONFLICTO,
+    )
+    return (
+        base.filter(activo=True, categoria__activa=True)
+        .annotate(
+            _conflicto_maestro_producto=Exists(conflictos_producto),
+            _conflicto_maestro_categoria=Exists(conflictos_categoria),
+        )
+        .filter(
+            _conflicto_maestro_producto=False,
+            _conflicto_maestro_categoria=False,
+        )
+    )
+
+
+def tiene_conflicto_maestro(producto):
+    """Indica si una propuesta A05.2a bloquea una venta nueva de este producto."""
+    from apps.sync.models import MutacionMaestro
+
+    return MutacionMaestro.objects.filter(
+        estado=MutacionMaestro.Estado.CONFLICTO,
+    ).filter(
+        models.Q(
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=producto.pk,
+        ) | models.Q(
+            entidad=MutacionMaestro.Entidad.CATEGORIA,
+            entidad_id=producto.categoria_id,
+        )
+    ).exists()
 
 
 class ProductoQuerySet(models.QuerySet):
@@ -341,7 +381,12 @@ class Producto(models.Model):
     @property
     def es_vendible(self):
         """Misma regla que `productos_vendibles()`, por instancia."""
-        return bool(self.activo and self.categoria and self.categoria.activa)
+        return bool(
+            self.activo
+            and self.categoria
+            and self.categoria.activa
+            and not tiene_conflicto_maestro(self)
+        )
 
     def __str__(self):
         return f"{self.sku} - {self.nombre}"

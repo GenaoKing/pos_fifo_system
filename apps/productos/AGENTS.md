@@ -40,6 +40,13 @@ adopción y queda inmutable tras el alta. `origen_sucursal` conserva la
 procedencia de un stub BUG-H y nunca sustituye esa identidad. Backfill de
 imágenes: `python manage.py descargar_imagenes_productos`.
 
+Las escrituras locales del catálogo pasan por `services.py` (`crear_*_local`,
+`editar_*_local`, `cambiar_estado_*_local`): crean maestro, auditoría CT-01 y
+`MutacionMaestro` A05.2a dentro de una sola transacción. Esa cola no es
+`EventoSync`, no se empuja aún y requiere actor, sucursal y permiso CT-02.
+Solo un estado `CONFLICTO` bloquea la vendibilidad nueva; `PENDIENTE` sigue
+usable hasta que A05.3/A06 reciba y resuelva la propuesta.
+
 ## Trampas
 
 - Editar en el portal actualiza `fecha_modificacion` (`auto_now`) → eso es lo que

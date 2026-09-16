@@ -775,10 +775,12 @@ def _cargar_productos(items: list[dict]) -> dict[int, Producto]:
             f'El producto con id={primero} no existe.'
         )
 
-    motivo = (
-        'esta inactivo' if not producto.activo
-        else 'pertenece a una categoria inactiva'
-    )
+    if not producto.activo:
+        motivo = 'esta inactivo'
+    elif not producto.categoria.activa:
+        motivo = 'pertenece a una categoria inactiva'
+    else:
+        motivo = 'tiene un conflicto de maestro pendiente de resolver'
     raise ProductoInexistenteError(
         f'El producto "{producto.nombre}" {motivo} y no se puede vender.'
     )
