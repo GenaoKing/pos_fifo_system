@@ -599,3 +599,17 @@ class AccesoRapidoPOS(models.Model):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        # CFG-010 — `clean()` exige exactamente producto XOR categoria segun
+        # `tipo`, pero `save()` no lo invocaba: `objects.create(tipo='producto')`
+        # (sin producto), un `save()` directo o un import persistian una fila
+        # invalida que el POS despues no sabe resolver. Se valida aca para cerrar
+        # la via ORM/import, a nivel aplicacion — mismo criterio que CFG-006. El
+        # `CheckConstraint` de base queda para un preflight coordinado: una
+        # instalacion existente podria tener filas invalidas y el `migrate`
+        # fallaria. El ambito por sucursal (fuga entre sucursales) es un cambio
+        # de modelo con decision de negocio + backfill; queda fuera de esta
+        # entrega (ver handoff CFG-010).
+        self.full_clean()
+        super().save(*args, **kwargs)
