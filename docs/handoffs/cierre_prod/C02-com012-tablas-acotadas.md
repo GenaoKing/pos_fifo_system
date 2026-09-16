@@ -13,7 +13,9 @@ Fecha: **2026-09-16**. Agente: Claude (implementador de este residual).
   DB propia `pos_fifo_dev_c02_com012` (env gitignored), venv externo
   `.venvs/pos_cierre_claude_c03_20260910` (Django 5.2.17), sin tocar el conda
   compartido (que sigue en 5.0.8 y falla `check`).
-- **Resultado**: **NO publicado a `origin`; NO fusionado** a `develop`/
+- **Resultado**: commit `78bec9a` ("fix(common): acotar filas de standard_table
+  en memoria (COM-012)") en esa rama (más este ajuste de handoff en un segundo
+  commit). **NO publicado a `origin`; NO fusionado** a `develop`/
   `integration/*`/`staging`/`main` — igual criterio que el resto de los bloques
   C0x: cada entrega queda en su rama, la integración se decide en un checkpoint.
 
@@ -80,7 +82,7 @@ python manage.py test apps.common --settings=config.settings_development
 # Regresión de consumidores de standard_table
 python manage.py test apps.reportes apps.cotizaciones apps.cuentas_por_cobrar apps.ventas \
   --settings=config.settings_development
-# <resultado abajo>
+# exit 0 — 0 fallos/errores en las 4 suites (el runner sale != 0 ante cualquier fallo).
 
 python manage.py check --settings=config.settings_development
 # System check identified no issues (0 silenced).
