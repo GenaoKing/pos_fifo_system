@@ -1,6 +1,6 @@
 # Registro de contratos del cierre de producción
 
-Propietario: **A / Codex**. Última actualización: **2026-09-11**.
+Propietario: **A / Codex**. Última actualización: **2026-09-17**.
 
 Este archivo es la única fuente para nombres y semántica compartidos. Un
 contrato publicado no afirma que el backend ya lo implemente: la columna
@@ -14,7 +14,7 @@ las pruebas consumidoras.
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
 | CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
-| CT-04 maestros offline | por publicar | A05/A06 | C04/C05 | PENDIENTE | PENDIENTE | — |
+| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA** | Transporte `master.mutation.v1` implementado; listado/resolución reservados para A06 | `7e5535d` + A05.4 |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
@@ -353,11 +353,68 @@ errores, revisión y fixtures. Restricciones ya fijadas por A00/A01:
 - leer no crea configuración;
 - Codex integra `config/**`, routers/settings y `apps/sync`.
 
-## CT-04 — reserva para maestros offline
+## CT-04 — maestros offline (`master.offline.v1`)
 
-A05/A06 publicarán UUID estable, revisión/CAS, outbox local separado de hechos
-financieros, ACK/retry, conflicto y resolución. No se acepta last-write-wins,
-proxy online ni filtro de pull que omita inactivos.
+**Estado:** publicado por A05.4. El fixture canónico es
+`docs/handoffs/cierre_prod/fixtures/ct04_master_offline_v1.json`; la prueba de
+deriva es `apps.sync.tests.test_ct04_contrato`. C04/C05 consumen el fixture y
+estos nombres, no inventan otro endpoint, estado ni permiso. El contrato tiene
+tres superficies que conviene no confundir:
+
+| Superficie | Schema | Estado | Productor |
+| --- | --- | --- | --- |
+| Propuesta POS → cloud y ACK | `master.mutation.v1` | **IMPLEMENTADA** | A05.3, `POST /api/v1/sync/mutaciones-maestro/` |
+| Listado portal de decisiones negativas | `master.conflict-list.v1` / `master.conflict.v1` | **RESERVADA_A06** | A06 |
+| Decisión humana | `master.conflict-resolution.v1` | **RESERVADA_A06** | A06 |
+
+### Transporte implementado
+
+- El envelope de solicitud y la respuesta 200 llevan
+  `schema_version: "master.mutation.v1"`. El token prueba la sucursal; el cloud
+  vuelve a resolver actor activo, ámbito, permiso CT-02 vigente y revisión CAS.
+- Cada propuesta conserva UUID, entidad/ID local, operación, delta
+  `{before, after}`, actor, identidad cloud, revisión base y, si corresponde,
+  la identidad cloud de categoría. No comparte cola, ACK ni semántica con
+  `EventoSync` financiero.
+- `CONFIRMADA`, `DUPLICADA`, `CONFLICTO` y `RECHAZADA` son terminales. `ERROR`
+  es técnico y reintentable con el mismo UUID. Reutilizar un UUID con contenido
+  diferente es `MASTER_MUTATION_ID_CONFLICT`, nunca un ACK exitoso.
+- `PENDIENTE` y `ENVIANDO` no bloquean una venta nueva. Solo `CONFLICTO`
+  bloquea el producto afectado y los productos de su categoría, sin borrar
+  historia. `RECHAZADA` se conserva/audita y no se reintenta automáticamente;
+  A05 no le inventa un bloqueo comercial que el código no aplica.
+
+### Listado que A06 debe implementar
+
+La futura ruta portal es `GET /api/v1/maestros/conflictos/` y responde
+`master.conflict-list.v1`. A05.4 fija la forma antes de que C04 escriba contra
+ella: `items`, `next_cursor` opaco, máximo 100 elementos y filtros opcionales
+por `estado` (`CONFLICTO`/`RECHAZADA`), `entidad` y `sucursal_codigo`. Cada fila
+incluye UUID, estado/código/detalle, entidad con IDs local/cloud y snapshot
+visible, sucursal origen, actor snapshot, operación, ambas revisiones, delta,
+timestamps, `bloquea_nuevas_ventas` y acciones permitidas.
+
+El servidor A06 debe filtrar cada fila por el permiso de lectura de su entidad
+en la sucursal origen: `productos.ver` o `categorias.ver`. No se usa el ID de
+una sucursal o un texto de actor como autorización. C04 puede usar el fixture
+para maquetar; no puede afirmar integración backend hasta que A06 produzca esta
+ruta y se repitan las pruebas consumidoras.
+
+### Decisiones reservadas para A06
+
+La futura ruta es
+`POST /api/v1/maestros/conflictos/{mutacion_id}/resolver/`, con
+`master.conflict-resolution.v1`. Requiere `accion` (`CONSERVAR_CLOUD` o
+`APLICAR_LOCAL`), `motivo` no vacío de hasta 500 caracteres y
+`cloud_revision_observada` como precondición CAS. Ambas acciones exigen el
+permiso de edición de la entidad en la sucursal origen:
+`productos.editar` o `categorias.editar`.
+
+`CONSERVAR_CLOUD` conserva el valor autoritativo y registra la decisión;
+`APLICAR_LOCAL` vuelve a intentar contra la revisión observada. Si cambió otra
+vez, A06 debe producir un nuevo conflicto: no se permite last-write-wins,
+proxy online, escritura silenciosa ni resolver por texto. A05.4 **no** crea
+estas rutas ni muta una propuesta: eso pertenece a A06.
 
 ## CT-05 — reserva para artefacto y actualización
 

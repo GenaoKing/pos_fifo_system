@@ -918,22 +918,38 @@ class SyncEngine:
             )
             metricas['fallidas'] = 1
             return metricas
+        ack_error = ''
         try:
             data = respuesta.json()
-            detalle = data.get('detalle') if isinstance(data, dict) else None
-            item = next(
-                (
-                    fila for fila in (detalle or [])
-                    if isinstance(fila, dict)
-                    and str(fila.get('mutacion_id')) == str(mutacion.mutacion_id)
-                ),
-                None,
-            )
-        except (ValueError, AttributeError):
+            if not isinstance(data, dict) or (
+                data.get('schema_version') != 'master.mutation.v1'
+            ):
+                ack_error = (
+                    'ACK de maestro incompatible: se esperaba '
+                    'schema_version master.mutation.v1.'
+                )
+                item = None
+            else:
+                detalle = data.get('detalle')
+                if not isinstance(detalle, list):
+                    ack_error = 'ACK de maestro inválido: detalle debe ser una lista.'
+                    item = None
+                else:
+                    item = next(
+                        (
+                            fila for fila in detalle
+                            if isinstance(fila, dict)
+                            and str(fila.get('mutacion_id')) == str(mutacion.mutacion_id)
+                        ),
+                        None,
+                    )
+        except (TypeError, ValueError, AttributeError):
+            ack_error = 'ACK de maestro inválido: no se pudo leer JSON.'
             item = None
         if item is None:
             mutacion.marcar_reintento(
-                'El cloud no incluyó la mutación en el ACK.', envio_id=envio_id,
+                ack_error or 'El cloud no incluyó la mutación en el ACK.',
+                envio_id=envio_id,
             )
             metricas['fallidas'] = 1
             return metricas

@@ -37,6 +37,11 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
+> **Actualización A05.4 (2026-09-17).** CT-04 ya publica el schema y fixture
+> de estados pendiente/conflicto. C04 puede maquetar contra esa fuente
+> canónica; las superficies backend reales y los selectores siguen para A06+C04
+> y no están integrados ni autorizados para publicar.
+
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
 CXC-MIG-ALIAS, CXC-IDEMP-CONC, INV-RBAC-SCOPE, PAG-CXC-CAJA y RPT-005;

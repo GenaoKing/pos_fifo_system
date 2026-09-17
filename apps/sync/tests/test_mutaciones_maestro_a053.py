@@ -82,6 +82,7 @@ class PushMutacionesMaestroA053Tests(TestCase):
     @staticmethod
     def _ack(mutacion, *, estado='CONFIRMADA', cloud_id=91, revision=REVISION_2):
         return _Respuesta({
+            'schema_version': 'master.mutation.v1',
             'detalle': [{
                 'mutacion_id': str(mutacion.mutacion_id),
                 'estado': estado,
@@ -208,6 +209,7 @@ class PushMutacionesMaestroA053Tests(TestCase):
     def test_conflicto_cloud_es_terminal_y_bloquea_propuesta_sin_reintento(self, post):
         mutacion = self._editar_producto()
         post.return_value = _Respuesta({
+            'schema_version': 'master.mutation.v1',
             'detalle': [{
                 'mutacion_id': str(mutacion.mutacion_id),
                 'estado': 'CONFLICTO',
@@ -225,3 +227,24 @@ class PushMutacionesMaestroA053Tests(TestCase):
         self.assertEqual(mutacion.estado, MutacionMaestro.Estado.CONFLICTO)
         self.assertEqual(mutacion.codigo_resultado, 'MASTER_REVISION_CONFLICT')
         self.assertEqual(mutacion.intentos, 0)
+
+    @mock.patch('apps.sync.engine.requests.post')
+    def test_ack_sin_schema_version_no_se_interpreta_como_confirmacion(self, post):
+        mutacion = self._editar_producto()
+        post.return_value = _Respuesta({
+            # Un cloud anterior o un proxy no puede hacerse pasar por CT-04
+            # solo porque conserva una lista ``detalle`` parecida.
+            'detalle': [{
+                'mutacion_id': str(mutacion.mutacion_id),
+                'estado': 'CONFIRMADA',
+                'cloud_entidad_id': 91,
+                'cloud_revision': REVISION_2,
+            }],
+        })
+
+        resultado = self.engine.push_mutaciones_maestro()
+
+        mutacion.refresh_from_db()
+        self.assertEqual(resultado['fallidas'], 1)
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.PENDIENTE)
+        self.assertIn('schema_version master.mutation.v1', mutacion.ultimo_error)

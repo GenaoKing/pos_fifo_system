@@ -61,6 +61,8 @@ tiene modelos propios (`models.py` vacío).
   la sucursal y el receptor vuelve a resolver al actor, CT-02 y la revisión CAS
   en cloud. Un UUID exacto responde el resultado durable sin duplicar; un UUID
   con contenido distinto, una revisión vieja o una colisión no se tratan como
-  ACK exitoso. CT-04/A06 aún define la UI y resolución humana.
+  ACK exitoso. Su respuesta 200 declara `master.mutation.v1`; CT-04 publica el
+  fixture de listado/acciones y A06 conserva la implementación de UI/API de
+  resolución humana.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

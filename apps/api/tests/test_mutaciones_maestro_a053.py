@@ -83,6 +83,7 @@ class RecepcionMutacionesMaestroA053Tests(
         primera = self._enviar(propuesta)
 
         self.assertEqual(primera.status_code, 200)
+        self.assertEqual(primera.data['schema_version'], 'master.mutation.v1')
         detalle = primera.data['detalle'][0]
         self.assertEqual(detalle['estado'], 'CONFIRMADA')
         self.assertIn('cloud_entidad_id', detalle)
@@ -101,6 +102,7 @@ class RecepcionMutacionesMaestroA053Tests(
         replay = self._enviar(propuesta)
 
         self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.data['schema_version'], 'master.mutation.v1')
         self.assertEqual(replay.data['detalle'][0]['estado'], 'DUPLICADA')
         self.assertEqual(Producto.objects.filter(sku='A053-SKU').count(), 1)
         self.assertEqual(MutacionMaestro.objects.count(), 1)

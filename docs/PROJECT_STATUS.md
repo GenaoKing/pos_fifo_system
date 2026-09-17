@@ -1,8 +1,9 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-11** (A04 y C05 partes 1-2 integrados localmente;
-código de parte 2 revisado en `18e0898`; sin push, despliegue ni lectura o
-escritura de datos operativos).
+Ultima revision: **2026-09-17** (`develop@fffd02b` permanece intacto; el
+candidato local `integration/cierre-prod-A05-C03@695b36c` integra A05.1-A05.3
+y C02/C03 residuales, y CT-04 fue publicado en la rama aislada A05.4). Sin
+push, despliegue ni lectura o escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -44,9 +45,10 @@ propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
-A00-A04, C01-C03 y C05 partes 1-2. C05 parte 2 cerró su revisión cruzada en
-`18e0898`; G1-G4 siguen pendientes porque faltan A05-A08, CT-04, C04, los
-selectores comerciales dependientes de CT-04 y C06**.
+A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado `695b36c` suma
+A05.1-A05.3. CT-04 está publicado en A05.4, con listado/resolución reservados
+para A06. G1-G4 siguen pendientes: C04, A06-A08, selectores comerciales reales
+y C06 no están aprobados ni publicados**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
@@ -66,7 +68,7 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | CT-02 y consumidores C05 integrados/validados localmente; producción aún legacy | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | PER-013 ya cubre anulación/reimpresión por sucursal; migración 0011 y retiro del bypass ADMIN requieren preflight verde por tenant. |
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
-| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; SUS-007–010 y los selectores C05 bloqueados por CT-04 continúan. |
+| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; CT-04 habilita fixture contractual, pero SUS-007–010 y selectores C05 reales siguen en A06/C04. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
 | Testing | Integración A04+C05 partes 1-2 validada localmente | `TESTING.md` | 95 focales C05 parte 2 y 72 e-CF; el discovery completo no mostró fallos Django y confirmó que e-CF debe separarse a pytest. Linux/artefacto se repite en A09. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 parte 2 acredita constraints, cotizaciones, alias/idempotencia CxC, scope inventario, paginación y cierre manual; CT-04/C04 y deuda residual siguen abiertos. |
