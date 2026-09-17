@@ -150,7 +150,9 @@ class MutacionesMaestroA052aTests(TestCase):
         creado = self._crear_producto(actor)
         producto = creado.entidad
         sku = producto.sku
-        revision_base = producto.fecha_modificacion.isoformat()
+        # A05.3 compara la revisión autoritativa del cloud, no el ``auto_now``
+        # de esta copia local. Una creación todavía no confirmada la deja vacía.
+        revision_base = producto.revision_cloud
 
         resultado = editar_producto_local(
             actor=actor,

@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-16 -->
+<!-- Última revisión: 2026-09-17 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -20,6 +20,7 @@ tiene modelos propios (`models.py` vacío).
 | Ver todas las rutas | `apps/api/urls.py` (`router_v1` + `auth_urls.py`, `sucursales_urls.py`, `views/sync_urls.py`, `views/reportes_urls.py`) |
 | Datos maestros (productos/categorías/clientes) | `views/maestros.py` → `ProductoViewSet` (**patrón canónico**), `CategoriaViewSet`, `ClienteViewSet`; mixins `SyncIncrementalMixin` (`?desde=`), `ReadAfterWriteMixin`, `MaestroPermisoMixin` |
 | **Recibir eventos de una sucursal** | `views/sync.py` → `recibir_eventos` + `_handler_<tipo>` por tipo de evento |
+| **Recibir propuestas offline de maestros** | `views/sync.py` → `recibir_mutaciones_maestro`; dominio CAS/RBAC en `apps/sync/master_mutations.py` |
 | Reconciliar ACK históricos BUG-K (read-only) | `views/sync.py` → `reconciliar_eventos` (`sync.reconciliation.v1`) |
 | Endpoints de *pull* para la sucursal (roles, asignaciones, métodos de crédito, configuración, resumen) | `views/sync.py` → `*_para_sucursal`; `sync_status`, `heartbeat` |
 | Login/refresh/impersonación del portal (JWT tenant-aware) | `auth_views.py` → `PortalTokenObtainPairView`, `TenantTokenRefreshView`, `impersonar_tenant`, `logout`, `perfil_actual` |
@@ -56,5 +57,10 @@ tiene modelos propios (`models.py` vacío).
   local responden `403`, para no saltar maestro + auditoría CT-01 +
   `MutacionMaestro`. El flag de compatibilidad de sus tests exige además una
   base `test_*`; no habilita ninguna instalación productiva local.
+- `POST /api/v1/sync/mutaciones-maestro/` no es `EventoSync`: el token prueba
+  la sucursal y el receptor vuelve a resolver al actor, CT-02 y la revisión CAS
+  en cloud. Un UUID exacto responde el resultado durable sin duplicar; un UUID
+  con contenido distinto, una revisión vieja o una colisión no se tratan como
+  ACK exitoso. CT-04/A06 aún define la UI y resolución humana.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

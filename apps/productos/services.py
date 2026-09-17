@@ -67,8 +67,15 @@ def _uuid_mutacion(valor) -> uuid.UUID:
         ) from exc
 
 
-def _revision(valor) -> str:
-    return valor.isoformat() if valor is not None else ''
+def _revision(entidad) -> str:
+    """Revisión CAS que recibió del cloud, no el ``auto_now`` local.
+
+    Una copia local cambia ``fecha_modificacion`` tanto cuando el operador la
+    edita como cuando aplica un pull. Usarla como precondición remota haría que
+    toda propuesta posterior al primer pull pareciera escrita sobre una versión
+    que el cloud nunca tuvo.
+    """
+    return str(getattr(entidad, 'revision_cloud', '') or '')
 
 
 def _snapshot_producto(producto: Producto) -> dict:
@@ -86,7 +93,7 @@ def _snapshot_producto(producto: Producto) -> dict:
         'estado': producto.estado,
         'marca': producto.marca,
         'origen_cloud_id': producto.origen_cloud_id,
-        'revision': _revision(producto.fecha_modificacion),
+        'revision': _revision(producto),
     }
 
 
@@ -99,7 +106,7 @@ def _snapshot_categoria(categoria: Categoria) -> dict:
         'tipo_negocio': categoria.tipo_negocio,
         'atributos_configurados': categoria.atributos_configurados or {},
         'origen_cloud_id': categoria.origen_cloud_id,
-        'revision': _revision(categoria.fecha_modificacion),
+        'revision': _revision(categoria),
     }
 
 

@@ -68,6 +68,17 @@ class Categoria(models.Model):
         verbose_name='ID en cloud',
         help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
     )
+    # Versión autoritativa recibida del cloud. ``fecha_modificacion`` es el
+    # timestamp de ESTA copia local y cambia cada vez que el pull la guarda;
+    # por eso no puede usarse como precondición CAS al volver a proponer una
+    # mutación offline.
+    revision_cloud = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        editable=False,
+        help_text='Revision ISO autoritativa del cloud para CAS de maestros.',
+    )
 
     class Meta:
         verbose_name = 'Categoría'
@@ -219,6 +230,15 @@ class Producto(models.Model):
         editable=False,
         verbose_name='ID en cloud',
         help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
+    )
+    # Ver comentario equivalente en ``Categoria.revision_cloud``. La revisión
+    # del cloud se conserva aparte del ``auto_now`` de la réplica local.
+    revision_cloud = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        editable=False,
+        help_text='Revision ISO autoritativa del cloud para CAS de maestros.',
     )
     codigo_barras = models.CharField(
         'Código de barras',

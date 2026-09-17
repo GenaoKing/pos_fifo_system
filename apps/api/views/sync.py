@@ -47,7 +47,11 @@ from rest_framework.response import Response
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
 from apps.tenancy.context import get_current_tenant_alias, get_current_tenant_key
 from ..permissions import EsSucursalAutenticada
-from ..serializers.sync import EventoBatchSerializer, SondaEventoBatchSerializer
+from ..serializers.sync import (
+    EventoBatchSerializer,
+    MutacionMaestroBatchSerializer,
+    SondaEventoBatchSerializer,
+)
 
 logger = logging.getLogger('pos_system')
 
@@ -255,6 +259,76 @@ def recibir_eventos(request):
         'duplicados': duplicados,
         'errores': errores,
         'detalle': resultados,
+        'timestamp': timezone.now(),
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# POST /api/v1/sync/mutaciones-maestro/
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def recibir_mutaciones_maestro(request):
+    """Recibe propuestas offline de catálogo, fuera de ``EventoSync``.
+
+    El token prueba la sucursal. Cada propuesta además nombra al actor local,
+    que el receptor resuelve en la base cloud y autoriza nuevamente contra el
+    RBAC vigente antes de hacer CAS. Un conflicto o rechazo es un resultado
+    durable por propuesta; una caída técnica queda ``ERROR`` para reintento.
+    """
+    serializer = MutacionMaestroBatchSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Datos inválidos', 'detalle': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    database_alias = _database_alias()
+    detalle = []
+    confirmadas = duplicadas = conflictos = rechazadas = errores = 0
+
+    from apps.sync.master_mutations import recibir_mutacion_maestro
+
+    for propuesta in serializer.validated_data['mutaciones']:
+        try:
+            resultado = recibir_mutacion_maestro(
+                propuesta=propuesta,
+                sucursal=sucursal,
+                using=database_alias,
+            )
+            item = resultado.serializar(propuesta['mutacion_id'])
+            detalle.append(item)
+            if resultado.estado == 'CONFIRMADA':
+                confirmadas += 1
+            elif resultado.estado == 'DUPLICADA':
+                duplicadas += 1
+            elif resultado.estado == 'CONFLICTO':
+                conflictos += 1
+            else:
+                rechazadas += 1
+        except Exception as exc:
+            logger.exception(
+                '[SYNC] Error recibiendo mutación maestra %s: %s',
+                propuesta['mutacion_id'], type(exc).__name__,
+            )
+            errores += 1
+            detalle.append({
+                'mutacion_id': str(propuesta['mutacion_id']),
+                'estado': 'ERROR',
+                'codigo': 'MASTER_RECEIVER_ERROR',
+                'error': 'No se pudo procesar la propuesta; se puede reintentar.',
+            })
+
+    return Response({
+        'confirmadas': confirmadas,
+        'duplicadas': duplicadas,
+        'conflictos': conflictos,
+        'rechazadas': rechazadas,
+        'errores': errores,
+        'detalle': detalle,
         'timestamp': timezone.now(),
     }, status=status.HTTP_200_OK)
 

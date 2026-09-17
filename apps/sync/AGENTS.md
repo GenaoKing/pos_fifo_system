@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 -->
+<!-- Última revisión: 2026-09-17 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -35,9 +35,10 @@ mezclarlos:
 - `EventoSync` — outbox local; `event_id`/hash scopeados por sucursal, estado,
   payload y lease durable `EN_VUELO`.
 - `DiferidoSync` — cola durable de elementos de pull que todavía no aplican.
-- `MutacionMaestro` — cola A05.2a de Producto/Categoría local, con UUID/CAS,
-  actor, sucursal, delta, auditoría CT-01 y conflicto. Es independiente de
-  `EventoSync`; A05.2a no agrega receptor ni la envía.
+- `MutacionMaestro` — cola/ledger A05 de Producto/Categoría con UUID, actor,
+  sucursal, delta, CAS y auditoría CT-01. Es independiente de `EventoSync`.
+  A05.3 la reclama con lease, la envía de a una al receptor cloud, persiste la
+  identidad/revisión resultante y conserva conflictos/rechazos para A06.
 - `VersionMaestro` — cursor/versión por tabla maestra (soporte del pull keyset).
 - `InventarioMovimientoSync`, `InventarioSucursalSnapshot` — replicación de stock.
 - `LogSync` — bitácora de ciclos.
@@ -52,7 +53,10 @@ mezclarlos:
   hecho ocurre, el evento existe. No tragarse errores de inserción.
 - Una mutación local de Producto/Categoría usa su propia transacción de
   maestro + `audit.event.v1` + `MutacionMaestro`; nunca se convierte en un
-  hecho financiero ni comparte la cola/ACK de `EventoSync`. Un `CONFLICTO`
+  hecho financiero ni comparte cola/ACK con `EventoSync`. A05.3 reclama una
+  sola propuesta por entidad, ordena Categoría antes de Producto, reintenta un
+  ACK incierto con el mismo UUID y no adelanta una propuesta posterior a una
+  decisión negativa. El receptor reevalúa actor/RBAC y CAS; un `CONFLICTO`
   persistido bloquea uso comercial nuevo, pero una propuesta `PENDIENTE` no.
 - El push reclama con `select_for_update(skip_locked=True)` y persiste un lease
   antes del HTTP. Un proceso solo puede confirmar/fallar el lease que posee;
@@ -73,6 +77,8 @@ mezclarlos:
   por Producto sigue la misma regla: ID primero; nombre exacto solo para adoptar.
 - El SKU de Producto es inmutable. `origen_sucursal` y `pendiente_revision`
   conservan el patrón de stub BUG-H y no forman parte de la identidad cloud.
+- `revision_cloud` guarda la marca ISO emitida por cloud al hacer pull o recibir
+  el ACK A05.3. Nunca comparar el CAS contra `fecha_modificacion` local.
 - El primer pull de `ConfiguracionNegocio` es el bootstrap explícito del POS:
   puede crear solo la fila local de su sucursal y los replays no duplican. El
   endpoint cloud sigue siendo lectura pura: si no hay fila, devuelve una lista
