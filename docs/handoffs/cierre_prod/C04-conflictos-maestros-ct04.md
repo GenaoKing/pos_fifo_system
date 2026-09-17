@@ -4,6 +4,22 @@ Estado: **Pantalla lista, maquetada contra el fixture de CT-04. Sin backend
 real** — A06 no publicó `GET/POST /api/v1/maestros/conflictos/` todavía.
 Fecha: **2026-09-17**. Agente: Claude.
 
+> **Corrección 2026-09-17 (posterior a la integración
+> `integration/cierre-prod-A05-C03@609c98f`):** la revisión de Codex
+> (`docs/handoffs/cierre_prod/INTEGRACION-A05-4-C04-CT04.md`, repo/worktree
+> `pos_fifo_system_cierre_codex`) encontró dos incumplimientos de CT-04 en
+> `src/lib/maestrosConflictos.ts` sobre el commit `d4b3b5d`: (1) el POST de
+> resolución no mandaba `schema_version: "master.conflict-resolution.v1"`; (2)
+> las respuestas se tipaban pero no se validaban en runtime, así que un
+> schema desconocido se habría aceptado igual. Corregido en
+> `claude/cierre-prod-C04@928964c`: el POST ahora estampa esa versión, y
+> `fetchConflictosMaestros`/`resolverConflictoMaestro` rechazan con
+> `SchemaVersionError` cualquier `schema_version` que no coincida
+> (envelope `master.conflict-list.v1`, ítem `master.conflict.v1`). 3 pruebas
+> negativas nuevas; `tsc -b`/`eslint`/`vitest` en verde (104/104). El resto de
+> este documento describe la entrega original; queda vigente salvo por estos
+> dos puntos.
+
 ## SHA base / resultado
 
 - Backend consumido: CT-04 publicado por Codex en
