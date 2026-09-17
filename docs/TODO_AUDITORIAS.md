@@ -251,8 +251,9 @@ permanece el gate operacional de ADMIN documentado arriba.
 **Pendientes de `apps/common`** — solo queda **COM-013** (los builds no fijan
 ReportLab/Pillow aunque existan snapshots exactos que el Dockerfile no usa; es
 A+C, la parte de deps es de Codex). **COM-012** (tablas materializaban todos los
-registros) quedó **cerrado en rama `claude/cierre-prod-C02-com012` (`78bec9a`),
-sin integrar**: `standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS`.
+registros) quedó **integrado y revalidado localmente** en
+`integration/cierre-prod-A05-C03` el 2026-09-17 (origen `78bec9a`):
+`standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS`.
 El resto de la ronda de renderizado quedó **cerrado en `develop` por
 C02** (`d937db5`, con tests en `apps/common/tests`, revalidado 2026-09-16):
 COM-005 (valida la forma de la tabla y rechaza geometría inválida), COM-006
@@ -277,8 +278,9 @@ SUS-010/012/018 (`d968e3f`, fail-closed en la baja, reconciliación ruidosa
 código↔DB y default-deny de key desconocida), SUS-011 (`506edf2`, invalidación
 diferida a `on_commit`), SUS-013 (`6e3d551`, semántica real de `Plan.activo`),
 SUS-015 (`7201043`, auditoría CT-01), SUS-017 (`3018ce8`, presets versionados).
-**SUS-019** (fronteras del guard de degradación por plan/`activa`) quedó cerrado
-en rama `claude/cierre-prod-SUS019-coverage` (`0548384`), sin integrar. Quedan
+**SUS-019** (fronteras del guard de degradación por plan/`activa`) quedó
+integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el
+2026-09-17 (origen `0548384`). Quedan
 abiertos: **SUS-007** (mitad UI hecha, falta migrar el pull de sync a derivar del
 engine — es de Codex), **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
 reporte de sync parcial de Codex) y **SUS-014** (divergencia plan control-plane
@@ -290,13 +292,13 @@ vs operativo, cross-DB — conviene coordinar).
 `modulos_efectivos()` en vez de `config.modulo_*`), CFG-011 (`38e5647`, el
 borrado por instancia y por `QuerySet` levanta `ConfiguracionProtegidaError`),
 CFG-013/014/015 (`fe5c8de`, diagnóstico fiel + comando sin objetivo ambiguo),
-CFG-017 (`7201043`, auditoría CT-01 transaccional). Cerrados 2026-09-16 **en
-ramas sin integrar**: **CFG-010** (ámbito por sucursal + integridad de fila; rama
-`claude/cierre-prod-C03-cfg010` `0db8f57`; preflight: backfill legacy +
-CheckConstraint), **CFG-018** (borrar logo anterior al reemplazar), **CFG-019**
-(retirar decoradores sin uso) y **CFG-020** (validar formato del código de
-barras del lado config) — los tres en `claude/cierre-prod-C03-menores`
-(`1a7b767`). **CFG-021** verificado como ya cubierto por los tests de C03. Quedan
+CFG-017 (`7201043`, auditoría CT-01 transaccional). Integrados y revalidados
+localmente el 2026-09-17: **CFG-010** (ámbito por sucursal + integridad de fila;
+origen `0db8f57`; preflight: backfill legacy + CheckConstraint), **CFG-018**
+(borrar logo anterior al reemplazar), **CFG-019** (retirar decoradores sin uso)
+y **CFG-020** (validar formato del código de barras del lado config) — los tres
+con origen `1a7b767`. **CFG-021** verificado como ya cubierto por los tests de
+C03. Quedan
 abiertos: **CFG-012** (leer configuración aún puede crearla — el fix vive solo en
 `integration/cierre-prod-A05-C03`, no en `develop`), CFG-007 (el pull omite
 validadores; C+A) y CFG-008 (controles e-CF sin unidad, diferida). CFG-016

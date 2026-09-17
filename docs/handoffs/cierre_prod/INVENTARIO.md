@@ -41,12 +41,13 @@ y el resto sin código todavía. No hubo cambios de código ni de rama en esta p
 Trabajo self-contained de la sesión **2026-09-16** (Claude): cinco ramas sobre
 `develop`, **sin push ni merge**, listas para el checkpoint que integra sobre
 `integration/cierre-prod-A05-C03`. Estado consolidado y orden de integración en
-**[ESTADO_SESION_2026-09-16.md](ESTADO_SESION_2026-09-16.md)**. Sus ítems ya
-figuran `ACREDITADO` en las filas de abajo con la nota "rama …, sin integrar":
-COM-012 (`78bec9a`), CFG-010 patas 1+2 (`0db8f57`), CFG-018/019/020 (`1a7b767`),
-SUS-019 (`0548384`), CFG-021 (cubierto). Además Codex integró
-`REPORTES-CHART-CDN` (Chart.js offline) en `integration/cierre-prod-A05-C03`
-(`1009ba3`).
+**[ESTADO_SESION_2026-09-16.md](ESTADO_SESION_2026-09-16.md)** conserva la
+fotografía previa a la integración. El 2026-09-17 el checkpoint
+`integration/cierre-prod-A05-C03` integró y revalidó COM-012 (`78bec9a`),
+CFG-010 patas 1+2 (`0db8f57`), CFG-018/019/020 (`1a7b767`) y SUS-019
+(`0548384`), junto con A05.3. El candidato sigue local: no es `develop`, no fue
+publicado ni desplegado. `REPORTES-CHART-CDN` (Chart.js offline, `1009ba3`)
+continúa parte del mismo checkpoint.
 
 ## Base, ramas, worktrees y aislamiento
 
@@ -224,14 +225,14 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | COM-007 | TODO + AUD-COM | Logo corrupto rompe documento. | C | C02 | P2 | ACREDITADO | `d937db5` | `_logo_es_valido` degrada logo corrupto con warning; test en `apps/common/tests`. |
 | COM-008 | TODO + AUD-COM | Fallo storage se oculta y quita logo. | C | C02 | P2 | ACREDITADO | `d937db5` | Fallo de storage se registra distinto de "no hay logo"; test en `apps/common/tests`. |
 | COM-009 | TODO + AUD-COM | Logo remoto ilimitado agota memoria. | C | C02 | P2 urgente | ACREDITADO | `d937db5` | `_leer_acotado` lee por chunks con tope `LOGO_MAX_BYTES` + pre-check de `size`; test en `apps/common/tests`. |
-| COM-012 | TODO + AUD-COM | Tabla materializa todos los registros. | C | C02 | P2 | ACREDITADO | `78bec9a` | `standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS=5000` con fila de aviso; test. **Rama `claude/cierre-prod-C02-com012`, sin integrar.** |
+| COM-012 | TODO + AUD-COM | Tabla materializa todos los registros. | C | C02 | P2 | ACREDITADO | `78bec9a` | `standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS=5000` con fila de aviso; test. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** |
 | COM-013 | TODO + AUD-COM | ReportLab/Pillow no fijados en build. | A+C | A01/C02 | P2 | PENDIENTE | — | Locks Windows/cloud. |
 | COM-014 | TODO + AUD-COM | Logo se deforma a cuadrado fijo. | C | C02 | P3 | ACREDITADO | `d937db5` | `_logo_flowable` escala manteniendo proporción dentro de la caja; test en `apps/common/tests`. |
 | CFG-006 | TODO + AUD-CFG | Combinaciones operativas/fiscales inseguras. | C | C03 | Alta | ACREDITADO | `38e5647` | `full_clean()` rechaza combinaciones inseguras; test `test_auditoria_configuracion`. |
 | CFG-007 | TODO + AUD-CFG | Pull omite validadores/choices. | C+A | C03/A sync hook | Alta | PENDIENTE | — | Payload inválido no aplica. |
 | CFG-008 | TODO + AUD-CFG | Controles e-CF no forman unidad. | C | C03 | Alta diferida | PENDIENTE | — | Matriz MSeller; nativo no activo. |
 | CFG-009 | TODO + AUD-CFG | Templates/gates leen dos verdades. | C | C03 | Media-alta | ACREDITADO | `b19c4a5` | UI/menús leen `modulos_efectivos()`, no `config.modulo_*`; test de configuración. Nota: la mitad de SUS-007 (sync) sigue en Codex. |
-| CFG-010 | TODO + AUD-CFG | Acceso rápido sin scope/invariantes DB. | C | C03 | Media-alta | ACREDITADO | `0db8f57` | Pata 1: `save()` valida (full_clean). Pata 2: FK `sucursal` (mig. 0011, null=legacy) + consumidor filtra por sucursal. **Rama `claude/cierre-prod-C03-cfg010`, sin integrar.** Preflight: backfill legacy + CheckConstraint. |
+| CFG-010 | TODO + AUD-CFG | Acceso rápido sin scope/invariantes DB. | C | C03 | Media-alta | ACREDITADO | `0db8f57` | Pata 1: `save()` valida (full_clean). Pata 2: FK `sucursal` (mig. 0011, null=legacy) + consumidor filtra por sucursal. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** Preflight: backfill legacy + CheckConstraint. |
 | CFG-011 | TODO + AUD-CFG | `QuerySet.delete()` salta protección. | C | C03 | Media-alta | ACREDITADO | `38e5647` | `delete()` de instancia y de QuerySet levantan `ConfiguracionProtegidaError`; test de configuración. |
 | CFG-012 | TODO + AUD-CFG | Leer configuración puede crearla. | C | C03 | Media | PENDIENTE | — | Lectura sin escritura. **Resuelto en `integration/cierre-prod-A05-C03` (parte 2), NO en `develop`: `models.py` aún hace `get_or_create` en la lectura.** |
 | CFG-013 | TODO + AUD-CFG | Verificador acepta legacy con módulos apagados. | C | C03 | Media-alta | ACREDITADO | `fe5c8de` | `verificar_instalacion` sale distinto de cero ante config incompleta. |
@@ -239,9 +240,9 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | CFG-015 | TODO + AUD-CFG | `crear_config_inicial` sin sucursal pisa primera. | C | C03/C01 | Media-alta | ACREDITADO | `fe5c8de` | `crear_config_inicial` sin sucursal ya no pisa la primera fila. |
 | CFG-016 | TODO + AUD-CFG | Conversión BAT→env no garantiza round-trip/ACL. | C | C01 | Media-alta | PENDIENTE | — | Matriz caracteres/idempotencia. |
 | CFG-017 | TODO + AUD-CFG | Cambios de config sin auditoría uniforme. | C | C03 | Media-alta | ACREDITADO | `7201043` | Admin registra evento CT-01 en la misma transacción; test de configuración. |
-| CFG-018 | TODO + AUD-CFG | Logo sin lifecycle/propagación. | C | C02/C03 | Media-baja | ACREDITADO | `1a7b767` | `save()` borra el logo anterior al reemplazar; test. Propagación/authoritativeness siguen abiertas. **Rama `claude/cierre-prod-C03-menores`, sin integrar.** |
-| CFG-019 | TODO + AUD-CFG | Superficies declaradas sin flujo soportado. | C | C03 | Baja-media | ACREDITADO | `1a7b767` | Retirados `requiere_sysadmin`/`requiere_admin_o_sysadmin` (sin uso) + AGENTS.md. **Rama `claude/cierre-prod-C03-menores`.** |
-| CFG-020 | TODO + AUD-CFG | Formato barcode promete más que generador. | C | C02/C03 | Baja-media | ACREDITADO | `1a7b767` | `clean()` valida `[A-Z0-9]{1,13}-XXXXXX`; test. Lado generador (productos) sigue en A. **Rama `…C03-menores`.** |
+| CFG-018 | TODO + AUD-CFG | Logo sin lifecycle/propagación. | C | C02/C03 | Media-baja | ACREDITADO | `1a7b767` | `save()` borra el logo anterior al reemplazar; test. Propagación/authoritativeness siguen abiertas. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** |
+| CFG-019 | TODO + AUD-CFG | Superficies declaradas sin flujo soportado. | C | C03 | Baja-media | ACREDITADO | `1a7b767` | Retirados `requiere_sysadmin`/`requiere_admin_o_sysadmin` (sin uso) + AGENTS.md. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** |
+| CFG-020 | TODO + AUD-CFG | Formato barcode promete más que generador. | C | C02/C03 | Baja-media | ACREDITADO | `1a7b767` | `clean()` valida `[A-Z0-9]{1,13}-XXXXXX`; test. Lado generador (productos) sigue en A. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** |
 | CFG-021 | TODO + AUD-CFG | Suite no cubre fronteras críticas. | C | C03 | Media | ACREDITADO | — | Cubierto por tests de C03 (caché, fallback, RBAC, validación cruzada, borrado) + AccesoRapido. Restan multiworker (infra) y pull inválido (CFG-007, abierto). |
 | SUS-006 | TODO + AUD-SUS | CxC/reportes HTML sin gate de módulo. | C | C05 | P1 | ACREDITADO | `60c6dbc` | Gates HTML/API responden 404 con módulo apagado y conservan permiso ortogonal. |
 | SUS-007 | TODO + AUD-SUS | Templates, sync y servicio leen fuentes distintas. | C+A | C03/A hook | P1 | PENDIENTE | — | Resolutor único. |
@@ -256,7 +257,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | SUS-016 | TODO + AUD-SUS | Bootstrap/sync parcial reporta éxito pobre. | C+A | C03/A hook | P2 | PENDIENTE | — | Crash/retry/estado parcial. Mitad C hecha (`--dry-run` + bootstrap atómico, `1ca1688`); falta la mitad A (reporte de sync parcial). |
 | SUS-017 | TODO + AUD-SUS | `sync_modulos` no sincroniza planes default. | C | C03 | P2 | ACREDITADO | `3018ce8` | `Plan.preset_version` + `sync_modulos` resincroniza planes gestionados desactualizados; test `test_sync_modulos`. |
 | SUS-018 | TODO + AUD-SUS | Key desconocida puede aprobarse fail-open. | C | C03 | P3 | ACREDITADO | `d968e3f` | Una key fuera del catálogo deniega aun en el camino fail-open; test de suscripciones. |
-| SUS-019 | TODO + AUD-SUS | Suite omite fronteras contractuales. | C | C03 | P3 | ACREDITADO | `0548384` | Regresiones del guard por plan (downgrade) y `activa` (suspensión): auditadas + rollback sin evento. **Rama `claude/cierre-prod-SUS019-coverage`, sin integrar.** |
+| SUS-019 | TODO + AUD-SUS | Suite omite fronteras contractuales. | C | C03 | P3 | ACREDITADO | `0548384` | Regresiones del guard por plan (downgrade) y `activa` (suspensión): auditadas + rollback sin evento. **Integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el 2026-09-17.** |
 
 ### Cotizaciones y operación comercial — dueño C, C05/B09
 
