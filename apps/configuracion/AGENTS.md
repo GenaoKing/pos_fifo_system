@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 (CFG-012: correccion de la semantica legacy de bootstrap(), parte2 de C03) -->
+<!-- Última revisión: 2026-09-17 (CFG-010, CFG-018, CFG-019 y CFG-020) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -25,7 +25,7 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | **Crear la config si no existe** (fixtures de test, futuro primer-pull de sync) | `ConfiguracionNegocio.bootstrap(sucursal=...)` — get-or-create explícito, idempotente. Sin `sucursal` (legacy), no es un get-or-create ciego: cero filas crea una sola, una fila existente (sea cual sea su PK) se reutiliza, y más de una levanta `ConfiguracionAmbigua` en vez de elegir. La instalación real usa `crear_config_inicial`, no esto |
 | Config para **encabezar un documento** | `utils.config_para_documento(sucursal)` (COM-001) · `config_de_sucursal` |
 | ¿Módulo activo? | `utils.modulo_activo(key)` → delega en `apps.suscripciones.engine` si resuelve negocio; si no, flag legacy |
-| Gatear una vista por módulo | `decorators.requiere_modulo` (HTML → 404) · `requiere_modulo_json` (fetch → 404 JSON) · `requiere_sysadmin` |
+| Gatear una vista por módulo | `decorators.requiere_modulo` (HTML → 404) · `requiere_modulo_json` (fetch → 404 JSON) |
 | `{{ config }}` / `modulos_efectivos` en templates | `context_processors.config_negocio` (inyecta ambos) |
 | Gatear un menú/pantalla por módulo | `{% if 'key' in modulos_efectivos %}` — **no** `config.modulo_*` (CFG-009/SUS-007) |
 | ¿Este descuento pide autorización? | `ConfiguracionNegocio.descuento_requiere_token(subtotal=, descuento_total=)` |
@@ -51,8 +51,17 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
   `delete()` era un `pass` silencioso y el QuerySet borraba de verdad). Ya **no**
   se fuerza `pk=1`.
 - `full_clean()` valida reglas cruzadas (CFG-006): al menos un medio de pago,
-  e-CF exige `emisor_activo`, ITBIS en `[0,100]`. Es validación de aplicación
-  (Admin/forms); todavía **no** hay constraints DB (esperan preflight de datos).
+  e-CF exige `emisor_activo`, ITBIS en `[0,100]` y el formato de código de
+  barras es `PREFIJO-XXXXXX` que el generador realmente puede producir. Es
+  validación de aplicación (Admin/forms); todavía **no** hay constraints DB
+  (esperan preflight de datos).
+- Reemplazar `logo` borra el archivo previo después de guardar; borrar una
+  configuración sigue prohibido. La autoridad y propagación del logo por sync
+  no están definidas en esta fase.
+- `AccesoRapidoPOS` exige producto XOR categoría también en `save()` y se
+  acota a `sucursal`; las filas legacy con `sucursal=NULL` son globales hasta un
+  backfill explícito. El endpoint del POS solo muestra los de la sucursal actual
+  más esos legacy globales.
 - `SUCURSAL_CODIGO` que no resuelve: con una sola config cae a ella con
   warning; con varias levanta `ConfiguracionNoResuelta` (CFG-002). Nunca
   `.objects.first()`.

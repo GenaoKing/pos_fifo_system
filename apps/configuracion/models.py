@@ -6,6 +6,8 @@ FASE 2: Ya no es singleton (pk=1).
 Ahora es una config POR SUCURSAL via FK.
 Backward compatible: si no hay sucursal configurada, carga la primera config existente.
 """
+import logging
+import re
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -13,6 +15,16 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 from apps.tenancy.media import config_logo_upload_to
+
+logger = logging.getLogger('configuracion.models')
+
+# CFG-020 — gramatica que el generador de codigos internos realmente consume:
+# `generar_codigo_barra_interno()` toma el prefijo ANTES del primer '-' y siempre
+# produce 6 digitos (`PREFIJO-000001`). Un formato con otra forma (sin '-', con
+# distinta cantidad de 'X', minusculas, o mas de un '-') prometeria algo que el
+# generador no cumple. El prefijo se acota a 13 porque el campo mide 20 y
+# '-XXXXXX' ocupa 7.
+_FORMATO_CODIGO_BARRAS = re.compile(r'[A-Z0-9]{1,13}-XXXXXX')
 
 
 class ConfiguracionProtegidaError(RuntimeError):
@@ -396,6 +408,16 @@ class ConfiguracionNegocio(models.Model):
                 'El ITBIS % global debe estar entre 0 y 100.'
             )
 
+        # CFG-020 — el formato no debe prometer mas de lo que el generador honra.
+        formato = self.formato_codigo_barras
+        if formato and not _FORMATO_CODIGO_BARRAS.fullmatch(formato):
+            errors['formato_codigo_barras'] = (
+                "Formato invalido. Debe ser PREFIJO-XXXXXX (prefijo en "
+                "mayusculas/digitos de 1 a 13 caracteres y exactamente seis 'X'), "
+                "porque el generador usa solo el prefijo antes del '-' y siempre "
+                "produce 6 digitos. Ej: RP-XXXXXX."
+            )
+
         if errors:
             raise ValidationError(errors)
 
@@ -404,7 +426,30 @@ class ConfiguracionNegocio(models.Model):
         # FASE 2: Ya NO forzamos self.pk = 1
         # Cada sucursal tiene su propia config.
         # -----------------------------------------------------------
+        # CFG-018 — al reemplazar el logo se borra el archivo anterior. El config
+        # NO se borra (CFG-011), asi que el reemplazo es el unico camino a
+        # archivos huerfanos. Se captura el nombre viejo ANTES de guardar y se
+        # borra DESPUES, solo si de verdad cambio.
+        logo_anterior = None
+        if self.pk:
+            previo = (
+                type(self).objects.filter(pk=self.pk)
+                .values_list('logo', flat=True).first()
+            )
+            actual = self.logo.name if self.logo else ''
+            if previo and previo != actual:
+                logo_anterior = previo
+
         super().save(*args, **kwargs)
+
+        if logo_anterior:
+            try:
+                self.logo.storage.delete(logo_anterior)
+            except Exception as exc:
+                logger.warning(
+                    'No se pudo borrar el logo anterior %s (CFG-018): %s: %s',
+                    logo_anterior, type(exc).__name__, exc,
+                )
 
         # Invalidar cache al guardar. La clave la construye
         # `cache_key_config()`, que incluye el tenant activo (CFG-001): armarla
@@ -702,8 +747,7 @@ class AccesoRapidoPOS(models.Model):
         # la via ORM/import, a nivel aplicacion — mismo criterio que CFG-006. El
         # `CheckConstraint` de base queda para un preflight coordinado: una
         # instalacion existente podria tener filas invalidas y el `migrate`
-        # fallaria. El ambito por sucursal (fuga entre sucursales) es un cambio
-        # de modelo con decision de negocio + backfill; queda fuera de esta
-        # entrega (ver handoff CFG-010).
+        # fallaria. El ámbito por sucursal se implementa de forma aditiva:
+        # las filas legacy NULL permanecen globales hasta un backfill explícito.
         self.full_clean()
         super().save(*args, **kwargs)

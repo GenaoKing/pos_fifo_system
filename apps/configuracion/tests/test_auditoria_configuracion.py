@@ -544,7 +544,8 @@ class AccesoRapidoInvarianteTests(TestCase):
     no lo invocaba: `objects.create(tipo='producto')` guardaba una fila que el POS
     no sabe resolver. Ahora `save()` valida a nivel aplicacion (mismo criterio que
     CFG-006; el `CheckConstraint` de base queda para un preflight coordinado). El
-    ambito por sucursal (fuga entre sucursales) queda fuera de esta entrega.
+    El ámbito por sucursal se acredita por separado en los tests del endpoint
+    POS; este grupo cubre la invariante de forma del modelo.
     """
 
     def setUp(self):
@@ -595,3 +596,92 @@ class AccesoRapidoInvarianteTests(TestCase):
             producto=self.producto, orden=1,
         )
         self.assertTrue(AccesoRapidoPOS.objects.filter(pk=acceso.pk).exists())
+class FormatoCodigoBarrasTests(ConfiguracionTestCase):
+    """CFG-020: el `formato_codigo_barras` no debe prometer mas de lo que el
+    generador honra.
+
+    `generar_codigo_barra_interno()` toma solo el prefijo antes del primer '-' y
+    siempre produce 6 digitos, asi que un formato con otra forma (sin '-', otra
+    cantidad de 'X', minusculas o mas de un '-') describiria un resultado que
+    nunca ocurre. Se valida a nivel aplicacion (`full_clean`), no como constraint
+    de base (mismo criterio que CFG-006).
+    """
+
+    def test_formato_por_defecto_es_valido(self):
+        self.config_a.formato_codigo_barras = 'RP-XXXXXX'
+        self.config_a.full_clean()  # no levanta
+
+    def test_prefijo_alfanumerico_mas_largo_es_valido(self):
+        self.config_a.formato_codigo_barras = 'ROYAL01-XXXXXX'
+        self.config_a.full_clean()
+
+    def test_cantidad_de_equis_distinta_de_seis_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'RP-XXXX'
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('formato_codigo_barras', ctx.exception.message_dict)
+
+    def test_sin_guion_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'RPXXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+    def test_prefijo_en_minusculas_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'rp-XXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+    def test_mas_de_un_guion_se_rechaza(self):
+        # El generador solo mira el primer segmento; 'RP-A-XXXXXX' daria 'RP-...'.
+        self.config_a.formato_codigo_barras = 'RP-A-XXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+
+class LogoLifecycleTests(ConfiguracionTestCase):
+    """CFG-018: reemplazar el logo borra el archivo anterior.
+
+    El config no se borra (CFG-011), asi que el reemplazo es el unico camino a
+    archivos huerfanos. Antes cada reemplazo dejaba el anterior sin referencia.
+    """
+
+    def _png(self, nombre):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image as PILImage
+
+        buffer = BytesIO()
+        PILImage.new('RGB', (2, 2), 'blue').save(buffer, format='PNG')
+        return SimpleUploadedFile(nombre, buffer.getvalue(), content_type='image/png')
+
+    def test_reemplazar_el_logo_borra_el_anterior(self):
+        self.config_a.logo = self._png('a.png')
+        self.config_a.save()
+        primero = self.config_a.logo.name
+        storage = self.config_a.logo.storage
+        # Deja el arbol de medios limpio pase lo que pase.
+        self.addCleanup(lambda: storage.delete(self.config_a.logo.name))
+        self.assertTrue(storage.exists(primero))
+
+        self.config_a.logo = self._png('b.png')
+        self.config_a.save()
+        segundo = self.config_a.logo.name
+
+        self.assertNotEqual(primero, segundo)
+        self.assertFalse(storage.exists(primero))   # el viejo se borro
+        self.assertTrue(storage.exists(segundo))
+
+    def test_guardar_sin_cambiar_el_logo_no_lo_borra(self):
+        self.config_a.logo = self._png('c.png')
+        self.config_a.save()
+        nombre = self.config_a.logo.name
+        storage = self.config_a.logo.storage
+        self.addCleanup(lambda: storage.delete(nombre))
+
+        # Un save() que no toca el logo (p. ej. cambia otro campo) lo conserva.
+        self.config_a.nombre_negocio = 'Renombrado'
+        self.config_a.save()
+
+        self.assertEqual(self.config_a.logo.name, nombre)
+        self.assertTrue(storage.exists(nombre))
