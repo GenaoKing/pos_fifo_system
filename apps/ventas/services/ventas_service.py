@@ -54,6 +54,7 @@ from django.conf import settings
 from django.db import IntegrityError, models, transaction
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.configuracion.utils import get_config, modulo_activo
 from apps.inventario.fifo_logic import procesar_venta_fifo
 from apps.inventario.models import Lote
@@ -395,11 +396,33 @@ def procesar_venta_service(
                 ip_address=ip_address,
             )
 
-        # Auditoría dentro del atomic (atómica con la venta)
-        Auditoria.registrar_venta(
-            venta=venta,
-            usuario=usuario,
-            ip_address=ip_address,
+        # Auditoría CT-01 dentro del atomic (atómica con la venta): mismo
+        # `using` que la venta, actor/sucursal/tenant como identidad histórica.
+        # `tenant=None` → se deriva de la sucursal/negocio de la venta (vacío en
+        # una instalación local sin tenancy, que corre sobre `default`). Un
+        # fallo de auditoría revierte la venta (invariante CT-01); es correcto:
+        # no queremos un hecho financiero sin su registro.
+        registrar_mutacion(
+            accion='ventas.venta.creada',
+            actor=usuario,
+            entidad=venta,
+            antes=None,
+            despues={
+                'numero_venta': venta.numero_venta,
+                'total': str(venta.total),
+                'subtotal': str(venta.subtotal),
+                'descuento_total': str(venta.descuento_total),
+                'cantidad_items': venta.detalles.count(),
+                'es_credito': es_credito,
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=sucursal,
+            correlacion_id=clave_idempotencia or None,
+            idempotencia_key=clave_idempotencia or None,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=venta._state.db or 'default',
         )
 
         # ------------------ Hooks post-commit
