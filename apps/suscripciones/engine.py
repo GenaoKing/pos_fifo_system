@@ -9,6 +9,7 @@ API publica:
     modulo_activo(key, negocio=None, sucursal=None) -> bool
     puede_desactivarse(negocio, key) -> (bool, motivo)
     invalidar_cache()
+    divergencias_plan_operativo(tenant_plan_slug, negocio) -> list[dict]
 
 Fail-open ante tenant indeterminado: si `negocio` es None, `modulo_activo` es
 True (sin restriccion). Los entitlements son comerciales, no de seguridad; es
@@ -165,6 +166,49 @@ def estado_suscripcion(negocio, overrides=None):
         return SUSPENDIDA
 
     return CON_PLAN if suscripcion.plan_id else CUSTOM
+
+
+def divergencias_plan_operativo(tenant_plan_slug, negocio):
+    """
+    Compara el plan anunciado en el control plane (``Tenant.plan_slug``)
+    contra la suscripcion operativa real del negocio en la BD tenant.
+
+    SUS-014 tiene dos mitades: ``seed.validar_plan_slug`` (C03) impide que un
+    ``bootstrap_tenant`` NUEVO deje ambas bases inconsistentes -- ya cableada
+    por Codex. Esta funcion es la otra mitad: un chequeo de postcondicion de
+    solo lectura para detectar un plan YA divergente por cualquier otra via
+    (edicion manual, una fila tocada a mano, un bootstrap corrido antes del
+    fix). No previene nada; solo lo hace visible.
+
+    Uso esperado (Codex): extender la lista de ``divergencias_identidad`` con
+    ``divergencias_plan_operativo(tenant.plan_slug, negocio)`` dentro del mismo
+    ``tenant_context`` donde ya se resuelve ``negocio`` -- mismo formato de
+    fila (code/field/expected/actual), para concatenar sin transformar. Si
+    ``negocio`` es None, ``divergencias_identidad`` ya reporta NEGOCIO_MISSING;
+    aca se omite para no duplicarlo.
+
+    ``tenant_plan_slug=''`` sin plan operativo (custom, ``plan=None`` o sin
+    fila de ``SuscripcionNegocio``) NO es divergencia: es "sin plan explicito"
+    en ambos lados.
+    """
+    if negocio is None:
+        return []
+
+    suscripcion = getattr(negocio, 'suscripcion', None)
+    plan_operativo = (
+        suscripcion.plan.slug if (suscripcion and suscripcion.plan_id) else ''
+    )
+    esperado = tenant_plan_slug or ''
+
+    if esperado == plan_operativo:
+        return []
+
+    return [{
+        'code': 'PLAN_DRIFT',
+        'field': 'plan_slug',
+        'expected': esperado,
+        'actual': plan_operativo,
+    }]
 
 
 def _resolver_negocio(negocio):
