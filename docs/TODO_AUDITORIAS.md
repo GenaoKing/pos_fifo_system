@@ -37,6 +37,11 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
+> **Integración CT-04/C04 (2026-09-17).** El candidato backend `cc77452`
+> integra A05.4 y el handoff C04. La pantalla frontend sigue pendiente de
+> correcciones de conformidad: enviar `master.conflict-resolution.v1` y
+> rechazar schemas desconocidos. A06 conserva GET/POST de conflictos.
+
 > **Actualización A05.4 (2026-09-17).** CT-04 ya publica el schema y fixture
 > de estados pendiente/conflicto. C04 puede maquetar contra esa fuente
 > canónica; las superficies backend reales y los selectores siguen para A06+C04

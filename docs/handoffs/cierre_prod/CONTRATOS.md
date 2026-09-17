@@ -367,6 +367,13 @@ tres superficies que conviene no confundir:
 | Listado portal de decisiones negativas | `master.conflict-list.v1` / `master.conflict.v1` | **RESERVADA_A06** | A06 |
 | Decisión humana | `master.conflict-resolution.v1` | **RESERVADA_A06** | A06 |
 
+**Consumidor C04:** existe el candidato frontend
+`claude/cierre-prod-C04@d4b3b5d`, documentado por `58d2ab0`, pero no está
+integrado. Su revisión detectó dos incumplimientos: la decisión no envía
+`master.conflict-resolution.v1` y las respuestas no se validan en runtime. Un
+descendiente debe corregirlo y probar schemas incompatibles antes de fusionar el
+frontend. Esto no altera la propiedad de A06 sobre GET/POST.
+
 ### Transporte implementado
 
 - El envelope de solicitud y la respuesta 200 llevan

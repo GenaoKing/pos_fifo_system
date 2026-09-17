@@ -1,8 +1,9 @@
 # Estado maestro del proyecto
 
 Ultima revision: **2026-09-17** (`develop@fffd02b` permanece intacto; el
-candidato local `integration/cierre-prod-A05-C03@695b36c` integra A05.1-A05.3
-y C02/C03 residuales, y CT-04 fue publicado en la rama aislada A05.4). Sin
+candidato local `integration/cierre-prod-A05-C03@cc77452` integra A05.1-A05.4,
+C02/C03 residuales y el handoff C04; el candidato frontend C04 requiere
+correcciones de conformidad CT-04 antes de su integración aislada). Sin
 push, despliegue ni lectura o escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
