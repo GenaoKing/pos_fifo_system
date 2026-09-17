@@ -2,8 +2,9 @@
 
 Ultima revision: **2026-09-17** (`develop@fffd02b` permanece intacto; el
 candidato local `integration/cierre-prod-A05-C03@cc77452` integra A05.1-A05.4,
-C02/C03 residuales y el handoff C04; el candidato frontend C04 requiere
-correcciones de conformidad CT-04 antes de su integración aislada). Sin
+C02/C03 residuales y el handoff C04; `codex/cierre-prod-A06@b25a3b7` queda
+como candidato backend/POS separado y C04 aún requiere prueba HTTP real e
+integración aislada). Sin
 push, despliegue ni lectura o escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
@@ -46,10 +47,12 @@ propiedad de archivos, dependencias y gates para integrar `develop`, validar un
 nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
-A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado `695b36c` suma
-A05.1-A05.3. CT-04 está publicado en A05.4, con listado/resolución reservados
-para A06. G1-G4 siguen pendientes: C04, A06-A08, selectores comerciales reales
-y C06 no están aprobados ni publicados**.
+A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado
+`integration/cierre-prod-A05-C03@609c98f` suma A05.1-A05.4. CT-04 está
+publicado y el candidato A06 backend/POS
+implementa listado/resolución, retorno al POS e inactivos. G1-G4 siguen
+pendientes: C04 contra backend real, integración A06, A07-A08, selectores
+comerciales reales y C06 no están aprobados ni publicados**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.

@@ -364,15 +364,14 @@ tres superficies que conviene no confundir:
 | Superficie | Schema | Estado | Productor |
 | --- | --- | --- | --- |
 | Propuesta POS → cloud y ACK | `master.mutation.v1` | **IMPLEMENTADA** | A05.3, `POST /api/v1/sync/mutaciones-maestro/` |
-| Listado portal de decisiones negativas | `master.conflict-list.v1` / `master.conflict.v1` | **RESERVADA_A06** | A06 |
-| Decisión humana | `master.conflict-resolution.v1` | **RESERVADA_A06** | A06 |
+| Listado portal de decisiones negativas | `master.conflict-list.v1` / `master.conflict.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
+| Decisión humana | `master.conflict-resolution.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
+| Retorno de decisión cloud → POS | `master.conflict-resolution-sync.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
 
-**Consumidor C04:** existe el candidato frontend
-`claude/cierre-prod-C04@d4b3b5d`, documentado por `58d2ab0`, pero no está
-integrado. Su revisión detectó dos incumplimientos: la decisión no envía
-`master.conflict-resolution.v1` y las respuestas no se validan en runtime. Un
-descendiente debe corregirlo y probar schemas incompatibles antes de fusionar el
-frontend. Esto no altera la propiedad de A06 sobre GET/POST.
+**Consumidor C04:** su candidato corregido sigue separado y sin publicar. Antes
+de fusionarlo debe repetir build/lint/tests y una prueba HTTP contra el backend
+A06 real, incluido el rechazo de un schema incompatible. Esto no altera la
+propiedad de A06 sobre GET/POST ni autoriza integrar el frontend.
 
 ### Transporte implementado
 
@@ -393,7 +392,7 @@ frontend. Esto no altera la propiedad de A06 sobre GET/POST.
 
 ### Listado implementado por A06 (candidato no integrado)
 
-El candidato `codex/cierre-prod-A06@003cd41` implementa la ruta portal
+El candidato `codex/cierre-prod-A06@b25a3b7` implementa la ruta portal
 `GET /api/v1/maestros/conflictos/`, que responde
 `master.conflict-list.v1`. A05.4 fija la forma antes de que C04 escriba contra
 ella: `items`, `next_cursor` opaco, máximo 100 elementos y filtros opcionales
@@ -426,6 +425,20 @@ reescribe como una falsa confirmación. Si cambió otra vez, A06 actualiza el
 conflicto y devuelve `409`, sin last-write-wins, proxy online, escritura
 silenciosa ni resolución por texto. A05.4 **no** crea estas rutas ni muta una
 propuesta: eso pertenece a A06.
+
+### Retorno de decisiones al POS
+
+`GET /api/v1/sync/mutaciones-maestro/resoluciones/` es una ruta distinta del
+listado portal. Exige `EsSucursalAutenticada`, filtra por la sucursal de la
+propuesta y pagina por `(resuelto_at, id)` con un máximo de 100 filas. Responde
+un envelope y filas `master.conflict-resolution-sync.v1` que llevan UUID de
+mutación, acción, motivo, actor snapshot y revisiones cloud.
+
+El POS valida el envelope y cada fila en runtime. Un schema desconocido o una
+decisión que no coincide con un replay local falla cerrado y no libera el
+maestro. Una fila válida crea el ledger local separado; nunca reescribe el
+`CONFLICTO`/`RECHAZADA` histórico. El ciclo normal baja primero maestros y luego
+estas decisiones, por lo que los hechos financieros siguen independientes.
 
 ## CT-05 — reserva para artefacto y actualización
 

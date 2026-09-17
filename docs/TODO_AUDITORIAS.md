@@ -37,17 +37,18 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
-> **A06 inicial (2026-09-17, sin integrar/publicar).** El candidato backend
-> `codex/cierre-prod-A06@003cd41`, desde `609c98f`, implementa el GET/POST real
-> CT-04 de conflictos con RBAC por fila, cursor opaco, CAS, auditoría y la
-> migración aditiva `sync.0015`. La pantalla frontend no se fusiona todavía:
-> requiere un SHA descendiente con `master.conflict-resolution.v1`, validación
-> runtime de schemas y una repetición contra este backend real.
+> **A06 backend/POS (2026-09-17, sin integrar/publicar).** El candidato
+> `codex/cierre-prod-A06@b25a3b7`, desde `609c98f`, completa GET/POST CT-04,
+> retorno cloud → POS versionado, ledger de resolución, estado operativo con
+> baja lógica/motivo/reactivación y pull de inactivos. Las migraciones
+> `productos.0014` y `sync.0016` están verificadas en la BD tenant aislada.
+> C04 sigue separado: requiere su prueba HTTP contra este backend antes de
+> cualquier integración frontend.
 
 > **Actualización A05.4 (2026-09-17).** CT-04 ya publica el schema y fixture
 > de estados pendiente/conflicto. C04 puede maquetar contra esa fuente
-> canónica; las superficies backend reales iniciales están en el candidato A06,
-> pero A06+C04 y los selectores siguen sin integrarse ni autorizarse a publicar.
+> canónica; las superficies backend/POS están en el candidato A06, pero A06+C04
+> y los selectores siguen sin integrarse ni autorizarse a publicar.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
@@ -57,8 +58,9 @@ cierra su revalidación server-side: los selectores operativos y estados
 pendiente/conflicto siguen bloqueados por **CT-04**. **C04 arrancó** con la
 pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
 frontend, sin publicar) — ver
-`docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. Falta backend
-real de A06 para aceptarlo, y quedan pendientes los pasos 2/3/5/6 del encargo.
+`docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
+existe en candidato aislado; faltan la prueba real C04 y la integración
+controlada. Los selectores comerciales permanecen fuera de este candidato.
 
 ---
 

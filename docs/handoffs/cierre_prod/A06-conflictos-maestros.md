@@ -1,5 +1,9 @@
 # A06 inicial — conflictos de maestros CT-04
 
+> **Superado por** `A06-cierre-backend-pos.md` en `b25a3b7`. Esta fotografía
+> conserva solamente el primer corte CT-04; no representa el candidato A06
+> backend/POS final.
+
 Estado: **EN_CURSO, CANDIDATO LOCAL SIN INTEGRAR NI PUBLICAR**. Fecha:
 **2026-09-17**. Dueño: Codex.
 
