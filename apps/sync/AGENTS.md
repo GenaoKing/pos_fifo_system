@@ -39,6 +39,9 @@ mezclarlos:
   sucursal, delta, CAS y auditoría CT-01. Es independiente de `EventoSync`.
   A05.3 la reclama con lease, la envía de a una al receptor cloud, persiste la
   identidad/revisión resultante y conserva conflictos/rechazos para A06.
+- `ResolucionConflictoMaestro` — ledger append-only A06 de la decisión humana
+  (motivo, actor y revisión CAS); no reescribe el veredicto original de la
+  propuesta negativa.
 - `VersionMaestro` — cursor/versión por tabla maestra (soporte del pull keyset).
 - `InventarioMovimientoSync`, `InventarioSucursalSnapshot` — replicación de stock.
 - `LogSync` — bitácora de ciclos.
@@ -59,9 +62,11 @@ mezclarlos:
   decisión negativa. El receptor reevalúa actor/RBAC y CAS; un `CONFLICTO`
   persistido bloquea uso comercial nuevo, pero una propuesta `PENDIENTE` no.
 - CT-04 congela el transporte como `master.mutation.v1` y el fixture de C04/C05
-  en `docs/handoffs/cierre_prod/fixtures/ct04_master_offline_v1.json`. El
-  listado y las acciones de resolución siguen **RESERVADA_A06**: no crear un
-  endpoint ad hoc ni cambiar la semántica de `CONFLICTO`/`RECHAZADA`.
+  en `docs/handoffs/cierre_prod/fixtures/ct04_master_offline_v1.json`. A06
+  implementa el listado/las acciones congeladas: conserva el resultado negativo
+  original, registra la decisión separada y vuelve a producir `CONFLICTO` si la
+  revisión cloud cambió. No crear un endpoint ad hoc ni cambiar la semántica de
+  `CONFLICTO`/`RECHAZADA`.
 - El push reclama con `select_for_update(skip_locked=True)` y persiste un lease
   antes del HTTP. Un proceso solo puede confirmar/fallar el lease que posee;
   otro recupera el evento después de `SYNC_LEASE_SECONDS`.

@@ -21,6 +21,7 @@ tiene modelos propios (`models.py` vacío).
 | Datos maestros (productos/categorías/clientes) | `views/maestros.py` → `ProductoViewSet` (**patrón canónico**), `CategoriaViewSet`, `ClienteViewSet`; mixins `SyncIncrementalMixin` (`?desde=`), `ReadAfterWriteMixin`, `MaestroPermisoMixin` |
 | **Recibir eventos de una sucursal** | `views/sync.py` → `recibir_eventos` + `_handler_<tipo>` por tipo de evento |
 | **Recibir propuestas offline de maestros** | `views/sync.py` → `recibir_mutaciones_maestro`; dominio CAS/RBAC en `apps/sync/master_mutations.py` |
+| **Listar/resolver conflictos de maestros CT-04** | `views/maestros_conflictos.py` → `conflictos_maestros` / `resolver_conflicto_maestro`; CAS/auditoría en `apps/sync/master_conflicts.py` |
 | Reconciliar ACK históricos BUG-K (read-only) | `views/sync.py` → `reconciliar_eventos` (`sync.reconciliation.v1`) |
 | Endpoints de *pull* para la sucursal (roles, asignaciones, métodos de crédito, configuración, resumen) | `views/sync.py` → `*_para_sucursal`; `sync_status`, `heartbeat` |
 | Login/refresh/impersonación del portal (JWT tenant-aware) | `auth_views.py` → `PortalTokenObtainPairView`, `TenantTokenRefreshView`, `impersonar_tenant`, `logout`, `perfil_actual` |
@@ -62,7 +63,12 @@ tiene modelos propios (`models.py` vacío).
   en cloud. Un UUID exacto responde el resultado durable sin duplicar; un UUID
   con contenido distinto, una revisión vieja o una colisión no se tratan como
   ACK exitoso. Su respuesta 200 declara `master.mutation.v1`; CT-04 publica el
-  fixture de listado/acciones y A06 conserva la implementación de UI/API de
-  resolución humana.
+  fixture de listado/acciones.
+- A06 publica `GET /api/v1/maestros/conflictos/` y `POST
+  /api/v1/maestros/conflictos/<uuid>/resolver/`. El primero usa cursor opaco,
+  `resolver_negocio(request)` y el permiso `*.ver` de la entidad **en la
+  sucursal de origen**; el segundo exige `*.editar`, schema
+  `master.conflict-resolution.v1`, motivo y la revisión cloud observada. Una
+  revisión nueva responde conflicto de nuevo: nunca last-write-wins.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.
