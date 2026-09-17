@@ -51,6 +51,13 @@ continúa parte del mismo checkpoint.
 
 ## Base, ramas, worktrees y aislamiento
 
+**Actualización A05.4 (2026-09-17).** CT-04 queda publicado sobre
+`integration/cierre-prod-A05-C03@695b36c`: el transporte implementado es
+`master.mutation.v1` y el fixture canónico
+`fixtures/ct04_master_offline_v1.json` reserva listado y acciones para A06.
+Esto habilita el trabajo contractual de C04, no una integración portal, un
+despliegue ni resoluciones backend.
+
 | Elemento | Resultado verificado | Evidencia / acción |
 | --- | --- | --- |
 | Backend remoto | `origin/develop@45ca23a`; local no divergía antes del bootstrap | `git fetch --prune`; `rev-list develop...origin/develop = 0/0` |

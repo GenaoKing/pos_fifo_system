@@ -58,6 +58,10 @@ mezclarlos:
   ACK incierto con el mismo UUID y no adelanta una propuesta posterior a una
   decisión negativa. El receptor reevalúa actor/RBAC y CAS; un `CONFLICTO`
   persistido bloquea uso comercial nuevo, pero una propuesta `PENDIENTE` no.
+- CT-04 congela el transporte como `master.mutation.v1` y el fixture de C04/C05
+  en `docs/handoffs/cierre_prod/fixtures/ct04_master_offline_v1.json`. El
+  listado y las acciones de resolución siguen **RESERVADA_A06**: no crear un
+  endpoint ad hoc ni cambiar la semántica de `CONFLICTO`/`RECHAZADA`.
 - El push reclama con `select_for_update(skip_locked=True)` y persiste un lease
   antes del HTTP. Un proceso solo puede confirmar/fallar el lease que posee;
   otro recupera el evento después de `SYNC_LEASE_SECONDS`.

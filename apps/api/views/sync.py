@@ -323,6 +323,7 @@ def recibir_mutaciones_maestro(request):
             })
 
     return Response({
+        'schema_version': 'master.mutation.v1',
         'confirmadas': confirmadas,
         'duplicadas': duplicadas,
         'conflictos': conflictos,
