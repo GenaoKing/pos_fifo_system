@@ -245,6 +245,15 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
         if activo is not None:
             queryset = queryset.filter(activo=activo.lower() == 'true')
 
+        operativo = self.request.query_params.get('operativo')
+        if operativo is not None:
+            from django.db.models import Q
+
+            if operativo.lower() == 'true':
+                queryset = queryset.filter(activo=True, categoria__activa=True)
+            elif operativo.lower() == 'false':
+                queryset = queryset.filter(Q(activo=False) | Q(categoria__activa=False))
+
         categoria = self.request.query_params.get('categoria')
         if categoria:
             queryset = queryset.filter(categoria_id=categoria)
@@ -264,6 +273,21 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
             )
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        """DELETE conserva el maestro y exige el motivo de baja lógica."""
+        producto = self.get_object()
+        serializer = self.get_serializer(
+            producto,
+            data={
+                'activo': False,
+                'motivo_inactivacion': request.data.get('motivo_inactivacion', ''),
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        producto = serializer.save()
+        return Response(self._read(producto).data, status=status.HTTP_200_OK)
 
     def get_permissions(self):
         # La action de foto acepta `productos.editar` O el permiso acotado
@@ -368,6 +392,21 @@ class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncremental
             queryset = queryset.filter(nombre__icontains=search)
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        """DELETE de categoría es una baja lógica y nunca borra históricos."""
+        categoria = self.get_object()
+        serializer = self.get_serializer(
+            categoria,
+            data={
+                'activa': False,
+                'motivo_inactivacion': request.data.get('motivo_inactivacion', ''),
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        categoria = serializer.save()
+        return Response(self._read(categoria).data, status=status.HTTP_200_OK)
 
 
 class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):

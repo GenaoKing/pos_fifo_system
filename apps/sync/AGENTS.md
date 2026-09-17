@@ -46,6 +46,15 @@ mezclarlos:
 - `InventarioMovimientoSync`, `InventarioSucursalSnapshot` — replicación de stock.
 - `LogSync` — bitácora de ciclos.
 
+## Resoluciones CT-04 de vuelta al POS
+
+`ResolucionConflictoMaestro` conserva la decisión humana sin reescribir el
+resultado negativo original. `SyncEngine._pull_resoluciones_conflicto` consume
+`GET /api/v1/sync/mutaciones-maestro/resoluciones/` con cursor keyset y el
+schema `master.conflict-resolution-sync.v1`. El token solo recibe su sucursal;
+el POS valida el envelope y cada fila en runtime. Un schema desconocido falla
+cerrado y no libera el maestro; un replay debe coincidir con el ledger local.
+
 ## Invariantes / trampas
 
 - El cursor de pull es **keyset `(fecha_modificacion, id)`**, no offset. Solo

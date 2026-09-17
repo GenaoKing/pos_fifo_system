@@ -45,6 +45,7 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.response import Response
 
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
+from apps.sync.models import ResolucionConflictoMaestro
 from apps.tenancy.context import get_current_tenant_alias, get_current_tenant_key
 from ..permissions import EsSucursalAutenticada
 from ..serializers.sync import (
@@ -332,6 +333,95 @@ def recibir_mutaciones_maestro(request):
         'detalle': detalle,
         'timestamp': timezone.now(),
     }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# GET /api/v1/sync/mutaciones-maestro/resoluciones/
+# ============================================================================
+
+SCHEMA_RESOLUCION_SYNC = 'master.conflict-resolution-sync.v1'
+
+
+def _pagina_resoluciones(request):
+    try:
+        page_size = int(request.query_params.get('page_size', '100'))
+    except (TypeError, ValueError):
+        raise ValueError('page_size inválido')
+    if not 1 <= page_size <= 100:
+        raise ValueError('page_size debe estar entre 1 y 100')
+
+    desde = request.query_params.get('desde')
+    if not desde:
+        return page_size, None, 0
+    fecha = parse_datetime(desde)
+    if fecha is None:
+        raise ValueError('desde inválido')
+    try:
+        desde_id = int(request.query_params.get('desde_id', '0'))
+    except (TypeError, ValueError):
+        raise ValueError('desde_id inválido')
+    if desde_id < 0:
+        raise ValueError('desde_id inválido')
+    return page_size, fecha, desde_id
+
+
+def _serializar_resolucion_conflicto_sync(resolucion):
+    return {
+        'schema_version': SCHEMA_RESOLUCION_SYNC,
+        'id': resolucion.pk,
+        # El motor genérico usa este par para su cursor keyset. La decisión es
+        # inmutable: resuelto_at es por tanto su versión transportable.
+        'fecha_modificacion': resolucion.resuelto_at.isoformat(),
+        'mutacion_id': str(resolucion.mutacion.mutacion_id),
+        'accion': resolucion.accion,
+        'motivo': resolucion.motivo,
+        'actor_username': resolucion.actor_username,
+        'cloud_revision_observada': resolucion.cloud_revision_observada,
+        'cloud_revision_resultante': resolucion.cloud_revision_resultante,
+        'cloud_entidad_id': resolucion.cloud_entidad_id,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def resoluciones_mutaciones_maestro(request):
+    """Entrega al POS decisiones humanas ya hechas en el portal.
+
+    El listado CT-04 es para el portal y se autoriza por usuario. Este pull es
+    distinto: el token solo puede recibir resoluciones pertenecientes a su
+    propia sucursal y el POS las usa para liberar explícitamente su bloqueo
+    local después de haber aplicado el maestro autoritativo.
+    """
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response({'detail': 'Token sin sucursal asociada'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        page_size, desde, desde_id = _pagina_resoluciones(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    alias = _database_alias()
+    queryset = (
+        ResolucionConflictoMaestro.objects.using(alias)
+        .filter(mutacion__sucursal=sucursal)
+        .select_related('mutacion')
+        .order_by('resuelto_at', 'id')
+    )
+    if desde is not None:
+        queryset = queryset.filter(
+            Q(resuelto_at__gt=desde) | Q(resuelto_at=desde, id__gt=desde_id)
+        )
+    filas = list(queryset[:page_size + 1])
+    hay_mas = len(filas) > page_size
+    filas = filas[:page_size]
+    return Response({
+        'schema_version': SCHEMA_RESOLUCION_SYNC,
+        'results': [_serializar_resolucion_conflicto_sync(fila) for fila in filas],
+        # SyncEngine usa la frontera keyset, no esta URL offset; se conserva la
+        # forma paginada estándar para que cualquier cliente detecte más datos.
+        'next': 'keyset' if hay_mas else None,
+    })
 
 
 # ============================================================================

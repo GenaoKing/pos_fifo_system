@@ -6,6 +6,7 @@ import logging
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.db.models import Q, Sum, Count
@@ -15,7 +16,6 @@ from utils.impresoras.zebra import imprimir_etiqueta_producto
 from apps.configuracion.decorators import requiere_modulo
 
 from .models import Producto, Categoria
-from apps.sync.decorators import requiere_conexion_cloud
 from utils.imagenes import ImagenInvalida, nombre_seguro, validar_imagen_subida
 from apps.permisos.decorators import (
     requiere_permiso_json,
@@ -91,6 +91,86 @@ def _estado_deseado(request, campo):
     return valor
 
 
+def _motivo_inactivacion(request):
+    try:
+        datos = json.loads(request.body or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise IdempotenciaMutacionMaestroInvalida(
+            'El cuerpo de la solicitud debe ser JSON válido.'
+        ) from exc
+    if not isinstance(datos, dict):
+        raise IdempotenciaMutacionMaestroInvalida(
+            'El cuerpo de la solicitud debe ser un objeto JSON.'
+        )
+    return datos.get('motivo_inactivacion')
+
+
+def _respuesta_error_validacion(exc):
+    mensajes = getattr(exc, 'messages', None) or [str(exc)]
+    return JsonResponse({
+        'success': False,
+        'code': 'motivo_inactivacion_invalid',
+        'message': ' '.join(mensajes),
+    }, status=400)
+
+
+def _conflictos_maestro_visibles(request):
+    """Conflictos locales aún no confirmados como resueltos por el cloud."""
+    from apps.sync.models import MutacionMaestro
+
+    sucursal = sucursal_del_request(request)
+    if sucursal is None:
+        return []
+    candidatos = (
+        MutacionMaestro.objects
+        .filter(
+            sucursal=sucursal,
+            estado__in=(
+                MutacionMaestro.Estado.CONFLICTO,
+                MutacionMaestro.Estado.RECHAZADA,
+            ),
+            resolucion_conflicto__isnull=True,
+        )
+        .order_by('-conflicto_at', '-creado_at', '-id')
+    )
+    permiso_por_entidad = {
+        MutacionMaestro.Entidad.PRODUCTO: 'productos.ver',
+        MutacionMaestro.Entidad.CATEGORIA: 'categorias.ver',
+    }
+    return [
+        mutacion for mutacion in candidatos
+        if request.user.tiene_permiso(
+            permiso_por_entidad[mutacion.entidad], sucursal=sucursal,
+        )
+    ]
+
+
+@login_required
+def conflictos_maestros_locales(request):
+    """Superficie POS: muestra la propuesta local y remite la decisión al portal."""
+    items = []
+    for mutacion in _conflictos_maestro_visibles(request):
+        delta = mutacion.delta or {}
+        nombre = (delta.get('nombre') or {}).get('after') or ''
+        sku = (delta.get('sku') or {}).get('after') or ''
+        items.append({
+            'mutacion_id': str(mutacion.mutacion_id),
+            'entidad': mutacion.entidad,
+            'display': ' — '.join(part for part in (sku, nombre) if part)
+                       or f'{mutacion.entidad.title()} local #{mutacion.entidad_id}',
+            'estado': mutacion.estado,
+            'codigo': mutacion.codigo_resultado,
+            'detalle': (
+                mutacion.conflicto_detalle
+                if mutacion.estado == mutacion.Estado.CONFLICTO
+                else mutacion.ultimo_error
+            ),
+            'creado_at': mutacion.creado_at,
+            'bloquea_nuevas_ventas': mutacion.estado == mutacion.Estado.CONFLICTO,
+        })
+    return render(request, 'productos/conflictos_maestros.html', {'conflictos': items})
+
+
 # ==========================================
 # PRODUCTOS
 # ==========================================
@@ -127,6 +207,10 @@ def lista_productos(request):
             'stock_minimo': producto.stock_minimo,
             'stock_actual': producto.stock_actual,
             'activo': producto.activo,
+            'motivo_inactivacion': producto.motivo_inactivacion,
+            'inactivado_at': (
+                producto.inactivado_at.isoformat() if producto.inactivado_at else None
+            ),
             # Miniatura: la grilla la pinta de 40x40 y el original sale del
             # celular del cliente. Cae al original si aun no tiene miniatura.
             'imagen': producto.imagen_preview.url if producto.imagen_preview else None,
@@ -141,7 +225,10 @@ def lista_productos(request):
     # Marcas únicas ordenadas para el filtro
     marcas_lista = sorted(marcas_set)
  
+    # El formulario conserva una lista de categorías activas para altas y
+    # reasignaciones. La grilla, en cambio, sigue mostrando todo el catálogo.
     categorias = Categoria.objects.filter(activa=True).order_by('nombre')
+    conflictos_pendientes = _conflictos_maestro_visibles(request)
  
     context = {
         # Objetos crudos: los serializa `json_script` en la plantilla (PRO-005).
@@ -151,12 +238,12 @@ def lista_productos(request):
         'productos_json': productos_data,
         'categorias': categorias,
         'marcas_json': marcas_lista,
+        'conflictos_pendientes': len(conflictos_pendientes),
     }
  
     return render(request, 'productos/lista_productos.html', context)
  
 
-@requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
 @requiere_permiso_json('productos.crear')
 @require_http_methods(["POST"])
@@ -194,7 +281,6 @@ def crear_producto(request):
         return _respuesta_error_generico()
 
 
-@requiere_conexion_cloud(redirect_url='productos:lista')
 @login_required
 @requiere_permiso_json('productos.editar')
 @require_http_methods(["POST"])
@@ -226,6 +312,8 @@ def editar_producto(request, producto_id):
         
     except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
         return _respuesta_error_idempotencia(exc)
+    except ValidationError as exc:
+        return _respuesta_error_validacion(exc)
     except CodigoBarrasDuplicado:
         return JsonResponse({
             'success': False,
@@ -248,6 +336,7 @@ def toggle_estado_producto(request, producto_id):
             sucursal=sucursal_del_request(request),
             producto_id=producto.id,
             activo=_estado_deseado(request, 'activo'),
+            motivo=_motivo_inactivacion(request),
             mutacion_id=_mutacion_id(request),
         )
         producto = resultado.entidad
@@ -265,6 +354,8 @@ def toggle_estado_producto(request, producto_id):
         
     except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
         return _respuesta_error_idempotencia(exc)
+    except ValidationError as exc:
+        return _respuesta_error_validacion(exc)
     except Exception:
         return _respuesta_error_generico()
 
@@ -280,14 +371,14 @@ def lista_categorias(request):
     
     # Obtener todas las categorías con conteo de productos
     categorias = Categoria.objects.annotate(
-        productos_count=Count('productos', filter=Q(productos__activo=True))
+        productos_count=Count('productos')
     ).prefetch_related('productos').all()
     
     # Preparar datos para el template
     categorias_data = []
     for categoria in categorias:
         productos_list = []
-        for producto in categoria.productos.filter(activo=True)[:5]:  # Solo primeros 5
+        for producto in categoria.productos.all()[:5]:  # Conserva visibilidad administrativa.
             productos_list.append({
                 'id': producto.id,
                 'nombre': producto.nombre,
@@ -302,6 +393,10 @@ def lista_categorias(request):
             'nombre': categoria.nombre,
             'descripcion': categoria.descripcion,
             'activa': categoria.activa,
+            'motivo_inactivacion': categoria.motivo_inactivacion,
+            'inactivado_at': (
+                categoria.inactivado_at.isoformat() if categoria.inactivado_at else None
+            ),
             'total_productos': categoria.productos_count,
             'productos': productos_list,
         })
@@ -343,6 +438,8 @@ def crear_categoria(request):
         
     except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
         return _respuesta_error_idempotencia(exc)
+    except ValidationError as exc:
+        return _respuesta_error_validacion(exc)
     except NombreCategoriaDuplicado:
         return JsonResponse({
             'success': False,
@@ -439,6 +536,7 @@ def toggle_estado_categoria(request, categoria_id):
             sucursal=sucursal_del_request(request),
             categoria_id=categoria.id,
             activa=_estado_deseado(request, 'activa'),
+            motivo=_motivo_inactivacion(request),
             mutacion_id=_mutacion_id(request),
         )
         categoria = resultado.entidad
@@ -456,6 +554,8 @@ def toggle_estado_categoria(request, categoria_id):
         
     except (IdempotenciaMutacionMaestroInvalida, IdempotenciaMutacionMaestroEnConflicto) as exc:
         return _respuesta_error_idempotencia(exc)
+    except ValidationError as exc:
+        return _respuesta_error_validacion(exc)
     except Exception:
         return _respuesta_error_generico()
 

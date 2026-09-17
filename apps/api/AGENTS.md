@@ -30,6 +30,7 @@ tiene modelos propios (`models.py` vacío).
 | Reportes consolidados (JSON, sin PDF) | `views/reportes.py` + `services/reporting.py` → `build_*` |
 | Cartera (read-only portal) | `views/cuentas_por_cobrar.py` → `CuentaPorCobrarViewSet` |
 | Admin RBAC / suscripciones / notificaciones | `views/permisos.py`, `views/suscripciones.py`, `views/notificaciones.py` |
+| Devolver resoluciones CT-04 al POS | `views/sync.py` → `resoluciones_mutaciones_maestro` (`master.conflict-resolution-sync.v1`, cursor keyset y token de la sucursal origen) |
 | Health | `views/health.py` → `health_check`, `health_live` |
 | Tokens | `manage.py crear_tokens_api`, `manage.py vincular_sucursal_token` |
 
@@ -70,5 +71,10 @@ tiene modelos propios (`models.py` vacío).
   sucursal de origen**; el segundo exige `*.editar`, schema
   `master.conflict-resolution.v1`, motivo y la revisión cloud observada. Una
   revisión nueva responde conflicto de nuevo: nunca last-write-wins.
+- `GET /api/v1/sync/mutaciones-maestro/resoluciones/` no es el listado portal:
+  usa solamente `EsSucursalAutenticada`, limita las filas a
+  `mutacion.sucursal`, pagina por `(resuelto_at, id)` y siempre declara
+  `master.conflict-resolution-sync.v1`. No devolver decisiones de otra
+  sucursal ni aceptar un token humano como sustituto.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_API.md`) —
   **snapshot histórico**, verificar contra código.

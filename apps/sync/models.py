@@ -390,6 +390,7 @@ class VersionMaestro(models.Model):
         ('metodos_credito', 'Metodos de credito'),
         ('roles', 'Roles'),
         ('asignaciones', 'Asignaciones'),
+        ('resoluciones_conflicto', 'Resoluciones de conflictos de maestros'),
     ]
 
     tabla = models.CharField(

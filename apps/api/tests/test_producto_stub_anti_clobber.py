@@ -104,7 +104,12 @@ class ProductoStubAntiClobberTests(TestCase):
         datos genericos todavia puestos.
         """
         response = self.api(user=self.admin).patch(
-            f'{self.productos_url}{self.stub.id}/', {'activo': False}, format='json',
+            f'{self.productos_url}{self.stub.id}/',
+            {
+                'activo': False,
+                'motivo_inactivacion': 'El stub espera una revisión humana.',
+            },
+            format='json',
         )
         self.assertEqual(response.status_code, 200)
 

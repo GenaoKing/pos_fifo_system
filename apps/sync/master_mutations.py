@@ -298,6 +298,14 @@ def _validar_y_aplicar(propuesta, entidad, using):
         )
 
     datos = dict(serializer.validated_data)
+    campo_estado = (
+        'activo'
+        if propuesta['entidad'] == MutacionMaestro.Entidad.PRODUCTO
+        else 'activa'
+    )
+    tiene_estado = campo_estado in datos
+    estado_deseado = datos.pop(campo_estado, True)
+    motivo_inactivacion = datos.pop('motivo_inactivacion', None)
     try:
         with transaction.atomic(using=using):
             if es_creacion:
@@ -309,6 +317,10 @@ def _validar_y_aplicar(propuesta, entidad, using):
                 # una categoría explícita es una revisión sustantiva.
                 if isinstance(entidad, Producto) and entidad.pendiente_revision and 'categoria' in datos:
                     entidad.pendiente_revision = False
+            if tiene_estado:
+                entidad.establecer_estado_operativo(
+                    estado_deseado, motivo=motivo_inactivacion,
+                )
             entidad.save(using=using)
     except IntegrityError as exc:
         raise ConflictoMaestro(

@@ -7,6 +7,21 @@ from django.contrib.postgres.indexes import GinIndex
 from apps.tenancy.media import producto_image_upload_to, producto_thumb_upload_to
 
 
+MAX_MOTIVO_INACTIVACION = 500
+
+
+def validar_motivo_inactivacion(motivo):
+    """Normaliza el motivo obligatorio de una baja lógica nueva."""
+    valor = str(motivo or '').strip()
+    if not valor:
+        raise ValidationError('Indique el motivo de la inactivación.')
+    if len(valor) > MAX_MOTIVO_INACTIVACION:
+        raise ValidationError(
+            f'El motivo de la inactivación no puede superar {MAX_MOTIVO_INACTIVACION} caracteres.'
+        )
+    return valor
+
+
 class Categoria(models.Model):
     """Categorías para agrupar productos"""
     
@@ -24,6 +39,14 @@ class Categoria(models.Model):
         'Activa',
         default=True,
         help_text='Indica si la categoría está activa',
+    )
+    motivo_inactivacion = models.TextField(
+        'Motivo de inactivación', blank=True, default='',
+        help_text='Motivo trazable de la última baja lógica.',
+    )
+    inactivado_at = models.DateTimeField(
+        'Inactivada el', null=True, blank=True,
+        help_text='Instante de la última baja lógica.',
     )
 
     # ← AGREGAR ESTOS DOS CAMPOS NUEVOS:
@@ -93,6 +116,19 @@ class Categoria(models.Model):
     def __str__(self):
         return self.nombre
 
+    def establecer_estado_operativo(self, activa, *, motivo=None):
+        """Aplica baja/reactivación sin tocar el flag individual de productos."""
+        activa = bool(activa)
+        if activa:
+            self.activa = True
+            self.motivo_inactivacion = ''
+            self.inactivado_at = None
+            return
+        if self.activa:
+            self.motivo_inactivacion = validar_motivo_inactivacion(motivo)
+            self.inactivado_at = timezone.now()
+        self.activa = False
+
     @property
     def total_productos(self):
         """Retorna el total de productos activos en esta categoría"""
@@ -142,11 +178,13 @@ def productos_vendibles(queryset=None):
         entidad=MutacionMaestro.Entidad.PRODUCTO,
         entidad_id=OuterRef('pk'),
         estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
     )
     conflictos_categoria = MutacionMaestro.objects.filter(
         entidad=MutacionMaestro.Entidad.CATEGORIA,
         entidad_id=OuterRef('categoria_id'),
         estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
     )
     return (
         base.filter(activo=True, categoria__activa=True)
@@ -167,6 +205,7 @@ def tiene_conflicto_maestro(producto):
 
     return MutacionMaestro.objects.filter(
         estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
     ).filter(
         models.Q(
             entidad=MutacionMaestro.Entidad.PRODUCTO,
@@ -305,6 +344,14 @@ class Producto(models.Model):
         default=True,
         help_text='Indica si el producto está disponible para venta',
     )
+    motivo_inactivacion = models.TextField(
+        'Motivo de inactivación', blank=True, default='',
+        help_text='Motivo trazable de la última baja lógica.',
+    )
+    inactivado_at = models.DateTimeField(
+        'Inactivado el', null=True, blank=True,
+        help_text='Instante de la última baja lógica.',
+    )
     
     # Imagen (opcional)
     imagen = models.ImageField(
@@ -407,6 +454,19 @@ class Producto(models.Model):
             and self.categoria.activa
             and not tiene_conflicto_maestro(self)
         )
+
+    def establecer_estado_operativo(self, activo, *, motivo=None):
+        """Aplica una baja/reactivación lógica con motivo en la transición."""
+        activo = bool(activo)
+        if activo:
+            self.activo = True
+            self.motivo_inactivacion = ''
+            self.inactivado_at = None
+            return
+        if self.activo:
+            self.motivo_inactivacion = validar_motivo_inactivacion(motivo)
+            self.inactivado_at = timezone.now()
+        self.activo = False
 
     def __str__(self):
         return f"{self.sku} - {self.nombre}"
