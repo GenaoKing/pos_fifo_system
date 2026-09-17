@@ -271,7 +271,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | COT-008 | TODO + AUD-COT | Cantidades/importes imposibles persistibles. | C | C05 | Alta | ACREDITADO | `b6e898a`, `18e0898` | Constraints, preflight y 400 para valores inválidos. |
-| COT-009 | TODO + AUD-COT | Acepta cliente/producto inactivo. | C | C05 | Media-alta | PARCIAL_C05; bloqueado CT-04 | `460e05e`, `18e0898` | Revalidación server-side lista; selector activo y pendiente/conflicto esperan CT-04. |
+| COT-009 | TODO + AUD-COT | Acepta cliente/producto inactivo. | C | C05 | Media-alta | ACREDITADO | `460e05e`, `18e0898` + `productos_vendibles()`/`es_vendible` (PRO-007, A05.2a, ya integrado en esta rama) + tests en `claude/cierre-prod-C05-ct04-selectores` | Cliente inactivo (18e0898) + producto/categoría inactivos y `MutacionMaestro` en `CONFLICTO` (producto o categoría) revalidados server-side en `guardar_cotizacion`; `PENDIENTE` sigue cotizable. Accesos rápidos de categoría alineados a la misma regla. |
 | COT-010 | TODO + AUD-COT | Numeración `count()+1` colisiona. | C | C05 | Media-alta | ACREDITADO | `460e05e`, `18e0898` | Máximo sufijo, unicidad legacy y retry/savepoint. |
 | COT-011 | TODO + AUD-COT | Cabecera/detalle quedan con totales distintos. | C | C05 | Media-alta | ACREDITADO | `b6e898a`, `18e0898` | Servicio atómico y reconciliación al editar/borrar líneas. |
 | COT-012 | TODO + AUD-COT | Ciclo sin auditoría de negocio. | C | C05 | Media-alta | ACREDITADO | `460e05e` | Crear/convertir auditan dentro de la transacción. |

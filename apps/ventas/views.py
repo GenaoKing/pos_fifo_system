@@ -318,6 +318,23 @@ def producto_por_id(request, producto_id):
     })
 
 
+def _categoria_en_conflicto_maestro(categoria_id):
+    """Misma regla que `Producto.es_vendible` (PRO-007), del lado categoria.
+
+    El acceso rapido de categoria solo dispara una busqueda (`buscar_productos`,
+    que ya filtra con `productos_vendibles()`), asi que sin este chequeo el
+    boton no vendia nada igual -- pero aparecia como si lo hiciera, asimetrico
+    con la rama de producto de aca abajo, que si usa `es_vendible`.
+    """
+    from apps.sync.models import MutacionMaestro
+
+    return MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=categoria_id,
+        estado=MutacionMaestro.Estado.CONFLICTO,
+    ).exists()
+
+
 @login_required
 @require_http_methods(["GET"])
 def accesos_rapidos_pos(request):
@@ -344,7 +361,11 @@ def accesos_rapidos_pos(request):
             if acceso.producto_id and acceso.producto.es_vendible:
                 accesos_validos.append(_acceso_rapido_pos_data(acceso))
         elif acceso.tipo == AccesoRapidoPOS.TIPO_CATEGORIA:
-            if acceso.categoria_id and acceso.categoria.activa:
+            if (
+                acceso.categoria_id
+                and acceso.categoria.activa
+                and not _categoria_en_conflicto_maestro(acceso.categoria_id)
+            ):
                 accesos_validos.append(_acceso_rapido_pos_data(acceso))
 
     return JsonResponse({
