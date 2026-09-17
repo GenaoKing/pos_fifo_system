@@ -108,3 +108,29 @@ Aplicados en esta misma rama (no solo propuestos, dado el tamaño acotado):
 - `TODO_AUDITORIAS.md`: dos menciones de COT-009 actualizadas para reflejar
   que el selector ya existía y solo faltaba test + el accesorio de accesos
   rápidos.
+
+## Contraparte frontend (C04) — integrar en conjunto
+
+El portal React que refleja esta semántica vive en el repo separado
+`pos-cloud-dashboard`, rama `claude/cierre-prod-C04`, commit **`e319058`**.
+Codex debería integrar esa rama frontend **junto con** esta rama backend: son
+las dos mitades de la historia "maestros operativamente activos" de CT-04.
+
+- **Resolución de CONFLICTO** — pantalla `/maestros/conflictos` (entrega
+  original de C04, `d4b3b5d`/`928964c`): lista y resuelve las `MutacionMaestro`
+  en `CONFLICTO`/`RECHAZADA` que este backend produce. Es la vía por la que un
+  admin destraba lo que acá se bloquea en la venta/cotización.
+- **Categoría inactiva (PRO-007)** — nuance de la vista Productos (`e319058`):
+  la respuesta de `Producto` no dice si su categoría está activa, así que el
+  front arma el mapa de categorías y (a) marca con badge "Categoría inactiva"
+  todo producto `activo=true` cuya categoría no lo está, y (b) en el filtro
+  "Inactivos" agrega una sección paginada por cada categoría inactiva con sus
+  productos activos (`activo=true&categoria=<id>`, server-side, sin merge en
+  cliente). Es el reflejo en el portal del mismo `categoria__activa` que
+  `productos_vendibles()` exige acá.
+
+**Alcance, para no confundir los ejes:** el nuance de Productos cubre el eje
+*categoría inactiva* (`categoria.activa=False`), **no** el eje *MutacionMaestro
+`CONFLICTO`* — ese lo cubre la pantalla de Conflictos. Ambos bloquean la venta
+en el POS, pero por motivos distintos; este handoff (backend) es el que hace
+efectivo el bloqueo por `CONFLICTO`.
