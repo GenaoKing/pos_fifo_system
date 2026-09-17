@@ -114,17 +114,42 @@ npx vitest run   # 15 archivos, 101 tests OK (95 preexistentes + 6 nuevos)
   muestra la sucursal de origen; se deja para cuando haya volumen real que lo
   justifique).
 - Quedan sin tocar del encargo C04 completo (`docs/planes/CIERRE_PROD_CLAUDE.md`):
-  pasos 2/3 (nuance "producto activo con categoría inactiva" en
-  Products/Categories — investigado, ver nota abajo), paso 5 (superficies de
-  admin más allá de roles/asignaciones, que ya existen: falta relevar qué le
-  falta todavía al portal para no depender de `/admin/` cloud, p. ej.
-  Credenciales físicas del runbook de descuentos) y paso 6 (auditoría de
-  paginación/selectores >200 filas contra backend real, no solo fixtures).
-- **Nota paso 2/3**: `fetchCategories()` en `src/lib/products.ts:106-112`
-  fuerza `activa: true` a propósito (selector de "a qué categoría asigno este
-  producto"). Para saber si la categoría de un producto puntual está inactiva
-  hace falta una segunda lista de categorías sin ese filtro — no requiere
-  ningún cambio de Codex/backend, es 100% resoluble en el repo frontend.
+  paso 5 (superficies de admin más allá de roles/asignaciones, que ya existen:
+  falta relevar qué le falta todavía al portal para no depender de `/admin/`
+  cloud, p. ej. Credenciales físicas del runbook de descuentos) y paso 6
+  (auditoría de paginación/selectores >200 filas contra backend real, no solo
+  fixtures).
+
+## Paso 2/3 — HECHO (nuance "producto activo con categoría inactiva")
+
+Entregado en `claude/cierre-prod-C04@e319058` (repo frontend), 100% en el
+front, **sin tocar backend** (confirmado: la respuesta de `Producto` trae
+`categoria`/`categoria_nombre` pero no si su categoría está activa, y `?activo=`
+mira solo el flag propio del producto).
+
+- `fetchAllCategories()` (sin filtro `activa`) alimenta el mapa de estado de
+  categorías; `fetchCategories()` (solo activas) queda como destino de
+  asignación del modal.
+- **Informa el motivo:** badge "Categoría inactiva" (+ tooltip) en toda fila
+  cuyo producto está `activo` pero su categoría no.
+- El dropdown de categoría ahora lista las inactivas etiquetadas `(inactiva)`
+  (antes eran invisibles: no se podía ni filtrar por ellas).
+- **"Inactivos" las incluye:** además de la lista `activo=false`, agrega una
+  sección paginada por cada categoría inactiva con sus productos activos
+  (`activo=true&categoria=<id>`, server-side). Sin merge en cliente ni conteos
+  frágiles; correcto a cualquier escala.
+- Al editar un producto cuya categoría quedó inactiva, el modal incluye esa
+  categoría (etiquetada) en vez de vaciar el `select` y forzar reasignación.
+- `tsc` + `eslint` limpios; `vitest` 109/109 (nuevos `Products.test.tsx` y
+  casos en `products.test.ts`).
+
+Este eje (**categoría inactiva**, PRO-007) es distinto del eje **MutacionMaestro
+`CONFLICTO`** (C05 punto 5 / COT-009), que se bloquea en el backend
+(`productos_vendibles()`) en `claude/cierre-prod-C05-ct04-selectores` y se
+resuelve desde la pantalla de Conflictos de esta misma rama frontend. Codex
+debería integrar esta rama frontend **en conjunto** con esa rama backend: ver
+`docs/handoffs/cierre_prod/C05-cot009-selectores-ct04.md` § "Contraparte
+frontend (C04)".
 
 ## Rollback
 
@@ -139,3 +164,9 @@ todavía no existe.
   (rama `claude/cierre-prod-C04` en el repo frontend, sin publicar), sin
   cambiar el estado de A06 (sigue `RESERVADA_A06`). No lo edito directamente
   acá porque ese archivo es propiedad de Codex.
+- `docs/handoffs/cierre_prod/INVENTARIO.md` fila `OPS-PRO-007` ("Categoría
+  inactiva con producto activo cambia visibilidad efectiva"): la pata **portal**
+  quedó cubierta por el paso 2/3 (`claude/cierre-prod-C04@e319058`) — el portal
+  ya surfacéa esos productos bajo "Inactivos" e informa el motivo. La pata POS
+  local (`productos_vendibles()`) ya estaba. Sugerir avanzar su estado en
+  consecuencia. No lo edito acá porque `INVENTARIO.md` lo lleva Codex.
