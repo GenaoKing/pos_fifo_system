@@ -12,6 +12,11 @@ from . import sync
 urlpatterns = [
     path('eventos/', sync.recibir_eventos, name='api-sync-eventos'),
     path(
+        'mutaciones-maestro/',
+        sync.recibir_mutaciones_maestro,
+        name='api-sync-mutaciones-maestro',
+    ),
+    path(
         'reconciliacion-eventos/',
         sync.reconciliar_eventos,
         name='api-sync-reconciliacion-eventos',

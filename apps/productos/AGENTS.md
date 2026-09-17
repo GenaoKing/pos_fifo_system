@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-16 -->
+<!-- Última revisión: 2026-09-17 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -42,10 +42,15 @@ imágenes: `python manage.py descargar_imagenes_productos`.
 
 Las escrituras locales del catálogo pasan por `services.py` (`crear_*_local`,
 `editar_*_local`, `cambiar_estado_*_local`): crean maestro, auditoría CT-01 y
-`MutacionMaestro` A05.2a dentro de una sola transacción. Esa cola no es
-`EventoSync`, no se empuja aún y requiere actor, sucursal y permiso CT-02.
-Solo un estado `CONFLICTO` bloquea la vendibilidad nueva; `PENDIENTE` sigue
-usable hasta que A05.3/A06 reciba y resuelva la propuesta.
+`MutacionMaestro` dentro de una sola transacción. Esa cola no es `EventoSync`.
+A05.3 la envía serialmente a `sync/mutaciones-maestro/`: el cloud autentica la
+sucursal, vuelve a resolver el actor/CT-02 y compara `revision_cloud` con CAS.
+La revisión remota es independiente de `fecha_modificacion`, que pertenece a
+la copia POS y cambia en cada pull. Un ACK confirma identidad/revisión cloud y
+rebasa la siguiente propuesta de la misma entidad; un ACK incierto reintenta el
+mismo UUID. Solo `CONFLICTO` bloquea la vendibilidad nueva; `PENDIENTE` sigue
+usable y `RECHAZADA` conserva la propuesta sin fingir aprobación. A06 publicará
+las acciones de resolución y CT-04.
 
 El POS envía `X-Master-Mutation-ID` por cada intención y conserva el UUID al
 reintentar. Un replay se limita a actor, sucursal, entidad y operación; una

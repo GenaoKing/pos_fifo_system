@@ -570,6 +570,12 @@ class MutacionMaestro(models.Model):
         help_text='Revision local observada antes de editar; vacia solo al crear.',
     )
     revision_resultante = models.CharField(max_length=64, blank=True, default='')
+    # Resultado autoritativo del receptor cloud. ``revision_resultante``
+    # conserva la propuesta local para trazabilidad; esta columna es la
+    # precondición que la siguiente propuesta debe enviar al cloud.
+    cloud_revision = models.CharField(max_length=64, blank=True, default='')
+    cloud_entidad_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    cloud_categoria_id = models.PositiveIntegerField(null=True, blank=True)
     delta = models.JSONField(
         default=dict,
         help_text='Cambios JSON seguros: campo -> {before, after}.',
@@ -603,6 +609,9 @@ class MutacionMaestro(models.Model):
         help_text='event_id CT-01, no una FK mutable al historial.',
     )
     intentos = models.PositiveIntegerField(default=0)
+    envio_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    envio_expira_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    codigo_resultado = models.CharField(max_length=100, blank=True, default='')
     ultimo_error = models.TextField(blank=True, default='')
     conflicto_detalle = models.TextField(blank=True, default='')
     creado_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -622,6 +631,10 @@ class MutacionMaestro(models.Model):
                 fields=['entidad', 'entidad_id', 'estado'],
                 name='sync_master_ent_est_idx',
             ),
+            models.Index(
+                fields=['sucursal', 'estado', 'envio_expira_at'],
+                name='sync_master_send_idx',
+            ),
         ]
 
     def __str__(self):
@@ -630,12 +643,102 @@ class MutacionMaestro(models.Model):
             f'[{self.estado}] {self.mutacion_id}'
         )
 
-    def marcar_conflicto(self, detalle):
-        """Marca el resultado que A05.3/A06 hara visible sin borrar la propuesta."""
-        self.estado = self.Estado.CONFLICTO
-        self.conflicto_detalle = str(detalle or '')
-        self.conflicto_at = timezone.now()
-        self.save(update_fields=['estado', 'conflicto_detalle', 'conflicto_at', 'actualizado_at'])
+    def _filtros_resultado(self, envio_id=None):
+        filtros = {'pk': self.pk}
+        if envio_id is not None:
+            filtros.update(estado=self.Estado.ENVIANDO, envio_id=envio_id)
+        else:
+            filtros['estado__in'] = (
+                self.Estado.PENDIENTE,
+                self.Estado.ENVIANDO,
+            )
+        return filtros
+
+    def marcar_confirmada(self, *, cloud_entidad_id, cloud_revision, envio_id=None):
+        """Confirma solo si este proceso conserva el lease de envío.
+
+        La transición condicional evita que un ACK tardío de un worker anterior
+        sobrescriba el resultado de quien recuperó una propuesta vencida.
+        """
+        using = self._state.db or 'default'
+        ahora = timezone.now()
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.CONFIRMADA,
+            cloud_entidad_id=cloud_entidad_id,
+            cloud_revision=str(cloud_revision or ''),
+            envio_id=None,
+            envio_expira_at=None,
+            codigo_resultado='',
+            ultimo_error='',
+            conflicto_detalle='',
+            actualizado_at=ahora,
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_reintento(self, detalle, *, envio_id=None):
+        """Devuelve una propuesta al outbox sin descartarla silenciosamente."""
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.PENDIENTE,
+            intentos=models.F('intentos') + 1,
+            ultimo_error=str(detalle or '')[:2000],
+            envio_id=None,
+            envio_expira_at=None,
+            actualizado_at=timezone.now(),
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_conflicto(
+        self, detalle, *, codigo='MASTER_CONFLICT', cloud_entidad_id=None,
+        cloud_revision='', envio_id=None,
+    ):
+        """Conserva una divergencia para resolución explícita en A06."""
+        using = self._state.db or 'default'
+        ahora = timezone.now()
+        cambios = {
+            'estado': self.Estado.CONFLICTO,
+            'conflicto_detalle': str(detalle or '')[:2000],
+            'conflicto_at': ahora,
+            'codigo_resultado': str(codigo or 'MASTER_CONFLICT')[:100],
+            'envio_id': None,
+            'envio_expira_at': None,
+            'actualizado_at': ahora,
+        }
+        if cloud_entidad_id is not None:
+            cambios['cloud_entidad_id'] = cloud_entidad_id
+        if cloud_revision:
+            cambios['cloud_revision'] = str(cloud_revision)[:64]
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(**cambios)
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_rechazada(self, detalle, *, codigo, envio_id=None):
+        """Registra una denegación vigente del cloud sin perder la propuesta."""
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.RECHAZADA,
+            codigo_resultado=str(codigo or 'MASTER_REJECTED')[:100],
+            ultimo_error=str(detalle or '')[:2000],
+            envio_id=None,
+            envio_expira_at=None,
+            actualizado_at=timezone.now(),
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
 
 
 class InventarioMovimientoSync(models.Model):

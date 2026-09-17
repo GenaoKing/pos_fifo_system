@@ -50,6 +50,22 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 MAX_PAGINAS_PULL = 200
 
 
+def _revision_cloud_desde_payload(item):
+    """Normaliza la revisión remota que acompaña cada maestro.
+
+    DRF suele representar UTC con ``Z`` y ``datetime.isoformat()`` usa
+    ``+00:00``. El CAS compara la forma normalizada para que no confunda esas
+    dos grafías del mismo instante con una edición concurrente.
+    """
+    raw = (item or {}).get('fecha_modificacion')
+    if not raw:
+        return ''
+    try:
+        return datetime.fromisoformat(str(raw).replace('Z', '+00:00')).isoformat()
+    except (TypeError, ValueError):
+        return str(raw)
+
+
 class _Diferido:
     """Sentinela que un `apply` devuelve cuando NO pudo aplicar el item.
 
@@ -105,7 +121,7 @@ def _tenant_key_rbac_local(negocio):
     return get_current_tenant_key() or negocio.slug
 
 
-def clasificar_ciclo(*, heartbeat, push, pull):
+def clasificar_ciclo(*, heartbeat, push, pull, maestros=None):
     """
     Veredicto de un ciclo de sync: ('EXITOSO'|'PARCIAL'|'FALLO', motivos).
 
@@ -128,6 +144,19 @@ def clasificar_ciclo(*, heartbeat, push, pull):
         motivos.append('heartbeat fallido')
     if push.get('fallidos'):
         motivos.append(f"{push['fallidos']} evento(s) no confirmados")
+    maestros = maestros or {}
+    if maestros.get('fallidas'):
+        motivos.append(
+            f"{maestros['fallidas']} propuesta(s) de maestro sin ACK válido"
+        )
+    if maestros.get('conflictos'):
+        motivos.append(
+            f"{maestros['conflictos']} propuesta(s) de maestro en conflicto"
+        )
+    if maestros.get('rechazadas'):
+        motivos.append(
+            f"{maestros['rechazadas']} propuesta(s) de maestro rechazada(s)"
+        )
     for error in pull.get('errores', []):
         motivos.append(f'pull {error}')
     for bloqueo in pull.get('bloqueos', []):
@@ -140,7 +169,12 @@ def clasificar_ciclo(*, heartbeat, push, pull):
     if not motivos:
         return 'EXITOSO', motivos
 
-    hubo_avance = bool(push.get('confirmados')) or bool(pull.get('total'))
+    hubo_avance = (
+        bool(push.get('confirmados'))
+        or bool(maestros.get('confirmadas'))
+        or bool(maestros.get('duplicadas'))
+        or bool(pull.get('total'))
+    )
     if not heartbeat and not hubo_avance:
         return 'FALLO', motivos
 
@@ -589,6 +623,392 @@ class SyncEngine:
             'push_eventos: procesados=%d confirmados=%d fallidos=%d',
             metricas['procesados'], metricas['confirmados'], metricas['fallidos']
         )
+        return metricas
+
+    # ------------------------------------------------------------------
+    # PUSH: propuestas de maestros locales -> receptor A05.3
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _modelo_mutacion(mutacion):
+        from apps.productos.models import Categoria, Producto
+
+        return (
+            Producto
+            if mutacion.entidad == 'PRODUCTO'
+            else Categoria
+        )
+
+    def _marcar_conflicto_local(self, mutacion, *, codigo, detalle,
+                                cloud_entidad_id=None, cloud_revision=''):
+        """Resultado terminal visible; nunca convertirlo en retry silencioso."""
+        mutacion.marcar_conflicto(
+            detalle,
+            codigo=codigo,
+            cloud_entidad_id=cloud_entidad_id,
+            cloud_revision=cloud_revision,
+        )
+
+    def _categoria_resuelta_para_producto(self, producto):
+        categoria = getattr(producto, 'categoria', None)
+        return categoria is not None and bool(categoria.origen_cloud_id)
+
+    def _reclamar_mutacion_maestro(self):
+        """Reserva una única propuesta y conserva el orden por entidad.
+
+        A diferencia del lote financiero, una propuesta posterior del mismo
+        maestro necesita la revisión que devuelve la anterior. Procesar una
+        por vez es intencional: evita enviar una edición contra la revisión
+        previa mientras el ACK de una creación/edición todavía es incierto.
+        """
+        from apps.productos.models import Producto
+        from apps.sync.models import MutacionMaestro
+
+        ahora = timezone.now()
+        vencimiento = ahora + timedelta(seconds=self.lease_seconds)
+        envio_id = uuid.uuid4()
+        using = MutacionMaestro.objects.db
+        orden_entidad = models.Case(
+            models.When(
+                entidad=MutacionMaestro.Entidad.CATEGORIA,
+                then=models.Value(0),
+            ),
+            default=models.Value(1),
+            output_field=models.IntegerField(),
+        )
+
+        with transaction.atomic(using=using):
+            candidatas = list(
+                MutacionMaestro.objects.using(using)
+                .select_for_update(skip_locked=True)
+                .filter(
+                    models.Q(estado=MutacionMaestro.Estado.PENDIENTE)
+                    | models.Q(
+                        estado=MutacionMaestro.Estado.ENVIANDO,
+                        envio_expira_at__lte=ahora,
+                    )
+                )
+                .order_by(orden_entidad, 'creado_at', 'id')[:self.batch_size]
+            )
+            for mutacion in candidatas:
+                # No adelantar la segunda propuesta de un mismo maestro si la
+                # primera sigue en vuelo en otro worker.
+                en_vuelo = (
+                    MutacionMaestro.objects.using(using)
+                    .filter(
+                        entidad=mutacion.entidad,
+                        entidad_id=mutacion.entidad_id,
+                        estado=MutacionMaestro.Estado.ENVIANDO,
+                        envio_expira_at__gt=ahora,
+                    )
+                    .exclude(pk=mutacion.pk)
+                    .exists()
+                )
+                if en_vuelo:
+                    continue
+
+                # Una decisión negativa anterior deja la copia local divergente.
+                # Enviar una propuesta posterior sobre esa base aplicaría solo
+                # una fracción de la intención del operador; se conserva como
+                # conflicto hasta que A06 la resuelva explícitamente.
+                anterior_terminal = (
+                    MutacionMaestro.objects.using(using)
+                    .filter(
+                        entidad=mutacion.entidad,
+                        entidad_id=mutacion.entidad_id,
+                        estado__in=(
+                            MutacionMaestro.Estado.CONFLICTO,
+                            MutacionMaestro.Estado.RECHAZADA,
+                        ),
+                    )
+                    .filter(
+                        models.Q(creado_at__lt=mutacion.creado_at)
+                        | models.Q(creado_at=mutacion.creado_at, id__lt=mutacion.id)
+                    )
+                    .exists()
+                )
+                if anterior_terminal:
+                    self._marcar_conflicto_local(
+                        mutacion,
+                        codigo='MASTER_PREVIOUS_PROPOSAL_UNRESOLVED',
+                        detalle=(
+                            'Existe una propuesta anterior no aceptada para '
+                            'este maestro; requiere resolución explícita.'
+                        ),
+                    )
+                    continue
+
+                modelo = self._modelo_mutacion(mutacion)
+                entidad = (
+                    modelo.objects.using(using)
+                    .select_for_update()
+                    .filter(pk=mutacion.entidad_id)
+                    .first()
+                )
+                if entidad is None:
+                    self._marcar_conflicto_local(
+                        mutacion,
+                        codigo='MASTER_LOCAL_ENTITY_MISSING',
+                        detalle='El maestro local de la propuesta ya no existe.',
+                    )
+                    continue
+
+                es_creacion = mutacion.operacion == MutacionMaestro.Operacion.CREAR
+                if es_creacion:
+                    if mutacion.revision_base or entidad.origen_cloud_id:
+                        self._marcar_conflicto_local(
+                            mutacion,
+                            codigo='MASTER_CREATE_IDENTITY_CONFLICT',
+                            detalle='La creación local ya tiene identidad o revisión cloud.',
+                        )
+                        continue
+                else:
+                    if not entidad.origen_cloud_id:
+                        self._marcar_conflicto_local(
+                            mutacion,
+                            codigo='MASTER_IDENTITY_UNRESOLVED',
+                            detalle='No se puede editar un maestro sin identidad cloud resuelta.',
+                        )
+                        continue
+                    if not entidad.revision_cloud or (
+                        mutacion.revision_base != entidad.revision_cloud
+                    ):
+                        self._marcar_conflicto_local(
+                            mutacion,
+                            codigo='MASTER_REVISION_UNRESOLVED',
+                            detalle='La propuesta no conserva una revisión cloud verificable.',
+                            cloud_entidad_id=entidad.origen_cloud_id,
+                            cloud_revision=entidad.revision_cloud,
+                        )
+                        continue
+
+                if mutacion.entidad == MutacionMaestro.Entidad.PRODUCTO:
+                    entidad = Producto.objects.using(using).select_related('categoria').get(pk=entidad.pk)
+                    requiere_categoria = (
+                        es_creacion or 'categoria_id' in (mutacion.delta or {})
+                    )
+                    if requiere_categoria and not self._categoria_resuelta_para_producto(entidad):
+                        categoria_pendiente = MutacionMaestro.objects.using(using).filter(
+                            entidad=MutacionMaestro.Entidad.CATEGORIA,
+                            entidad_id=entidad.categoria_id,
+                            estado__in=(
+                                MutacionMaestro.Estado.PENDIENTE,
+                                MutacionMaestro.Estado.ENVIANDO,
+                            ),
+                        ).exists()
+                        if not categoria_pendiente:
+                            self._marcar_conflicto_local(
+                                mutacion,
+                                codigo='MASTER_CATEGORY_IDENTITY_UNRESOLVED',
+                                detalle='La categoría del producto no tiene identidad cloud.',
+                            )
+                        continue
+
+                mutacion.estado = MutacionMaestro.Estado.ENVIANDO
+                mutacion.envio_id = envio_id
+                mutacion.envio_expira_at = vencimiento
+                mutacion.save(
+                    using=using,
+                    update_fields=[
+                        'estado', 'envio_id', 'envio_expira_at', 'actualizado_at',
+                    ],
+                )
+                return mutacion, envio_id
+        return None, None
+
+    def _propuesta_mutacion_maestro(self, mutacion):
+        """Serializa identidad remota en el último momento, después del claim."""
+        from apps.sync.models import MutacionMaestro
+
+        modelo = self._modelo_mutacion(mutacion)
+        using = mutacion._state.db or 'default'
+        entidades = modelo.objects.using(using)
+        if mutacion.entidad == MutacionMaestro.Entidad.PRODUCTO:
+            entidades = entidades.select_related('categoria')
+        entidad = entidades.get(pk=mutacion.entidad_id)
+        propuesta = {
+            'schema_version': 'master.mutation.v1',
+            'mutacion_id': str(mutacion.mutacion_id),
+            'entidad': mutacion.entidad,
+            'entidad_local_id': mutacion.entidad_id,
+            'operacion': mutacion.operacion,
+            'revision_base': mutacion.revision_base,
+            'delta': mutacion.delta,
+            'actor_username': mutacion.actor_username,
+            'cloud_entidad_id': entidad.origen_cloud_id,
+        }
+        if mutacion.entidad == MutacionMaestro.Entidad.PRODUCTO:
+            propuesta['categoria_cloud_id'] = entidad.categoria.origen_cloud_id
+        return propuesta
+
+    def _adoptar_ack_maestro(self, mutacion, *, cloud_entidad_id, cloud_revision, using):
+        """Sella la identidad local y rebasa la siguiente intención de la entidad."""
+        from apps.sync.models import MutacionMaestro
+
+        modelo = self._modelo_mutacion(mutacion)
+        entidad = (
+            modelo.objects.using(using).select_for_update()
+            .filter(pk=mutacion.entidad_id).first()
+        )
+        if entidad is None:
+            raise ConflictoAdopcionMaestro(
+                'MASTER_LOCAL_ENTITY_MISSING',
+                'El maestro local desapareció antes del ACK cloud.',
+            )
+        if entidad.origen_cloud_id not in (None, cloud_entidad_id):
+            raise ConflictoAdopcionMaestro(
+                'MASTER_LOCAL_CLOUD_ID_CONFLICT',
+                'El ACK no coincide con la identidad cloud ya sellada localmente.',
+            )
+        entidad.origen_cloud_id = cloud_entidad_id
+        entidad.revision_cloud = cloud_revision
+        entidad.save(
+            using=using,
+            update_fields=['origen_cloud_id', 'revision_cloud'],
+        )
+        siguiente = (
+            MutacionMaestro.objects.using(using).select_for_update()
+            .filter(
+                entidad=mutacion.entidad,
+                entidad_id=mutacion.entidad_id,
+                estado=MutacionMaestro.Estado.PENDIENTE,
+            )
+            .exclude(pk=mutacion.pk)
+            .order_by('creado_at', 'id').first()
+        )
+        if siguiente is not None:
+            siguiente.revision_base = cloud_revision
+            siguiente.save(using=using, update_fields=['revision_base', 'actualizado_at'])
+
+    def push_mutaciones_maestro(self):
+        """Envía una propuesta A05.3 y trata cada ACK incierto como reintento."""
+        from apps.sync.models import MutacionMaestro
+
+        self._require_config()
+        metricas = {
+            'procesadas': 0,
+            'confirmadas': 0,
+            'duplicadas': 0,
+            'conflictos': 0,
+            'rechazadas': 0,
+            'fallidas': 0,
+        }
+        mutacion, envio_id = self._reclamar_mutacion_maestro()
+        if mutacion is None:
+            return metricas
+        metricas['procesadas'] = 1
+
+        try:
+            propuesta = self._propuesta_mutacion_maestro(mutacion)
+            respuesta = requests.post(
+                self._url('/api/v1/sync/mutaciones-maestro/'),
+                json={'schema_version': 'master.mutation.v1', 'mutaciones': [propuesta]},
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            mutacion.marcar_reintento(f'Conexión: {exc}', envio_id=envio_id)
+            metricas['fallidas'] = 1
+            return metricas
+
+        if respuesta.status_code >= 400:
+            mutacion.marcar_reintento(
+                f'HTTP {respuesta.status_code}: {respuesta.text[:500]}',
+                envio_id=envio_id,
+            )
+            metricas['fallidas'] = 1
+            return metricas
+        try:
+            data = respuesta.json()
+            detalle = data.get('detalle') if isinstance(data, dict) else None
+            item = next(
+                (
+                    fila for fila in (detalle or [])
+                    if isinstance(fila, dict)
+                    and str(fila.get('mutacion_id')) == str(mutacion.mutacion_id)
+                ),
+                None,
+            )
+        except (ValueError, AttributeError):
+            item = None
+        if item is None:
+            mutacion.marcar_reintento(
+                'El cloud no incluyó la mutación en el ACK.', envio_id=envio_id,
+            )
+            metricas['fallidas'] = 1
+            return metricas
+
+        estado = item.get('estado')
+        if estado in ('CONFIRMADA', 'DUPLICADA'):
+            cloud_entidad_id = item.get('cloud_entidad_id')
+            cloud_revision = item.get('cloud_revision')
+            if not cloud_entidad_id or not cloud_revision:
+                mutacion.marcar_reintento(
+                    'ACK de maestro incompleto: falta identidad o revisión cloud.',
+                    envio_id=envio_id,
+                )
+                metricas['fallidas'] = 1
+                return metricas
+            using = mutacion._state.db or 'default'
+            try:
+                with transaction.atomic(using=using):
+                    confirmado = mutacion.marcar_confirmada(
+                        cloud_entidad_id=cloud_entidad_id,
+                        cloud_revision=cloud_revision,
+                        envio_id=envio_id,
+                    )
+                    if confirmado:
+                        self._adoptar_ack_maestro(
+                            mutacion,
+                            cloud_entidad_id=cloud_entidad_id,
+                            cloud_revision=cloud_revision,
+                            using=using,
+                        )
+            except ConflictoAdopcionMaestro as exc:
+                mutacion.marcar_conflicto(
+                    str(exc),
+                    codigo=exc.codigo,
+                    cloud_entidad_id=cloud_entidad_id,
+                    cloud_revision=cloud_revision,
+                    envio_id=envio_id,
+                )
+                metricas['conflictos'] = 1
+                return metricas
+            if confirmado:
+                metricas['duplicadas' if estado == 'DUPLICADA' else 'confirmadas'] = 1
+            else:
+                metricas['fallidas'] = 1
+            return metricas
+
+        if estado == 'CONFLICTO':
+            if mutacion.marcar_conflicto(
+                item.get('error') or 'El cloud reportó un conflicto.',
+                codigo=item.get('codigo') or 'MASTER_CONFLICT',
+                cloud_entidad_id=item.get('cloud_entidad_id'),
+                cloud_revision=item.get('cloud_revision') or '',
+                envio_id=envio_id,
+            ):
+                metricas['conflictos'] = 1
+            else:
+                metricas['fallidas'] = 1
+            return metricas
+
+        if estado == 'RECHAZADA':
+            if mutacion.marcar_rechazada(
+                item.get('error') or 'El cloud rechazó la propuesta.',
+                codigo=item.get('codigo') or 'MASTER_REJECTED',
+                envio_id=envio_id,
+            ):
+                metricas['rechazadas'] = 1
+            else:
+                metricas['fallidas'] = 1
+            return metricas
+
+        mutacion.marcar_reintento(
+            item.get('error') or f'Estado cloud no reconocido: {estado}',
+            envio_id=envio_id,
+        )
+        metricas['fallidas'] = 1
         return metricas
 
     # ------------------------------------------------------------------
@@ -1261,6 +1681,7 @@ class SyncEngine:
                 'tipo_negocio': item.get('tipo_negocio', '') or '',
                 'atributos_configurados': item.get('atributos_configurados') or {},
                 'activa': item.get('activa', True),
+                'revision_cloud': _revision_cloud_desde_payload(item),
             }
             if sellar:
                 campos['origen_cloud_id'] = cloud_id
@@ -1395,6 +1816,7 @@ class SyncEngine:
                 'marca': item.get('marca') or '',
                 'stock_minimo': item.get('stock_minimo', 5),
                 'atributos': item.get('atributos') or {},
+                'revision_cloud': _revision_cloud_desde_payload(item),
             }
             if categoria:
                 campos['categoria'] = categoria
@@ -2053,6 +2475,10 @@ class SyncEngine:
         resultado = {
             'online': False,
             'push': {'procesados': 0, 'confirmados': 0, 'fallidos': 0},
+            'maestros': {
+                'procesadas': 0, 'confirmadas': 0, 'duplicadas': 0,
+                'conflictos': 0, 'rechazadas': 0, 'fallidas': 0,
+            },
             'pull': {'categorias': 0, 'productos': 0, 'clientes': 0, 'total': 0},
             'mensaje': '',
         }
@@ -2066,6 +2492,7 @@ class SyncEngine:
 
             resultado['online'] = True
             resultado['heartbeat'] = self.heartbeat()
+            resultado['maestros'] = self.push_mutaciones_maestro()
             resultado['push'] = self.push_eventos()
             resultado['pull'] = self.pull_maestros()
 
@@ -2073,6 +2500,7 @@ class SyncEngine:
                 heartbeat=resultado['heartbeat'],
                 push=resultado['push'],
                 pull=resultado['pull'],
+                maestros=resultado['maestros'],
             )
             resultado['estado'] = estado
             resultado['motivos'] = motivos

@@ -168,9 +168,27 @@ class Command(BaseCommand):
         ))
 
         push = {'procesados': 0, 'confirmados': 0, 'fallidos': 0}
+        maestros = {
+            'procesadas': 0, 'confirmadas': 0, 'duplicadas': 0,
+            'conflictos': 0, 'rechazadas': 0, 'fallidas': 0,
+        }
         pull = {'total': 0, 'ok': True, 'errores': [], 'bloqueos': []}
 
         if not only_pull:
+            maestros = engine.push_mutaciones_maestro()
+            estilo_maestros = (
+                self.style.SUCCESS
+                if not (
+                    maestros['fallidas'] or maestros['conflictos'] or maestros['rechazadas']
+                )
+                else self.style.WARNING
+            )
+            self.stdout.write(estilo_maestros(
+                f"[{self._now()}] MAESTROS procesadas={maestros['procesadas']} "
+                f"confirmadas={maestros['confirmadas']} duplicadas={maestros['duplicadas']} "
+                f"conflictos={maestros['conflictos']} rechazadas={maestros['rechazadas']} "
+                f"fallidas={maestros['fallidas']}"
+            ))
             push = engine.push_eventos()
             style = self.style.SUCCESS if push['fallidos'] == 0 else self.style.WARNING
             self.stdout.write(style(
@@ -200,6 +218,7 @@ class Command(BaseCommand):
         if registrar_log and not (only_push or only_pull):
             estado, motivos = clasificar_ciclo(
                 heartbeat=heartbeat_ok, push=push, pull=pull,
+                maestros=maestros,
             )
             if estado != 'EXITOSO':
                 self.stdout.write(self.style.WARNING(
