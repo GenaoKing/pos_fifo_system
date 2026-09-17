@@ -391,9 +391,10 @@ frontend. Esto no altera la propiedad de A06 sobre GET/POST.
   historia. `RECHAZADA` se conserva/audita y no se reintenta automáticamente;
   A05 no le inventa un bloqueo comercial que el código no aplica.
 
-### Listado que A06 debe implementar
+### Listado implementado por A06 (candidato no integrado)
 
-La futura ruta portal es `GET /api/v1/maestros/conflictos/` y responde
+El candidato `codex/cierre-prod-A06@003cd41` implementa la ruta portal
+`GET /api/v1/maestros/conflictos/`, que responde
 `master.conflict-list.v1`. A05.4 fija la forma antes de que C04 escriba contra
 ella: `items`, `next_cursor` opaco, máximo 100 elementos y filtros opcionales
 por `estado` (`CONFLICTO`/`RECHAZADA`), `entidad` y `sucursal_codigo`. Cada fila
@@ -401,15 +402,15 @@ incluye UUID, estado/código/detalle, entidad con IDs local/cloud y snapshot
 visible, sucursal origen, actor snapshot, operación, ambas revisiones, delta,
 timestamps, `bloquea_nuevas_ventas` y acciones permitidas.
 
-El servidor A06 debe filtrar cada fila por el permiso de lectura de su entidad
+El servidor A06 filtra cada fila por el permiso de lectura de su entidad
 en la sucursal origen: `productos.ver` o `categorias.ver`. No se usa el ID de
 una sucursal o un texto de actor como autorización. C04 puede usar el fixture
-para maquetar; no puede afirmar integración backend hasta que A06 produzca esta
-ruta y se repitan las pruebas consumidoras.
+para maquetar; no puede afirmar integración backend hasta que este candidato se
+integre y se repitan las pruebas consumidoras contra la ruta real.
 
-### Decisiones reservadas para A06
+### Decisiones implementadas por A06 (candidato no integrado)
 
-La futura ruta es
+La ruta es
 `POST /api/v1/maestros/conflictos/{mutacion_id}/resolver/`, con
 `master.conflict-resolution.v1`. Requiere `accion` (`CONSERVAR_CLOUD` o
 `APLICAR_LOCAL`), `motivo` no vacío de hasta 500 caracteres y
@@ -417,11 +418,14 @@ La futura ruta es
 permiso de edición de la entidad en la sucursal origen:
 `productos.editar` o `categorias.editar`.
 
-`CONSERVAR_CLOUD` conserva el valor autoritativo y registra la decisión;
-`APLICAR_LOCAL` vuelve a intentar contra la revisión observada. Si cambió otra
-vez, A06 debe producir un nuevo conflicto: no se permite last-write-wins,
-proxy online, escritura silenciosa ni resolver por texto. A05.4 **no** crea
-estas rutas ni muta una propuesta: eso pertenece a A06.
+`CONSERVAR_CLOUD` conserva el valor autoritativo y registra la decisión en
+`ResolucionConflictoMaestro`; `APLICAR_LOCAL` vuelve a validar y aplicar el
+delta contra la revisión observada. El ledger original preserva su resultado
+negativo y una resolución lo excluye solo del listado activo: no se borra ni se
+reescribe como una falsa confirmación. Si cambió otra vez, A06 actualiza el
+conflicto y devuelve `409`, sin last-write-wins, proxy online, escritura
+silenciosa ni resolución por texto. A05.4 **no** crea estas rutas ni muta una
+propuesta: eso pertenece a A06.
 
 ## CT-05 — reserva para artefacto y actualización
 

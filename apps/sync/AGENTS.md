@@ -39,7 +39,7 @@ mezclarlos:
   sucursal, delta, CAS y auditoría CT-01. Es independiente de `EventoSync`.
   A05.3 la reclama con lease, la envía de a una al receptor cloud, persiste la
   identidad/revisión resultante y conserva conflictos/rechazos para A06.
-- `ResolucionConflictoMaestro` — ledger append-only A06 de la decisión humana
+- `ResolucionConflictoMaestro` — ledger A06 separado de la decisión humana
   (motivo, actor y revisión CAS); no reescribe el veredicto original de la
   propuesta negativa.
 - `VersionMaestro` — cursor/versión por tabla maestra (soporte del pull keyset).

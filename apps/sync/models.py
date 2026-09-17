@@ -742,7 +742,7 @@ class MutacionMaestro(models.Model):
 
 
 class ResolucionConflictoMaestro(models.Model):
-    """Decisión humana append-only sobre una propuesta negativa de maestro.
+    """Ledger separado de la decisión humana sobre una propuesta negativa.
 
     ``MutacionMaestro.estado`` conserva el veredicto que emitió el receptor
     cloud (``CONFLICTO`` o ``RECHAZADA``).  Reescribirlo como ``CONFIRMADA`` al

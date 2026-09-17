@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05.1-A05.3 en candidato local** | CT-04 se publica en A05.4 con fixture versionado; A06 implementa listado/resolución, y C04/selectores C05/C06 siguen como siguientes frentes. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05.4 en candidato integrado y A06 inicial en candidato local** | CT-04 conserva fixture versionado; `codex/cierre-prod-A06@003cd41` implementa listado/resolución sin integrar. C04/selectores C05/C06 siguen como siguientes frentes. |
 | G0 / G1 / G2 / G3 / G4 | **G0 completado; integración A04+C05 validada localmente; G1-G4 pendientes** | Parte 2: 95 focales + discovery completo Django sin fallos funcionales + 72 e-CF; worktrees/BDs aislados y suites multi-DB seriales. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

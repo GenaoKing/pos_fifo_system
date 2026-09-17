@@ -37,15 +37,17 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
-> **Integración CT-04/C04 (2026-09-17).** El candidato backend `cc77452`
-> integra A05.4 y el handoff C04. La pantalla frontend sigue pendiente de
-> correcciones de conformidad: enviar `master.conflict-resolution.v1` y
-> rechazar schemas desconocidos. A06 conserva GET/POST de conflictos.
+> **A06 inicial (2026-09-17, sin integrar/publicar).** El candidato backend
+> `codex/cierre-prod-A06@003cd41`, desde `609c98f`, implementa el GET/POST real
+> CT-04 de conflictos con RBAC por fila, cursor opaco, CAS, auditoría y la
+> migración aditiva `sync.0015`. La pantalla frontend no se fusiona todavía:
+> requiere un SHA descendiente con `master.conflict-resolution.v1`, validación
+> runtime de schemas y una repetición contra este backend real.
 
 > **Actualización A05.4 (2026-09-17).** CT-04 ya publica el schema y fixture
 > de estados pendiente/conflicto. C04 puede maquetar contra esa fuente
-> canónica; las superficies backend reales y los selectores siguen para A06+C04
-> y no están integrados ni autorizados para publicar.
+> canónica; las superficies backend reales iniciales están en el candidato A06,
+> pero A06+C04 y los selectores siguen sin integrarse ni autorizarse a publicar.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
