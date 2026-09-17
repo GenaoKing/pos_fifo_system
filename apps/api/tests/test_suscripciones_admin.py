@@ -191,6 +191,89 @@ class SUS015AuditoriaTests(TestCase):
         self.assertEqual(Auditoria.objects.count(), antes)
 
 
+class SUS019CanalesDelGuardTests(TestCase):
+    """SUS-019 — el guard de degradacion (SUS-004/SUS-015) aplica por TODOS los
+    canales, no solo por override.
+
+    El plan y `activa` tambien recomputan el set efectivo antes/despues, asi que un
+    downgrade de plan o una suspension que retira un modulo con datos en vuelo se
+    rechaza y NO deja ni escritura ni evento. La suite ya cubria el override
+    (excluir con dependientes) y el cambio de plan hacia ARRIBA; el downgrade de
+    plan y la suspension via `activa` eran justo las rutas que el guard unificado
+    dejo de esquivar y que nada fijaba como regresion.
+    """
+
+    def setUp(self):
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        self.negocio = Negocio.objects.create(nombre='Royal Plast', slug='royal-plast')
+        self.operador = User.objects.create_user('op', 'op@e.com', 'x', rol='SYSADMIN')
+
+    def _api(self):
+        client = APIClient()
+        client.force_authenticate(user=self.operador)
+        return client
+
+    def _suscribir(self, slug):
+        return SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug=slug), activa=True,
+        )
+
+    def test_downgrade_de_plan_deja_un_evento_con_diff(self):
+        """El canal 'plan' hacia abajo tambien pasa por el guard y se audita."""
+        susc = self._suscribir('empresarial')
+
+        r = self._api().patch(
+            f'/api/v1/suscripciones/negocios/{susc.id}/',
+            {'plan': 'basico'}, format='json',
+        )
+
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertNotIn('ecf', r.data['modulos_activos'])   # se retiro de verdad
+        eventos = Auditoria.objects.filter(accion='suscripciones.suscripcion.actualizado')
+        self.assertEqual(eventos.count(), 1)
+        evento = eventos.get()
+        self.assertEqual(evento.datos_anteriores['plan'], 'empresarial')
+        self.assertEqual(evento.datos_nuevos['plan'], 'basico')
+
+    def test_downgrade_bloqueado_por_datos_en_vuelo_no_escribe_ni_audita(self):
+        """La regresion clave: un downgrade que retira `ecf` con datos en vuelo se
+        rechaza, y el rechazo revierte tanto la escritura como el evento."""
+        from unittest.mock import patch
+
+        from apps.suscripciones import engine
+
+        susc = self._suscribir('empresarial')  # empresarial tiene ecf; basico no
+        antes = Auditoria.objects.count()
+
+        with patch.dict(engine._HOOKS_DATOS,
+                        {'ecf': lambda negocio: 'hay e-CF en proceso'}):
+            r = self._api().patch(
+                f'/api/v1/suscripciones/negocios/{susc.id}/',
+                {'plan': 'basico'}, format='json',
+            )
+
+        self.assertEqual(r.status_code, 400)
+        susc.refresh_from_db()
+        self.assertEqual(susc.plan.slug, 'empresarial')      # escritura revertida
+        self.assertEqual(Auditoria.objects.count(), antes)    # sin evento
+
+    def test_suspender_via_activa_pasa_por_el_guard_y_se_audita(self):
+        """El canal `activa` tambien recomputa el set y audita. Un negocio en
+        `basico` (sin cxc/ecf: sin hooks de datos que bloqueen) se suspende bien."""
+        susc = self._suscribir('basico')
+
+        r = self._api().patch(
+            f'/api/v1/suscripciones/negocios/{susc.id}/',
+            {'activa': False}, format='json',
+        )
+
+        self.assertEqual(r.status_code, 200, r.data)
+        evento = Auditoria.objects.get(accion='suscripciones.suscripcion.actualizado')
+        self.assertTrue(evento.datos_anteriores['activa'])
+        self.assertFalse(evento.datos_nuevos['activa'])
+
+
 class PayloadModulosTests(TestCase):
     def setUp(self):
         seed.sembrar_modulos(Modulo)
