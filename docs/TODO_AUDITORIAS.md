@@ -42,7 +42,11 @@ Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
 CXC-MIG-ALIAS, CXC-IDEMP-CONC, INV-RBAC-SCOPE, PAG-CXC-CAJA y RPT-005;
 CAJA-002, CXC-006, RPT-004 y VEN-ANULAR-LEGACY se revalidaron. COT-009 solo
 cierra su revalidación server-side: los selectores operativos y estados
-pendiente/conflicto siguen bloqueados por **CT-04**. **C04 no se inició**.
+pendiente/conflicto siguen bloqueados por **CT-04**. **C04 arrancó** con la
+pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
+frontend, sin publicar) — ver
+`docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. Falta backend
+real de A06 para aceptarlo, y quedan pendientes los pasos 2/3/5/6 del encargo.
 
 ---
 
