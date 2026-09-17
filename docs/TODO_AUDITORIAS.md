@@ -4,7 +4,7 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-11**
+Última actualización: **2026-09-16** (reconciliación de cierres C02/C03 ya en `develop`; ver INVENTARIO.md)
 
 ## Cierre A02 (sin despliegue)
 
@@ -230,9 +230,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       INSERT de auditoría — caro en el camino de una venta) o, mejor, una
       **exportación periódica a almacenamiento WORM**, que además protege
       contra el borrado total de la tabla.
-- [ ] **Chart.js desde CDN** sin integridad ni fallback local
-      (`templates/reportes/on_demand.html`). En un POS sin Internet estable los
-      gráficos fallan aunque los datos estén.
+- [x] **Chart.js desde CDN** sin integridad ni fallback local
+      (`templates/reportes/on_demand.html`). Resuelto: sirve el asset local
+      `static/js/chart.min.js` (Chart.js 4.4.0). Revisado PASS (`f085d77`) e
+      **integrado por Codex en `integration/cierre-prod-A05-C03`** (`1009ba3`);
+      aún no en `develop`. Ver `docs/handoffs/cierre_prod/C02-chart-offline.md`.
 
 ---
 
@@ -246,20 +248,19 @@ ya procesados.
 **Pendientes de `apps/permisos`:** no quedan hallazgos de código de la ronda;
 permanece el gate operacional de ADMIN documentado arriba.
 
-**Pendientes de `apps/common`** (P1 cerrado + COM-002/003/004/010/011/015):
-COM-005 (forma de tablas sin validar: una columna extra expandio la tabla
-a 777pt sobre 518pt disponibles, y el contenido financiero queda fuera de
-pagina sin error), COM-006, COM-007 (un logo corrupto rompe el documento),
-COM-008 (un fallo de storage se traga y genera el PDF sin logo),
-**COM-009 (el logo remoto se lee completo en memoria SIN LIMITE: el tamano
-del archivo que alguien suba determina cuanta memoria consume el worker en
-cada documento — el mas urgente de los seis)**, COM-012, COM-013 (los
-builds no fijan ReportLab/Pillow aunque existan snapshots exactos que el
-Dockerfile no usa), COM-014.
-
-Los seis P2 de renderizado se dejaron fuera porque cada uno necesita
-decidir QUE hacer cuando falla —emitir sin logo, fallar, degradar— y esa
-decision conviene tomarla con el comportamiento observado en produccion.
+**Pendientes de `apps/common`** — solo queda **COM-013** (los builds no fijan
+ReportLab/Pillow aunque existan snapshots exactos que el Dockerfile no usa; es
+A+C, la parte de deps es de Codex). **COM-012** (tablas materializaban todos los
+registros) quedó **cerrado en rama `claude/cierre-prod-C02-com012` (`78bec9a`),
+sin integrar**: `standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS`.
+El resto de la ronda de renderizado quedó **cerrado en `develop` por
+C02** (`d937db5`, con tests en `apps/common/tests`, revalidado 2026-09-16):
+COM-005 (valida la forma de la tabla y rechaza geometría inválida), COM-006
+(vacíos/dimensiones degradan con aviso), COM-007 (degrada logo corrupto con
+warning), COM-008 (distingue "fallo de storage" de "no hay logo"), COM-009 (lee
+el logo remoto por chunks con tope `LOGO_MAX_BYTES` + pre-check de `size` — ya
+no agota memoria) y COM-014 (escala el logo manteniendo proporción). Ya estaban
+cerrados COM-001/002/003/004/010/011/015.
 
 **Pendientes de `apps/cotizaciones`** después de C05 parte 2: COT-009 conserva
 pendientes el selector de maestros operativamente activos y los estados
@@ -268,24 +269,38 @@ COT-013 (borrar no converge con cloud); COT-017 conserva el stock al convertir y
 el presupuesto de queries (la lista ya pagina); COT-018 conserva rutas/floats
 residuales. COT-008/010/011/012/014/015 quedaron acreditados en C05.
 
-**Pendientes de `apps/suscripciones`** (P1 6/10):
-SUS-007 (plantillas y sync leen flags legacy, servicios leen el entitlement),
-SUS-008 (el bootstrap une flags entre sucursales: si A tenía e-CF y B no,
-ambas terminan con e-CF), SUS-009 (las configuraciones legacy sin sucursal
-se ignoran al migrar), **SUS-010 (los hooks de datos bloqueantes tragan
-cualquier excepción: un fallo de base se interpreta como "no hay datos
-pendientes" y AUTORIZA la baja — el más barato de los cinco y el más
-peligroso)**, SUS-011 a SUS-019.
+**Pendientes de `apps/suscripciones`** — el grueso quedó **cerrado en
+`develop` por C03** (revalidado 2026-09-16, con tests en
+`test_auditoria_suscripciones`/`test_sync_modulos`): SUS-008/009 (`1ca1688`,
+bootstrap preserva flags por sucursal y adopta legacy sin sucursal),
+SUS-010/012/018 (`d968e3f`, fail-closed en la baja, reconciliación ruidosa
+código↔DB y default-deny de key desconocida), SUS-011 (`506edf2`, invalidación
+diferida a `on_commit`), SUS-013 (`6e3d551`, semántica real de `Plan.activo`),
+SUS-015 (`7201043`, auditoría CT-01), SUS-017 (`3018ce8`, presets versionados).
+**SUS-019** (fronteras del guard de degradación por plan/`activa`) quedó cerrado
+en rama `claude/cierre-prod-SUS019-coverage` (`0548384`), sin integrar. Quedan
+abiertos: **SUS-007** (mitad UI hecha, falta migrar el pull de sync a derivar del
+engine — es de Codex), **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
+reporte de sync parcial de Codex) y **SUS-014** (divergencia plan control-plane
+vs operativo, cross-DB — conviene coordinar).
 
-**Pendientes de `apps/configuracion`** (P1 cerrados):
-CFG-006 (combinaciones operativas y fiscales inseguras), CFG-007 (el pull
-omite validadores), CFG-008 (controles e-CF sin unidad), CFG-009 (dos
-fuentes de verdad entre plantillas y gates), CFG-010, **CFG-011 (la
-proteccion contra borrar configuracion es ilusoria: `QuerySet.delete()` no
-pasa por el modelo)**, **CFG-012 + CFG-017 (leer configuracion puede
-crearla, y ningun cambio deja auditoria de dominio: hoy no se puede
-reconstruir quien activo el inventario negativo ni cuando)**, CFG-013,
-CFG-014, CFG-015, CFG-016, CFG-018 a CFG-021.
+**Pendientes de `apps/configuracion`** — cerrados en `develop` por C03
+(revalidado 2026-09-16, con tests de configuración): CFG-006 (`38e5647`,
+`full_clean` rechaza combinaciones inseguras), CFG-009 (`b19c4a5`, la UI lee
+`modulos_efectivos()` en vez de `config.modulo_*`), CFG-011 (`38e5647`, el
+borrado por instancia y por `QuerySet` levanta `ConfiguracionProtegidaError`),
+CFG-013/014/015 (`fe5c8de`, diagnóstico fiel + comando sin objetivo ambiguo),
+CFG-017 (`7201043`, auditoría CT-01 transaccional). Cerrados 2026-09-16 **en
+ramas sin integrar**: **CFG-010** (ámbito por sucursal + integridad de fila; rama
+`claude/cierre-prod-C03-cfg010` `0db8f57`; preflight: backfill legacy +
+CheckConstraint), **CFG-018** (borrar logo anterior al reemplazar), **CFG-019**
+(retirar decoradores sin uso) y **CFG-020** (validar formato del código de
+barras del lado config) — los tres en `claude/cierre-prod-C03-menores`
+(`1a7b767`). **CFG-021** verificado como ya cubierto por los tests de C03. Quedan
+abiertos: **CFG-012** (leer configuración aún puede crearla — el fix vive solo en
+`integration/cierre-prod-A05-C03`, no en `develop`), CFG-007 (el pull omite
+validadores; C+A) y CFG-008 (controles e-CF sin unidad, diferida). CFG-016
+(round-trip BAT→env) es de C01.
 
 **Pendientes de `apps/productos`** (P1 6/8; PRO-018 cerrado):
 PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
