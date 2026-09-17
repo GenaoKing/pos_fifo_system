@@ -15,7 +15,7 @@ from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
 from apps.auditoria.models import Auditoria
-from apps.configuracion.models import ConfiguracionNegocio
+from apps.configuracion.models import AccesoRapidoPOS, ConfiguracionNegocio
 from apps.configuracion.utils import (
     ConfiguracionNoResuelta,
     cache_key_config,
@@ -534,3 +534,64 @@ class ModulosEfectivosTests(ConfiguracionTestCase):
         ctx = config_negocio(RequestFactory().get('/'))
         self.assertIn('modulos_efectivos', ctx)
         self.assertIn('ecf', ctx['modulos_efectivos'])
+
+
+class AccesoRapidoInvarianteTests(TestCase):
+    """CFG-010 (parcial): ninguna fila invalida de `AccesoRapidoPOS` persiste por
+    ORM/import.
+
+    `clean()` exige exactamente producto XOR categoria segun `tipo`, pero `save()`
+    no lo invocaba: `objects.create(tipo='producto')` guardaba una fila que el POS
+    no sabe resolver. Ahora `save()` valida a nivel aplicacion (mismo criterio que
+    CFG-006; el `CheckConstraint` de base queda para un preflight coordinado). El
+    ambito por sucursal (fuga entre sucursales) queda fuera de esta entrega.
+    """
+
+    def setUp(self):
+        from apps.productos.models import Categoria, Producto
+
+        self.categoria = Categoria.objects.create(nombre='Vasos')
+        self.producto = Producto.objects.create(
+            sku='CFG010-1',
+            codigo_barras='CFG010-1',
+            nombre='Vaso',
+            descripcion='',
+            categoria=self.categoria,
+            precio_venta='100.00',
+            stock_minimo=5,
+            activo=True,
+            estado='nuevo',
+            marca='',
+            atributos={},
+        )
+
+    def test_create_sin_producto_para_tipo_producto_se_rechaza(self):
+        """La reproduccion del hallazgo: la fila invalida ya no persiste."""
+        with self.assertRaises(ValidationError):
+            AccesoRapidoPOS.objects.create(
+                etiqueta='Roto', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            )
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_create_con_producto_y_categoria_a_la_vez_se_rechaza(self):
+        with self.assertRaises(ValidationError):
+            AccesoRapidoPOS.objects.create(
+                etiqueta='Ambiguo', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+                producto=self.producto, categoria=self.categoria,
+            )
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_save_directo_de_instancia_invalida_se_rechaza(self):
+        acceso = AccesoRapidoPOS(
+            etiqueta='Sin categoria', tipo=AccesoRapidoPOS.TIPO_CATEGORIA,
+        )
+        with self.assertRaises(ValidationError):
+            acceso.save()
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_un_acceso_valido_persiste(self):
+        acceso = AccesoRapidoPOS.objects.create(
+            etiqueta='Vaso', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            producto=self.producto, orden=1,
+        )
+        self.assertTrue(AccesoRapidoPOS.objects.filter(pk=acceso.pk).exists())

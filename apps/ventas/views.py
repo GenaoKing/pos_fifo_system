@@ -321,10 +321,18 @@ def producto_por_id(request, producto_id):
 @login_required
 @require_http_methods(["GET"])
 def accesos_rapidos_pos(request):
-    """Lista los botones configurables globales del POS."""
+    """Lista los botones configurables del POS de ESTA sucursal.
+
+    CFG-010 pata 2 — antes listaba todos los accesos activos y un boton creado
+    en otra sucursal aparecia aca. Ahora se acota a la sucursal actual mas los
+    accesos legacy sin sucursal (NULL = global, visibles en todas hasta que un
+    operador los reasigne).
+    """
+    sucursal_actual = get_sucursal_actual()
     accesos = (
         AccesoRapidoPOS.objects
         .filter(activo=True)
+        .filter(Q(sucursal=sucursal_actual) | Q(sucursal__isnull=True))
         .select_related('producto', 'categoria')
         .order_by('orden', 'id')
     )

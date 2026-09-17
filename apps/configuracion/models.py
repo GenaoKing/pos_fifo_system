@@ -599,6 +599,24 @@ class AccesoRapidoPOS(models.Model):
         ('gris', 'Gris'),
     )
 
+    # CFG-010 pata 2 — ambito por sucursal. Antes el modelo no tenia sucursal y
+    # el POS listaba TODOS los accesos activos: un boton creado en la sucursal A
+    # aparecia en la B, con catalogos/prioridades distintos. Ahora cada acceso es
+    # de una sucursal. `null=True` es deliberado: las filas creadas antes de este
+    # campo quedan en NULL y se tratan como "legacy global" (visibles en toda
+    # sucursal) hasta que un operador las reasigne, para no romper instalaciones
+    # existentes en el `migrate`.
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.CASCADE,
+        related_name='accesos_rapidos_pos',
+        blank=True,
+        null=True,
+        verbose_name='Sucursal',
+        help_text='Sucursal dueña de este acceso. Vacio = acceso legacy global '
+                  '(visible en todas las sucursales); asignalo para acotarlo.',
+    )
+
     etiqueta = models.CharField(
         'Etiqueta',
         max_length=80,
@@ -675,3 +693,17 @@ class AccesoRapidoPOS(models.Model):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        # CFG-010 — `clean()` exige exactamente producto XOR categoria segun
+        # `tipo`, pero `save()` no lo invocaba: `objects.create(tipo='producto')`
+        # (sin producto), un `save()` directo o un import persistian una fila
+        # invalida que el POS despues no sabe resolver. Se valida aca para cerrar
+        # la via ORM/import, a nivel aplicacion — mismo criterio que CFG-006. El
+        # `CheckConstraint` de base queda para un preflight coordinado: una
+        # instalacion existente podria tener filas invalidas y el `migrate`
+        # fallaria. El ambito por sucursal (fuga entre sucursales) es un cambio
+        # de modelo con decision de negocio + backfill; queda fuera de esta
+        # entrega (ver handoff CFG-010).
+        self.full_clean()
+        super().save(*args, **kwargs)

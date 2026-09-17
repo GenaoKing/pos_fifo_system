@@ -154,6 +154,7 @@ class AccesoRapidoPOSAdmin(admin.ModelAdmin):
     list_display = (
         'orden',
         'etiqueta_visible',
+        'sucursal',
         'tipo',
         'producto',
         'categoria',
@@ -161,7 +162,7 @@ class AccesoRapidoPOSAdmin(admin.ModelAdmin):
         'activo',
         'fecha_modificacion',
     )
-    list_filter = ('tipo', 'activo', 'color')
+    list_filter = ('sucursal', 'tipo', 'activo', 'color')
     list_display_links = ('etiqueta_visible',)
     search_fields = (
         'etiqueta',
@@ -175,7 +176,9 @@ class AccesoRapidoPOSAdmin(admin.ModelAdmin):
     ordering = ('orden', 'id')
     fieldsets = (
         ('Boton', {
-            'fields': ('etiqueta', 'tipo', 'color', 'orden', 'activo')
+            'fields': ('sucursal', 'etiqueta', 'tipo', 'color', 'orden', 'activo'),
+            'description': 'Sucursal vacia = acceso legacy global (visible en todas). '
+                           'Asignala para acotar el boton a una sucursal.',
         }),
         ('Destino', {
             'fields': ('producto', 'categoria'),
