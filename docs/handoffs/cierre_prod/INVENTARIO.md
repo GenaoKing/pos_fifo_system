@@ -295,7 +295,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | DOC-RBAC-WORKERS | RBAC_PERMISOS aún dice single-worker; Docker usa 3. | A | A03/A07 | Baja | RESUELTO | `3e6cec1` | Documento alineado con caché/namespace vigente. |
 | USR-002-CLOUD-ADMIN | Cerrar `/admin/` cloud y cubrir alternativas; MFA/red queda fuera del código inmediato. | A+C | A02/C04 | Alta | PARCIAL_A02 | `583863f` | `/admin/` no se monta en cloud; alternativa visual sigue C04 y MFA/red queda diferido. |
 | OPS-RESTORE | Dumps verificados pero sin restauración end-to-end. | A+C | A08/C06 | Alta | PENDIENTE | — | Restaurar control plane + tenants aislados. |
-| OPS-PRO-007 | Categoría inactiva con producto activo cambia visibilidad efectiva. | A+C | A06/C04/C05 | Alta | OPERATIVO_PENDIENTE | — | Conteo preflight + UX motivo. |
+| OPS-PRO-007 | Categoría inactiva con producto activo cambia visibilidad efectiva. | A+C | A06/C04/C05 | Alta | CÓDIGO_LOCAL_INTEGRADO; OPERATIVO_PENDIENTE | `integration/cierre-prod-A06-C04-C05` | Backend/POS/portal cubiertos; falta conteo preflight aprobado con datos reales. |
 | OPS-CLI-CONTADO | `clientes.0006` aborta ante cliente real marcado CONTADO. | A | A06/A08 | Alta migración | OPERATIVO_PENDIENTE | — | Preflight copia; no reasignar historia. |
 | OPS-NEG-SELF | Más de una fila negocio en tenant bloquea provisioning. | A | A02/A08 | Alta | OPERATIVO_PENDIENTE | — | Preflight por copia. |
 | OPS-USR-HUERFANOS | Usuario activo sin negocio pierde scope al cerrar fail-open. | A | A02/A08 | Alta | OPERATIVO_PENDIENTE | — | Lista read-only + plan manual. |
