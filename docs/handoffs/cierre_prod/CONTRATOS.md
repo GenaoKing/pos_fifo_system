@@ -410,10 +410,9 @@ sí están cubiertos por CT-01 y por esta implementación.
 
 ## C04 p5.2 — administración portal tenant-scoped
 
-**Estado:** implementado localmente en
-`codex/cierre-prod-C04-p5-backend-admin@5790ec2`; pendiente de integración
-local sobre el candidato A06/C04/C05 y del consumidor React. No mueve
-`develop`, no se publicó ni se desplegó.
+**Estado:** integrado localmente en
+`integration/cierre-prod-A06-C04-C05@50fe658`; pendiente solo del consumidor
+React. No mueve `develop`, no se publicó ni se desplegó.
 
 | Recurso | Interfaz | RBAC y límites |
 | --- | --- | --- |

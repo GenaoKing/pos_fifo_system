@@ -1,7 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
 Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados, checkpoint A07
-integrado y candidato backend C04 p5.2 `5790ec2` pendiente de integrar
+y backend C04 p5.2 integrados localmente en `50fe658`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -121,8 +121,8 @@ El candidato `codex/cierre-prod-C04-p5-backend-admin@5790ec2` agrega escritura
 tenant-scoped para usuarios, sucursales y configuración del negocio, con CT-01,
 RBAC global y baja lógica. En cloud la baja de usuario revoca Membership y el
 gate con dos PostgreSQL/JWT tenant-aware lo comprobó. No hay migración ni
-operación de datos reales. Falta integrarlo localmente y que Claude consuma el
-contrato; el detalle vive en `handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
+operación de datos reales. Queda que Claude consuma el contrato; el detalle
+vive en `handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
 
 ### Auditorías escritas pero todavía sin procesar
 

@@ -154,6 +154,28 @@ El reencuentro de los dos bloques se efectuó sin mover `develop`:
   conversión de cotización por venta que aún emite `EDITAR` legacy. No fueron
   absorbidos por esta integración.
 
+## Actualización C04 p5.2 backend — 2026-09-18
+
+Se avanzó por fast-forward, sin conflicto y sin mover `develop`, desde el
+checkpoint A07 `6d8b195` hasta
+`integration/cierre-prod-A06-C04-C05@50fe6582b9a43598c6c8e19bf5b056741f543dd4`.
+La fuente fue `codex/cierre-prod-C04-p5-backend-admin@50fe658` (código
+`5790ec2`): rutas portal para usuarios, sucursales y configuración, servicios
+auditados CT-01, RBAC global y baja de Membership en cloud.
+
+En este worktree integrado pasaron `apps.api.tests.test_administracion_portal`
+(**7 pruebas, OK; 1 skip físico esperado**), `manage.py check` (0 issues) y
+`makemigrations --check --dry-run` (sin cambios; el aviso de la base aislada
+inexistente no escribe nada). La prueba física ya acreditada por la fuente usó
+dos PostgreSQL descartables y JWT tenant-aware: alta en tenant y revocación de
+Membership en control plane.
+
+El siguiente consumidor autorizado es Claude/C04 p5.2, desde
+`claude/cierre-prod-C04@2df99c2407fd90c457b178f0f8d5bb65ba054fda`, sin mocks ni
+mutaciones backend. Playwright queda posterior al consumo HTTP real y a sus
+tests de UI. Esta integración sigue siendo local: no autoriza push, despliegue
+ni cambios de datos operativos.
+
 ## Secuencia recomendada
 
 1. Conservar los SHAs y límites de transporte/evidencia de las integraciones

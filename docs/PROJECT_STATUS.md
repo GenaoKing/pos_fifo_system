@@ -6,10 +6,10 @@ A06, C05/CT-04, C05 p6, SUS-014 y CT-03 sync SUS-007/CFG-007). El frontend C04
 integró p6 en `claude/cierre-prod-C04@f0e6c2d`; build/lint/120 tests y su
 evidencia HTTP a 201 filas (24/24) están verdes localmente. El responsable
 aceptó ambas puntas y A07 repitió 605 pruebas backend en un worktree aislado.
-El candidato backend C04 p5.2
-`codex/cierre-prod-C04-p5-backend-admin@5790ec2` añade las escrituras portal de
-usuarios, sucursales y configuración, aún sin integrar. Sin push, despliegue ni
-lectura o escritura de datos operativos.
+El backend C04 p5.2 se integró localmente en
+`integration/cierre-prod-A06-C04-C05@50fe658`: añade las escrituras portal de
+usuarios, sucursales y configuración. Sin push, despliegue ni lectura o
+escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -57,8 +57,8 @@ consolidado `integration/cierre-prod-A06-C04-C05@2df0749` integra A06,
 selectores C05/CT-04, doce productores C05 p6 CT-01, SUS-014 y CT-03 sync.
 C04 p6 se integró en `claude/cierre-prod-C04@f0e6c2d`, con evidencia local a
   201 filas. Ambas puntas fueron aceptadas y A07 dejó evidencia local de 605
-  pruebas; C04 p5.2 backend debe integrarse antes de abrir el consumidor
-  frontend. G1-G4 siguen
+  pruebas; C04 p5.2 backend ya está integrado y Claude puede abrir el
+  consumidor frontend. G1-G4 siguen
   pendientes de preflight y release; nada está aprobado
 ni publicado**.
 Inventario,

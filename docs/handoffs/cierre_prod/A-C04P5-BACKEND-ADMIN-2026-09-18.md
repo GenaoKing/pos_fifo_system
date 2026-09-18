@@ -1,7 +1,7 @@
 # A / C04 p5.2 — contrato backend de administración del tenant
 
-Fecha: **2026-09-18**. Estado: **implementado y validado localmente en
-`codex/cierre-prod-C04-p5-backend-admin@5790ec2`; no autoriza publicar,
+Fecha: **2026-09-18**. Estado: **integrado y validado localmente en
+`integration/cierre-prod-A06-C04-C05@50fe658`; no autoriza publicar,
 desplegar ni mover `develop`**.
 
 ## Motivo y frontera
@@ -127,10 +127,10 @@ autoritativa, no un `Negocio.slug` comercial que puede diferir.
 
 ## Siguiente integración
 
-1. Integrar este candidato únicamente sobre
-   `integration/cierre-prod-A06-C04-C05`, repetir al menos la batería focal y
-   conservar `develop@fffd02b` inmóvil.
-2. Entonces Claude abre `claude/cierre-prod-C04-p5.2` desde
+1. **Completado:** el candidato avanzó por fast-forward sobre
+   `integration/cierre-prod-A06-C04-C05@50fe658`, con la batería focal verde;
+   `develop@fffd02b` sigue inmóvil.
+2. Claude abre `claude/cierre-prod-C04-p5.2` desde
    `claude/cierre-prod-C04@2df99c2407fd90c457b178f0f8d5bb65ba054fda`, consume
    estas rutas reales y no agrega mocks ni backend.
 3. Playwright sigue diferido hasta que la UI consuma este candidato y pase
