@@ -9,6 +9,7 @@ Endurecimiento de cotizaciones (parte 2 del cierre C05):
 - COT-017: el listado esta paginado.
 """
 import json
+import uuid
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -24,6 +25,8 @@ from apps.configuracion.models import ConfiguracionNegocio
 from apps.cotizaciones.models import Cotizacion
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto
+from apps.sucursales.models import Sucursal
+from apps.sync.models import MutacionMaestro
 
 User = get_user_model()
 
@@ -143,6 +146,85 @@ class COT009ClienteActivoTests(CotizacionHardeningBase):
         self.assertEqual(resp.status_code, 400)
         self.assertNotIn('DoesNotExist', resp.json()['error'])
         self.assertEqual(Cotizacion.objects.count(), 0)
+
+
+class COT009ProductoVendibleTests(CotizacionHardeningBase):
+    """Simetria de COT-009 del lado producto: la cotizacion ya usaba
+    `productos_vendibles()` (PRO-007) al guardar, pero nada lo probaba para
+    un producto inactivo, una categoria inactiva o un conflicto de maestro
+    CT-04 -- solo estaba cubierto el caso de cliente inactivo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.negocio = permisos_testing.crear_negocio('Negocio COT-vendible')
+        self.sucursal = Sucursal.objects.create(
+            codigo='COTV-01', nombre='Sucursal COT vendible', activa=True,
+            negocio=self.negocio,
+        )
+
+    def _mutacion(self, *, entidad, entidad_id):
+        return MutacionMaestro.objects.create(
+            mutacion_id=uuid.uuid4(),
+            entidad=entidad,
+            entidad_id=entidad_id,
+            operacion=MutacionMaestro.Operacion.ACTUALIZAR,
+            sucursal=self.sucursal,
+            sucursal_codigo=self.sucursal.codigo,
+        )
+
+    def test_producto_inactivo_es_400(self):
+        self.producto.activo = False
+        self.producto.save(update_fields=['activo'])
+
+        resp = self._cotizar()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
+    def test_categoria_inactiva_es_400(self):
+        self.categoria.activa = False
+        self.categoria.save(update_fields=['activa'])
+
+        resp = self._cotizar()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
+    def test_producto_en_conflicto_de_maestro_es_400_y_no_se_pierde(self):
+        mutacion = self._mutacion(
+            entidad=MutacionMaestro.Entidad.PRODUCTO, entidad_id=self.producto.id,
+        )
+        mutacion.marcar_conflicto('CAS_REVISION_MISMATCH')
+
+        resp = self._cotizar()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+        mutacion.refresh_from_db()
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.CONFLICTO)
+
+    def test_categoria_en_conflicto_de_maestro_bloquea_sus_productos(self):
+        mutacion = self._mutacion(
+            entidad=MutacionMaestro.Entidad.CATEGORIA, entidad_id=self.categoria.id,
+        )
+        mutacion.marcar_conflicto('CAS_REVISION_MISMATCH')
+
+        resp = self._cotizar()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Cotizacion.objects.count(), 0)
+
+    def test_producto_con_mutacion_pendiente_sigue_cotizable(self):
+        # PENDIENTE/ENVIANDO/CONFIRMADA no bloquean -- solo CONFLICTO.
+        self._mutacion(
+            entidad=MutacionMaestro.Entidad.PRODUCTO, entidad_id=self.producto.id,
+        )
+
+        resp = self._cotizar()
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Cotizacion.objects.count(), 1)
 
 
 class COT010NumeracionTests(CotizacionHardeningBase):

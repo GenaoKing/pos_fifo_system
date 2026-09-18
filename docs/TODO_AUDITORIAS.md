@@ -53,9 +53,14 @@ datos de clientes.
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
 CXC-MIG-ALIAS, CXC-IDEMP-CONC, INV-RBAC-SCOPE, PAG-CXC-CAJA y RPT-005;
-CAJA-002, CXC-006, RPT-004 y VEN-ANULAR-LEGACY se revalidaron. COT-009 solo
-cierra su revalidación server-side: los selectores operativos y estados
-pendiente/conflicto siguen bloqueados por **CT-04**. **C04 arrancó** con la
+CAJA-002, CXC-006, RPT-004 y VEN-ANULAR-LEGACY se revalidaron. **COT-009 ya
+cierra del todo**: el selector `productos_vendibles()`/`es_vendible` (PRO-007)
+ya filtra activo+categoría activa+`MutacionMaestro` en `CONFLICTO` en
+búsqueda, escaneo, accesos rápidos y — el gate final — la carga transaccional
+de la venta; `guardar_cotizacion` usa el mismo selector. Solo faltaba
+cobertura de test del lado producto/categoría (ya existía para cliente) y un
+accesorio menor (categoría en accesos rápidos no miraba conflicto) — ambos
+cerrados en `claude/cierre-prod-C05-ct04-selectores`. **C04 arrancó** con la
 pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
 frontend, sin publicar) — ver
 `docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
@@ -281,12 +286,10 @@ el logo remoto por chunks con tope `LOGO_MAX_BYTES` + pre-check de `size` — ya
 no agota memoria) y COM-014 (escala el logo manteniendo proporción). Ya estaban
 cerrados COM-001/002/003/004/010/011/015.
 
-**Pendientes de `apps/cotizaciones`** después de C05 parte 2: COT-009 conserva
-pendientes el selector de maestros operativamente activos y los estados
-pendiente/conflicto, bloqueados por CT-04 (la revalidación server-side ya está);
-COT-013 (borrar no converge con cloud); COT-017 conserva el stock al convertir y
-el presupuesto de queries (la lista ya pagina); COT-018 conserva rutas/floats
-residuales. COT-008/010/011/012/014/015 quedaron acreditados en C05.
+**Pendientes de `apps/cotizaciones`** después de C05 parte 2: COT-013 (borrar
+no converge con cloud); COT-017 conserva el stock al convertir y el
+presupuesto de queries (la lista ya pagina); COT-018 conserva rutas/floats
+residuales. COT-008/009/010/011/012/014/015 quedaron acreditados.
 
 **Pendientes de `apps/suscripciones`** — el grueso quedó **cerrado en
 `develop` por C03** (revalidado 2026-09-16, con tests en
