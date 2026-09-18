@@ -59,6 +59,23 @@ toggle ambiguo. En POS, el admin del catálogo es solo lectura y el ViewSet DRF
 de maestros rechaza escrituras: no abrir rutas alternativas que salten la
 transacción maestro + auditoría + cola.
 
+## Estado operativo A06
+
+`Producto` y `Categoria` tienen baja lógica (`activo`/`activa`),
+`motivo_inactivacion` e `inactivado_at`. Toda transición nueva a inactivo pasa
+por `establecer_estado_operativo(...)` y exige motivo; reactivar limpia sus
+metadatos. Reactivar una categoría **no** cambia los flags de sus productos.
+`productos_vendibles()` sigue siendo la regla única para escaneo/checkout:
+exige producto y categoría activos y conflicto CT-04 no resuelto. La API cloud
+expone `?operativo=true|false`, pero el pull incremental nunca filtra inactivos:
+debe transportarlos para que la baja llegue al POS.
+
+El POS recibe la decisión cloud por el pull
+`master.conflict-resolution-sync.v1`: el ledger local de resolución libera solo
+esa propuesta, sin borrar su resultado negativo. La vista
+`/productos/conflictos/` muestra únicamente conflictos locales aún no resueltos y
+remite la decisión humana al portal.
+
 ## Trampas
 
 - Editar en el portal actualiza `fecha_modificacion` (`auto_now`) → eso es lo que

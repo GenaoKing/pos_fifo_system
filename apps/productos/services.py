@@ -89,6 +89,7 @@ def _snapshot_producto(producto: Producto) -> dict:
         'precio_venta': str(producto.precio_venta),
         'stock_minimo': producto.stock_minimo,
         'activo': producto.activo,
+        'motivo_inactivacion': producto.motivo_inactivacion,
         'atributos': producto.atributos or {},
         'estado': producto.estado,
         'marca': producto.marca,
@@ -103,6 +104,7 @@ def _snapshot_categoria(categoria: Categoria) -> dict:
         'nombre': categoria.nombre,
         'descripcion': categoria.descripcion,
         'activa': categoria.activa,
+        'motivo_inactivacion': categoria.motivo_inactivacion,
         'tipo_negocio': categoria.tipo_negocio,
         'atributos_configurados': categoria.atributos_configurados or {},
         'origen_cloud_id': categoria.origen_cloud_id,
@@ -331,7 +333,10 @@ def editar_producto_local(*, actor, sucursal, producto_id: int, datos: dict, mut
         producto.categoria_id = datos['categoria_id']
         producto.precio_venta = datos['precio_venta']
         producto.stock_minimo = datos.get('stock_minimo', 5)
-        producto.activo = datos.get('activo', True)
+        activo = datos.get('activo', producto.activo)
+        producto.establecer_estado_operativo(
+            activo, motivo=datos.get('motivo_inactivacion'),
+        )
         producto.atributos = datos.get('atributos', {})
         producto.estado = datos.get('estado', 'nuevo')
         producto.marca = datos.get('marca', '')
@@ -349,12 +354,13 @@ def editar_producto_local(*, actor, sucursal, producto_id: int, datos: dict, mut
 
 
 def cambiar_estado_producto_local(
-    *, actor, sucursal, producto_id: int, activo: bool, mutacion_id=None, using='default',
+    *, actor, sucursal, producto_id: int, activo: bool, motivo=None,
+    mutacion_id=None, using='default',
 ):
     def mutar():
         producto = Producto.objects.using(using).select_for_update().get(pk=producto_id)
         antes = _snapshot_producto(producto)
-        producto.activo = activo
+        producto.establecer_estado_operativo(activo, motivo=motivo)
         producto.save(using=using)
         return producto, antes, _snapshot_producto(producto)
 
@@ -402,7 +408,10 @@ def editar_categoria_local(*, actor, sucursal, categoria_id: int, datos: dict, m
         antes = _snapshot_categoria(categoria)
         categoria.nombre = nombre
         categoria.descripcion = datos.get('descripcion', '')
-        categoria.activa = datos.get('activa', True)
+        activa = datos.get('activa', categoria.activa)
+        categoria.establecer_estado_operativo(
+            activa, motivo=datos.get('motivo_inactivacion'),
+        )
         categoria.save(using=using)
         return categoria, antes, _snapshot_categoria(categoria)
 
@@ -417,12 +426,13 @@ def editar_categoria_local(*, actor, sucursal, categoria_id: int, datos: dict, m
 
 
 def cambiar_estado_categoria_local(
-    *, actor, sucursal, categoria_id: int, activa: bool, mutacion_id=None, using='default',
+    *, actor, sucursal, categoria_id: int, activa: bool, motivo=None,
+    mutacion_id=None, using='default',
 ):
     def mutar():
         categoria = Categoria.objects.using(using).select_for_update().get(pk=categoria_id)
         antes = _snapshot_categoria(categoria)
-        categoria.activa = activa
+        categoria.establecer_estado_operativo(activa, motivo=motivo)
         categoria.save(using=using)
         return categoria, antes, _snapshot_categoria(categoria)
 

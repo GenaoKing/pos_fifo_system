@@ -390,6 +390,7 @@ class VersionMaestro(models.Model):
         ('metodos_credito', 'Metodos de credito'),
         ('roles', 'Roles'),
         ('asignaciones', 'Asignaciones'),
+        ('resoluciones_conflicto', 'Resoluciones de conflictos de maestros'),
     ]
 
     tabla = models.CharField(
@@ -739,6 +740,48 @@ class MutacionMaestro(models.Model):
         if aplicado:
             self.refresh_from_db(using=using)
         return bool(aplicado)
+
+
+class ResolucionConflictoMaestro(models.Model):
+    """Ledger separado de la decisión humana sobre una propuesta negativa.
+
+    ``MutacionMaestro.estado`` conserva el veredicto que emitió el receptor
+    cloud (``CONFLICTO`` o ``RECHAZADA``).  Reescribirlo como ``CONFIRMADA`` al
+    cerrar un conflicto borraría precisamente el contexto que el operador
+    necesita auditar.  Esta fila separada registra la decisión y permite que
+    el listado activo no vuelva a ofrecer una propuesta ya resuelta.
+    """
+
+    class Accion(models.TextChoices):
+        CONSERVAR_CLOUD = 'CONSERVAR_CLOUD', 'Conservar cloud'
+        APLICAR_LOCAL = 'APLICAR_LOCAL', 'Aplicar local'
+
+    mutacion = models.OneToOneField(
+        MutacionMaestro,
+        on_delete=models.PROTECT,
+        related_name='resolucion_conflicto',
+    )
+    accion = models.CharField(max_length=20, choices=Accion.choices)
+    motivo = models.TextField()
+    actor = models.ForeignKey(
+        'usuarios.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resoluciones_conflicto_maestro',
+    )
+    actor_username = models.CharField(max_length=150, blank=True, default='')
+    cloud_revision_observada = models.CharField(max_length=64)
+    cloud_revision_resultante = models.CharField(max_length=64, blank=True, default='')
+    cloud_entidad_id = models.PositiveIntegerField(null=True, blank=True)
+    resuelto_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Resolución de conflicto de maestro'
+        verbose_name_plural = 'Resoluciones de conflictos de maestros'
+
+    def __str__(self):
+        return f'{self.mutacion.mutacion_id} {self.accion}'
 
 
 class InventarioMovimientoSync(models.Model):

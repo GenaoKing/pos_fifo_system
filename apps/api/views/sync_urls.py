@@ -17,6 +17,11 @@ urlpatterns = [
         name='api-sync-mutaciones-maestro',
     ),
     path(
+        'mutaciones-maestro/resoluciones/',
+        sync.resoluciones_mutaciones_maestro,
+        name='api-sync-mutaciones-maestro-resoluciones',
+    ),
+    path(
         'reconciliacion-eventos/',
         sync.reconciliar_eventos,
         name='api-sync-reconciliacion-eventos',

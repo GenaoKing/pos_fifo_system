@@ -42,6 +42,10 @@ from .views.notificaciones import (
     ReglasNotificacionesView,
     SuscripcionPushViewSet,
 )
+from .views.maestros_conflictos import (
+    conflictos_maestros,
+    resolver_conflicto_maestro,
+)
 
 # ============================================
 # ROUTER DRF — ViewSets de datos maestros
@@ -121,6 +125,15 @@ urlpatterns_v1 = [
     path('sucursales/', include('apps.api.sucursales_urls')),
 
     # Datos maestros (router DRF)
+    path(
+        'maestros/conflictos/', conflictos_maestros,
+        name='maestros-conflictos',
+    ),
+    path(
+        'maestros/conflictos/<uuid:mutacion_id>/resolver/',
+        resolver_conflicto_maestro,
+        name='maestros-conflictos-resolver',
+    ),
     path('', include(router_v1.urls)),
 
     # Sync endpoints (placeholders funcionales — lógica completa en Fase 2)

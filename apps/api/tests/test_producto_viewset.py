@@ -205,11 +205,94 @@ class ProductoViewSetPermissionTests(TestCase):
 
     def test_admin_puede_borrar_producto(self):
         response = self.api(user=self.admin).delete(
-            f'{self.productos_url}{self.producto.id}/'
+            f'{self.productos_url}{self.producto.id}/',
+            {'motivo_inactivacion': 'Producto retirado del catálogo comercial.'},
+            format='json',
         )
 
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Producto.objects.filter(id=self.producto.id).exists())
+        self.assertEqual(response.status_code, 200)
+        self.producto.refresh_from_db()
+        self.assertFalse(self.producto.activo)
+        self.assertEqual(
+            self.producto.motivo_inactivacion,
+            'Producto retirado del catálogo comercial.',
+        )
+        self.assertIsNotNone(self.producto.inactivado_at)
+
+    def test_filtro_operativo_y_pull_de_sucursal_incluyen_bajas(self):
+        producto_inactivo = Producto.objects.create(
+            sku='TEST-INACTIVO', nombre='Producto inactivo', categoria=self.categoria,
+            precio_venta='20.00', activo=True,
+        )
+        producto_inactivo.establecer_estado_operativo(
+            False, motivo='Descontinuado para pruebas operativas.',
+        )
+        producto_inactivo.save()
+
+        categoria_inactiva = Categoria.objects.create(nombre='Categoría inactiva')
+        categoria_inactiva.establecer_estado_operativo(
+            False, motivo='Categoría retirada para pruebas operativas.',
+        )
+        categoria_inactiva.save()
+        producto_de_categoria_inactiva = Producto.objects.create(
+            sku='TEST-CAT-INACTIVA', nombre='Producto de categoría inactiva',
+            categoria=categoria_inactiva, precio_venta='20.00', activo=True,
+        )
+
+        fuera_operacion = self.api(user=self.admin).get(
+            self.productos_url, {'operativo': 'false'},
+        )
+        pull = self.api(token=self.sucursal_token).get(
+            self.productos_url, {'desde': '1970-01-01T00:00:00+00:00'},
+        )
+
+        self.assertEqual(fuera_operacion.status_code, 200)
+        self.assertEqual(
+            {fila['sku'] for fila in fuera_operacion.data['results']},
+            {'TEST-INACTIVO', 'TEST-CAT-INACTIVA'},
+        )
+        por_sku = {fila['sku']: fila for fila in pull.data['results']}
+        self.assertFalse(por_sku['TEST-INACTIVO']['activo'])
+        self.assertEqual(
+            por_sku['TEST-INACTIVO']['motivo_inactivacion'],
+            'Descontinuado para pruebas operativas.',
+        )
+        self.assertFalse(por_sku['TEST-CAT-INACTIVA']['categoria_activa'])
+        self.assertFalse(por_sku['TEST-CAT-INACTIVA']['operativamente_activo'])
+
+    def test_paginacion_operativa_mantiene_mas_de_doscientos_inactivos(self):
+        Producto.objects.bulk_create([
+            Producto(
+                sku=f'TEST-PAG-INACTIVO-{indice:03d}',
+                nombre=f'Producto inactivo paginado {indice:03d}',
+                categoria=self.categoria,
+                precio_venta='10.00',
+                activo=False,
+            )
+            for indice in range(201)
+        ])
+
+        primera = self.api(user=self.admin).get(
+            self.productos_url, {'operativo': 'false', 'page_size': 200},
+        )
+        segunda = self.api(user=self.admin).get(
+            self.productos_url, {'operativo': 'false', 'page_size': 200, 'page': 2},
+        )
+
+        self.assertEqual(primera.status_code, 200)
+        self.assertEqual(primera.data['count'], 201)
+        self.assertEqual(len(primera.data['results']), 200)
+        self.assertIsNotNone(primera.data['next'])
+        self.assertEqual(segunda.status_code, 200)
+        self.assertEqual(len(segunda.data['results']), 1)
+
+    def test_baja_sin_motivo_es_rechazada(self):
+        response = self.api(user=self.admin).patch(
+            f'{self.productos_url}{self.producto.id}/', {'activo': False}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('motivo_inactivacion', response.data)
 
     def test_validaciones_del_serializer_de_escritura(self):
         client = self.api(user=self.admin)

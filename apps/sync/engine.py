@@ -34,6 +34,7 @@ import requests
 from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.tenancy.context import get_current_tenant_key
 
@@ -48,6 +49,7 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 # freno para que un endpoint que pagina mal no consuma el ciclo entero. Lo que
 # queda pendiente se baja en el ciclo siguiente, desde el cursor commiteado.
 MAX_PAGINAS_PULL = 200
+SCHEMA_RESOLUCION_CONFLICTO_SYNC = 'master.conflict-resolution-sync.v1'
 
 
 def _revision_cloud_desde_payload(item):
@@ -64,6 +66,14 @@ def _revision_cloud_desde_payload(item):
         return datetime.fromisoformat(str(raw).replace('Z', '+00:00')).isoformat()
     except (TypeError, ValueError):
         return str(raw)
+
+
+def _fecha_desde_payload(item, campo):
+    """Convierte timestamps opcionales del cloud sin inventar una fecha local."""
+    raw = (item or {}).get(campo)
+    if not raw:
+        return None
+    return parse_datetime(str(raw).replace('Z', '+00:00'))
 
 
 class _Diferido:
@@ -720,6 +730,7 @@ class SyncEngine:
                             MutacionMaestro.Estado.CONFLICTO,
                             MutacionMaestro.Estado.RECHAZADA,
                         ),
+                        resolucion_conflicto__isnull=True,
                     )
                     .filter(
                         models.Q(creado_at__lt=mutacion.creado_at)
@@ -1062,6 +1073,7 @@ class SyncEngine:
             ('asignaciones', self._pull_asignaciones),
             ('metodos_credito', self._pull_metodos_credito),
             ('configuracion', self._pull_configuracion),
+            ('resoluciones_conflicto', self._pull_resoluciones_conflicto),
         )
 
         metricas = {
@@ -1263,7 +1275,7 @@ class SyncEngine:
     def _pull_generic(
         self, tabla, endpoint, apply_func, *, headers=None,
         extra_params=None, response_key=None, on_snapshot_complete=None,
-        envelope_validator=None,
+        envelope_validator=None, require_envelope=False,
     ):
         """
         Pull incremental con cursor KEYSET y cola durable de diferidos.
@@ -1340,6 +1352,12 @@ class SyncEngine:
                 break
 
             data = resp.json()
+            if require_envelope and envelope_validator is not None:
+                error_envelope = envelope_validator(data)
+                if error_envelope:
+                    error = f'envelope inválido: {error_envelope}'
+                    logger.error('pull %s: %s', tabla, error)
+                    break
             # Soporta respuesta paginada de DRF o lista directa.
             if (
                 response_key
@@ -1697,6 +1715,8 @@ class SyncEngine:
                 'tipo_negocio': item.get('tipo_negocio', '') or '',
                 'atributos_configurados': item.get('atributos_configurados') or {},
                 'activa': item.get('activa', True),
+                'motivo_inactivacion': item.get('motivo_inactivacion', '') or '',
+                'inactivado_at': _fecha_desde_payload(item, 'inactivado_at'),
                 'revision_cloud': _revision_cloud_desde_payload(item),
             }
             if sellar:
@@ -1828,6 +1848,8 @@ class SyncEngine:
                 # recibir TODO el catalogo posterior. Reintentar no curaba nada.
                 'codigo_barras': (item.get('codigo_barras') or '').strip() or None,
                 'activo': item.get('activo', True),
+                'motivo_inactivacion': item.get('motivo_inactivacion', '') or '',
+                'inactivado_at': _fecha_desde_payload(item, 'inactivado_at'),
                 'estado': item.get('estado') or 'nuevo',
                 'marca': item.get('marca') or '',
                 'stock_minimo': item.get('stock_minimo', 5),
@@ -1848,6 +1870,87 @@ class SyncEngine:
             self._descargar_imagen_producto(producto, item.get('imagen_url'))
 
         return self._pull_generic('productos', '/api/v1/maestros/productos/', apply)
+
+    def _pull_resoluciones_conflicto(self):
+        """Replica decisiones A06 y libera solo el bloqueo local correspondiente."""
+        from apps.sync.models import MutacionMaestro, ResolucionConflictoMaestro
+
+        def validar_envelope(data):
+            if not isinstance(data, dict):
+                return 'la respuesta debe ser un objeto'
+            if data.get('schema_version') != SCHEMA_RESOLUCION_CONFLICTO_SYNC:
+                return 'schema_version desconocido'
+            filas = data.get('results')
+            if not isinstance(filas, list):
+                return 'results debe ser una lista'
+            for indice, fila in enumerate(filas):
+                if not isinstance(fila, dict):
+                    return f'results[{indice}] debe ser un objeto'
+                if fila.get('schema_version') != SCHEMA_RESOLUCION_CONFLICTO_SYNC:
+                    return f'results[{indice}] tiene schema_version desconocido'
+                try:
+                    uuid.UUID(str(fila['mutacion_id']))
+                    if int(fila['id']) < 1:
+                        return f'results[{indice}].id inválido'
+                except (KeyError, TypeError, ValueError):
+                    return f'results[{indice}] no identifica la resolución'
+                if _fecha_desde_payload(fila, 'fecha_modificacion') is None:
+                    return f'results[{indice}].fecha_modificacion inválida'
+                if fila.get('accion') not in {
+                    ResolucionConflictoMaestro.Accion.CONSERVAR_CLOUD,
+                    ResolucionConflictoMaestro.Accion.APLICAR_LOCAL,
+                }:
+                    return f'results[{indice}].accion inválida'
+                motivo = fila.get('motivo')
+                if not isinstance(motivo, str) or not 1 <= len(motivo.strip()) <= 500:
+                    return f'results[{indice}].motivo inválido'
+            return ''
+
+        def aplicar(fila):
+            mutacion = (
+                MutacionMaestro.objects.select_for_update()
+                .filter(mutacion_id=fila['mutacion_id'])
+                .first()
+            )
+            # El POS puede haber purgado una cola antigua: no hay bloqueo local
+            # que liberar y retener esta decisión no aporta seguridad.
+            if mutacion is None:
+                return
+
+            existente = ResolucionConflictoMaestro.objects.filter(
+                mutacion=mutacion,
+            ).first()
+            valores = {
+                'accion': fila['accion'],
+                'motivo': fila['motivo'].strip(),
+                'actor_username': str(fila.get('actor_username') or ''),
+                'cloud_revision_observada': str(fila.get('cloud_revision_observada') or ''),
+                'cloud_revision_resultante': str(fila.get('cloud_revision_resultante') or ''),
+                'cloud_entidad_id': fila.get('cloud_entidad_id'),
+            }
+            if existente is not None:
+                if any(getattr(existente, campo) != valor for campo, valor in valores.items()):
+                    raise ConflictoAdopcionMaestro(
+                        'MASTER_RESOLUTION_REPLAY_CONFLICT',
+                        'La decisión cloud no coincide con el ledger local ya recibido.',
+                    )
+                return
+
+            if mutacion.estado not in {
+                MutacionMaestro.Estado.CONFLICTO,
+                MutacionMaestro.Estado.RECHAZADA,
+            }:
+                return
+            ResolucionConflictoMaestro.objects.create(mutacion=mutacion, **valores)
+
+        return self._pull_generic(
+            'resoluciones_conflicto',
+            '/api/v1/sync/mutaciones-maestro/resoluciones/',
+            aplicar,
+            extra_params={'page_size': 100},
+            envelope_validator=validar_envelope,
+            require_envelope=True,
+        )
 
     def _descargar_imagen_producto(self, producto, imagen_url):
         """

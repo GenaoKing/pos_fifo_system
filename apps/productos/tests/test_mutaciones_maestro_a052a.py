@@ -228,6 +228,7 @@ class MutacionesMaestroA052aTests(TestCase):
             sucursal=self.sucursal,
             producto_id=producto.id,
             activo=False,
+            motivo='Producto retirado por inventario descontinuado.',
             mutacion_id=uuid.uuid4(),
         )
 
@@ -267,6 +268,7 @@ class MutacionesMaestroA052aTests(TestCase):
             sucursal=self.sucursal,
             categoria_id=self.categoria.id,
             activa=False,
+            motivo='Categoría retirada del catálogo vigente.',
             mutacion_id=uuid.uuid4(),
         )
 
@@ -330,13 +332,19 @@ class MutacionesMaestroA052aTests(TestCase):
 
         primero = self.client.post(
             f'/productos/{producto.id}/toggle-estado/',
-            data=json.dumps({'activo': False}),
+            data=json.dumps({
+                'activo': False,
+                'motivo_inactivacion': 'Producto retirado para esta prueba.',
+            }),
             content_type='application/json',
             HTTP_X_MASTER_MUTATION_ID=str(identificador),
         )
         segundo = self.client.post(
             f'/productos/{producto.id}/toggle-estado/',
-            data=json.dumps({'activo': False}),
+            data=json.dumps({
+                'activo': False,
+                'motivo_inactivacion': 'Producto retirado para esta prueba.',
+            }),
             content_type='application/json',
             HTTP_X_MASTER_MUTATION_ID=str(identificador),
         )
@@ -413,6 +421,7 @@ class MutacionesMaestroA052aTests(TestCase):
                 sucursal=self.sucursal,
                 producto_id=producto.id,
                 activo=False,
+                motivo='Prueba de colisión de idempotencia.',
                 mutacion_id=identificador,
             )
 
@@ -476,5 +485,7 @@ class MutacionesMaestroA052aTests(TestCase):
             self.assertIn('mutacionMaestroId', fuente)
             self.assertIn('mutacionesEstado', fuente)
             self.assertIn('headersMutacionMaestro', fuente)
-        self.assertIn("JSON.stringify({ activo: !producto.activo })", productos)
-        self.assertIn("JSON.stringify({ activa: !categoria.activa })", categorias)
+        self.assertIn('motivo_inactivacion: motivo', productos)
+        self.assertIn('motivo_inactivacion: motivo', categorias)
+        self.assertIn('window.prompt', productos)
+        self.assertIn('window.prompt', categorias)
