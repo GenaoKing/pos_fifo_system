@@ -1,7 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-18** · Candidato A06/C04/C05 conciliado:
-`integration/cierre-prod-A06-C04-C05@dfb1dfc`
+Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados y A07
+revalidado sobre `integration/cierre-prod-A06-C04-C05@1357cd7`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -32,8 +32,8 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/usuarios` | 19 | **A03 cierra invariantes RBAC de USR-012; USR-014 sigue A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
 | `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
 | `apps/negocios` | 17 | **Pendientes de código A02 cerrados; preflights reales en A08** | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
-| `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
-| `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
+| `apps/clientes` | 21 | **P1 mitigado; CLI-004 diferido explícitamente con contención 409**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
+| `apps/productos` | 22 | **PRO-002/003/004 y PRO-019 acreditados localmente**; resto abierto | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
 | `apps/suscripciones` | 19 | **P1 mitigado (6/10)**; SUS-007..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 | `apps/cotizaciones` | 18 | **COT-008/010/011/012/014/015 acreditados**; CT-04 y deuda residual abiertos | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
@@ -93,17 +93,27 @@ No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
 
 El párrafo anterior describe el corte C05 de 2026-09-11; sus pendientes CT-04
 no son el estado vigente. El candidato local
-`integration/cierre-prod-A06-C04-C05@dfb1dfc` integra A06, los selectores C05
-CT-04 y los doce productores de dominio C05 p6 bajo `audit.event.v1`. La matriz
-backend focal terminó con **363 pruebas OK**; no hubo migración, publicación ni
-operación sobre datos reales.
+`integration/cierre-prod-A06-C04-C05@1357cd7` integra A06, los selectores C05
+CT-04, los doce productores de dominio C05 p6 bajo `audit.event.v1` y CT-03.
+La matriz backend combinada terminó con **398 pruebas OK**; no hubo migración,
+publicación ni operación sobre datos reales.
 
-C04 frontend permanece en su repositorio propio, limpio en `e319058`, con
-build, lint y 109 pruebas verdes. El smoke HTTP autenticado contra A06 reportó
-**23/23** (schema real, cursor, 403 y CAS 409); no ejerció minteo JWT
-tenant-aware. Sigue pendiente la aceptación UI a más de 200 filas. SUS-014
-quedó cableado read-only a `divergencias_identidad` con 43 pruebas focales y 89
-de `apps.suscripciones` verdes (2 skips esperados); no reconcilia datos.
+C04 p6 permanece en su repositorio propio, integrado en `f0e6c2d`, con build,
+lint y 120 pruebas verdes. Su evidencia HTTP autenticada contra A06 reportó
+**24/24** a 201 filas (schema real, cursor, 403 y CAS 409); no ejerció minteo
+JWT tenant-aware. El responsable aceptó ambas puntas. SUS-014 quedó cableado
+read-only a `divergencias_identidad` con 43 pruebas focales y 89 de
+`apps.suscripciones` verdes (2 skips esperados); no reconcilia datos.
+
+### Actualización A07 — 2026-09-18
+
+Las ocho familias backend de A07 pasaron **605 pruebas** en bases descartables,
+incluidas dos bases físicas tenant. Se conciliaron estados antiguos del ledger:
+PRO-002/003/004/019 quedan acreditados localmente; CLI-004 queda diferido de
+forma explícita y los demás CLI/PRO conservan su criterio de cierre. Se reparó
+un fixture de pruebas cloud de clientes sin abrir escritura de API en POS real.
+La evidencia y los límites operativos están en
+`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
 
 ### Auditorías escritas pero todavía sin procesar
 

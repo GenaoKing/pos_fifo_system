@@ -1,7 +1,7 @@
 # Integracion local — CT-03 sync y C04 p6
 
-Fecha: **2026-09-18**. Estado: **integrado y validado localmente; pendiente de
-aceptacion tecnica.** No hubo push, despliegue, cambio de `develop` ni acceso a
+Fecha: **2026-09-18**. Estado: **integrado, validado y aceptado localmente por
+el responsable.** No hubo push, despliegue, cambio de `develop` ni acceso a
 datos operativos.
 
 ## Puntas integradas
@@ -56,6 +56,6 @@ ni afirma una nueva ejecución de navegador.
   read-only y autorización explícita. A08/C06 y el preflight real no entran en
   este bloque.
 
-Siguiente: revisar/aceptar ambas integraciones locales. Solo tras aceptar C04
-p6 puede abrirse C04 p5 en un worktree frontend nuevo, y solo tras aceptar los
-dos bloques corresponde A07 para reconciliar inventario y evidencia vigente.
+Siguiente: ambas integraciones fueron aceptadas el 2026-09-18. A07 ya inició la
+reconciliación backend; C04 p5 puede abrirse en un worktree frontend nuevo. Los
+límites operativos de esta nota siguen intactos.

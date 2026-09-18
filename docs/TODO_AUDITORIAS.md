@@ -4,7 +4,9 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-16** (reconciliación de cierres C02/C03 ya en `develop`; ver INVENTARIO.md)
+Última actualización: **2026-09-18**. CT-03/C04 p6 fueron aceptados, A07
+revalidó 605 pruebas backend y su detalle/pendientes vive en
+`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
 
 ## Cierre A02 (sin despliegue)
 
@@ -37,12 +39,12 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
-> **Actualización A06/C04/C05 (2026-09-18, sin publicar).** El candidato
-> `integration/cierre-prod-A06-C04-C05@dfb1dfc` integra el backend/POS A06,
-> selectores comerciales C05/CT-04 y C05 p6. La matriz backend focal terminó
-> con 363 pruebas OK. C04 frontend permanece separado en `e319058`, con 109
-> pruebas verdes; el smoke HTTP autenticado contra este backend reportó 23/23
-> verdes. Falta la aceptación UI C04 a más de 200 filas contra backend vivo.
+> **Actualización A07 (2026-09-18, sin publicar).** El candidato
+> `integration/cierre-prod-A06-C04-C05@1357cd7` integra el backend/POS A06,
+> selectores comerciales C05/CT-04, C05 p6 y CT-03. C04 p6 está integrado en
+> `claude/cierre-prod-C04@f0e6c2d`, con 120 pruebas, build/lint y evidencia HTTP
+> 24/24 a 201 filas. Ambas puntas fueron aceptadas; A07 ejecutó 605 pruebas
+> backend aisladas. Falta C04 p5 y los gates operativos, no otra aceptación p6.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
@@ -59,8 +61,9 @@ pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
 frontend, sin publicar) — ver
 `docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
 existe en candidato aislado y el smoke HTTP real está acreditado. Los selectores
-comerciales ya están dentro del candidato; el gate pendiente es C04 p6 (UI,
-cursor/selectores a >200), no reimplementar el selector.
+  comerciales ya están dentro del candidato; C04 p6 cerró UI/cursor/selectores
+  a más de 200 filas. El siguiente frontend es C04 p5, no reimplementar el
+  selector.
 
 ---
 
@@ -83,28 +86,17 @@ de este cierre.
 
 ---
 
-## 🟠 Decisiones que dependen del negocio
+## 🟠 Decisiones y deuda explícita de maestros
 
-- [ ] **PRO-002 + PRO-003 + PRO-004 — quién es el escritor autoritativo de
-      los maestros de producto.** Los tres son la misma pregunta:
-      * las escrituras HTML son locales y no se propagan (PRO-002);
-      * el SKU, que el pull usa como clave, es editable localmente, y
-        cambiarlo y bajar el anterior crea DOS productos (PRO-003);
-      * el `DELETE` de la API no deja tombstone, así que la sucursal
-        conserva y vende lo que el cloud ya borró (PRO-004).
-      La base de la solución es darle a `Producto` una identidad cloud
-      inmutable, como ya tienen las categorías. **No se aplicó la
-      contención que sí se puso en clientes** porque ahí `origen_cloud_id`
-      ya existía; en productos no, y no hay forma fiable de distinguir un
-      producto bajado del cloud de uno creado en la sucursal.
-- [ ] **CLI-004 — proxy de escritura de maestros hacia el cloud.** Hoy, con
-      sync activo, editar un cliente adoptado por el cloud devuelve **409** y
-      remite al portal: es contencion, no la solucion. La decision ya tomada
-      en el roadmap es que toda mutacion local de maestros pase por la API
-      cloud y refresque la replica. Falta construirla.
-
-Ninguna está tomada. El sistema funciona con la opción elegida; cambiarla es
-acotado. Ver §3 de ESTADO_AUDITORIAS.
+- [x] **PRO-002 + PRO-003 + PRO-004 — escritor de Producto/Categoría.** A05/A06
+      implementan la decisión: mutación local durable/auditada/idempotente,
+      identidad cloud y SKU inmutables, receptor CAS y baja lógica que el pull
+      conserva. A07 lo volvió a ejecutar; ver el inventario y su handoff.
+- [ ] **CLI-004 — transporte offline de mutaciones de cliente.** Con sync activo,
+      el cliente ya adoptado devuelve **409** y remite al portal: contención que
+      evita pérdida silenciosa, no la cola/CAS de cliente. Es
+      `DIFERIDO_EXPLICITO`: no se habilita como si estuviera resuelto ni se borra
+      de un futuro bloque de backend.
 
 - [x] **CAJA-002 — Efectivo sin caja abierta.** La política mantiene la venta
       habilitada; el pago queda sin turno y la matriz C05 revalidó que sea
@@ -321,23 +313,25 @@ abiertos: **CFG-012** (leer configuración aún puede crearla — el fix vive so
 validadores; C+A) y CFG-008 (controles e-CF sin unidad, diferida). CFG-016
 (round-trip BAT→env) es de C01.
 
-**Pendientes de `apps/productos`** (P1 6/8; PRO-018 cerrado):
+**Pendientes de `apps/productos`** (PRO-002/003/004/019 acreditados localmente;
+PRO-018 cerrado):
 PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
 **PRO-010 (cambios de precio sin auditoría de dominio — conviene pronto:
 un precio es una decisión financiera y hoy no queda registro de que
 ocurrió)**, PRO-011, PRO-012 (ciclo de vida de imágenes no atómico),
 PRO-013, PRO-014 (carreras en los generadores de SKU y código de barras),
 PRO-015, PRO-016 (el chequeo cloud ocurre antes de autenticar), PRO-017
-(impresión sin permiso propio ni cuota), PRO-019 a PRO-022.
+(impresión sin permiso propio ni cuota), PRO-020 a PRO-022.
 
-**Pendientes de `apps/clientes`** (P1 cerrados, más CLI-014/020):
+**Pendientes de `apps/clientes`** (P1 cerrados; CLI-004 diferido explícitamente,
+más CLI-014/020):
 CLI-006 (aislamiento por negocio en base compartida — contenido por
 DB-per-tenant), CLI-008 (escrituras locales sin `full_clean`), CLI-009
 (cédula/RNC sin formato canónico), CLI-010 (identidad de origen a medias),
 CLI-011 (mutaciones sin auditoría), CLI-012 (sucursal en la auditoría de
 límite — hecho en el toggle, falta en la edición), CLI-013 (`DELETE` físico
-da 500 con referencias), **CLI-015 (la ruta de detalle apunta a una
-plantilla inexistente: 500 garantizado)**, CLI-016 (N+1 financieros),
+de un cliente real sigue permitido), CLI-015 (detalle requiere prueba
+autorizada 200/404), CLI-016 (N+1 financieros),
 CLI-017, CLI-018, CLI-019, CLI-021.
 
 **Pendientes posteriores a A02 de `apps/negocios`:** ninguno de código en el
