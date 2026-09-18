@@ -23,8 +23,9 @@ datos operativos.
 - Frontend separado, no fusionado por Git con este repositorio:
   `pos-cloud-dashboard`, `claude/cierre-prod-C04@e319058`. Es descendiente de
   `928964c`, el correctivo CT-04 de runtime/schema.
-- Resultado de las integraciones de código: `integration/cierre-prod-A06-C04-C05@2db885e`;
-  este handoff y sus ajustes son descendientes documentales de esa punta.
+- Resultado de las integraciones de código: `integration/cierre-prod-A06-C04-C05@dfb1dfc`;
+  además de A06/C05, incorpora el cableado read-only de SUS-014 y el fixture/test
+  rebasados de CT-03. Sigue siendo un candidato local, no `develop`.
 
 ## Alcance integrado
 
@@ -103,17 +104,44 @@ npm run test:run
 # 16 archivos, 109 tests — OK.
 ```
 
+### Smoke HTTP C04 ↔ A06 (evidencia de dos procesos)
+
+Claude reportó el **2026-09-18** un smoke adicional de 23/23 casos contra el
+backend vivo de esta rama en `a1ac443`, usando el mismo venv Django 5.2.17, una
+BD desechable `pos_fifo_smoke_a06`, sesión Django + CSRF y un cliente HTTP
+autenticado. Se comprobó después que `a1ac443` es ancestro de esta punta y que
+las rutas `apps/api`, `apps/sync` y `apps/productos` ejercidas no cambiaron entre
+ambas puntas. La BD se eliminó y el servidor se apagó.
+
+- `GET /api/v1/maestros/conflictos/`: envelope `master.conflict-list.v1`, items
+  `master.conflict.v1`, datos de entidad/sucursal y ambas acciones esperadas.
+- Aislamiento entre dos tenants; cursor opaco página a página; `page_size=101`
+  y cursor inválido devuelven 400.
+- Resolución: schema inválido y motivo vacío devuelven 400; revisión CAS vieja,
+  409; `CONSERVAR_CLOUD` y `APLICAR_LOCAL`, 200 y remoción del listado pendiente.
+- Un usuario con solo `productos.ver` lista (200), no resuelve (403) y no altera
+  el conflicto.
+
+El smoke **no** minteó un JWT tenant-aware: en la BD single-DB desechable no se
+sembró el control-plane requerido y el transporte validado fue sesión + CSRF.
+Eso no reduce la cobertura del contrato que consume C04, pero conserva el JWT
+tenant-aware como cobertura propia de tenancy/auth, no como evidencia de este
+gate de conflictos.
+
 ## Gates que siguen abiertos
 
-- Hacer un smoke HTTP autenticado del portal C04 contra este backend: GET de
-  conflictos con permisos de lectura y POST de resolución con permiso de
-  edición, comprobando el schema real, cursor, 403 por permiso y 409 por CAS.
-  Los tests de ambos repos prueban el contrato, pero todavía no son esa prueba
-  de dos procesos contra la ruta viva.
+- C04 p6: ejercicio de la **UI** del frontend contra backend vivo a más de 200
+  conflictos. El smoke HTTP cerró el contrato servidor/cliente; todavía falta
+  comprobar navegación por cursor, selectores, estado vacío/error y permisos en
+  la pantalla a volumen.
 - Antes de cualquier entorno real, ejecutar el preflight read-only de
   `OPS-PRO-007` y revisar el conteo de productos activos bajo categorías
   inactivas. Este candidato no autoriza corregir datos ni aplicar migraciones
   fuera de una base desechable.
+- CT-03 conserva dos consumidores backend pendientes: SUS-007 (derivar flags
+  legacy desde capacidades efectivas en el pull incremental) y CFG-007
+  (rechazo fail-closed de configuración inválida). Son el siguiente bloque
+  Codex, delimitado en `REPARTO-SIGUIENTE-C04P6-CT03SYNC-2026-09-18.md`.
 - Los productores CT-01 fuera del alcance p6 continúan explícitos en
   `C05-p6-auditoria-ct01.md`: edición de venta, edición de compra y la
   conversión de cotización por venta que aún emite `EDITAR` legacy. No fueron
@@ -121,11 +149,12 @@ npm run test:run
 
 ## Secuencia recomendada
 
-1. Cerrar el smoke HTTP C04/A06 y revisión read-only de este candidato.
-2. Si ambos pasan, usar A07 para reconciliar el inventario vivo de hallazgos y
-   evidencias, sin iniciar A08 ni promover esta rama.
+1. Ejecutar en paralelo C04 p6 (Claude, UI a volumen) y el bloque CT-03
+   SUS-007/CFG-007 (Codex, sync/API), con worktrees y BDs aislados.
+2. Integrar y repetir la aceptación cruzada de ambos bloques; entonces A07
+   reconcilia el inventario y evidencia vigente, sin iniciar A08 ni promover.
 3. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
-   delimite el próximo bloque; el siguiente no debe inferirse de esta rama.
+   delimite un bloque independiente.
 
 ## Reversión
 

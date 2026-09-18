@@ -1,6 +1,6 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-11**. Estado: **A00-A04 integrados/validados; A05 es el siguiente bloque**.
+Fecha: **2026-09-18**. Estado: **A00-A06 integrados/validados en candidato local; siguiente bloque acotado: consumidores sync de CT-03**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -172,8 +172,10 @@ entidad; no pérdida de cambios por pull ni duplicación del maestro.
 **Entrada:** A05; coordinar CT-04 con C04/C05.
 
 **Estado 2026-09-18:** A06 está integrado localmente con C05/CT-04 y C05 p6 en
-`integration/cierre-prod-A06-C04-C05@51946ef`; la matriz backend focal dio 363
-OK. No está publicado. C04 frontend conserva como gate el smoke HTTP real.
+`integration/cierre-prod-A06-C04-C05@dfb1dfc`; la matriz backend focal dio 363
+OK. El smoke HTTP real C04↔A06 reportó 23/23; queda C04 p6 (UI a >200 filas).
+No está publicado. El siguiente bloque backend es CT-03 SUS-007/CFG-007, según
+`REPARTO-SIGUIENTE-C04P6-CT03SYNC-2026-09-18.md`.
 
 1. API y UI POS de conflictos: conservar ambas propuestas. Resolver «conservar
    cloud» o «aplicar local» con motivo, permiso y revisión actual; si cambió de

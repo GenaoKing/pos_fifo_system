@@ -27,11 +27,10 @@ acredita solo código local: CT-04, C04, la compatibilidad HTTP real y cualquier
 sonda o reparación de clientes permanecen pendientes en sus bloques.
 
 Conciliación Claude/Codex: **2026-09-18**. El candidato consolidado
-`integration/cierre-prod-A06-C04-C05@51946ef` integra A06, C05/CT-04 y C05 p6
-(12 acciones CT-01); la matriz backend focal dio 363 OK. C04 frontend
-`e319058` sigue en su repositorio y falta su smoke HTTP. SUS-014 detección de
-`PLAN_DRIFT` (`9c36dd9`) es el único candidato Claude de código no integrado:
-prevención ya integrada, postcondición pendiente de cablear en tenancy. Ver
+`integration/cierre-prod-A06-C04-C05@dfb1dfc` integra A06, C05/CT-04, C05 p6
+(12 acciones CT-01), SUS-014 y fixture/test CT-03; la matriz backend focal dio
+363 OK. C04 frontend `e319058` sigue en su repositorio: su smoke HTTP reportó
+23/23 y resta UI a >200 filas. Ver
 `CONCILIACION-CLAUDE-CODEX-2026-09-18.md`.
 
 Reconciliación de ledger C02/C03: **2026-09-16** (Claude, read-only + doc). La
@@ -267,7 +266,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | SUS-011 | TODO + AUD-SUS | Señales invalidan antes del commit. | C | C03 | P2 | ACREDITADO | `506edf2` | Invalidación de cache diferida a `transaction.on_commit`; test de suscripciones. |
 | SUS-012 | TODO + AUD-SUS | Registro código y espejo DB divergen. | C | C03 | P2 | ACREDITADO | `d968e3f` | `checks.py` falla ruidoso si el catálogo en código y el espejo DB divergen; test de suscripciones. |
 | SUS-013 | TODO + AUD-SUS | `activo`/estados sin semántica efectiva. | C | C03 | P2 | ACREDITADO | `6e3d551` | `Plan.activo` bloquea nuevas altas sin suspender el core; test de suscripciones. |
-| SUS-014 | TODO + AUD-SUS | Plan control-plane diverge del operativo. | C+A | C03/A07 | P2 | PENDIENTE | `b318681`, `c003af8`; candidato `9c36dd9` | Prevención integrada en `bootstrap_tenant`; falta cablear y probar `PLAN_DRIFT` read-only en `verificar_identidad_tenant`. |
+| SUS-014 | TODO + AUD-SUS | Plan control-plane diverge del operativo. | C+A | C03/A07 | P2 | ACREDITADO_LOCAL | `b318681`, `c003af8`, `3a16e38`, `dfb1dfc` | Prevención en `bootstrap_tenant`; `PLAN_DRIFT` read-only se reporta desde `verificar_identidad_tenant`, sin autocorrección. |
 | SUS-015 | TODO + AUD-SUS | Cambios comerciales sin auditoría. | C | C03 | P2 | ACREDITADO | `7201043` | `GuardDegradacionMixin` registra evento CT-01 en la misma transacción; productor de auditoría. |
 | SUS-016 | TODO + AUD-SUS | Bootstrap/sync parcial reporta éxito pobre. | C+A | C03/A hook | P2 | PENDIENTE | — | Crash/retry/estado parcial. Mitad C hecha (`--dry-run` + bootstrap atómico, `1ca1688`); falta la mitad A (reporte de sync parcial). |
 | SUS-017 | TODO + AUD-SUS | `sync_modulos` no sincroniza planes default. | C | C03 | P2 | ACREDITADO | `3018ce8` | `Plan.preset_version` + `sync_modulos` resincroniza planes gestionados desactualizados; test `test_sync_modulos`. |

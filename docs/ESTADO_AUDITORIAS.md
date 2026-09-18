@@ -1,7 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
 Última actualización: **2026-09-18** · Candidato A06/C04/C05 conciliado:
-`integration/cierre-prod-A06-C04-C05@51946ef`
+`integration/cierre-prod-A06-C04-C05@dfb1dfc`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -93,17 +93,17 @@ No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
 
 El párrafo anterior describe el corte C05 de 2026-09-11; sus pendientes CT-04
 no son el estado vigente. El candidato local
-`integration/cierre-prod-A06-C04-C05@51946ef` integra A06, los selectores C05
+`integration/cierre-prod-A06-C04-C05@dfb1dfc` integra A06, los selectores C05
 CT-04 y los doce productores de dominio C05 p6 bajo `audit.event.v1`. La matriz
 backend focal terminó con **363 pruebas OK**; no hubo migración, publicación ni
 operación sobre datos reales.
 
 C04 frontend permanece en su repositorio propio, limpio en `e319058`, con
-build, lint y 109 pruebas verdes. Falta el smoke HTTP autenticado contra A06
-(schema real, cursor, 403 y CAS 409), por lo que no es una aceptación portal
-operativa. El único avance de código Claude fuera del candidato es
-`SUS-014@9c36dd9`: detección read-only de `PLAN_DRIFT`, verificada con 17
-pruebas, pero pendiente de cablearse a `divergencias_identidad` por Codex.
+build, lint y 109 pruebas verdes. El smoke HTTP autenticado contra A06 reportó
+**23/23** (schema real, cursor, 403 y CAS 409); no ejerció minteo JWT
+tenant-aware. Sigue pendiente la aceptación UI a más de 200 filas. SUS-014
+quedó cableado read-only a `divergencias_identidad` con 43 pruebas focales y 89
+de `apps.suscripciones` verdes (2 skips esperados); no reconcilia datos.
 
 ### Auditorías escritas pero todavía sin procesar
 

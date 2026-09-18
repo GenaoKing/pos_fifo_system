@@ -1,5 +1,11 @@
 # Handoff C03 — Configuración y módulos vendibles (entrega parcial 1)
 
+> **Nota de vigencia (2026-09-18):** este es un handoff histórico. CT-03 ya
+> tiene fixture/test integrado en `C03-CT03-configuracion-efectiva.md`,
+> `ConfiguracionNegocio.load()` ya es lectura pura y SUS-014 está acreditado
+> localmente. Para los pendientes reales, usar `CONTRATOS.md` y el reparto
+> vigente; SUS-007 y CFG-007 siguen siendo los consumidores sync/API de Codex.
+
 Estado: **PARCIAL.** Esta entrega cierra 13 hallazgos self-contained de
 `apps/suscripciones` y `apps/configuracion` (más SUS-007 y SUS-016 parciales; sin
 migraciones, sin tocar archivos de Codex salvo la API específica de suscripciones

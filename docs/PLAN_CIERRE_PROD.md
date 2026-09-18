@@ -1,6 +1,6 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-18**. Estado: **en ejecución; candidato A06/C04/C05 consolidado localmente; gates pendientes**.
+Fecha: **2026-09-18**. Estado: **en ejecución; candidato A06/C04/C05 consolidado localmente; smoke HTTP cerrado, quedan UI a volumen y sync CT-03**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -169,8 +169,8 @@ versión, compatibilidad, fixtures de contrato y un commit consumible.
 | --- | --- | --- |
 | CT-01 — auditoría e identidad | A02: actor, tenant, sucursal, canal, objeto estable, before/after, resultado y correlación; transacciones y redacción | B puede empezar PDF/Windows antes; productores de auditoría se integran después de este commit. |
 | CT-02 — permisos y capacidades | A03: autorización, revocaciones, catálogo/presets, capacidades POS viejo/nuevo | B aplica gates en C02/C03/C04/C05; ningún bypass paralelo. |
-| CT-03 — configuración efectiva | B/C03 propone API del resolutor y validaciones; A integra el contrato. A01 fija precedencia `.env`; C01 implementa launchers | A consume desde sync/settings; B desde UI/API/servicios. Lecturas consistentes sin Redis. |
-| CT-04 — maestros offline | A05/A06: identidad, revisiones, cola, ACK/retry, conflictos y visibilidad efectiva | B/C04 puede maquetar con fixtures; no se acepta el portal contra un mock sin backend integrado. |
+| CT-03 — configuración efectiva | B/C03 publicó fixture/test `capacidades.efectivas.v1`; A integra los consumidores sync pendientes | A consume desde sync/settings; B desde UI/API/servicios. Lecturas consistentes sin Redis. |
+| CT-04 — maestros offline | A05/A06: identidad, revisiones, cola, ACK/retry, conflictos y visibilidad efectiva | B/C04 acreditó smoke HTTP real; queda UI paginada a volumen, no un mock. |
 | CT-05 — artefacto y actualización | A01/A08: runtimes, locks, manifiesto/digest y migraciones; C01/C06: paquete y preflight Windows | Ambos prueban la misma versión congelada, sin recompilar el artefacto aprobado para prod. |
 
 ### Ciclo de cada bloque
@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04 y p6 están en candidato consolidado** | `integration/cierre-prod-A06-C04-C05@51946ef` integra A06, selectores y los 12 productores CT-01. C04 frontend queda separado hasta el smoke HTTP; C06 sigue pendiente. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; candidato A06/C04/C05 validado localmente; G1-G4 pendientes** | Backend: 363 focales OK. Frontend C04: build/lint y 109 tests OK. Faltan smoke HTTP, preflight read-only, A07 y gates de release. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014 y CT-03 contractual están en candidato consolidado** | `integration/cierre-prod-A06-C04-C05@dfb1dfc` integra A06, selectores, 12 productores CT-01, SUS-014 y CT-03 probado. C04 frontend queda separado para UI a volumen; C06 sigue pendiente. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; candidato A06/C04/C05 validado localmente; G1-G4 pendientes** | Backend: 363 focales OK. Frontend C04: build/lint 109 tests y smoke HTTP 23/23. Faltan UI >200, sync CT-03, preflight read-only, A07 y gates de release. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

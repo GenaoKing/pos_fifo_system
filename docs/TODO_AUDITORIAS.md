@@ -38,11 +38,11 @@ datos de clientes.
 ## Cierre C05 parte 2 (sin despliegue)
 
 > **Actualización A06/C04/C05 (2026-09-18, sin publicar).** El candidato
-> `integration/cierre-prod-A06-C04-C05@51946ef` integra el backend/POS A06,
+> `integration/cierre-prod-A06-C04-C05@dfb1dfc` integra el backend/POS A06,
 > selectores comerciales C05/CT-04 y C05 p6. La matriz backend focal terminó
 > con 363 pruebas OK. C04 frontend permanece separado en `e319058`, con 109
-> pruebas verdes; falta el smoke HTTP autenticado contra este backend antes de
-> aceptar la integración de dos procesos.
+> pruebas verdes; el smoke HTTP autenticado contra este backend reportó 23/23
+> verdes. Falta la aceptación UI C04 a más de 200 filas contra backend vivo.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
@@ -58,9 +58,9 @@ cerrados en `claude/cierre-prod-C05-ct04-selectores`. **C04 arrancó** con la
 pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
 frontend, sin publicar) — ver
 `docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
-existe en candidato aislado; faltan la prueba real C04 y la integración
-controlada. Los selectores comerciales ya están dentro del candidato; el gate
-pendiente es el smoke C04/A06, no reimplementar el selector.
+existe en candidato aislado y el smoke HTTP real está acreditado. Los selectores
+comerciales ya están dentro del candidato; el gate pendiente es C04 p6 (UI,
+cursor/selectores a >200), no reimplementar el selector.
 
 ---
 
@@ -298,11 +298,10 @@ SUS-015 (`7201043`, auditoría CT-01), SUS-017 (`3018ce8`, presets versionados).
 integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el
 2026-09-17 (origen `0548384`). Quedan
 abiertos: **SUS-007** (mitad UI hecha, falta migrar el pull de sync a derivar del
-engine — es de Codex), **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
-reporte de sync parcial de Codex) y **SUS-014**. En SUS-014 la prevención ya está
-integrada (`validar_plan_slug` + `bootstrap_tenant`); Claude aportó detección
-read-only `PLAN_DRIFT` en el candidato `9c36dd9` (17 pruebas OK), pero falta
-integrarla y cablearla a `verificar_identidad_tenant`.
+engine — es de Codex) y **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
+reporte de sync parcial de Codex). **SUS-014** quedó acreditado localmente:
+prevención (`validar_plan_slug` + `bootstrap_tenant`) y detección read-only
+`PLAN_DRIFT` cableada a `verificar_identidad_tenant`; no corrige datos.
 
 **Pendientes de `apps/configuracion`** — cerrados en `develop` por C03
 (revalidado 2026-09-16, con tests de configuración): CFG-006 (`38e5647`,

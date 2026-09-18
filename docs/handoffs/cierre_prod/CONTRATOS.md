@@ -439,8 +439,9 @@ timestamps, `bloquea_nuevas_ventas` y acciones permitidas.
 El servidor A06 filtra cada fila por el permiso de lectura de su entidad
 en la sucursal origen: `productos.ver` o `categorias.ver`. No se usa el ID de
 una sucursal o un texto de actor como autorización. C04 puede usar el fixture
-para maquetar; no puede afirmar integración backend hasta que este candidato se
-integre y se repitan las pruebas consumidoras contra la ruta real.
+para maquetar; el candidato integrado y el smoke HTTP real ya acreditan la
+integración de contrato. Sigue abierto solamente C04 p6: el recorrido de la UI
+contra la ruta real con más de 200 filas.
 
 ### Decisiones implementadas por A06 (candidato local integrado)
 
@@ -498,7 +499,7 @@ Baseline consumible desde A01:
 | Superficie compartida | Escritor | Consumidor / regla |
 | --- | --- | --- |
 | Este archivo, `INVENTARIO.md`, fixtures `ct01_*`/`ct02_*` | A | C propone cambios en su handoff; no edita en paralelo. |
-| Futuro fixture CT-03 | C lo propone como `C03-*`; A lo integra aquí o en `config/**` | Un solo SHA canónico antes de consumir. |
+| Fixture CT-03 | C propuso `C03-*`; A integró el canónico en `dfb1dfc` | Un solo fixture/test antes de cambiar semántica. |
 | Futuro fixture CT-04 | A | C04/C05 consumen el commit integrado. |
 | `config/**`, `apps/api/urls.py`, routers/settings globales | A | C solicita firma/ruta. |
 | `apps/api/**` auth, RBAC, maestros, sync, sucursales, notificaciones | A | Excepciones de C son solo las listadas en el plan maestro. |

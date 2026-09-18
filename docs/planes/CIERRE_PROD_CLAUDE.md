@@ -1,7 +1,8 @@
 # Encargo del agente B — Claude
 
 Fecha: **2026-09-18**. Estado: **C01-C03, C05/CT-04 y C05 p6 integrados en el
-candidato local; C04 frontend espera smoke HTTP contra A06; C06 pendiente**.
+candidato local; C04 smoke HTTP contra A06 reportó 23/23 y sigue C04 p6 (UI a
+>200 filas); C06 pendiente**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Codex](CIERRE_PROD_CODEX.md).
 
@@ -160,8 +161,9 @@ Puede empezar por correcciones financieras independientes mientras A05 avanza.
 **Estado 2026-09-18:** la parte financiera independiente quedó integrada y su
 revisión cruzada cerró en `18e0898`; COT-009/selectores CT-04 y los doce
 productores C05 p6 CT-01 ya entraron al candidato
-`integration/cierre-prod-A06-C04-C05@51946ef`. COT-017 conserva stock/presupuesto
-de queries; la aceptación de C04 sigue siendo smoke contra backend real.
+`integration/cierre-prod-A06-C04-C05@dfb1dfc`. COT-017 conserva stock/presupuesto
+de queries; el smoke C04↔A06 reportó 23/23 y la aceptación pendiente es C04 p6
+(UI a más de 200 filas contra backend real).
 
 1. Revalidar deuda de estas apps y cerrar cada ID vigente del inventario. Incluir
    COM/CFG/SUS asociados mediante C02/C03; no declarar deuda cerrada por omisión.
