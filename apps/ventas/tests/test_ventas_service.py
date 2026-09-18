@@ -23,6 +23,7 @@ from apps.inventario.models import Compra, DetalleCompra, Lote, MovimientoLote
 from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
+from apps.auditoria.models import Auditoria
 from apps.sync.models import EventoSync, MutacionMaestro
 from apps.ventas.models import Venta
 from apps.ventas.services import (
@@ -611,3 +612,36 @@ class NumeracionTests(VentaServiceTestCase):
         self.assertTrue(tercera.numero_venta.endswith('-0003'))
         self.assertNotEqual(tercera.numero_venta, numero_borrado)
         self.assertNotEqual(tercera.numero_venta, segunda.numero_venta)
+
+
+class AuditoriaCT01VentaTests(VentaServiceTestCase):
+    """C05 p6 — el productor de auditoría de la venta usa el contrato CT-01
+    (`registrar_mutacion`), no el adaptador legacy `Auditoria.registrar_venta`."""
+
+    def test_venta_creada_emite_evento_ct01_en_la_transaccion(self):
+        venta = self._vender()
+
+        evento = Auditoria.objects.get(
+            accion='ventas.venta.creada',
+            object_id=venta.id,
+        )
+        # Contrato CT-01: versión de esquema estable, canal e identidad.
+        self.assertEqual(evento.schema_version, 'audit.event.v1')
+        self.assertEqual(evento.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(evento.resultado, Auditoria.Resultado.SUCCEEDED)
+        self.assertEqual(evento.entity_type, Venta._meta.label)
+        self.assertEqual(evento.actor_username, self.cajera.username)
+        # `despues` describe el estado del hecho financiero; `antes` vacío
+        # porque la venta nace en este evento.
+        self.assertEqual(evento.datos_anteriores, {})
+        self.assertEqual(evento.datos_nuevos['numero_venta'], venta.numero_venta)
+        self.assertEqual(evento.datos_nuevos['total'], str(venta.total))
+        self.assertEqual(evento.datos_nuevos['cantidad_items'], venta.detalles.count())
+
+    def test_no_quedan_productores_legacy_de_venta_creada(self):
+        # El adaptador legacy usaba TipoAccion.VENTA_CREADA (mayúsculas). Tras
+        # la migración no debe emitirse más ese código para una venta nueva.
+        self._vender()
+        self.assertFalse(
+            Auditoria.objects.filter(accion=Auditoria.TipoAccion.VENTA_CREADA).exists(),
+        )
