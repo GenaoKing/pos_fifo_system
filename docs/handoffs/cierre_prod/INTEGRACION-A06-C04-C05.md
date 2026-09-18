@@ -21,7 +21,8 @@ datos operativos.
 - Frontend separado, no fusionado por Git con este repositorio:
   `pos-cloud-dashboard`, `claude/cierre-prod-C04@e319058`. Es descendiente de
   `928964c`, el correctivo CT-04 de runtime/schema.
-- Resultado: `integration/cierre-prod-A06-C04-C05@6ac4a3e`.
+- Resultado de las integraciones de código: `integration/cierre-prod-A06-C04-C05@6ac4a3e`;
+  este handoff y sus ajustes son descendientes documentales de esa punta.
 
 ## Alcance integrado
 
@@ -47,14 +48,33 @@ En `C:/Proyectos/pos_fifo_system_integracion_a06_c04_c05`, con
 una base de prueba efímera `test_pos_fifo_a06_c04_c05`:
 
 ```powershell
-python manage.py test <19 módulos A05/A06/C05: API, sync, productos, ventas,
-cotizaciones y auditoría> --settings=config.settings_development --noinput
+& 'C:\Proyectos\pos_fifo_system_a06\.venv\Scripts\python.exe' manage.py test `
+  apps.api.tests.test_maestros_conflictos_a06 `
+  apps.api.tests.test_sync_resoluciones_a06 `
+  apps.api.tests.test_categoria_viewset `
+  apps.api.tests.test_producto_stub_anti_clobber `
+  apps.api.tests.test_producto_viewset `
+  apps.api.tests.test_sync_auditoria `
+  apps.sync.tests.test_resoluciones_conflicto_a06 `
+  apps.sync.tests.test_ct04_contrato `
+  apps.sync.tests.test_mutaciones_maestro_a053 `
+  apps.productos.tests.test_mutaciones_maestro_a052a `
+  apps.productos.tests.test_identidad_a05 `
+  apps.productos.tests.test_a06_estado_operativo `
+  apps.sync.tests.test_identidad_maestros_a05 `
+  apps.sync.tests.test_engine `
+  apps.ventas.tests.test_accesos_rapidos_pos `
+  apps.cotizaciones.tests.test_cotizacion_hardening `
+  apps.ventas.tests.test_ventas_service `
+  apps.auditoria `
+  apps.sync.tests.test_outbox_transaccional `
+  --settings=config.settings_development --noinput
 # Ran 237 tests in 85.217s — OK; la base de prueba fue destruida.
 
-python manage.py check --settings=config.settings_development
+& 'C:\Proyectos\pos_fifo_system_a06\.venv\Scripts\python.exe' manage.py check --settings=config.settings_development
 # System check: 0 issues.
 
-python manage.py makemigrations --check --dry-run --settings=config.settings_development
+& 'C:\Proyectos\pos_fifo_system_a06\.venv\Scripts\python.exe' manage.py makemigrations --check --dry-run --settings=config.settings_development
 # No changes detected.
 ```
 
