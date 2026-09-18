@@ -1,12 +1,12 @@
 # Estado maestro del proyecto
 
 Ultima revision: **2026-09-18** (`develop@fffd02b` permanece intacto; el
-candidato local `integration/cierre-prod-A06-C04-C05@6c74d16` reúne A05/C03,
+candidato local `integration/cierre-prod-A06-C04-C05@1357cd7` reúne A05/C03,
 A06, C05/CT-04, C05 p6, SUS-014 y CT-03 sync SUS-007/CFG-007). El frontend C04
 integró p6 en `claude/cierre-prod-C04@f0e6c2d`; build/lint/120 tests y su
-evidencia HTTP a 201 filas (24/24) están verdes localmente. Ambos siguen
-pendientes de aceptación técnica. Sin push, despliegue ni lectura o escritura
-de datos operativos.
+evidencia HTTP a 201 filas (24/24) están verdes localmente. El responsable
+aceptó ambas puntas y A07 repitió 605 pruebas backend en un worktree aislado.
+Sin push, despliegue ni lectura o escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -53,8 +53,9 @@ A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado
 consolidado `integration/cierre-prod-A06-C04-C05@6c74d16` integra A06,
 selectores C05/CT-04, doce productores C05 p6 CT-01, SUS-014 y CT-03 sync.
 C04 p6 se integró en `claude/cierre-prod-C04@f0e6c2d`, con evidencia local a
-201 filas. Ambos bloques requieren aceptación técnica; después corresponde A07.
-G1-G4 siguen pendientes de aceptación, preflight y release; nada está aprobado
+  201 filas. Ambas puntas fueron aceptadas y A07 dejó evidencia local de 605
+  pruebas; C04 p5 puede abrirse en un worktree frontend nuevo. G1-G4 siguen
+  pendientes de preflight y release; nada está aprobado
 ni publicado**.
 Inventario,
 contratos y handoffs:
@@ -77,7 +78,7 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundación completa; SUS-006, SUS-014 y SUS-007/CFG-007 integrados localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; C05/CT-04 y CT-03 sync están en el candidato. SUS-016 continúa pendiente. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Integración CT-03/C04 p6 validada localmente | `TESTING.md` | 398 backend focales, build/lint y 120 frontend C04; evidencia HTTP p6 C04↔A06 a 201 filas 24/24. Falta aceptación técnica, e-CF, Linux y artefacto en A09. |
+| Testing | CT-03/C04 p6 aceptados; A07 backend revalidado localmente | `TESTING.md` | 398 backend focales, build/lint y 120 frontend C04; evidencia HTTP p6 C04↔A06 a 201 filas 24/24; A07: 605 backend OK. Faltan e-CF, Linux, preflights autorizados y artefacto en A09. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 p6 registra 12 productores CT-01 en el candidato; CT-04/C04 operativo y deuda residual siguen abiertos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable integrado localmente** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Compatibilidad HTTP real, dry-run de clientes y despliegue quedan para A09 con autorización. |

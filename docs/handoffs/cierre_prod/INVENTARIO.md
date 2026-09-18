@@ -33,6 +33,22 @@ Conciliación Claude/Codex: **2026-09-18**. El candidato consolidado
 23/23 y resta UI a >200 filas. Ver
 `CONCILIACION-CLAUDE-CODEX-2026-09-18.md`.
 
+Actualización A07: **2026-09-18**. El responsable aceptó las dos puntas
+locales CT-03/C04 p6 descritas en
+`INTEGRACION-CT03-C04P6-2026-09-18.md`; por tanto se abrió esta reconciliación
+sobre `integration/cierre-prod-A06-C04-C05@1357cd7`. La matriz de familias A
+(`auditoria`, `usuarios`, `negocios`, `permisos`, `tenancy`, `sync`,
+`productos`, `clientes`) terminó con **605 pruebas OK**, incluyendo las dos
+bases físicas namespaced de TEN-016. No hubo migración, push, despliegue,
+lectura ni escritura de datos operativos. El detalle reproducible, los estados
+revisados y los diferidos queda en `A07-INVENTARIO-2026-09-18.md`.
+
+Durante esa corrida se reparó una falsa falla del *fixture* de clientes: cuatro
+casos de escritura de API no activaban el flag exclusivo del runner de tests
+`API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST`. No se relajó la protección del POS:
+el test que la niega sigue cubierto; el cambio sólo declara el modo cloud
+simulado donde esos cuatro casos fueron diseñados para ejecutar.
+
 Reconciliación de ledger C02/C03: **2026-09-16** (Claude, read-only + doc). La
 sección "Configuración, suscripciones y documentos" arrastraba `PENDIENTE` en
 filas ya cerradas por C02/C03 en `develop`: el ledger se actualizó para
@@ -199,9 +215,9 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID | Fuente | Reproducción actual | Dueño | Bloque | Severidad | Estado | Commit | Prueba |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PRO-002 | TODO + AUD-PRO | Escritura local no se propaga autoritativamente. | A | A05/A06 | Crítica | PENDIENTE | — | Offline/reinicio/ACK. |
-| PRO-003 | TODO + AUD-PRO | SKU editable rompe identidad del pull. | A | A05 | Crítica | PENDIENTE | — | SKU inmutable/adopción exacta. |
-| PRO-004 | TODO + AUD-PRO | Borrado API no deja tombstone. | A | A05/A06 | Crítica | PENDIENTE | — | Baja llega a POS y conserva historia. |
+| PRO-002 | TODO + AUD-PRO | Escritura local no se propaga autoritativamente. | A | A05/A06 | Crítica | ACREDITADO_LOCAL | `3c6c0e7`, `7e5535d`, `b25a3b7` | Cola durable y conflicto explícito repetidos por A07 en `test_mutaciones_maestro_a052a`; ACK/reintento/CAS del receptor A05.3 quedaron acreditados en la matriz integrada de 398. |
+| PRO-003 | TODO + AUD-PRO | SKU editable rompe identidad del pull. | A | A05 | Crítica | ACREDITADO_LOCAL | `cfbd507` | SKU y `origen_cloud_id` inmutables incluso por `QuerySet.update`; adopción única cubierta en `test_identidad_a05`. |
+| PRO-004 | TODO + AUD-PRO | Borrado API no deja tombstone. | A | A05/A06 | Crítica | ACREDITADO_LOCAL | `b25a3b7` | Baja lógica con motivo; el pull conserva inactivos y no borra historia (`test_producto_viewset`). |
 | PRO-009 | TODO + AUD-PRO | HTML/modelo omiten validaciones de API. | A | A06 | Alta | PENDIENTE | — | Matriz UI/API/modelo. |
 | PRO-010 | TODO + AUD-PRO | Precios/catálogo sin auditoría de dominio. | A | A06 | Alta | PENDIENTE | — | CT-01 before/after. |
 | PRO-011 | TODO + AUD-PRO | Admin masivo oculta fecha real de cambio. | A | A06 | Media-alta | PENDIENTE | — | Aceptación PRO-011. |
@@ -211,11 +227,11 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | PRO-015 | TODO + AUD-PRO | Errores/borrados protegidos sin contrato. | A | A06 | Media-alta | PENDIENTE | — | Errores API/UI estables. |
 | PRO-016 | TODO + AUD-PRO | Chequeo cloud ocurre antes de autenticar. | A | A06 | Media | PENDIENTE | — | Usuario anónimo no provoca I/O cloud. |
 | PRO-017 | TODO + AUD-PRO | Impresión sin permiso, cuota o trazabilidad. | A+C | A06/C02 | Media | PENDIENTE | — | CT-01/02 + resultado incierto. |
-| PRO-019 | TODO + AUD-PRO | Lista completa + N+1. | A | A06 | Media | PENDIENTE | — | >200 filas/paginación. |
+| PRO-019 | TODO + AUD-PRO | Lista completa + N+1. | A | A06 | Media | ACREDITADO_LOCAL | `b25a3b7` | Paginación operativa conserva más de 200 inactivos (`test_paginacion_operativa_mantiene_mas_de_doscientos_inactivos`). |
 | PRO-020 | TODO + AUD-PRO | Admin muestra indicadores inconsistentes/vacíos. | A | A06 | Baja-media | PENDIENTE | — | Aceptación PRO-020. |
 | PRO-021 | TODO + AUD-PRO | Formato de código de barras configurado no se respeta. | A+C | A06/C02 | Baja-media | PENDIENTE | — | Gramática/históricos. |
 | PRO-022 | TODO + AUD-PRO | Deuda de admin, índices y portabilidad. | A | A06 | Baja | PENDIENTE | — | Aceptación PRO-022. |
-| CLI-004 | TODO + AUD-CLI | Escritura local contradice autoridad cloud y se pisa. | A | A05/A06 | Crítica funcional | PENDIENTE | — | Cola offline/conflicto. |
+| CLI-004 | TODO + AUD-CLI | Escritura local contradice autoridad cloud y se pisa. | A | Bloque posterior explícito | Crítica funcional | DIFERIDO_EXPLICITO | `eaefc1b` (contención) | Cliente adoptado devuelve 409 y no confirma un cambio que el pull pisaría; la cola offline/CAS de clientes no existe aún y no queda habilitada por A07. |
 | CLI-006 | TODO + AUD-CLI | Catálogo no aislado en base compartida. | A | A06 | No indicada | PENDIENTE | — | Dos negocios sin fuga. |
 | CLI-008 | TODO + AUD-CLI | Escrituras locales omiten `full_clean`. | A | A06 | No indicada | PENDIENTE | — | Validación negativa. |
 | CLI-009 | TODO + AUD-CLI | Cédula/RNC sin canon real. | A | A06 | No indicada | PENDIENTE | — | Normalización/colisión. |
@@ -366,5 +382,8 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 Este inventario contiene **124 hallazgos con ID de auditoría**, 30 deudas o
 preflights sin ID único, 13 bugs etiquetados y 14 filas de roadmap/alcance.
 Cuando un bloque cierre una fila debe reemplazar `—` por SHA, enlazar el test y
-cambiar el estado solo con evidencia. A07 vuelve a revalidar todas las filas;
-los handoffs de Claude proponen deltas y Codex mantiene este archivo.
+cambiar el estado solo con evidencia. A07 revalidó las familias asignadas a A:
+un `PENDIENTE` restante es deuda identificada con criterio de cierre; un
+`OPERATIVO_PENDIENTE` requiere entorno autorizado y un
+`DIFERIDO_EXPLICITO` no se puede presentar como listo para release. Los handoffs
+de Claude proponen deltas y Codex mantiene este archivo.

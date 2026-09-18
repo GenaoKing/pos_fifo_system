@@ -12,7 +12,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -240,6 +240,7 @@ class AtomicidadDeLaEdicionTests(ClientesTestCase):
         self.assertNotIn('detalle interno filtrable', respuesta.json()['message'])
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class LimiteDeCreditoPorApiTests(ClientesTestCase):
     """CLI-003: el limite exige su permiso tambien en el portal."""
 
@@ -305,6 +306,7 @@ class LimiteDeCreditoPorApiTests(ClientesTestCase):
         self.assertEqual(self.cliente.limite_credito, Decimal('25000.00'))
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class GenericoContadoTests(ClientesTestCase):
     """CLI-007: el generico es singleton, inmutable e imborrable."""
 

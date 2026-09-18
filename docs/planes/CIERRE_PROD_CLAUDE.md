@@ -1,8 +1,8 @@
 # Encargo del agente B — Claude
 
 Fecha: **2026-09-18**. Estado: **C01-C03, C05/CT-04 y C05 p6 integrados en el
-candidato local; C04 smoke HTTP contra A06 reportó 23/23 y sigue C04 p6 (UI a
->200 filas); C06 pendiente**.
+candidato local; C04 p6 fue aceptado con 120 tests y evidencia HTTP 24/24 a 201
+filas. Siguiente trabajo frontend: C04 p5; C06 pendiente**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Codex](CIERRE_PROD_CODEX.md).
 

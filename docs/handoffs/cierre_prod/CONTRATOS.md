@@ -13,8 +13,8 @@ las pruebas consumidoras.
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
-| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados y validados localmente; pendiente aceptación | `dfb1dfc`, `1019500`, `6c74d16` |
-| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados localmente; pendiente aceptación | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
+| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados, validados y aceptados localmente; A07 revalidó backend | `dfb1dfc`, `1019500`, `6c74d16`, `1357cd7` |
+| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados y aceptados localmente | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.

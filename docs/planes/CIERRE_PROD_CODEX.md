@@ -1,6 +1,7 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-18**. Estado: **A00-A06 integrados/validados en candidato local; siguiente bloque acotado: consumidores sync de CT-03**.
+Fecha: **2026-09-18**. Estado: **A00-A07 backend integrados/validados localmente;
+CT-03/C04 p6 aceptados y C04 p5 queda como siguiente punta frontend**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -171,11 +172,11 @@ entidad; no pérdida de cambios por pull ni duplicación del maestro.
 
 **Entrada:** A05; coordinar CT-04 con C04/C05.
 
-**Estado 2026-09-18:** A06 está integrado localmente con C05/CT-04 y C05 p6 en
-`integration/cierre-prod-A06-C04-C05@dfb1dfc`; la matriz backend focal dio 363
-OK. El smoke HTTP real C04↔A06 reportó 23/23; queda C04 p6 (UI a >200 filas).
-No está publicado. El siguiente bloque backend es CT-03 SUS-007/CFG-007, según
-`REPARTO-SIGUIENTE-C04P6-CT03SYNC-2026-09-18.md`.
+**Estado 2026-09-18:** A06 está integrado localmente con C05/CT-04, C05 p6 y
+CT-03 en `integration/cierre-prod-A06-C04-C05@1357cd7`; la matriz backend
+combinada dio 398 OK. C04 p6 completó 120 tests y evidencia HTTP 24/24 a 201
+filas; ambas puntas fueron aceptadas. No está publicado. A07 volvió a validar
+605 tests backend y el siguiente bloque frontend permitido es C04 p5.
 
 1. API y UI POS de conflictos: conservar ambas propuestas. Resolver «conservar
    cloud» o «aplicar local» con motivo, permiso y revisión actual; si cambió de
@@ -200,6 +201,11 @@ resucitar flags individuales y preservación de stock/documentos.
 ## A07 — Cierre exhaustivo del inventario y documentación
 
 **Entrada:** A02–A06 y entregas C01–C05 progresivas.
+
+**Estado 2026-09-18:** completado localmente sobre `1357cd7`; 605 pruebas de las
+familias A, dos BDs físicas tenant y la reconciliación de inventario en
+`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`. No se ejecutó ningún
+preflight real, A08 ni promoción.
 
 1. Revalidar cada fila del inventario. Familias iniciales de A: AUD, USR, NEG,
    PER, TEN, sync, PRO y CLI; no es una whitelist que deje fuera IDs nuevos.

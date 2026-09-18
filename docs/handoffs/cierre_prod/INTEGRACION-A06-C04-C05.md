@@ -142,8 +142,8 @@ El reencuentro de los dos bloques se efectuó sin mover `develop`:
 
 ## Gates que siguen abiertos
 
-- Aceptación técnica de ambas puntas locales. C04 p6 ya tiene evidencia a
-  volumen y CT-03 ya tiene SUS-007/CFG-007 integrados; ninguno de esos hechos
+- La aceptación técnica de ambas puntas locales fue dada el 2026-09-18. C04 p6
+  tiene evidencia a volumen y CT-03 incorpora SUS-007/CFG-007; ese hecho no
   autoriza mover `develop`, publicar ni desplegar.
 - Antes de cualquier entorno real, ejecutar el preflight read-only de
   `OPS-PRO-007` y revisar el conteo de productos activos bajo categorías
@@ -156,11 +156,10 @@ El reencuentro de los dos bloques se efectuó sin mover `develop`:
 
 ## Secuencia recomendada
 
-1. Revisar/aceptar las integraciones locales de CT-03 y C04 p6, conservando sus
-   SHAs y límites de transporte/evidencia.
-2. Solo después de aceptar **ambos**, abrir A07 para reconciliar inventario y
-   evidencia vigente, sin iniciar A08 ni promover. C04 p5 puede iniciar solo
-   después de aceptar p6 y en un worktree frontend nuevo.
+1. Conservar los SHAs y límites de transporte/evidencia de las integraciones
+   locales CT-03 y C04 p6 ya aceptadas.
+2. A07 reconcilia inventario y evidencia vigente, sin iniciar A08 ni promover.
+   C04 p5 puede iniciar en un worktree frontend nuevo desde la punta p6.
 3. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
    delimite un bloque independiente.
 
