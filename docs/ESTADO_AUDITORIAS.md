@@ -1,7 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados y A07
-revalidado sobre `integration/cierre-prod-A06-C04-C05@1357cd7`
+Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados y checkpoint A07
+integrado en `integration/cierre-prod-A06-C04-C05@2df0749`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -93,7 +93,7 @@ No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
 
 El párrafo anterior describe el corte C05 de 2026-09-11; sus pendientes CT-04
 no son el estado vigente. El candidato local
-`integration/cierre-prod-A06-C04-C05@1357cd7` integra A06, los selectores C05
+`integration/cierre-prod-A06-C04-C05@2df0749` integra A06, los selectores C05
 CT-04, los doce productores de dominio C05 p6 bajo `audit.event.v1` y CT-03.
 La matriz backend combinada terminó con **398 pruebas OK**; no hubo migración,
 publicación ni operación sobre datos reales.

@@ -1,7 +1,7 @@
 # Estado maestro del proyecto
 
 Ultima revision: **2026-09-18** (`develop@fffd02b` permanece intacto; el
-candidato local `integration/cierre-prod-A06-C04-C05@1357cd7` reúne A05/C03,
+candidato local `integration/cierre-prod-A06-C04-C05@2df0749` reúne A05/C03,
 A06, C05/CT-04, C05 p6, SUS-014 y CT-03 sync SUS-007/CFG-007). El frontend C04
 integró p6 en `claude/cierre-prod-C04@f0e6c2d`; build/lint/120 tests y su
 evidencia HTTP a 201 filas (24/24) están verdes localmente. El responsable
@@ -50,7 +50,7 @@ Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
 A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado
 `integration/cierre-prod-A05-C03@609c98f` suma A05.1-A05.4. El candidato
-consolidado `integration/cierre-prod-A06-C04-C05@6c74d16` integra A06,
+consolidado `integration/cierre-prod-A06-C04-C05@2df0749` integra A06,
 selectores C05/CT-04, doce productores C05 p6 CT-01, SUS-014 y CT-03 sync.
 C04 p6 se integró en `claude/cierre-prod-C04@f0e6c2d`, con evidencia local a
   201 filas. Ambas puntas fueron aceptadas y A07 dejó evidencia local de 605

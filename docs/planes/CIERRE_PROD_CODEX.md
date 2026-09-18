@@ -173,7 +173,7 @@ entidad; no pérdida de cambios por pull ni duplicación del maestro.
 **Entrada:** A05; coordinar CT-04 con C04/C05.
 
 **Estado 2026-09-18:** A06 está integrado localmente con C05/CT-04, C05 p6 y
-CT-03 en `integration/cierre-prod-A06-C04-C05@1357cd7`; la matriz backend
+CT-03 en `integration/cierre-prod-A06-C04-C05@2df0749`; la matriz backend
 combinada dio 398 OK. C04 p6 completó 120 tests y evidencia HTTP 24/24 a 201
 filas; ambas puntas fueron aceptadas. No está publicado. A07 volvió a validar
 605 tests backend y el siguiente bloque frontend permitido es C04 p5.
