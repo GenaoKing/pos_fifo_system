@@ -101,6 +101,16 @@ class ConflictoAdopcionMaestro(RuntimeError):
         super().__init__(f'{codigo}: {detalle}')
 
 
+class PayloadPullInvalido(RuntimeError):
+    """El cloud respondio un payload que el consumidor no puede aplicar.
+
+    A diferencia de una dependencia pendiente, conservarlo en
+    ``DiferidoSync`` haria que un arreglo posterior en cloud no despeje el
+    error viejo. El cursor debe quedar detenido hasta que el singleton cloud
+    vuelva a responder una revision valida.
+    """
+
+
 def _resultado_pull(
     count=0, ok=True, error=None, bloqueo=None, paginas=0,
     diferidos_pendientes=0, diferidos_resueltos=0,
@@ -1249,6 +1259,12 @@ class SyncEngine:
             if resultado is not DIFERIDO:
                 return True, False, ''
             motivo = 'Dependencia ausente.'
+        except PayloadPullInvalido as exc:
+            logger.warning(
+                'pull %s: payload invalido en %s: %s',
+                tabla, self._ref_item(item), exc,
+            )
+            return False, False, str(exc)
         except ConflictoAdopcionMaestro as exc:
             logger.warning(
                 'pull %s: conflicto aplicando item %s: %s',
@@ -1487,8 +1503,8 @@ class SyncEngine:
         self._guardar_cursor(cursor, commit_fecha, commit_id, count, bloqueo)
         return _resultado_pull(
             count=count,
-            ok=error is None,
-            error=error,
+            ok=error is None and bloqueo is None,
+            error=error or bloqueo,
             bloqueo=bloqueo,
             paginas=paginas,
             diferidos_pendientes=diferidos_pendientes,
@@ -1590,8 +1606,8 @@ class SyncEngine:
         pendientes = self._diferidos_qs(tabla).filter(estado='PENDIENTE').count()
         return _resultado_pull(
             count=count,
-            ok=error is None,
-            error=error,
+            ok=error is None and bloqueo is None,
+            error=error or bloqueo,
             bloqueo=bloqueo,
             paginas=paginas,
             diferidos_pendientes=pendientes,
@@ -2512,6 +2528,7 @@ class SyncEngine:
         """Sincroniza solo configuracion cloud-safe; excluye hardware/local."""
         from apps.configuracion.models import ConfiguracionNegocio
         from apps.sucursales.models import get_sucursal_actual
+        from apps.sync.configuracion import validar_payload_configuracion
 
         sucursal = get_sucursal_actual()
         # El primer pull materializa de forma explícita la configuración local.
@@ -2523,37 +2540,10 @@ class SyncEngine:
 
         def apply(item):
             nonlocal count
-            allowed = [
-                'nombre_negocio',
-                'rnc',
-                'direccion',
-                'telefono',
-                'email_negocio',
-                'permitir_inventario_negativo',
-                'modulo_etiquetas_zebra',
-                'modulo_financiacion_coop',
-                'modulo_cotizaciones',
-                'modulo_impresion_termica',
-                'modulo_barcode_scanner',
-                'modulo_reportes_ondemand',
-                'modulo_ecf',
-                'modulo_dashboard',
-                'pago_efectivo',
-                'pago_transferencia',
-                'pago_tarjeta',
-                'formato_codigo_barras',
-                'dias_anulacion',
-                'cantidad_copias_ticket',
-                'ecf_proveedor',
-                'itbis_incluido_en_precio',
-                'itbis_porcentaje_global',
-                'modo_contingencia',
-            ]
-            update_fields = []
-            for field in allowed:
-                if field in item and hasattr(config, field):
-                    setattr(config, field, item[field])
-                    update_fields.append(field)
+            cambios = validar_payload_configuracion(config, item)
+            update_fields = list(cambios)
+            for field, value in cambios.items():
+                setattr(config, field, value)
             if update_fields:
                 config.save(update_fields=update_fields + ['fecha_modificacion'])
                 count += 1

@@ -13,7 +13,7 @@ las pruebas consumidoras.
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
-| CT-03 configuración efectiva | `capacidades.efectivas.v1` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | Fixture y test de capacidades integrados; pull de flags legacy sigue pendiente (SUS-007) | candidato A06/C04/C05 |
+| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | Implementada en candidato local, sin integrar | `dfb1dfc`, `1019500` |
 | CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución y retorno integrados en candidato local; smoke HTTP C04/A06 acreditado | `7e5535d` + A05.4 + A06 |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
@@ -383,9 +383,29 @@ Restricciones ya fijadas por A00/A01:
 - leer no crea configuración (CFG-012 ya es lectura pura en este candidato);
 - Codex conserva `config/**`, routers/settings y `apps/sync`.
 
-SUS-007 sigue pendiente: el pull de configuración debe derivar los flags legacy
-`modulo_*` del engine y asegurar que cambios de plan/override sean visibles para
-el cursor incremental, sin romper POS viejos.
+**Implementación local CT03-SYNC (`1019500`, base `dfb1dfc`; aún sin
+integrar).** El endpoint conserva la lista y los mismos campos legacy
+`modulo_*`, pero cuando la sucursal tiene negocio calcula sus valores con
+`apps.suscripciones.engine`; una instalación sin negocio conserva los flags
+crudos para no cambiar su compatibilidad histórica. La marca
+`fecha_modificacion` pasa a ser la revisión efectiva del singleton: toma la
+configuración y las marcas de suscripción/plan/overrides, más el evento CT-01
+de las mutaciones oficiales de plan y override de negocio. Así un pull
+incremental existente vuelve a recibir la fila sin schema ni evento nuevos.
+
+CFG-007 valida la allowlist entrante con tipos DRF y `full_clean()` sobre una
+copia antes de guardar. Un payload inválido no deja estado parcial ni se
+persiste como diferido: bloquea el cursor hasta que cloud responda una revisión
+válida. Los payloads parciales de clouds anteriores y los campos no permitidos
+mantienen la conducta compatible previa.
+
+**Límite explícito.** Crear un `SucursalModuloOverride` mueve la revisión por
+su fecha de creación y el pull ya refleja su valor efectivo. La edición o baja
+directa desde Admin/ORM de ese override no emite actualmente CT-01 ni deja una
+marca durable equivalente; no es un mutador de sync soportado. Antes de
+exponerlo como operación cloud hay que hacerlo auditable o publicar una
+revisión aditiva del cursor. Los cambios oficiales de plan y `NegocioModulo`
+sí están cubiertos por CT-01 y por esta implementación.
 
 ## CT-04 — maestros offline (`master.offline.v1`)
 

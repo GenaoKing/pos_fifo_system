@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-17 -->
+<!-- Última revisión: 2026-09-18 (CT-03: SUS-007 y CFG-007) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -101,6 +101,12 @@ cerrado y no libera el maestro; un replay debe coincidir con el ledger local.
   puede crear solo la fila local de su sucursal y los replays no duplican. El
   endpoint cloud sigue siendo lectura pura: si no hay fila, devuelve una lista
   vacía, nunca la inventa.
+- CT-03 conserva el payload legacy `modulo_*`, pero el cloud lo deriva del
+  engine de capacidades cuando la sucursal tiene negocio; sin negocio conserva
+  los flags crudos. La marca del singleton incluye los cambios CT-01 oficiales
+  de plan/override. El consumidor valida tipos y reglas cruzadas antes del
+  `save`: un payload inválido no se difiere ni muta parcialmente y congela el
+  cursor hasta que cloud entregue una revisión válida.
 
 ## Antes de tocar el contrato de sync
 
