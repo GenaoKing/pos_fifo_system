@@ -1,9 +1,9 @@
 # Handoff — SUS-014 (postcondición de plan divergente)
 
-Estado: **prevención (mitad 1) verificada de nuevo, sin cambios de código;
-postcondición (mitad 2) nueva, acreditada y ACREDITADA-SIN-CABLEAR** — pide un
-integration point de una línea en `apps/tenancy` (Codex). Ítem `SUS-014` de
-`INVENTARIO.md`. Fecha: **2026-09-17**. Agente: Claude.
+Estado: **prevención y postcondición integradas localmente**. `PLAN_DRIFT` se
+reporta desde `verificar_identidad_tenant`, sin reconciliar ni escribir en ninguna
+base. Ítem `SUS-014` de `INVENTARIO.md`. Fecha de integración: **2026-09-18**.
+Origen: Claude; cableado: Codex.
 
 ## SHA base / resultado
 
@@ -12,8 +12,8 @@ integration point de una línea en `apps/tenancy` (Codex). Ítem `SUS-014` de
   worktree propio (`pos_fifo_system_sus014`), venv externo Django 5.2.17
   reusado de `pos_fifo_system_cierre_codex/.venv` (solo lectura, sin
   reinstalar nada), DB de test aislada `pos_cierre_claude_sus014`.
-- Sin migración. Sin tocar archivos de Codex (`apps/tenancy/**`). **NO
-  publicado; NO fusionado.**
+- Sin migración. El candidato se integró localmente y el consumidor de tenancy
+  se agregó como bloque Codex. **NO publicado ni desplegado.**
 
 ## Contexto — por qué esto NO es "SUS-014 sigue abierto"
 
@@ -75,11 +75,10 @@ casos: `negocio=None`, sin plan en ningún lado, coincide, diverge en cada
 sentido, custom vs. plan anunciado, sin fila de suscripción, y `activa=False`
 no cambia la comparación).
 
-## Pedido exacto a Codex
+## Integración Codex aplicada
 
-Sumar la lista al resultado de `divergencias_identidad` (o al call site en
-`verificar_identidad_tenant.py`, lo que prefieran — no cablea nada por su
-cuenta, es un `list.extend`):
+Se agregó la lista al resultado de `divergencias_identidad`, dentro del mismo
+`tenant_context` que usa `verificar_identidad_tenant`:
 
 ```python
 # apps/tenancy/services.py, al final de divergencias_identidad, antes del return:
@@ -87,10 +86,9 @@ from apps.suscripciones.engine import divergencias_plan_operativo
 diferencias.extend(divergencias_plan_operativo(tenant.plan_slug, negocio))
 ```
 
-`tenant` y `negocio` ya están disponibles en ese scope (son los parámetros de
-la función). No hace falta ninguna consulta nueva a la BD tenant: `negocio`
-llega con `.suscripcion` resoluble vía la relación inversa ya cacheada por el
-ORM si el caller hizo `select_related`, o una query extra trivial si no.
+`tenant` y `negocio` ya están disponibles en ese scope. No hace falta una nueva
+consulta explícita a la BD tenant: la relación one-to-one `negocio.suscripcion`
+se resuelve en el contexto actual si aún no estaba cacheada.
 
 ## Pruebas — comando y resultado
 
@@ -114,20 +112,12 @@ TENANT_TEST_DB_NAMESPACE=claude_sus014_verify \
 
 ## Rollback
 
-`git revert` del commit. Función nueva sin consumidores todavía (nadie la
-llama hasta que Codex la cablee) — cero efecto en conducta actual.
+`git revert` de la integración C05/SUS-014. La detección no escribe ni intenta
+reconciliar, así que revertirla solo deja de informar `PLAN_DRIFT`.
 
-## Deltas propuestos a documentos de seguimiento
+## Documentación aplicada
 
-- `INVENTARIO.md` `SUS-014`: `PENDIENTE` → **prevención ACREDITADA**
-  (`b318681` + `c003af8`, ya en `integration/cierre-prod-A05-C03`, pendiente
-  de merge a `develop` — no es deuda nueva, es integración) **+ postcondición
-  ACREDITADA-SIN-CABLEAR** (esta rama; pedido de una línea arriba).
-- `TODO_AUDITORIAS.md` (suscripciones): mover SUS-014 de "abiertos" a
-  "prevención cerrada; falta cablear el chequeo de postcondición (pedido a
-  Codex, ver handoff)".
-- `apps/tenancy/AGENTS.md`: ya documenta correctamente la mitad 1 ("`bootstrap_tenant
-  --plan` se valida con `validar_plan_slug`..."). Cuando cableen la mitad 2,
-  agregar una línea corta: "`verificar_identidad_tenant` también reporta
-  `PLAN_DRIFT` vía `divergencias_plan_operativo` (SUS-014)". No lo edito yo
-  — es su mapa.
+`INVENTARIO.md`, `TODO_AUDITORIAS.md`, los mapas de tenancy/suscripciones y el
+registro CT-03 se actualizaron junto con el cableado. La evidencia vigente debe
+incluir la prueba de `PLAN_DRIFT` dentro de la matriz tenancy, no solo la prueba
+unitaria de `divergencias_plan_operativo`.

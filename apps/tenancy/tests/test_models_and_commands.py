@@ -10,6 +10,8 @@ from django.db import transaction
 from django.test import TestCase
 
 from apps.auditoria.models import Auditoria
+from apps.negocios.models import Negocio
+from apps.suscripciones.models import Plan, SuscripcionNegocio
 from apps.tenancy.models import Identity, Membership, SyncToken, Tenant
 from apps.tenancy.services import (
     divergencias_identidad,
@@ -77,6 +79,30 @@ class TenancyModelTests(TestCase):
         )
         self.assertEqual(negocio.nombre, 'Nombre viejo')
         self.assertEqual(config.rnc, '999999999')
+
+    def test_verificador_incluye_plan_drift_sin_corregirlo(self):
+        tenant = Tenant.objects.create(
+            tenant_key='demo-plan', slug='demo-plan', nombre='Autoridad',
+            plan_slug='empresarial',
+        )
+        negocio = Negocio.objects.create(nombre='Autoridad', slug='demo-plan')
+        plan = Plan.objects.create(
+            nombre='Plan operativo', slug='operativo-revision', activo=True,
+        )
+        SuscripcionNegocio.objects.create(negocio=negocio, plan=plan, activa=True)
+
+        diferencias = divergencias_identidad(tenant, negocio, [])
+
+        self.assertIn(
+            {
+                'code': 'PLAN_DRIFT',
+                'field': 'plan_slug',
+                'expected': 'empresarial',
+                'actual': 'operativo-revision',
+            },
+            diferencias,
+        )
+        self.assertEqual(negocio.suscripcion.plan.slug, 'operativo-revision')
 
 
 class BootstrapTenantDryRunTests(TestCase):

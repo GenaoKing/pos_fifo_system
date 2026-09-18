@@ -1,6 +1,6 @@
 # apps/suscripciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-17 (SUS-014: postcondición de plan divergente) -->
+<!-- Última revisión: 2026-09-18 (SUS-014: detección cableada al verificador tenancy) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -27,7 +27,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 | Aprovisionar negocios existentes | `manage.py bootstrap_suscripciones` · `seed.py` |
 | Resincronizar los planes default (Basico/Pro/Empresarial) | `manage.py sync_modulos` · `seed.sincronizar_planes_preset` — solo toca planes con `preset_version` no nulo (SUS-017) |
 | Validar un `plan_slug` antes de escribirlo en dos bases | `seed.validar_plan_slug(slug, using=<alias>)` (SUS-014) — cableada en `bootstrap_tenant --plan` por Codex (`c003af8`); slug vacío es válido, uno inexistente levanta `PlanDesconocido` sin tocar ninguna base |
-| Detectar un plan YA divergente (control plane vs. operativo) | `engine.divergencias_plan_operativo(tenant_plan_slug, negocio)` (SUS-014, mitad 2) — solo lectura, mismo formato de fila que `divergencias_identidad`; **todavía sin cablear** en `verificar_identidad_tenant` |
+| Detectar un plan YA divergente (control plane vs. operativo) | `engine.divergencias_plan_operativo(tenant_plan_slug, negocio)` (SUS-014, mitad 2) — solo lectura, agregado a `verificar_identidad_tenant` como `PLAN_DRIFT` |
 | Gate en vistas / DRF | `apps.configuracion.decorators.requiere_modulo` · `apps/api/permissions.RequiereModulo` |
 | Admin por API | `apps/api/views/suscripciones.py` (permiso `suscripciones.administrar`, solo operador global) |
 | ¿Quién cambió un plan/override? | `Auditoria` (CT-01), acción `suscripciones.suscripcion.*` / `suscripciones.override_negocio.*` — la registra `GuardDegradacionMixin._aplicar` en la misma transacción que la escritura (SUS-015) |
@@ -61,7 +61,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 - `Plan.preset_version=None` = personalizado: `sync_modulos` nunca lo toca.
   Un valor = versión de `seed.TIERS` aplicada; desactualizado se resincroniza
   solo, con la sincronizacion real, al correr el comando (SUS-017).
-- **SUS-014 — prevención cerrada; postcondición pendiente de cablear.**
+- **SUS-014 — prevención y postcondición cerradas en el candidato local.**
   `validar_plan_slug` valida contra la base del `using` dado, no contra
   `default` por defecto: quien la llame bajo tenancy debe pasar el alias del
   tenant explícito. Codex ya la consume en `bootstrap_tenant` (`c003af8`,
@@ -72,11 +72,10 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
   `apps.suscripciones.tests.test_sus014_validar_plan_slug`, 9 OK). Lo que
   ESTO no cubre es un plan que ya divergió por otra vía (edición manual, un
   bootstrap corrido antes del fix): para eso está
-  `engine.divergencias_plan_operativo`, pensada para sumarse a
-  `divergencias_identidad`/`verificar_identidad_tenant` — pedido exacto en
-  `docs/handoffs/cierre_prod/SUS014-divergencias-plan.md`.
+  `engine.divergencias_plan_operativo`, ahora sumada a
+  `divergencias_identidad`/`verificar_identidad_tenant` como `PLAN_DRIFT`.
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
   — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
-  -010, -012, -013, -015, -016 (parcial), -017, -018; SUS-014 prevención
-  cerrada (postcondición mitad 2 propuesta, sin cablear); abiertos SUS-006,
+  -010, -012, -013, -015, -016 (parcial), -017, -018; SUS-014 cerrada en el
+  candidato local; abiertos SUS-006,
   -007, -011, -019.

@@ -146,6 +146,13 @@ def divergencias_identidad(tenant, negocio, configuraciones):
                     'expected': esperado,
                     'actual': actual,
                 })
+
+    # SUS-014: la prevencion corre en bootstrap_tenant; esta postcondicion
+    # detecta, sin escribir ni intentar reconciliar, planes que ya divergen.
+    # La importacion local conserva la direccion tenancy -> suscripciones.
+    from apps.suscripciones.engine import divergencias_plan_operativo
+
+    diferencias.extend(divergencias_plan_operativo(tenant.plan_slug, negocio))
     return diferencias
 
 

@@ -1,6 +1,6 @@
 # apps/tenancy — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 -->
+<!-- Última revisión: 2026-09-18 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -25,7 +25,7 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
 | Media separada por tenant | `media.tenant_media_prefix`, `producto_image_upload_to`, `config_logo_upload_to` |
 | Comandos por tenant | `management/base.TenantCommandMixin`; `manage.py with_tenant --tenant X -- <cmd>` |
 | Crear / migrar / respaldar | `bootstrap_tenant`, `migrate_cloud`, `migrate_tenants`, `backup_tenant` (pg_dump real), `migrar_media_tenant`, `normalizar_import_tenant` |
-| Verificar identidad sin escribir | `manage.py verificar_identidad_tenant --tenant X`; compara control plane, `Negocio` y configuración |
+| Verificar identidad sin escribir | `manage.py verificar_identidad_tenant --tenant X`; compara control plane, `Negocio`, configuración y `PLAN_DRIFT` de la suscripción operativa |
 | Checkpoint de provisioning | `services.marcar_estado_provisioning`; estados reanudables auditados en `default` |
 | Checks de aislamiento | `checks.py` (corren en `manage.py check`) |
 
@@ -52,6 +52,9 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
   using='tnt_<tenant_key>')` una vez migrada la BD tenant y antes de sembrar su
   suscripción o publicar `Tenant.plan_slug`; un slug inválido conserva el plan
   previo y deja el checkpoint reanudable.
+- `verificar_identidad_tenant` agrega `PLAN_DRIFT` si `Tenant.plan_slug` difiere
+  del plan de `SuscripcionNegocio`; es diagnóstico de solo lectura, nunca una
+  reconciliación automática entre bases.
 - El JWT tenant-aware conserva un inicio de sesión absoluto y el servidor lo
   limita a 12 horas tanto en access como en refresh.
 - TEN-016 usa dos bases PostgreSQL físicas con nombres bajo

@@ -1,6 +1,6 @@
 # Registro de contratos del cierre de producción
 
-Propietario: **A / Codex**. Última actualización: **2026-09-17**.
+Propietario: **A / Codex**. Última actualización: **2026-09-18**.
 
 Este archivo es la única fuente para nombres y semántica compartidos. Un
 contrato publicado no afirma que el backend ya lo implemente: la columna
@@ -13,8 +13,8 @@ las pruebas consumidoras.
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
-| CT-03 configuración efectiva | por proponer | C03; A integra settings/sync | A01/A04 y C | PENDIENTE | PENDIENTE | — |
-| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA** | Transporte `master.mutation.v1` implementado; listado/resolución reservados para A06 | `7e5535d` + A05.4 |
+| CT-03 configuración efectiva | `capacidades.efectivas.v1` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | Fixture y test de capacidades integrados; pull de flags legacy sigue pendiente (SUS-007) | candidato A06/C04/C05 |
+| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución y retorno integrados en candidato local; smoke HTTP C04/A06 acreditado | `7e5535d` + A05.4 + A06 |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
@@ -358,10 +358,15 @@ Solo `FALSO_ACK` y `HECHO_SIN_EVENTO_CLOUD` proponen reenvío dirigido.
 `--confirmar-plan`; revalida cloud y precondiciones locales, guarda antes/después
 y rechaza repetir el mismo plan. A04 no autoriza ejecutar esos flags en clientes.
 
-## CT-03 — reserva para configuración efectiva
+## CT-03 — configuración y capacidades efectivas (`capacidades.efectivas.v1`)
 
-C03 propone en su handoff: firma del resolutor, precedencia, validaciones,
-errores, revisión y fixtures. Restricciones ya fijadas por A00/A01:
+El fixture canónico es
+`docs/handoffs/cierre_prod/fixtures/C03-ct03_capacidades_efectivas_v1.json` y
+la prueba consumidora es `apps.suscripciones.tests.test_ct03_contrato`. Fijan
+plan, overrides de negocio/sucursal, cierre de dependencias y módulos core. Una
+modificación semántica exige una revisión nueva del fixture y su prueba.
+
+Restricciones ya fijadas por A00/A01:
 
 - variables de proceso > archivo indicado por `POS_ENV_FILE` > defaults;
 - `load_dotenv(..., override=False, encoding="utf-8")`;
@@ -375,8 +380,12 @@ errores, revisión y fixtures. Restricciones ya fijadas por A00/A01:
 - el cargador devuelve el `Path` absoluto efectivamente leído o `None`, no
   registra valores ni secretos;
 - BD como verdad dinámica y memo solo por request, sin Redis;
-- leer no crea configuración;
-- Codex integra `config/**`, routers/settings y `apps/sync`.
+- leer no crea configuración (CFG-012 ya es lectura pura en este candidato);
+- Codex conserva `config/**`, routers/settings y `apps/sync`.
+
+SUS-007 sigue pendiente: el pull de configuración debe derivar los flags legacy
+`modulo_*` del engine y asegurar que cambios de plan/override sean visibles para
+el cursor incremental, sin romper POS viejos.
 
 ## CT-04 — maestros offline (`master.offline.v1`)
 
@@ -393,10 +402,11 @@ tres superficies que conviene no confundir:
 | Decisión humana | `master.conflict-resolution.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
 | Retorno de decisión cloud → POS | `master.conflict-resolution-sync.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
 
-**Consumidor C04:** su candidato corregido sigue separado y sin publicar. Antes
-de fusionarlo debe repetir build/lint/tests y una prueba HTTP contra el backend
-A06 real, incluido el rechazo de un schema incompatible. Esto no altera la
-propiedad de A06 sobre GET/POST ni autoriza integrar el frontend.
+**Consumidor C04:** su candidato corregido sigue separado y sin publicar. Ya
+pasó build/lint/109 tests y el smoke HTTP autenticado C04↔A06 de 23 casos,
+incluido schema incompatible. Falta la prueba de UI paginada/selección a >200
+filas; esto no altera la propiedad de A06 sobre GET/POST ni autoriza publicar
+el frontend.
 
 ### Transporte implementado
 
@@ -415,7 +425,7 @@ propiedad de A06 sobre GET/POST ni autoriza integrar el frontend.
   historia. `RECHAZADA` se conserva/audita y no se reintenta automáticamente;
   A05 no le inventa un bloqueo comercial que el código no aplica.
 
-### Listado implementado por A06 (candidato no integrado)
+### Listado implementado por A06 (candidato local integrado)
 
 El candidato `codex/cierre-prod-A06@b25a3b7` implementa la ruta portal
 `GET /api/v1/maestros/conflictos/`, que responde
@@ -432,7 +442,7 @@ una sucursal o un texto de actor como autorización. C04 puede usar el fixture
 para maquetar; no puede afirmar integración backend hasta que este candidato se
 integre y se repitan las pruebas consumidoras contra la ruta real.
 
-### Decisiones implementadas por A06 (candidato no integrado)
+### Decisiones implementadas por A06 (candidato local integrado)
 
 La ruta es
 `POST /api/v1/maestros/conflictos/{mutacion_id}/resolver/`, con
