@@ -803,6 +803,73 @@ def metodos_credito_para_sucursal(request):
 # GET /api/v1/sync/configuracion/
 # ============================================================================
 
+_ACCIONES_CAPACIDADES_CT03 = (
+    'suscripciones.suscripcion.actualizado',
+    'suscripciones.override_negocio.creado',
+    'suscripciones.override_negocio.actualizado',
+    'suscripciones.override_negocio.eliminado',
+)
+
+
+def _fecha_configuracion_efectiva(config, sucursal):
+    """Marca de agua del payload, incluida la autoridad comercial CT-03.
+
+    ``ConfiguracionNegocio.fecha_modificacion`` no cambia al seleccionar un
+    plan o editar un override. Las mutaciones oficiales de suscripciones dejan
+    CT-01 dentro de la misma transaccion; esa marca inmutable permite que el
+    cursor existente vuelva a entregar el singleton sin negociar un schema o
+    evento de sync nuevo.
+    """
+    fechas = [config.fecha_modificacion]
+    negocio_id = getattr(sucursal, 'negocio_id', None)
+    if not negocio_id:
+        return config.fecha_modificacion
+
+    from apps.auditoria.models import Auditoria
+    from apps.suscripciones.models import (
+        NegocioModulo,
+        SucursalModuloOverride,
+        SuscripcionNegocio,
+    )
+
+    using = config._state.db or _database_alias()
+    negocio = sucursal.negocio
+    suscripcion = (
+        SuscripcionNegocio.objects.using(using)
+        .select_related('plan')
+        .filter(negocio_id=negocio_id)
+        .first()
+    )
+    if suscripcion is not None:
+        fechas.append(suscripcion.fecha_modificacion)
+        if suscripcion.plan_id:
+            fechas.append(suscripcion.plan.fecha_modificacion)
+
+    for queryset in (
+        NegocioModulo.objects.using(using).filter(negocio_id=negocio_id),
+        SucursalModuloOverride.objects.using(using).filter(sucursal_id=sucursal.pk),
+    ):
+        fecha = queryset.order_by('-fecha_creacion').values_list(
+            'fecha_creacion', flat=True,
+        ).first()
+        if fecha is not None:
+            fechas.append(fecha)
+
+    ultima_mutacion = (
+        Auditoria.objects.using(using)
+        .filter(
+            tenant_key=negocio.slug,
+            accion__in=_ACCIONES_CAPACIDADES_CT03,
+            resultado=Auditoria.Resultado.SUCCEEDED,
+        )
+        .order_by('-registrado_en')
+        .values_list('registrado_en', flat=True)
+        .first()
+    )
+    if ultima_mutacion is not None:
+        fechas.append(ultima_mutacion)
+    return max(fecha for fecha in fechas if fecha is not None)
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def configuracion_para_sucursal(request):
@@ -823,13 +890,18 @@ def configuracion_para_sucursal(request):
     except ConfiguracionNoInicializada:
         return Response([])
 
+    from apps.sync.configuracion import flags_legacy_efectivos
+
+    fecha_efectiva = _fecha_configuracion_efectiva(config, sucursal)
+
     # Sync incremental: si la sucursal ya tiene una version igual o mas
     # reciente, no devolvemos nada (evita reescribir la config local en cada
-    # ciclo). Mismo contrato ?desde= que el resto de endpoints de sync.
+    # ciclo). La marca incluye cambios CT-03 de plan/override, no solo la fila
+    # de ConfiguracionNegocio.
     desde = request.query_params.get('desde')
     if desde:
         ts = parse_datetime(desde)
-        if ts and config.fecha_modificacion and config.fecha_modificacion <= ts:
+        if ts and fecha_efectiva <= ts:
             return Response([])
 
     data = {
@@ -857,8 +929,11 @@ def configuracion_para_sucursal(request):
         'itbis_incluido_en_precio': config.itbis_incluido_en_precio,
         'itbis_porcentaje_global': str(config.itbis_porcentaje_global),
         'modo_contingencia': config.modo_contingencia,
-        'fecha_modificacion': config.fecha_modificacion.isoformat(),
+        'fecha_modificacion': fecha_efectiva.isoformat(),
     }
+    # Forma legacy, valor efectivo: el POS instalado sigue consumiendo los
+    # mismos campos modulo_* mientras el cloud deja de exponer flags crudos.
+    data.update(flags_legacy_efectivos(config, sucursal))
     return Response([data])
 
 

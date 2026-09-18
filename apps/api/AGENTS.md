@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-17 -->
+<!-- Última revisión: 2026-09-18 (CT-03: configuración efectiva por sync) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -47,6 +47,10 @@ tiene modelos propios (`models.py` vacío).
   `encodeURIComponent()`.
 - El pull cloud de configuración es lectura pura: una sucursal sin
   `ConfiguracionNegocio` recibe `[]`; el cloud no crea una fila al servirla.
+- El pull de configuración conserva los campos legacy `modulo_*`, pero para
+  una sucursal con negocio los deriva de `apps.suscripciones.engine`. Su
+  `fecha_modificacion` es la revisión efectiva: incluye CT-01 de los cambios
+  oficiales de plan/override para que el cursor incremental reemita la fila.
 - Throttling de login: `throttling.py`; paginación: `pagination.py`.
 - Todo token portal lleva `session_started_at`/`session_expires_at`; access y
   refresh rechazan la sesión al superar el máximo absoluto de 12 horas.

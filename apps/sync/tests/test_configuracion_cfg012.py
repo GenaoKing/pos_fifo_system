@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.configuracion.models import ConfiguracionNegocio
 from apps.sucursales.models import Sucursal
 from apps.sync.engine import SyncEngine
+from apps.sync.models import DiferidoSync, VersionMaestro
 
 
 class _Response:
@@ -92,3 +93,26 @@ class PullConfiguracionBootstrapTests(TestCase):
         self.assertEqual(
             ConfiguracionNegocio.objects.filter(sucursal=self.sucursal).count(), 1,
         )
+
+    @mock.patch('apps.sync.engine.requests.get')
+    def test_payload_invalido_no_muta_ni_avanza_el_cursor(self, mock_get):
+        config = ConfiguracionNegocio.bootstrap(sucursal=self.sucursal)
+        config.nombre_negocio = 'Estado local valido'
+        config.save(update_fields=['nombre_negocio', 'fecha_modificacion'])
+        mock_get.return_value = _Response([self._item(
+            nombre_negocio='Nunca debe persistirse',
+            pago_efectivo=False,
+            pago_transferencia=False,
+            pago_tarjeta=False,
+        )])
+
+        resultado = self.engine._pull_configuracion()
+
+        config.refresh_from_db()
+        cursor = VersionMaestro.objects.get(tabla='configuracion')
+        self.assertEqual(config.nombre_negocio, 'Estado local valido')
+        self.assertFalse(resultado['ok'])
+        self.assertIn('configuracion invalida', resultado['bloqueo'])
+        self.assertIsNone(cursor.ultima_version)
+        self.assertIsNotNone(cursor.bloqueado_desde)
+        self.assertFalse(DiferidoSync.objects.filter(tabla='configuracion').exists())
