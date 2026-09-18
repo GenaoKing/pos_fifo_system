@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-17 (CFG-010, CFG-018, CFG-019 y CFG-020) -->
+<!-- Última revisión: 2026-09-18 (C04 p5.2: edición portal allowlisted) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -30,7 +30,7 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 | Gatear un menú/pantalla por módulo | `{% if 'key' in modulos_efectivos %}` — **no** `config.modulo_*` (CFG-009/SUS-007) |
 | ¿Este descuento pide autorización? | `ConfiguracionNegocio.descuento_requiere_token(subtotal=, descuento_total=)` |
 | Instalar / diagnosticar | `manage.py crear_config_inicial`, `migrar_env_cliente` (`.bat` → `.env`), `verificar_instalacion` (solo lectura) |
-| ¿Quién cambió esta config? | `Auditoria` (CT-01), acción `configuracion.negocio.creado`/`.actualizado` — la registra `ConfiguracionNegocioAdmin.save_model` (CFG-017; único punto de escritura, no hay viewset API) |
+| ¿Quién cambió esta config? | `Auditoria` (CT-01): Admin local y `services.actualizar_configuracion(...)` para `/api/v1/administracion/configuraciones/{id}/` |
 
 ## Invariantes / trampas
 
@@ -68,6 +68,9 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 - `crear_config_inicial` sin `--sucursal` **aborta** si ya hay configs ligadas a
   sucursal (no pisa la de menor PK — CFG-015); el modo legacy opera solo sobre
   la fila `sucursal=NULL` y falla si hay más de una.
+- El portal solo edita una allowlist operativa con `configuracion.administrar`
+  global y motivo obligatorio. No crea/borra filas, ni toca logo, emisor e-CF o
+  `modulo_*`: esos campos mantienen sus flujos y entitlements propios.
 - `verificar_instalacion`: `--strict` ⇒ exit ≠ 0 ante estado roto (gate de
   deploy, CFG-014); reporta la config de la sucursal resuelta, no `.first()`
   (CFG-014); el modo legacy enumera los flags reales (CFG-013).

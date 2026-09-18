@@ -68,10 +68,11 @@ por lo que evita pérdida silenciosa pero no entrega edición offline.
 | USR-014, PER-ADMIN-BYPASS, OPS-* | Operativos/A08: requieren configuración o datos reales autorizados. |
 | Productores CT-01 no incluidos en C05 p6 | Edición de venta, edición de compra y conversión de cotización por venta conservan dueño y handoff propios. |
 
-No hay un hook backend nuevo pendiente para C04 p5. El frontend debe consumir los
-contratos de maestros, RBAC y configuración ya integrados; cualquier carencia de
-contrato debe volver primero a Codex como solicitud explícita, no resolverse con
-un mock o una mutación backend desde el repositorio React.
+Esta afirmación fue superada por el relevamiento posterior del responsable:
+C04 p5 requería escrituras reales de usuarios, sucursales y configuración. El
+contrato/candidato backend siguiente está en
+`A-C04P5-BACKEND-ADMIN-2026-09-18.md`; el frontend no lo reemplaza con mocks ni
+con mutaciones backend desde el repositorio React.
 
 ## Siguiente integración
 

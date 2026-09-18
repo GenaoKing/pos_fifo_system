@@ -5,8 +5,10 @@ Lista accionable. El contexto de cada punto está en
 módulo. Marcar `[x]` al cerrar.
 
 Última actualización: **2026-09-18**. CT-03/C04 p6 fueron aceptados, A07
-revalidó 605 pruebas backend y su detalle/pendientes vive en
-`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
+revalidó 605 pruebas backend y C04 p5.2 backend está en `5790ec2`, pendiente de
+integrar/consumir. Sus detalles viven en
+`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md` y
+`handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
 
 ## Cierre A02 (sin despliegue)
 

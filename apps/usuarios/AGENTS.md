@@ -1,6 +1,6 @@
 # apps/usuarios — mapa para agentes
 
-<!-- Última revisión: 2026-09-15 -->
+<!-- Última revisión: 2026-09-18 (C04 p5.2: ciclo de vida portal) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -23,6 +23,7 @@ Login/logout del POS local y el gate de Django Admin en cloud.
 | Django Admin | Solo local: `admin_site.PosAdminSite`; `/admin/` no se monta en cloud |
 | Provisionar usuario operativo | `services.provisionar_usuario(...)` o `manage.py provisionar_usuario_tenant`; crea credencial local + RBAC + CT-01 en una transacción tenant |
 | Actualizar/desactivar usuario | `services.actualizar_usuario(...)`; exige actor autorizado, motivo y CT-01 |
+| Alta/baja desde portal cloud | `services.provisionar_usuario_portal(...)` / `actualizar_usuario_portal(...)`; con tenancy activa crean/revocan `Identity` + `Membership` además del usuario local |
 | Crear principal humano en código | `UsuarioManager.create_human_user`; valida credencial y pertenencia |
 | Crear cuenta de servicio | `UsuarioManager.create_service_user`; contraseña no utilizable |
 
@@ -47,5 +48,9 @@ Login/logout del POS local y el gate de Django Admin en cloud.
   juntos en los logins soportados.
 - La creación directa desde Django Admin está cerrada: el alta soportada usa el
   servicio/comando anterior para no separar usuario, RBAC y auditoría.
+- `Identity`/`Membership` viven en control plane y `Usuario`/CT-01 en la BD
+  tenant: no hay transacción distribuida Django. El servicio portal prevalida y
+  compensa un alta incompleta dejando el acceso revocado; no debe prometer
+  atomicidad entre ambas BDs.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md`) —
   **snapshot histórico**, verificar contra código.

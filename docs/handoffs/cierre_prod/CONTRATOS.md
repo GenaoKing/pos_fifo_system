@@ -15,6 +15,7 @@ las pruebas consumidoras.
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
 | CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados, validados y aceptados localmente; A07 revalidó backend | `dfb1dfc`, `1019500`, `6c74d16`, `1357cd7` |
 | CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados y aceptados localmente | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
+| C04 p5.2 administración portal | rutas REST tenant-scoped | A / Codex | C04 frontend | **PUBLICADA_LOCAL** | Usuarios, sucursales y configuración operativa; baja de Membership y CT-01 acreditadas localmente | `5790ec2` |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
@@ -406,6 +407,30 @@ marca durable equivalente; no es un mutador de sync soportado. Antes de
 exponerlo como operación cloud hay que hacerlo auditable o publicar una
 revisión aditiva del cursor. Los cambios oficiales de plan y `NegocioModulo`
 sí están cubiertos por CT-01 y por esta implementación.
+
+## C04 p5.2 — administración portal tenant-scoped
+
+**Estado:** implementado localmente en
+`codex/cierre-prod-C04-p5-backend-admin@5790ec2`; pendiente de integración
+local sobre el candidato A06/C04/C05 y del consumidor React. No mueve
+`develop`, no se publicó ni se desplegó.
+
+| Recurso | Interfaz | RBAC y límites |
+| --- | --- | --- |
+| Usuarios | `GET/POST /api/v1/administracion/usuarios/`, `GET/PATCH/DELETE /{id}/` | `permisos.administrar` global. Alta asigna rol inicial; PATCH deja inmutables username/email/password. DELETE y `activo=false` son baja lógica e idempotente. Con tenancy activa revocan la Membership del tenant además del Usuario. |
+| Sucursales | `GET/POST /api/v1/administracion/sucursales/`, `GET/PATCH/DELETE /{id}/` | `permisos.administrar` global. Código inmutable; DELETE es `activa=false`, sin borrar historia, claves ni usuario de servicio. |
+| Configuración | `GET /api/v1/administracion/configuraciones/`, `GET/PATCH /{id}/` | `configuracion.administrar` global. No crea ni borra. Exige motivo y allowlist de operación; excluye logo, emisor e-CF y `modulo_*`. |
+
+Todas las mutaciones exitosas emiten `audit.event.v1` con canal `PORTAL_API`.
+Las rutas resuelven el negocio con `resolver_negocio()` y devuelven 404 para
+objetos fuera de ese tenant. No exponen password, hash, API key ni secretos.
+Los selectores RBAC C04 p6 permanecen read-only.
+
+La identity/membership vive en control plane y el dominio/auditoría en la BD
+tenant. No se declara transacción distribuida: el alta prevalida y compensa una
+confirmación incompleta dejando acceso revocado. El gate físico con dos
+PostgreSQL y JWT tenant-aware comprobó que revocar Membership invalida la
+autorización siguiente.
 
 ## CT-04 — maestros offline (`master.offline.v1`)
 

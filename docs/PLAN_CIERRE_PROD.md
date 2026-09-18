@@ -1,7 +1,8 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
 Fecha: **2026-09-18**. Estado: **en ejecución; CT-03 sync y C04 p6 aceptados
-localmente; A07 backend revalidado y C04 p5 puede abrirse en su worktree propio**.
+localmente; A07 backend revalidado y el candidato backend C04 p5.2 está listo
+para integrar antes de abrir el consumidor frontend**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -111,9 +112,9 @@ consumidor; cualquier transferencia se registra antes de editar.
 | --- | --- | --- |
 | `apps/auditoria`, `usuarios`, `negocios`, `tenancy`, `sucursales`, `permisos`, `notificaciones`, `sync` | A | B consume los contratos y solicita hooks; no modifica el motor de sync. |
 | `apps/productos`, `apps/clientes`, sus templates/static específicos y API de maestros | A | B modifica los selectores comerciales en ventas/cotizaciones y el portal React. |
-| `apps/configuracion`, `apps/suscripciones` y sus comandos | B | A conecta sus contratos al motor sync/settings; B mantiene conversión/verificación de `.env`. |
+| `apps/configuracion`, `apps/suscripciones` y sus comandos | B | A conecta sus contratos al motor sync/settings; B mantiene conversión/verificación de `.env`. Excepción temporal registrada: A implementa solo `apps/configuracion/services.py` para C04 p5.2; ver `handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`. |
 | `apps/ventas`, `inventario`, `caja`, `cuentas_por_cobrar`, `cotizaciones`, `reportes`, `facturacion_electronica` | B | A integra handlers de sus eventos dentro de `apps/sync` y API sync. |
-| `apps/api/**` | A | Excepciones de B: views/serializers/tests de configuración, suscripciones, CxC y reportes, y `views/reportes_urls.py`. A conserva auth, permisos, maestros, notificaciones, sucursales y todo sync. |
+| `apps/api/**` | A | Excepciones de B: views/serializers/tests de configuración, suscripciones, CxC y reportes, y `views/reportes_urls.py`. Para C04 p5.2 A implementa por transferencia `views/serializers/tests administracion`; A conserva auth, permisos, maestros, notificaciones, sucursales y todo sync. |
 | `apps/api/urls.py`, `config/**`, `manage.py`, routers/settings globales | A | B propone rutas y requisitos del loader; A los integra. |
 | `apps/common/**` | A | Excepciones de B: `apps/common/pdf/**`, sus tests `test_pdf_*` y futuros módulos exclusivamente PDF. `AGENTS.md` de common lo integra A. |
 | `utils/imagenes.py`, `utils/impresoras/**`, PDF de las apps de B | B | A modifica los hooks de modelos de productos/clientes, no las utilidades. |
@@ -329,6 +330,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014 y CT-03 sync están integrados localmente y aceptados** | `integration/cierre-prod-A06-C04-C05@2df0749` integra A06, selectores, 12 productores CT-01, SUS-014, CT-03 sync y el checkpoint A07. C04 p6 está en `claude/cierre-prod-C04@f0e6c2d`; C04 p5 queda siguiente. C06 sigue pendiente. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014 y CT-03 sync están integrados localmente y aceptados** | `integration/cierre-prod-A06-C04-C05@2df0749` integra A06, selectores, 12 productores CT-01, SUS-014, CT-03 sync y el checkpoint A07. C04 p6 está en `claude/cierre-prod-C04@f0e6c2d`; el backend C04 p5.2 es `codex/cierre-prod-C04-p5-backend-admin@5790ec2` y espera integración local antes del frontend. C06 sigue pendiente. |
 | G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6 aceptados y A07 backend revalidado; G1-G4 siguen pendientes de preflight/release** | Backend: 398 focales y A07 605 OK. Frontend C04: build/lint 120 tests y evidencia HTTP a 201 filas 24/24. Faltan preflight read-only autorizado, C04 p5, C06 y gates de release. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

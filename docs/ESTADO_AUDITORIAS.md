@@ -1,7 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados y checkpoint A07
-integrado en `integration/cierre-prod-A06-C04-C05@2df0749`
+Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados, checkpoint A07
+integrado y candidato backend C04 p5.2 `5790ec2` pendiente de integrar
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -114,6 +114,15 @@ forma explícita y los demás CLI/PRO conservan su criterio de cierre. Se repar�
 un fixture de pruebas cloud de clientes sin abrir escritura de API en POS real.
 La evidencia y los límites operativos están en
 `handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
+
+### Actualización C04 p5.2 backend — 2026-09-18
+
+El candidato `codex/cierre-prod-C04-p5-backend-admin@5790ec2` agrega escritura
+tenant-scoped para usuarios, sucursales y configuración del negocio, con CT-01,
+RBAC global y baja lógica. En cloud la baja de usuario revoca Membership y el
+gate con dos PostgreSQL/JWT tenant-aware lo comprobó. No hay migración ni
+operación de datos reales. Falta integrarlo localmente y que Claude consuma el
+contrato; el detalle vive en `handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
 
 ### Auditorías escritas pero todavía sin procesar
 

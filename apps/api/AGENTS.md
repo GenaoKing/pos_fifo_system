@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (CT-03: configuración efectiva por sync) -->
+<!-- Última revisión: 2026-09-18 (C04 p5.2: administración tenant-scoped) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -30,6 +30,7 @@ tiene modelos propios (`models.py` vacío).
 | Reportes consolidados (JSON, sin PDF) | `views/reportes.py` + `services/reporting.py` → `build_*` |
 | Cartera (read-only portal) | `views/cuentas_por_cobrar.py` → `CuentaPorCobrarViewSet` |
 | Admin RBAC / suscripciones / notificaciones | `views/permisos.py`, `views/suscripciones.py`, `views/notificaciones.py` |
+| Usuarios, sucursales y configuración para C04 p5.2 | `views/administracion.py` + `serializers/administracion.py`; rutas `/api/v1/administracion/` |
 | Devolver resoluciones CT-04 al POS | `views/sync.py` → `resoluciones_mutaciones_maestro` (`master.conflict-resolution-sync.v1`, cursor keyset y token de la sucursal origen) |
 | Health | `views/health.py` → `health_check`, `health_live` |
 | Tokens | `manage.py crear_tokens_api`, `manage.py vincular_sucursal_token` |
@@ -59,6 +60,14 @@ tiene modelos propios (`models.py` vacío).
   defecto y `rbac.sync.v2` solo con `X-RBAC-Schema: rbac.sync.v2`.
 - Las mutaciones RBAC llaman `apps.permisos.services`; `X-RBAC-Revision` es el
   precondition opt-in y un valor obsoleto responde `409 rbac_revision_conflict`.
+- `administracion/usuarios` y `administracion/sucursales` requieren
+  `permisos.administrar` **global**; configuración requiere
+  `configuracion.administrar` global. No convertir una asignación acotada a una
+  sucursal en facultad de alterar identidad, topología o flags transversales.
+- `DELETE /administracion/usuarios/{id}/` y `DELETE
+  /administracion/sucursales/{id}/` son bajas lógicas, nunca borrado físico.
+  En cloud la baja de usuario también revoca `Membership`; username/email y
+  código de sucursal son identidades inmutables en estas rutas.
 - Los ViewSets maestros solo aceptan escritura en la instancia cloud. En un POS
   local responden `403`, para no saltar maestro + auditoría CT-01 +
   `MutacionMaestro`. El flag de compatibilidad de sus tests exige además una
