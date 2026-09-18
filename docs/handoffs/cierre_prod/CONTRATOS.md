@@ -13,8 +13,8 @@ las pruebas consumidoras.
 | --- | --- | --- | --- | --- | --- | --- |
 | CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
-| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | Implementada en candidato local, sin integrar | `dfb1dfc`, `1019500` |
-| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución y retorno integrados en candidato local; smoke HTTP C04/A06 acreditado | `7e5535d` + A05.4 + A06 |
+| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados y validados localmente; pendiente aceptación | `dfb1dfc`, `1019500`, `6c74d16` |
+| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados localmente; pendiente aceptación | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
@@ -422,11 +422,13 @@ tres superficies que conviene no confundir:
 | Decisión humana | `master.conflict-resolution.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
 | Retorno de decisión cloud → POS | `master.conflict-resolution-sync.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
 
-**Consumidor C04:** su candidato corregido sigue separado y sin publicar. Ya
-pasó build/lint/109 tests y el smoke HTTP autenticado C04↔A06 de 23 casos,
-incluido schema incompatible. Falta la prueba de UI paginada/selección a >200
-filas; esto no altera la propiedad de A06 sobre GET/POST ni autoriza publicar
-el frontend.
+**Consumidor C04:** p6 está integrado localmente en
+`claude/cierre-prod-C04@f0e6c2d`, sin publicar. Pasó build/lint y 120 tests; su
+evidencia p6 ejerció 201 conflictos por cursor y resolución CAS contra A06 en
+una BD desechable (24/24), además de schema incompatible. No hubo click-through
+de navegador porque el proyecto no tiene Playwright/Cypress. Esto no altera la
+propiedad de A06 sobre GET/POST ni autoriza publicar el frontend; falta la
+aceptación técnica conjunta.
 
 ### Transporte implementado
 
@@ -459,9 +461,9 @@ timestamps, `bloquea_nuevas_ventas` y acciones permitidas.
 El servidor A06 filtra cada fila por el permiso de lectura de su entidad
 en la sucursal origen: `productos.ver` o `categorias.ver`. No se usa el ID de
 una sucursal o un texto de actor como autorización. C04 puede usar el fixture
-para maquetar; el candidato integrado y el smoke HTTP real ya acreditan la
-integración de contrato. Sigue abierto solamente C04 p6: el recorrido de la UI
-contra la ruta real con más de 200 filas.
+para maquetar; el candidato integrado y el smoke HTTP real acreditan la
+integración de contrato. C04 p6 completó su evidencia local a más de 200 filas;
+queda la aceptación técnica, no una nueva ruta ni un cambio de contrato.
 
 ### Decisiones implementadas por A06 (candidato local integrado)
 

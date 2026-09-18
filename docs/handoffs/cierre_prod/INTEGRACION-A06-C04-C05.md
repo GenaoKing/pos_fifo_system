@@ -128,20 +128,27 @@ Eso no reduce la cobertura del contrato que consume C04, pero conserva el JWT
 tenant-aware como cobertura propia de tenancy/auth, no como evidencia de este
 gate de conflictos.
 
+## Actualización de integración — 2026-09-18
+
+El reencuentro de los dos bloques se efectuó sin mover `develop`:
+
+- `codex/cierre-prod-CT03-sync@9c6a698` se integró como
+  `integration/cierre-prod-A06-C04-C05@6c74d163b41d32a3e3a94ec15c19b90260d6bcde`.
+- `claude/cierre-prod-C04-p6-volumen@a241b7c` se integró como
+  `claude/cierre-prod-C04@f0e6c2d0ad579b43ec5d445a3ff4f1e43da6ebd1`.
+- La matriz combinada backend pasó **398 tests en 200.501 s**, y en la punta
+  frontend integrada pasaron build, lint y **120 tests**. El detalle y límites
+  de evidencia constan en `INTEGRACION-CT03-C04P6-2026-09-18.md`.
+
 ## Gates que siguen abiertos
 
-- C04 p6: ejercicio de la **UI** del frontend contra backend vivo a más de 200
-  conflictos. El smoke HTTP cerró el contrato servidor/cliente; todavía falta
-  comprobar navegación por cursor, selectores, estado vacío/error y permisos en
-  la pantalla a volumen.
+- Aceptación técnica de ambas puntas locales. C04 p6 ya tiene evidencia a
+  volumen y CT-03 ya tiene SUS-007/CFG-007 integrados; ninguno de esos hechos
+  autoriza mover `develop`, publicar ni desplegar.
 - Antes de cualquier entorno real, ejecutar el preflight read-only de
   `OPS-PRO-007` y revisar el conteo de productos activos bajo categorías
   inactivas. Este candidato no autoriza corregir datos ni aplicar migraciones
   fuera de una base desechable.
-- CT-03 conserva dos consumidores backend pendientes: SUS-007 (derivar flags
-  legacy desde capacidades efectivas en el pull incremental) y CFG-007
-  (rechazo fail-closed de configuración inválida). Son el siguiente bloque
-  Codex, delimitado en `REPARTO-SIGUIENTE-C04P6-CT03SYNC-2026-09-18.md`.
 - Los productores CT-01 fuera del alcance p6 continúan explícitos en
   `C05-p6-auditoria-ct01.md`: edición de venta, edición de compra y la
   conversión de cotización por venta que aún emite `EDITAR` legacy. No fueron
@@ -149,10 +156,11 @@ gate de conflictos.
 
 ## Secuencia recomendada
 
-1. Ejecutar en paralelo C04 p6 (Claude, UI a volumen) y el bloque CT-03
-   SUS-007/CFG-007 (Codex, sync/API), con worktrees y BDs aislados.
-2. Integrar y repetir la aceptación cruzada de ambos bloques; entonces A07
-   reconcilia el inventario y evidencia vigente, sin iniciar A08 ni promover.
+1. Revisar/aceptar las integraciones locales de CT-03 y C04 p6, conservando sus
+   SHAs y límites de transporte/evidencia.
+2. Solo después de aceptar **ambos**, abrir A07 para reconciliar inventario y
+   evidencia vigente, sin iniciar A08 ni promover. C04 p5 puede iniciar solo
+   después de aceptar p6 y en un worktree frontend nuevo.
 3. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
    delimite un bloque independiente.
 
