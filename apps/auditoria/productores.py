@@ -33,8 +33,15 @@ MATRIZ_LEGACY = {
     Auditoria.TipoAccion.LOGIN: _activo('apps.usuarios.views:login_view'),
     Auditoria.TipoAccion.LOGOUT: _activo('apps.usuarios.views:logout_view'),
     Auditoria.TipoAccion.INTENTO_LOGIN_FALLIDO: _activo('apps.usuarios.views:login_view'),
-    Auditoria.TipoAccion.CREAR: _activo('apps.auditoria.models:Auditoria.registrar'),
-    Auditoria.TipoAccion.EDITAR: _activo('apps.auditoria.models:Auditoria.registrar'),
+    Auditoria.TipoAccion.CREAR: _sin(
+        'No queda productor de dominio activo; C05 p6 migro cotizaciones a CT-01.',
+    ),
+    Auditoria.TipoAccion.EDITAR: _activo(
+        'apps.clientes.views:editar_cliente',
+        'apps.clientes.views:toggle_estado_cliente',
+        'apps.inventario.views:compra_editar',
+        'apps.ventas.services.ventas_service:_marcar_cotizacion_convertida',
+    ),
     Auditoria.TipoAccion.ELIMINAR: _sin('Sin productor generico soportado.'),
     Auditoria.TipoAccion.VER: _sin('Las lecturas no se auditan por defecto.'),
     Auditoria.TipoAccion.PRODUCTO_CREADO: _sin('Pendiente del contrato A05/A06.'),
@@ -47,21 +54,21 @@ MATRIZ_LEGACY = {
         'apps.auditoria.models:Auditoria.registrar_compra',
     ),
     Auditoria.TipoAccion.LOTE_CREADO: _sin('No existe productor de dominio.'),
-    Auditoria.TipoAccion.AJUSTE_INVENTARIO: _activo(
-        'apps.inventario.services.ajustes_service:registrar_ajuste_service',
+    Auditoria.TipoAccion.AJUSTE_INVENTARIO: _sin(
+        'Migrado a inventario.ajuste.creado (audit.event.v1, C05 p6).',
     ),
-    Auditoria.TipoAccion.VENTA_CREADA: _activo(
-        'apps.ventas.services.ventas_service:procesar_venta_service',
+    Auditoria.TipoAccion.VENTA_CREADA: _sin(
+        'Migrado a ventas.venta.creada (audit.event.v1, C05 p6).',
     ),
-    Auditoria.TipoAccion.VENTA_ANULADA: _activo(
-        'apps.ventas.services.anulaciones_service:anular_venta_service',
+    Auditoria.TipoAccion.VENTA_ANULADA: _sin(
+        'Migrado a ventas.venta.anulada (audit.event.v1, C05 p6).',
     ),
     Auditoria.TipoAccion.TICKET_IMPRESO: _sin('No existe productor de dominio.'),
     Auditoria.TipoAccion.TICKET_REIMPRESO: _helper(
         'apps.auditoria.models:Auditoria.registrar_reimpresion_ticket',
     ),
-    Auditoria.TipoAccion.DESCUENTO_AUTORIZADO: _activo(
-        'apps.ventas.services.ventas_service:_consumir_autorizacion_descuento',
+    Auditoria.TipoAccion.DESCUENTO_AUTORIZADO: _sin(
+        'Migrado a ventas.descuento.autorizado (audit.event.v1, C05 p6).',
     ),
     Auditoria.TipoAccion.RECIBO_CXC_IMPRESO: _sin('Pendiente del productor C02.'),
     Auditoria.TipoAccion.COMPROBANTE_EMITIDO: _activo(
@@ -84,8 +91,8 @@ MATRIZ_LEGACY = {
     Auditoria.TipoAccion.PERMISO_REVOCADO: _sin('Pendiente del contrato A03/CT-02.'),
     Auditoria.TipoAccion.BACKUP_CREADO: _sin('No existe productor audit.event.v1.'),
     Auditoria.TipoAccion.BACKUP_RESTAURADO: _sin('No existe productor audit.event.v1.'),
-    Auditoria.TipoAccion.CONFIGURACION: _activo(
-        'apps.cuentas_por_cobrar.services:crear_cuenta_para_venta',
+    Auditoria.TipoAccion.CONFIGURACION: _sin(
+        'La antigua ruta CxC migro a cuentas_por_cobrar.cuenta.creada (C05 p6).',
     ),
     Auditoria.TipoAccion.ERROR_SISTEMA: _activo(
         'apps.auditoria.middleware:AuditoriaMiddleware.process_exception',
@@ -152,6 +159,43 @@ MATRIZ_V1 = {
     ),
     'suscripciones.override_negocio.eliminado': (
         'apps.api.views.suscripciones:GuardDegradacionMixin._aplicar'
+    ),
+    # C05 p6: productores financieros/comerciales migrados desde el adaptador
+    # legacy. Cada accion persiste el mismo envelope audit.event.v1; el
+    # EventoSync de dominio sigue siendo un riel independiente.
+    'ventas.venta.creada': 'apps.ventas.services.ventas_service:procesar_venta_service',
+    'ventas.venta.anulada': (
+        'apps.ventas.services.anulaciones_service:anular_venta_service'
+    ),
+    'ventas.descuento.autorizado': (
+        'apps.ventas.services.ventas_service:_consumir_autorizacion_descuento'
+    ),
+    'inventario.ajuste.creado': (
+        'apps.inventario.services.ajustes_service:registrar_ajuste_service'
+    ),
+    'cuentas_por_cobrar.cuenta.creada': (
+        'apps.cuentas_por_cobrar.services:crear_cuenta_para_venta'
+    ),
+    'cuentas_por_cobrar.credito.override_autorizado': (
+        'apps.cuentas_por_cobrar.services:crear_cuenta_para_venta'
+    ),
+    'cuentas_por_cobrar.abono.registrado': (
+        'apps.cuentas_por_cobrar.services:registrar_pago_cxc_service'
+    ),
+    'cuentas_por_cobrar.abono.anulado': (
+        'apps.cuentas_por_cobrar.services:anular_pago_cxc_service'
+    ),
+    'cuentas_por_cobrar.cuenta.anulada': (
+        'apps.cuentas_por_cobrar.services:anular_cuenta_por_venta'
+    ),
+    'cuentas_por_cobrar.plazo.reprogramado': (
+        'apps.cuentas_por_cobrar.services:reprogramar_cxc_por_plazo_cliente'
+    ),
+    'cotizaciones.cotizacion.creada': (
+        'apps.cotizaciones.views:guardar_cotizacion'
+    ),
+    'cotizaciones.cotizacion.convertida': (
+        'apps.cotizaciones.views:marcar_convertida'
     ),
 }
 

@@ -54,11 +54,10 @@ un UUID real. Regla para futuros productores: nunca meter texto no-UUID en
   y el guard CT-01 `_actor_data` rechaza auditar un hecho de otro tenant; en el
   POS local real, con un solo negocio, esto nunca pasa).
 
-## Deltas para Codex (archivos de `apps/auditoria/`, propiedad de Codex — NO tocados)
+## Deltas de Codex aplicados en la integración local
 
-1. **`apps/auditoria/productores.py::MATRIZ_V1`** — agregar los productores CT-01
-   nuevos (hoy la matriz no los lista; el test `test_ct01.py` no lo exige, pero
-   la matriz debe reflejar la realidad):
+1. **`apps/auditoria/productores.py::MATRIZ_V1`** — registrados los productores
+   CT-01 nuevos, con prueba que exige sus rutas reales:
    - `ventas.venta.creada` → `apps.ventas.services.ventas_service:procesar_venta_service`
    - `ventas.venta.anulada` → `apps.ventas.services.anulaciones_service:anular_venta_service`
    - `ventas.descuento.autorizado` → `apps.ventas.services.ventas_service:_consumir_autorizacion_descuento`
@@ -69,17 +68,18 @@ un UUID real. Regla para futuros productores: nunca meter texto no-UUID en
    - `cuentas_por_cobrar.cuenta.anulada` → `apps.cuentas_por_cobrar.services:anular_cuenta_por_venta`
    - `cuentas_por_cobrar.plazo.reprogramado` → `apps.cuentas_por_cobrar.services:reprogramar_cxc_por_plazo_cliente`
    - `cotizaciones.cotizacion.creada` / `...convertida` → `apps.cotizaciones.views:<vista>`
-2. **`MATRIZ_LEGACY` drift:** las entradas legacy `VENTA_CREADA`, `VENTA_ANULADA`,
+2. **`MATRIZ_LEGACY` drift:** remapeadas las entradas legacy `VENTA_CREADA`, `VENTA_ANULADA`,
    `AJUSTE_INVENTARIO`, `DESCUENTO_AUTORIZADO`, `CONFIGURACION`, `CREAR`, `EDITAR`
    siguen apuntando a funciones que **ya no emiten** esos códigos (ahora emiten
    CT-01). El test solo verifica que la ruta resuelva a un callable, así que no
    rompe, pero conviene remapear/anotar para no prometer cobertura legacy que ya
-   no existe.
-3. **`CONTRATOS.md` §CT-01** — registrar estos productores de dominio como
-   migrados por C05 p6 (rama `claude/cierre-prod-C05-p6-auditoria-ct01`).
-4. **Handlers de sync/API sync** — cada `accion` de la tabla de arriba viaja como
-   evento `audit.event.v1` vía `evento_transportable` (sin cambios en la
-   serialización). `before`/`after` de cada uno están en el código del productor.
+   no existe. `EDITAR` se conserva únicamente para sus cuatro productores
+   realmente activos, fuera del alcance p6.
+3. **`CONTRATOS.md` §CT-01** — registrados como productores de dominio migrados
+   por C05 p6, con su regla de `idempotencia_key`/`correlacion_id`.
+4. **Handlers de sync/API sync** — confirmados sin cambio: cada `accion` de la
+   tabla viaja como evento `audit.event.v1` vía `evento_transportable`.
+   `before`/`after` de cada uno están en el código del productor.
 
 ## Fuera de alcance (no pedidos en C05 p6, quedan como follow-up)
 
@@ -108,11 +108,12 @@ es el contrato para código nuevo de C; no garantiza por sí solo canal, identid
 estable, correlación o transacción correcta."* Entonces p6 = **migrar** esos
 productores al contrato nuevo.
 
-Es una migración amplia. Esta entrega hace el productor **canónico y de mayor
-valor — la venta creada — end-to-end y validado**, dejando establecido el
-patrón que siguen los demás, más el contrato de eventos y la lista de restantes.
+El corte `508a66e` hizo el productor **canónico y de mayor valor — la venta
+creada — end-to-end**. El cierre `bbb5246` aplica ese patrón a todos los demás
+productores de la tabla del resumen; dicha tabla es el estado autoritativo de
+este handoff.
 
-## Qué se migró
+## Corte inicial de referencia (2026-09-17)
 
 `apps/ventas/services/ventas_service.py` — el registro de auditoría de la venta
 dentro del `transaction.atomic()` de `procesar_venta_service`:
@@ -120,11 +121,11 @@ dentro del `transaction.atomic()` de `procesar_venta_service`:
 - **Antes:** `Auditoria.registrar_venta(venta, usuario, ip_address)` (legacy,
   `TipoAccion.VENTA_CREADA` en mayúsculas, sin canal/identidad/correlación
   garantizados por contrato).
-- **Ahora:** `registrar_mutacion(accion='ventas.venta.creada', ...)` — mismo
+- **Ahora (corte inicial):** `registrar_mutacion(accion='ventas.venta.creada', ...)` — mismo
   `using` que la venta (`venta._state.db or 'default'`), dentro de la misma
   transacción, con `actor`/`sucursal`/`tenant` como identidad histórica,
-  `canal=POS_LOCAL`, `correlacion_id`/`idempotencia_key` = clave de
-  idempotencia de la venta, `resultado=SUCCEEDED`.
+  `canal=POS_LOCAL`, `idempotencia_key` = clave de idempotencia opaca de la
+  venta y `correlacion_id=None` salvo UUID real, `resultado=SUCCEEDED`.
 
 `tenant=None` a propósito: `registrar_mutacion._derivar_tenant` lo deriva de la
 sucursal/negocio de la venta (vacío en una instalación local sin tenancy, que
@@ -133,10 +134,11 @@ corre sobre `default`; el contrato solo exige tenant_key para BDs `tnt_`).
 **No se tocó `apps/auditoria`** (Codex): el adaptador legacy
 `Auditoria.registrar_venta` sigue existiendo intacto — solo cambió el llamador.
 
-## Contrato de evento para Codex (sync / API sync)
+## Ejemplo de contrato de evento (sync / API sync)
 
-Evento CT-01 que ahora produce la venta, para los handlers de sync de Codex
-(`evento_transportable` ya lo serializa; no edité esos archivos):
+Ejemplo para la venta creada; las doce acciones de la tabla superior se
+transportan sin cambios como `audit.event.v1` mediante `evento_transportable`
+(los handlers de sync/API no requieren edición):
 
 | Campo | Valor |
 |---|---|
@@ -147,7 +149,8 @@ Evento CT-01 que ahora produce la venta, para los handlers de sync de Codex
 | `entity.type` | `ventas.Venta` |
 | `before` | `{}` (la venta nace en este evento) |
 | `after` | `{numero_venta, total, subtotal, descuento_total, cantidad_items, es_credito}` |
-| `correlation` | clave de idempotencia de la venta |
+| `idempotencia_key` | clave opaca de idempotencia de la venta |
+| `correlation` | `null`, salvo que el productor disponga de UUID real |
 
 Nota: el evento de auditoría CT-01 es **independiente** del evento de sync de
 dominio `EventoSync(tipo_evento='VENTA_CREADA')` que ya existía y sigue
@@ -165,7 +168,7 @@ El único caso en que auditar revierte la venta es un fallo de la **propia**
 escritura de auditoría (invariante CT-01), que es lo correcto: no queremos un
 hecho financiero sin su registro. Ver `[[verificar-ledger-antes-de-status]]`.
 
-## Pruebas — comandos y resultado
+## Gates del corte inicial (histórico)
 
 Worktree `C:/Proyectos/pos_fifo_system_c05_p6`, venv reutilizado (Python
 3.11.14), DB de test aislada `test_pos_c05_p6`.
@@ -184,6 +187,9 @@ DB_NAME=pos_c05_p6 python manage.py test apps.auditoria apps.sync.tests.test_out
 python manage.py makemigrations --check --dry-run   # No changes detected
 python manage.py check                              # 0 issues
 ```
+
+Estos son los gates del corte `508a66e`. El gate vigente del cierre `bbb5246`
+queda registrado en `INTEGRACION-A06-C04-C05.md` (363 pruebas, OK).
 
 Tests nuevos (`apps/ventas/tests/test_ventas_service.py::AuditoriaCT01VentaTests`):
 1. la venta creada emite un evento CT-01 (`ventas.venta.creada`, `audit.event.v1`,

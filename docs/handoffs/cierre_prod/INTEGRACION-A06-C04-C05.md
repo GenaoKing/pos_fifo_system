@@ -14,14 +14,16 @@ datos operativos.
   integrado como `d965fc1`.
 - C05 selectores CT-04: `claude/cierre-prod-C05-ct04-selectores@0208a56c245ff6af0d8b5444795d76c07785fffb`,
   integrado como `6380c44`.
-- C05 productor CT-01 de venta: `claude/cierre-prod-C05-p6-auditoria-ct01@508a66ed4bfbc269cab09c8e786c5d261b7f2eb2`,
-  integrado como `4125e64`.
+- C05 p6 CT-01: el corte inicial `508a66ed4bfbc269cab09c8e786c5d261b7f2eb2`
+  se integró como `4125e64`; el cierre completo
+  `claude/cierre-prod-C05-p6-auditoria-ct01@bbb524658dd94931e751e363f676ceeac13c3436`
+  se integró como `2db885e`.
 - Handoff C04 actualizado con `7817c0a` y `0c7a070`, aplicados como
   `de927dc` y `6ac4a3e`.
 - Frontend separado, no fusionado por Git con este repositorio:
   `pos-cloud-dashboard`, `claude/cierre-prod-C04@e319058`. Es descendiente de
   `928964c`, el correctivo CT-04 de runtime/schema.
-- Resultado de las integraciones de código: `integration/cierre-prod-A06-C04-C05@6ac4a3e`;
+- Resultado de las integraciones de código: `integration/cierre-prod-A06-C04-C05@2db885e`;
   este handoff y sus ajustes son descendientes documentales de esa punta.
 
 ## Alcance integrado
@@ -33,10 +35,12 @@ datos operativos.
 2. C05 acredita COT-009: producto/categoría inactivos o en `CONFLICTO` no son
    seleccionables en venta/cotización; `PENDIENTE` sigue vendible. Corrige la
    asimetría de accesos rápidos de categoría.
-3. C05 p6 migra el productor canónico `ventas.venta.creada` al contrato
-   `audit.event.v1` dentro de la transacción de la venta. El evento de dominio
-   `VENTA_CREADA` sigue siendo un riel distinto. Los demás productores legacy
-   de CT-01 no quedan implícitamente migrados.
+3. C05 p6 migra doce acciones de dominio al contrato `audit.event.v1` dentro de
+   sus transacciones: venta creada/anulada, descuento autorizado, ajuste de
+   inventario, seis acciones CxC y cotización creada/convertida. El evento de
+   dominio `VENTA_CREADA` sigue siendo un riel distinto. Las claves de
+   idempotencia opacas se guardan en `idempotencia_key`, nunca en
+   `correlacion_id` (`UUIDField`).
 4. C04 muestra conflictos y resuelve contra las rutas A06 con schemas
    validados en runtime. También hace visible el caso de producto activo bajo
    categoría inactiva; es distinto del eje `MutacionMaestro.CONFLICTO`.
@@ -45,7 +49,7 @@ datos operativos.
 
 En `C:/Proyectos/pos_fifo_system_integracion_a06_c04_c05`, con
 `C:/Proyectos/pos_fifo_system_a06/.venv/Scripts/python.exe` (Django 5.2.17) y
-una base de prueba efímera `test_pos_fifo_a06_c04_c05`:
+una base de prueba efímera `test_pos_fifo_a06_c04_c05_p6`:
 
 ```powershell
 & 'C:\Proyectos\pos_fifo_system_a06\.venv\Scripts\python.exe' manage.py test `
@@ -66,10 +70,17 @@ una base de prueba efímera `test_pos_fifo_a06_c04_c05`:
   apps.ventas.tests.test_accesos_rapidos_pos `
   apps.cotizaciones.tests.test_cotizacion_hardening `
   apps.ventas.tests.test_ventas_service `
+  apps.ventas.tests.test_idempotencia_venta `
+  apps.ventas.tests.test_descuento_autorizacion `
+  apps.cotizaciones.tests.test_auditoria_cotizaciones `
+  apps.cuentas_por_cobrar.tests.test_ct01_productores `
+  apps.cuentas_por_cobrar.tests.test_auditoria_cxc `
+  apps.inventario.tests.test_ct01_ajuste `
+  apps.inventario.tests.test_auditoria_inventario `
   apps.auditoria `
   apps.sync.tests.test_outbox_transaccional `
   --settings=config.settings_development --noinput
-# Ran 237 tests in 85.217s — OK; la base de prueba fue destruida.
+# Ran 363 tests in 151.057s — OK; la base de prueba fue destruida.
 
 & 'C:\Proyectos\pos_fifo_system_a06\.venv\Scripts\python.exe' manage.py check --settings=config.settings_development
 # System check: 0 issues.
@@ -103,22 +114,22 @@ npm run test:run
   `OPS-PRO-007` y revisar el conteo de productos activos bajo categorías
   inactivas. Este candidato no autoriza corregir datos ni aplicar migraciones
   fuera de una base desechable.
-- La migración CT-01 de `ventas.venta.creada` no cierra los demás productores
-  listados en `C05-p6-auditoria-ct01.md`; deben abordarse como bloques
-  separados, con su dueño y pruebas de transacción/alias.
+- Los productores CT-01 fuera del alcance p6 continúan explícitos en
+  `C05-p6-auditoria-ct01.md`: edición de venta, edición de compra y la
+  conversión de cotización por venta que aún emite `EDITAR` legacy. No fueron
+  absorbidos por esta integración.
 
 ## Secuencia recomendada
 
 1. Cerrar el smoke HTTP C04/A06 y revisión read-only de este candidato.
 2. Si ambos pasan, usar A07 para reconciliar el inventario vivo de hallazgos y
    evidencias, sin iniciar A08 ni promover esta rama.
-3. Mantener las migraciones CT-01 restantes en C05/Claude salvo que se reasigne
-   expresamente la propiedad; el primer bloque prioritario es anulación de
-   venta y luego abono CxC, por su impacto financiero.
+3. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
+   delimite el próximo bloque; el siguiente no debe inferirse de esta rama.
 
 ## Reversión
 
 Esta rama local se descarta sin afectar `develop`. Si una futura integración
-necesita revertirse, usar `git revert -m 1` sobre los merges `4125e64`,
-`6380c44` y `d965fc1` en orden inverso, tras decidir por separado el manejo de
-las migraciones ya aplicadas en un entorno real.
+necesita revertirse, usar `git revert -m 1` sobre los merges `2db885e`,
+`4125e64`, `6380c44` y `d965fc1` en orden inverso, tras decidir por separado
+el manejo de las migraciones ya aplicadas en un entorno real.

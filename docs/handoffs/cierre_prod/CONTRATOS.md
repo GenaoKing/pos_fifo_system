@@ -70,6 +70,31 @@ El adaptador histórico `Auditoria.registrar(...)` se conserva durante la
 migración de productores. No es el contrato para código nuevo de C; no garantiza
 por sí solo canal, identidad estable, correlación o transacción correcta.
 
+### Productores de dominio C05 p6
+
+Integrados localmente en `claude/cierre-prod-C05-p6-auditoria-ct01@bbb5246`
+por `integration/cierre-prod-A06-C04-C05`. Todos persisten sin transformacion
+adicional el schema `audit.event.v1`; no sustituyen los `EventoSync` de dominio.
+
+| Accion CT-01 | Productor |
+| --- | --- |
+| `ventas.venta.creada` | `procesar_venta_service` |
+| `ventas.venta.anulada` | `anular_venta_service` |
+| `ventas.descuento.autorizado` | `_consumir_autorizacion_descuento` |
+| `inventario.ajuste.creado` | `registrar_ajuste_service` |
+| `cuentas_por_cobrar.cuenta.creada` | `crear_cuenta_para_venta` |
+| `cuentas_por_cobrar.credito.override_autorizado` | `crear_cuenta_para_venta` |
+| `cuentas_por_cobrar.abono.registrado` | `registrar_pago_cxc_service` |
+| `cuentas_por_cobrar.abono.anulado` | `anular_pago_cxc_service` |
+| `cuentas_por_cobrar.cuenta.anulada` | `anular_cuenta_por_venta` |
+| `cuentas_por_cobrar.plazo.reprogramado` | `reprogramar_cxc_por_plazo_cliente` |
+| `cotizaciones.cotizacion.creada` | `guardar_cotizacion` |
+| `cotizaciones.cotizacion.convertida` | `marcar_convertida` |
+
+`correlacion_id` conserva solo UUIDs; la clave idempotente opaca se registra en
+`idempotencia_key`. Esto evita que una clave de venta valida pero no UUID revierta
+el hecho al intentar registrar su auditoria.
+
 ### Esquema transportable
 
 ```json

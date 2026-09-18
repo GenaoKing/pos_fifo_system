@@ -26,6 +26,40 @@ from apps.tenancy.models import Identity, Tenant
 from apps.usuarios.models import Usuario
 
 
+PRODUCTORES_C05_P6 = {
+    'ventas.venta.creada': 'apps.ventas.services.ventas_service:procesar_venta_service',
+    'ventas.venta.anulada': (
+        'apps.ventas.services.anulaciones_service:anular_venta_service'
+    ),
+    'ventas.descuento.autorizado': (
+        'apps.ventas.services.ventas_service:_consumir_autorizacion_descuento'
+    ),
+    'inventario.ajuste.creado': (
+        'apps.inventario.services.ajustes_service:registrar_ajuste_service'
+    ),
+    'cuentas_por_cobrar.cuenta.creada': (
+        'apps.cuentas_por_cobrar.services:crear_cuenta_para_venta'
+    ),
+    'cuentas_por_cobrar.credito.override_autorizado': (
+        'apps.cuentas_por_cobrar.services:crear_cuenta_para_venta'
+    ),
+    'cuentas_por_cobrar.abono.registrado': (
+        'apps.cuentas_por_cobrar.services:registrar_pago_cxc_service'
+    ),
+    'cuentas_por_cobrar.abono.anulado': (
+        'apps.cuentas_por_cobrar.services:anular_pago_cxc_service'
+    ),
+    'cuentas_por_cobrar.cuenta.anulada': (
+        'apps.cuentas_por_cobrar.services:anular_cuenta_por_venta'
+    ),
+    'cuentas_por_cobrar.plazo.reprogramado': (
+        'apps.cuentas_por_cobrar.services:reprogramar_cxc_por_plazo_cliente'
+    ),
+    'cotizaciones.cotizacion.creada': 'apps.cotizaciones.views:guardar_cotizacion',
+    'cotizaciones.cotizacion.convertida': 'apps.cotizaciones.views:marcar_convertida',
+}
+
+
 class CT01TestCase(TestCase):
     def setUp(self):
         self.negocio = Negocio.objects.create(nombre='Contrato CT01', slug='ct01')
@@ -231,6 +265,35 @@ class MatrizDeProductoresTests(TestCase):
             with self.subTest(accion=accion):
                 self.assertRegex(accion, Auditoria.ACCION_V1_RE)
                 self.assertTrue(callable(self._resolver(ruta)))
+
+    def test_productores_c05_p6_estan_registrados_con_su_ruta_real(self):
+        self.assertEqual(
+            {accion: MATRIZ_V1[accion] for accion in PRODUCTORES_C05_P6},
+            PRODUCTORES_C05_P6,
+        )
+
+    def test_legacy_c05_p6_no_promete_productores_migrados(self):
+        for accion in (
+            Auditoria.TipoAccion.CREAR,
+            Auditoria.TipoAccion.AJUSTE_INVENTARIO,
+            Auditoria.TipoAccion.VENTA_CREADA,
+            Auditoria.TipoAccion.VENTA_ANULADA,
+            Auditoria.TipoAccion.DESCUENTO_AUTORIZADO,
+            Auditoria.TipoAccion.CONFIGURACION,
+        ):
+            with self.subTest(accion=accion):
+                self.assertEqual(MATRIZ_LEGACY[accion].estado, SIN_PRODUCTOR)
+
+    def test_legacy_editar_declara_los_productores_que_aun_lo_emiten(self):
+        self.assertEqual(
+            MATRIZ_LEGACY[Auditoria.TipoAccion.EDITAR].productores,
+            (
+                'apps.clientes.views:editar_cliente',
+                'apps.clientes.views:toggle_estado_cliente',
+                'apps.inventario.views:compra_editar',
+                'apps.ventas.services.ventas_service:_marcar_cotizacion_convertida',
+            ),
+        )
 
     def test_visor_no_presenta_ausencia_como_cobertura(self):
         opciones = {fila['value']: fila for fila in opciones_legacy_para_visor()}
