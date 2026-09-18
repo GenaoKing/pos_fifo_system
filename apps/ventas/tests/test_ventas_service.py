@@ -37,6 +37,7 @@ from apps.ventas.services import (
     SucursalNoResueltaError,
     TipoECFInvalidoError,
     TotalInconsistenteError,
+    anular_venta_service,
     procesar_venta_service,
 )
 
@@ -644,4 +645,30 @@ class AuditoriaCT01VentaTests(VentaServiceTestCase):
         self._vender()
         self.assertFalse(
             Auditoria.objects.filter(accion=Auditoria.TipoAccion.VENTA_CREADA).exists(),
+        )
+
+    def test_venta_anulada_emite_evento_ct01_en_la_transaccion(self):
+        venta = self._vender()
+        estado_previo = venta.estado
+
+        # El admin anula (RBAC le concede `ventas.anular`); la cajera del
+        # fixture solo tiene los permisos de venta.
+        anular_venta_service(
+            usuario=self.admin, venta_id=venta.id,
+            motivo='Anulacion de prueba CT-01',
+        )
+
+        evento = Auditoria.objects.get(
+            accion='ventas.venta.anulada',
+            object_id=venta.id,
+        )
+        self.assertEqual(evento.schema_version, 'audit.event.v1')
+        self.assertEqual(evento.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(evento.resultado, Auditoria.Resultado.SUCCEEDED)
+        self.assertEqual(evento.entity_type, Venta._meta.label)
+        self.assertEqual(evento.datos_anteriores['estado'], estado_previo)
+        self.assertEqual(evento.datos_nuevos['estado'], 'ANULADA')
+        # Ya no se emite el código legacy VENTA_ANULADA para una anulación.
+        self.assertFalse(
+            Auditoria.objects.filter(accion=Auditoria.TipoAccion.VENTA_ANULADA).exists(),
         )

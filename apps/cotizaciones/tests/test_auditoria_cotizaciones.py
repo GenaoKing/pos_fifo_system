@@ -72,7 +72,12 @@ class CotizacionesTestCase(TestCase):
             username=username, email=f'{username}@test.local',
             password='Prueba123', rol=rol, activo=True,
         )
-        permisos_testing.habilitar_cajero(user, permisos=list(permisos))
+        # El operador pertenece al MISMO negocio que las sucursales del fixture:
+        # es la realidad del POS local (un solo negocio) y lo que exige el
+        # contrato CT-01, que no deja auditar un hecho de un negocio ajeno.
+        permisos_testing.habilitar_cajero(
+            user, negocio=self.negocio, permisos=list(permisos),
+        )
         return user
 
     def _stock(self, cantidad=50):

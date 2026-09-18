@@ -24,6 +24,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
 from apps.auditoria.models import Auditoria, get_client_ip
+from apps.auditoria.services import registrar_mutacion
 from apps.clientes.models import Cliente
 from apps.configuracion.decorators import requiere_modulo
 from apps.cotizaciones.pdf_generator import generar_pdf_cotizacion
@@ -324,25 +325,23 @@ def guardar_cotizacion(request):
             # COT-012: auditoria de negocio DENTRO del atomic (CT-01
             # transaccional). Antes la cotizacion solo emitia el evento de sync;
             # su ciclo de vida no dejaba rastro en la auditoria local.
-            Auditoria.registrar(
-                accion=Auditoria.TipoAccion.CREAR,
-                descripcion=(
-                    f'Cotizacion {cotizacion.numero_cotizacion} creada - '
-                    f'${cotizacion.total}'
-                ),
-                usuario=request.user,
-                content_object=cotizacion,
-                ip_address=get_client_ip(request),
-                nivel_importancia='MEDIA',
-                datos_nuevos={
+            registrar_mutacion(
+                accion='cotizaciones.cotizacion.creada',
+                actor=request.user,
+                entidad=cotizacion,
+                antes=None,
+                despues={
                     'numero_cotizacion': cotizacion.numero_cotizacion,
                     'cliente': cotizacion.cliente.nombre,
                     'total': str(cotizacion.total),
                     'items': len(productos_data),
-                    'sucursal': (
-                        cotizacion.sucursal.codigo if cotizacion.sucursal_id else None
-                    ),
                 },
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.POS_LOCAL,
+                tenant=None,
+                sucursal=cotizacion.sucursal,
+                metadata={'ip_address': get_client_ip(request)},
+                using=cotizacion._state.db or 'default',
             )
 
             return JsonResponse({
@@ -540,21 +539,23 @@ def marcar_convertida(request, cotizacion_id):
             sync_events.evento_cotizacion_convertida(cotizacion)
 
             # COT-012: auditoria de la conversion, atomica con el vinculo.
-            Auditoria.registrar(
-                accion=Auditoria.TipoAccion.EDITAR,
-                descripcion=(
-                    f'Cotizacion {cotizacion.numero_cotizacion} convertida en '
-                    f'venta {venta.numero_venta}'
-                ),
-                usuario=request.user,
-                content_object=cotizacion,
-                ip_address=get_client_ip(request),
-                nivel_importancia='MEDIA',
+            registrar_mutacion(
+                accion='cotizaciones.cotizacion.convertida',
+                actor=request.user,
+                entidad=cotizacion,
+                antes={'estado': 'PENDIENTE'},
+                despues={'estado': cotizacion.estado, 'venta': venta.numero_venta},
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.POS_LOCAL,
+                tenant=None,
+                sucursal=cotizacion.sucursal,
                 metadata={
                     'cotizacion': cotizacion.numero_cotizacion,
                     'venta': venta.numero_venta,
                     'total': str(cotizacion.total),
+                    'ip_address': get_client_ip(request),
                 },
+                using=cotizacion._state.db or 'default',
             )
 
         return JsonResponse({

@@ -419,7 +419,10 @@ def procesar_venta_service(
             canal=Auditoria.Canal.POS_LOCAL,
             tenant=None,
             sucursal=sucursal,
-            correlacion_id=clave_idempotencia or None,
+            # La clave de idempotencia es un texto opaco (≤64), no un UUID: va
+            # en `idempotencia_key` (CharField). `correlacion_id` es un UUIDField
+            # y persistir un texto no-UUID revienta el save y REVIERTE la venta.
+            correlacion_id=None,
             idempotencia_key=clave_idempotencia or None,
             metadata={'ip_address': ip_address} if ip_address else None,
             using=venta._state.db or 'default',
@@ -680,24 +683,28 @@ def _consumir_autorizacion_descuento(*, venta, token, usuario, ip_address) -> No
         'descuento_autorizado_por', 'descuento_autorizacion_motivo',
     ])
 
-    Auditoria.registrar(
-        accion=Auditoria.TipoAccion.DESCUENTO_AUTORIZADO,
-        descripcion=(
-            f'Descuento de ${venta.descuento_total} en venta '
-            f'#{venta.numero_venta} autorizado por '
-            f'{autorizacion.autorizado_por.get_short_name() or autorizacion.autorizado_por.username}'
-        ),
-        usuario=usuario,
-        content_object=venta,
-        ip_address=ip_address,
-        nivel_importancia='ALTA',
-        metadata={
-            'autorizado_por': autorizacion.autorizado_por.username,
-            'solicitado_por': getattr(usuario, 'username', ''),
+    # Auditoría CT-01 dentro del atomic de la venta: el descuento autorizado es
+    # un hecho financiero atado a la venta. Identidad = la sucursal de la venta.
+    registrar_mutacion(
+        accion='ventas.descuento.autorizado',
+        actor=usuario,
+        entidad=venta,
+        antes=None,
+        despues={
             'descuento_total': str(venta.descuento_total),
             'subtotal': str(venta.subtotal),
+            'autorizado_por': autorizacion.autorizado_por.username,
             'motivo': autorizacion.motivo,
         },
+        resultado=Auditoria.Resultado.SUCCEEDED,
+        canal=Auditoria.Canal.POS_LOCAL,
+        tenant=None,
+        sucursal=venta.sucursal,
+        metadata={
+            'solicitado_por': getattr(usuario, 'username', ''),
+            'ip_address': ip_address,
+        },
+        using=venta._state.db or 'default',
     )
 
 

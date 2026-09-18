@@ -244,12 +244,21 @@ class COT010NumeracionTests(CotizacionHardeningBase):
 
 class COT012AuditoriaTests(CotizacionHardeningBase):
     def test_crear_cotizacion_deja_auditoria(self):
-        numero = self._cotizar().json()['numero_cotizacion']
-        self.assertTrue(
-            Auditoria.objects.filter(
-                accion=Auditoria.TipoAccion.CREAR,
-                descripcion__contains=numero,
-            ).exists()
+        # C05 p6: la cotización usa el contrato CT-01 (`registrar_mutacion`),
+        # no el adaptador legacy `Auditoria.registrar`.
+        respuesta = self._cotizar().json()
+        numero = respuesta['numero_cotizacion']
+        evento = Auditoria.objects.get(
+            accion='cotizaciones.cotizacion.creada',
+            object_id=respuesta['cotizacion_id'],
+        )
+        self.assertEqual(evento.schema_version, 'audit.event.v1')
+        self.assertEqual(evento.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(evento.resultado, Auditoria.Resultado.SUCCEEDED)
+        self.assertEqual(evento.datos_nuevos['numero_cotizacion'], numero)
+        # Ya no se emite el código legacy para una cotización nueva.
+        self.assertFalse(
+            Auditoria.objects.filter(accion=Auditoria.TipoAccion.CREAR).exists()
         )
 
     def test_convertir_por_venta_deja_auditoria(self):
