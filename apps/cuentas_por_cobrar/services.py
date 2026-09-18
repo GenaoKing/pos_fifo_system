@@ -8,6 +8,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.clientes.models import Cliente
 from apps.sync import events as sync_events
 from apps.ventas.services.exceptions import (
@@ -392,31 +393,40 @@ def crear_cuenta_para_venta(
             fecha_vencimiento=fecha_vencimiento,
         )
 
+    # Auditoría CT-01: dentro del atomic de la venta (esta función se llama
+    # desde procesar_venta_service). Identidad = la sucursal de la cuenta;
+    # `using` = la BD de la cuenta recién creada.
+    using_cuenta = cuenta._state.db or 'default'
     if admin_override:
-        Auditoria.registrar(
-            accion=Auditoria.TipoAccion.CONFIGURACION,
-            descripcion=f'Override de limite de credito para venta {venta.numero_venta}',
-            usuario=usuario,
-            content_object=cuenta,
+        registrar_mutacion(
+            accion='cuentas_por_cobrar.credito.override_autorizado',
+            actor=usuario,
+            entidad=cuenta,
+            antes={
+                'saldo_anterior': str(saldo_actual),
+                'limite_credito': str(limite),
+            },
+            despues={'saldo_nuevo': str(saldo_financiado)},
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=cuenta.sucursal,
             metadata={
                 'cliente_id': cliente.id,
-                'saldo_anterior': str(saldo_actual),
-                'saldo_nuevo': str(saldo_financiado),
-                'limite_credito': str(limite),
                 'autorizado_por': admin_override.username,
                 'autorizacion_id': autorizacion.pk,
                 'motivo': autorizacion.motivo,
+                'ip_address': ip_address,
             },
-            ip_address=ip_address,
-            nivel_importancia=Auditoria.NivelImportancia.CRITICA,
+            using=using_cuenta,
         )
 
-    Auditoria.registrar(
-        accion=Auditoria.TipoAccion.CREAR,
-        descripcion=f'CXC creada para venta {venta.numero_venta} - saldo ${cuenta.saldo}',
-        usuario=usuario,
-        content_object=cuenta,
-        datos_nuevos={
+    registrar_mutacion(
+        accion='cuentas_por_cobrar.cuenta.creada',
+        actor=usuario,
+        entidad=cuenta,
+        antes=None,
+        despues={
             'venta': venta.numero_venta,
             'cliente': cliente.nombre,
             'total': str(cuenta.total),
@@ -442,8 +452,12 @@ def crear_cuenta_para_venta(
                 credito_data=credito_data,
             ),
         },
-        ip_address=ip_address,
-        nivel_importancia=Auditoria.NivelImportancia.ALTA,
+        resultado=Auditoria.Resultado.SUCCEEDED,
+        canal=Auditoria.Canal.POS_LOCAL,
+        tenant=None,
+        sucursal=cuenta.sucursal,
+        metadata={'ip_address': ip_address} if ip_address else None,
+        using=using_cuenta,
     )
 
     sync_events.evento_cxc_creada(cuenta)
@@ -513,28 +527,29 @@ def reprogramar_cxc_por_plazo_cliente(
             })
 
         if cambios:
-            Auditoria.registrar(
-                accion=Auditoria.TipoAccion.EDITAR,
-                descripcion=(
-                    f'Reprogramacion CxC por plazo de cliente {cliente.nombre}: '
-                    f'{len(cambios)} cuenta(s)'
-                ),
-                usuario=usuario,
-                content_object=cliente,
-                datos_anteriores={
-                    'plazo_credito_dias': plazo_anterior,
-                },
-                datos_nuevos={
+            # Auditoría CT-01 dentro del atomic de la reprogramación. La entidad
+            # es el cliente (dueño del plazo); no tiene sucursal propia, así que
+            # `sucursal=None` deja que el contrato la derive si aplica.
+            registrar_mutacion(
+                accion='cuentas_por_cobrar.plazo.reprogramado',
+                actor=usuario,
+                entidad=cliente,
+                antes={'plazo_credito_dias': plazo_anterior},
+                despues={
                     'plazo_credito_dias': nuevo_plazo,
                     'cuentas_afectadas': len(cambios),
                 },
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.POS_LOCAL,
+                tenant=None,
+                sucursal=None,
                 metadata={
                     'origen': origen,
                     'cambios': cambios[:25],
                     'cambios_truncados': max(len(cambios) - 25, 0),
+                    'ip_address': ip_address,
                 },
-                ip_address=ip_address,
-                nivel_importancia=Auditoria.NivelImportancia.ALTA,
+                using=cliente._state.db or 'default',
             )
 
     return {
@@ -633,20 +648,29 @@ def registrar_pago_cxc_service(
             clave_idempotencia=clave_idempotencia,
         )
 
-        Auditoria.registrar(
-            accion=Auditoria.TipoAccion.CREAR,
-            descripcion=f'Abono CxC registrado para {cuenta.venta.numero_venta} - ${monto}',
-            usuario=usuario,
-            content_object=pago,
-            datos_nuevos={
+        # Auditoría CT-01 dentro del atomic del abono: identidad = la sucursal
+        # de la cuenta, `using` = la BD del pago. La clave de idempotencia es
+        # texto opaco → va en `idempotencia_key` (CharField), nunca en
+        # `correlacion_id` (UUIDField). Un fallo de auditoría revierte el abono.
+        registrar_mutacion(
+            accion='cuentas_por_cobrar.abono.registrado',
+            actor=usuario,
+            entidad=pago,
+            antes=None,
+            despues={
                 'cuenta_id': cuenta.id,
                 'cliente': cuenta.cliente.nombre,
                 'monto': str(monto),
                 'metodo': metodo,
                 'saldo_restante': str(cuenta.saldo),
             },
-            ip_address=ip_address,
-            nivel_importancia=Auditoria.NivelImportancia.ALTA,
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=cuenta.sucursal,
+            idempotencia_key=clave_idempotencia or None,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=pago._state.db or 'default',
         )
 
         sync_events.evento_cxc_pago_registrado(pago)
@@ -752,22 +776,31 @@ def anular_pago_cxc_service(
             fecha_cierre__gte=pago.fecha_pago,
         ).exists()
 
-        Auditoria.registrar(
-            accion=Auditoria.TipoAccion.EDITAR,
-            descripcion=f'Abono CxC anulado para {cuenta.venta.numero_venta} - ${pago.monto}',
-            usuario=usuario,
-            content_object=pago,
+        # Auditoría CT-01 dentro del atomic de la reversa: identidad = la
+        # sucursal de la cuenta, `using` = la BD del pago revertido.
+        registrar_mutacion(
+            accion='cuentas_por_cobrar.abono.anulado',
+            actor=usuario,
+            entidad=pago,
+            antes={'estado': PagoCxC.ESTADO_APLICADO},
+            despues={
+                'estado': pago.estado,
+                'motivo_anulacion': motivo,
+                'saldo_restituido': str(cuenta.saldo),
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=cuenta.sucursal,
             metadata={
                 'cuenta_id': cuenta.id,
                 'cliente': cuenta.cliente.nombre,
                 'monto': str(pago.monto),
                 'metodo': pago.metodo,
-                'motivo': motivo,
-                'saldo_restituido': str(cuenta.saldo),
                 'turno_cerrado': turno_cerrado,
+                'ip_address': ip_address,
             },
-            ip_address=ip_address,
-            nivel_importancia=Auditoria.NivelImportancia.CRITICA,
+            using=pago._state.db or 'default',
         )
 
         sync_events.evento_cxc_pago_anulado(pago)
@@ -817,15 +850,22 @@ def anular_cuenta_por_venta(*, venta, usuario=None, ip_address: str | None = Non
             f'el destino del dinero queda decidido y trazado.'
         )
 
+    estado_anterior = cuenta.estado
     cuenta.marcar_anulada()
-    Auditoria.registrar(
-        accion=Auditoria.TipoAccion.EDITAR,
-        descripcion=f'CXC anulada por anulacion de venta {venta.numero_venta}',
-        usuario=usuario,
-        content_object=cuenta,
-        metadata={'venta': venta.numero_venta},
-        ip_address=ip_address,
-        nivel_importancia=Auditoria.NivelImportancia.CRITICA,
+    # Auditoría CT-01 dentro del atomic de la anulación de venta (esta función
+    # se llama desde anular_venta_service). Identidad = la sucursal de la cuenta.
+    registrar_mutacion(
+        accion='cuentas_por_cobrar.cuenta.anulada',
+        actor=usuario,
+        entidad=cuenta,
+        antes={'estado': estado_anterior},
+        despues={'estado': cuenta.estado},
+        resultado=Auditoria.Resultado.SUCCEEDED,
+        canal=Auditoria.Canal.POS_LOCAL,
+        tenant=None,
+        sucursal=cuenta.sucursal,
+        metadata={'venta': venta.numero_venta, 'ip_address': ip_address},
+        using=cuenta._state.db or 'default',
     )
     sync_events.evento_cxc_anulada(cuenta)
     return cuenta

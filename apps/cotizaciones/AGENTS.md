@@ -1,6 +1,6 @@
 # apps/cotizaciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 -->
+<!-- Última revisión: 2026-09-18 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -44,10 +44,12 @@ cotización en el POS para convertirla en venta. `apps/cotizaciones/models.py`,
   savepoint (no `count()+1`), igual que `Venta`/`_guardar_con_correlativo`.
 - **Totales (COT-011):** guardar o borrar un `DetalleCotizacion` reconcilia la
   cabecera; el Admin muestra sus totales como campos derivados de solo lectura.
-- **Auditoría (COT-012):** crear (`guardar_cotizacion`) y convertir
-  (`ventas_service._marcar_cotizacion_convertida` y el legacy `marcar_convertida`)
-  dejan `Auditoria.registrar` DENTRO de la transacción. `lista_cotizaciones` pagina
-  (COT-017); el descuento/cantidad se sanean en el servidor (COT-008).
+- **Auditoría (COT-012):** crear (`guardar_cotizacion`) y convertir por endpoint
+  (`marcar_convertida`) usan el contrato CT-01 `registrar_mutacion`
+  (`cotizaciones.cotizacion.creada` / `.convertida`) DENTRO de la transacción
+  (C05 p6). La conversión POR VENTA (`ventas_service`) sigue con el productor
+  legacy — follow-up. `lista_cotizaciones` pagina (COT-017); el
+  descuento/cantidad se sanean en el servidor (COT-008).
 - Sync: `evento_cotizacion_creada`, `evento_cotizacion_convertida`
   (`apps/sync/events.py`); handlers en `apps/api/views/sync.py`.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md`)

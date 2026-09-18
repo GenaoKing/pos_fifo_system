@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.sync import events as sync_events
 
 from ..models import AjusteInventario, Lote, MovimientoLote
@@ -178,10 +179,27 @@ def registrar_ajuste_service(
             notas=f'{ajuste.get_tipo_display()}: {motivo}',
         )
 
-        Auditoria.registrar_ajuste_inventario(
-            ajuste=ajuste,
-            usuario=usuario,
-            ip_address=ip_address,
+        # Auditoría CT-01 dentro del atomic (atómica con el ajuste): identidad =
+        # la sucursal del LOTE ya bloqueado (INV-RBAC-SCOPE), mismo `using`. Un
+        # fallo de auditoría revierte el ajuste (invariante CT-01).
+        registrar_mutacion(
+            accion='inventario.ajuste.creado',
+            actor=usuario,
+            entidad=ajuste,
+            antes={'cantidad_actual': str(cantidad_anterior)},
+            despues={
+                'cantidad_actual': str(cantidad_nueva),
+                'tipo': tipo,
+                'cantidad_ajuste': str(cantidad_ajuste),
+                'motivo': motivo,
+                'lote': lote.numero_lote,
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=lote.sucursal,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=ajuste._state.db or 'default',
         )
 
         # Outbox transaccional: el ajuste es un hecho de negocio.

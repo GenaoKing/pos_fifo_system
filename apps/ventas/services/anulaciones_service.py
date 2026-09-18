@@ -38,6 +38,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.configuracion.utils import get_config, modulo_activo
 from apps.sync import events as sync_events
 
@@ -161,13 +162,27 @@ def anular_venta_service(
                 ip_address=ip_address,
             )
 
-        # Auditoría dentro del atomic
-        Auditoria.registrar_anulacion_venta(
-            venta=venta,
-            usuario=usuario,
-            motivo=motivo,
-            ip_address=ip_address,
-            estado_anterior=estado_anterior,
+        # Auditoría CT-01 dentro del atomic (atómica con la anulación): mismo
+        # `using` que la venta, identidad = la sucursal de la PROPIA venta (no
+        # la del operador). Un fallo de auditoría revierte la anulación
+        # (invariante CT-01). Ver docs/handoffs/cierre_prod/C05-p6-auditoria-ct01.md.
+        registrar_mutacion(
+            accion='ventas.venta.anulada',
+            actor=usuario,
+            entidad=venta,
+            antes={'estado': estado_anterior},
+            despues={
+                'estado': venta.estado,
+                'motivo_anulacion': motivo,
+                'anulada_por': getattr(usuario, 'username', '') or '',
+                'total': str(venta.total),
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=venta.sucursal,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=venta._state.db or 'default',
         )
 
         # Outbox transaccional: atomico con la anulacion.
