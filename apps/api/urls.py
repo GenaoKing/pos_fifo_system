@@ -27,6 +27,11 @@ from .views.permisos import (
     SucursalAsignableViewSet,
     UsuarioAsignableViewSet,
 )
+from .views.administracion import (
+    ConfiguracionAdministracionViewSet,
+    SucursalAdministracionViewSet,
+    UsuarioAdministracionViewSet,
+)
 from .views.suscripciones import (
     ModuloViewSet,
     NegocioModuloViewSet,
@@ -70,6 +75,21 @@ router_v1.register(
 )
 router_v1.register(
     r'permisos/sucursales', SucursalAsignableViewSet, basename='sucursal-asignable'
+)
+
+# Panel C04 p5.2: escrituras administrativas tenant-scoped. Los selectores
+# `permisos/usuarios` y `permisos/sucursales` siguen read-only por compatibilidad.
+router_v1.register(
+    r'administracion/usuarios', UsuarioAdministracionViewSet,
+    basename='administracion-usuario',
+)
+router_v1.register(
+    r'administracion/sucursales', SucursalAdministracionViewSet,
+    basename='administracion-sucursal',
+)
+router_v1.register(
+    r'administracion/configuraciones', ConfiguracionAdministracionViewSet,
+    basename='administracion-configuracion',
 )
 
 # Administracion de suscripciones/modulos (operador SaaS).

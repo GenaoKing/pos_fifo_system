@@ -186,6 +186,14 @@ def _actor_data(actor, *, tenant_key, using):
         )
     actor_negocio = getattr(usuario, 'negocio', None) if usuario is not None else None
     actor_tenant = _tenant_key(actor_negocio)
+    if using.startswith('tnt_'):
+        # En DB-per-tenant la prueba fuerte ya es que el actor operativo vive
+        # en la misma conexion ``using`` (ver arriba). `Negocio.slug` es dato
+        # comercial y puede diferir del `tenant_key` técnico; compararlo contra
+        # el contexto rechazaba una mutacion legitima aun con actor y entidad
+        # dentro de la misma base física. El contexto activo es la identidad
+        # autoritativa del tenant para CT-01.
+        actor_tenant = get_current_tenant_key() or actor_tenant
     actor_global = bool(
         getattr(actor, 'is_superuser', False)
         or getattr(actor, 'is_global_identity', False)
