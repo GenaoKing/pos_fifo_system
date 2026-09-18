@@ -76,7 +76,8 @@ un mock o una mutación backend desde el repositorio React.
 ## Siguiente integración
 
 El siguiente trabajo permitido de Claude es **C04 p5**, en un worktree frontend
-nuevo desde `claude/cierre-prod-C04@f0e6c2d0ad579b43ec5d445a3ff4f1e43da6ebd1`:
+nuevo desde `claude/cierre-prod-C04@2df99c2407fd90c457b178f0f8d5bb65ba054fda`
+(incluye el merge p6 `f0e6c2d` y su handoff documental):
 
 1. Pantallas de roles/asignaciones, configuración y operaciones alternativas al
    `/admin/` cloud, sin modificar endpoints backend ni duplicar RBAC en React.
