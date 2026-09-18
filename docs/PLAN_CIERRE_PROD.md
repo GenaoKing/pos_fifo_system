@@ -1,6 +1,6 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-11**. Estado: **en ejecución; A04 y C05 partes 1-2 integrados localmente; gates pendientes**.
+Fecha: **2026-09-18**. Estado: **en ejecución; candidato A06/C04/C05 consolidado localmente; gates pendientes**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -328,6 +328,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05.4 en candidato integrado y A06 backend/POS en candidato local** | CT-04 conserva fixture versionado; `codex/cierre-prod-A06@b25a3b7` suma retorno de resolución, bajas lógicas e inactivos sin integrar. C04/selectores C05/C06 siguen como siguientes frentes. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; integración A04+C05 validada localmente; G1-G4 pendientes** | Parte 2: 95 focales + discovery completo Django sin fallos funcionales + 72 e-CF; worktrees/BDs aislados y suites multi-DB seriales. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04 y p6 están en candidato consolidado** | `integration/cierre-prod-A06-C04-C05@51946ef` integra A06, selectores y los 12 productores CT-01. C04 frontend queda separado hasta el smoke HTTP; C06 sigue pendiente. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; candidato A06/C04/C05 validado localmente; G1-G4 pendientes** | Backend: 363 focales OK. Frontend C04: build/lint y 109 tests OK. Faltan smoke HTTP, preflight read-only, A07 y gates de release. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

@@ -1,11 +1,12 @@
 # Estado maestro del proyecto
 
-Ultima revision: **2026-09-17** (`develop@fffd02b` permanece intacto; el
-candidato local `integration/cierre-prod-A05-C03@cc77452` integra A05.1-A05.4,
-C02/C03 residuales y el handoff C04; `codex/cierre-prod-A06@b25a3b7` queda
-como candidato backend/POS separado y C04 aún requiere prueba HTTP real e
-integración aislada). Sin
-push, despliegue ni lectura o escritura de datos operativos.
+Ultima revision: **2026-09-18** (`develop@fffd02b` permanece intacto; el
+candidato local `integration/cierre-prod-A06-C04-C05@51946ef` reúne A05/C03,
+A06, C05/CT-04 y C05 p6). El frontend C04 sigue separado en
+`claude/cierre-prod-C04@e319058`; requiere smoke HTTP real contra A06. El
+único avance Claude de código aún no integrado es SUS-014 postcondición
+(`9c36dd9`), sin su consumidor tenancy. Sin push, despliegue ni lectura o
+escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila
@@ -48,11 +49,11 @@ nuevo candidato en staging y preparar cloud -> Royal Plast -> SK Performance.
 Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
 A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado
-`integration/cierre-prod-A05-C03@609c98f` suma A05.1-A05.4. CT-04 está
-publicado y el candidato A06 backend/POS
-implementa listado/resolución, retorno al POS e inactivos. G1-G4 siguen
-pendientes: C04 contra backend real, integración A06, A07-A08, selectores
-comerciales reales y C06 no están aprobados ni publicados**.
+`integration/cierre-prod-A05-C03@609c98f` suma A05.1-A05.4. El candidato
+consolidado `integration/cierre-prod-A06-C04-C05@51946ef` integra A06,
+selectores C05/CT-04 y doce productores C05 p6 CT-01; C04 frontend aún necesita
+la prueba HTTP de dos procesos. G1-G4 siguen pendientes: smoke C04/A06,
+preflight operativo read-only, A07-A08 y C06; nada está aprobado ni publicado**.
 Inventario,
 contratos y handoffs:
 [`docs/handoffs/cierre_prod/`](handoffs/cierre_prod/). No autoriza despliegues.
@@ -72,10 +73,10 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Terraform/Azure | platform/dev/staging/prod aplicados | `ROADMAP_DEPLOY_AZURE.md` | Deuda: un solo Flexible Server B1ms aloja todo, sin HA y backup 7 dias. |
 | RBAC/permisos | CT-02 y consumidores C05 integrados/validados localmente; producción aún legacy | `RBAC_PERMISOS.md` + `docs/handoffs/cierre_prod/CONTRATOS.md` | PER-013 ya cubre anulación/reimpresión por sucursal; migración 0011 y retiro del bypass ADMIN requieren preflight verde por tenant. |
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
-| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; CT-04 habilita fixture contractual, pero SUS-007–010 y selectores C05 reales siguen en A06/C04. |
+| Modulos vendibles | Fundacion completa; SUS-006 integrado localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand ya tienen gate HTML/API; C05/CT-04 ya está en el candidato consolidado. SUS-007/016 y el cableado SUS-014 continúan pendientes. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | Integración A04+C05 partes 1-2 validada localmente | `TESTING.md` | 95 focales C05 parte 2 y 72 e-CF; el discovery completo no mostró fallos Django y confirmó que e-CF debe separarse a pytest. Linux/artefacto se repite en A09. |
-| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 parte 2 acredita constraints, cotizaciones, alias/idempotencia CxC, scope inventario, paginación y cierre manual; CT-04/C04 y deuda residual siguen abiertos. |
+| Testing | Candidato A06/C04/C05 validado localmente | `TESTING.md` | 363 pruebas backend focales y 109 frontend C04 verdes; falta smoke HTTP real. e-CF, Linux y artefacto se repiten en A09. |
+| Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 p6 registra 12 productores CT-01 en el candidato; CT-04/C04 operativo y deuda residual siguen abiertos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable integrado localmente** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Compatibilidad HTTP real, dry-run de clientes y despliegue quedan para A09 con autorización. |
 | Bugs/hallazgos | 13 bugs etiquetados (BUG-A..M) | `BUGS.md` | BUG-K tiene sonda/plan dirigido integrado localmente desde A04; no se ejecutó contra clientes y producción/historia siguen pendientes de A09. |

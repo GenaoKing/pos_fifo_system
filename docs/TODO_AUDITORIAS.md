@@ -37,18 +37,12 @@ datos de clientes.
 
 ## Cierre C05 parte 2 (sin despliegue)
 
-> **A06 backend/POS (2026-09-17, sin integrar/publicar).** El candidato
-> `codex/cierre-prod-A06@b25a3b7`, desde `609c98f`, completa GET/POST CT-04,
-> retorno cloud → POS versionado, ledger de resolución, estado operativo con
-> baja lógica/motivo/reactivación y pull de inactivos. Las migraciones
-> `productos.0014` y `sync.0016` están verificadas en la BD tenant aislada.
-> C04 sigue separado: requiere su prueba HTTP contra este backend antes de
-> cualquier integración frontend.
-
-> **Actualización A05.4 (2026-09-17).** CT-04 ya publica el schema y fixture
-> de estados pendiente/conflicto. C04 puede maquetar contra esa fuente
-> canónica; las superficies backend/POS están en el candidato A06, pero A06+C04
-> y los selectores siguen sin integrarse ni autorizarse a publicar.
+> **Actualización A06/C04/C05 (2026-09-18, sin publicar).** El candidato
+> `integration/cierre-prod-A06-C04-C05@51946ef` integra el backend/POS A06,
+> selectores comerciales C05/CT-04 y C05 p6. La matriz backend focal terminó
+> con 363 pruebas OK. C04 frontend permanece separado en `e319058`, con 109
+> pruebas verdes; falta el smoke HTTP autenticado contra este backend antes de
+> aceptar la integración de dos procesos.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
@@ -65,7 +59,8 @@ pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
 frontend, sin publicar) — ver
 `docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
 existe en candidato aislado; faltan la prueba real C04 y la integración
-controlada. Los selectores comerciales permanecen fuera de este candidato.
+controlada. Los selectores comerciales ya están dentro del candidato; el gate
+pendiente es el smoke C04/A06, no reimplementar el selector.
 
 ---
 
@@ -304,8 +299,10 @@ integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el
 2026-09-17 (origen `0548384`). Quedan
 abiertos: **SUS-007** (mitad UI hecha, falta migrar el pull de sync a derivar del
 engine — es de Codex), **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
-reporte de sync parcial de Codex) y **SUS-014** (divergencia plan control-plane
-vs operativo, cross-DB — conviene coordinar).
+reporte de sync parcial de Codex) y **SUS-014**. En SUS-014 la prevención ya está
+integrada (`validar_plan_slug` + `bootstrap_tenant`); Claude aportó detección
+read-only `PLAN_DRIFT` en el candidato `9c36dd9` (17 pruebas OK), pero falta
+integrarla y cablearla a `verificar_identidad_tenant`.
 
 **Pendientes de `apps/configuracion`** — cerrados en `develop` por C03
 (revalidado 2026-09-16, con tests de configuración): CFG-006 (`38e5647`,

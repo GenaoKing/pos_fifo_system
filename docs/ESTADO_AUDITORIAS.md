@@ -1,6 +1,7 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-11** · Código C05 parte 2 revisado: `18e0898`
+Última actualización: **2026-09-18** · Candidato A06/C04/C05 conciliado:
+`integration/cierre-prod-A06-C04-C05@51946ef`
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -87,6 +88,22 @@ Quedan declaradamente fuera: **CT-04** y sus selectores comerciales de maestros
 operativamente activos/pendiente/conflicto; **C04** no se inició. COT-013,
 COT-018 y el tramo de stock/presupuesto de queries de COT-017 siguen abiertos.
 No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
+
+### Actualización A06 + C04 + C05 p6 — 2026-09-18
+
+El párrafo anterior describe el corte C05 de 2026-09-11; sus pendientes CT-04
+no son el estado vigente. El candidato local
+`integration/cierre-prod-A06-C04-C05@51946ef` integra A06, los selectores C05
+CT-04 y los doce productores de dominio C05 p6 bajo `audit.event.v1`. La matriz
+backend focal terminó con **363 pruebas OK**; no hubo migración, publicación ni
+operación sobre datos reales.
+
+C04 frontend permanece en su repositorio propio, limpio en `e319058`, con
+build, lint y 109 pruebas verdes. Falta el smoke HTTP autenticado contra A06
+(schema real, cursor, 403 y CAS 409), por lo que no es una aceptación portal
+operativa. El único avance de código Claude fuera del candidato es
+`SUS-014@9c36dd9`: detección read-only de `PLAN_DRIFT`, verificada con 17
+pruebas, pero pendiente de cablearse a `divergencias_identidad` por Codex.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -500,7 +517,9 @@ Ninguno bloquea el despliegue.
 - **Drill de restauración.** `backup_tenant` produce y verifica un artefacto,
   pero nadie probó restaurarlo end-to-end.
 - **Cobertura de productores CT-01.** A02 conserva actor operativo e identidad
-  impersonadora; cada bloque posterior debe integrar y probar sus productores.
+  impersonadora. C05 p6 ya integra doce acciones de ventas, inventario, CxC y
+  cotizaciones; edición de venta/compra y conversión por venta siguen fuera de
+  ese alcance. Cada bloque futuro debe declarar y probar sus productores.
 
 ### Robustez
 

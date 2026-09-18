@@ -171,6 +171,10 @@ entidad; no pérdida de cambios por pull ni duplicación del maestro.
 
 **Entrada:** A05; coordinar CT-04 con C04/C05.
 
+**Estado 2026-09-18:** A06 está integrado localmente con C05/CT-04 y C05 p6 en
+`integration/cierre-prod-A06-C04-C05@51946ef`; la matriz backend focal dio 363
+OK. No está publicado. C04 frontend conserva como gate el smoke HTTP real.
+
 1. API y UI POS de conflictos: conservar ambas propuestas. Resolver «conservar
    cloud» o «aplicar local» con motivo, permiso y revisión actual; si cambió de
    nuevo, producir conflicto otra vez, no sobrescribir silenciosamente.

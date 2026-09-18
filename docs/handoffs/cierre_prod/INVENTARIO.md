@@ -26,6 +26,14 @@ esa base y sus hallazgos de integración se cerraron en `18e0898`. La evidencia
 acredita solo código local: CT-04, C04, la compatibilidad HTTP real y cualquier
 sonda o reparación de clientes permanecen pendientes en sus bloques.
 
+Conciliación Claude/Codex: **2026-09-18**. El candidato consolidado
+`integration/cierre-prod-A06-C04-C05@51946ef` integra A06, C05/CT-04 y C05 p6
+(12 acciones CT-01); la matriz backend focal dio 363 OK. C04 frontend
+`e319058` sigue en su repositorio y falta su smoke HTTP. SUS-014 detección de
+`PLAN_DRIFT` (`9c36dd9`) es el único candidato Claude de código no integrado:
+prevención ya integrada, postcondición pendiente de cablear en tenancy. Ver
+`CONCILIACION-CLAUDE-CODEX-2026-09-18.md`.
+
 Reconciliación de ledger C02/C03: **2026-09-16** (Claude, read-only + doc). La
 sección "Configuración, suscripciones y documentos" arrastraba `PENDIENTE` en
 filas ya cerradas por C02/C03 en `develop`: el ledger se actualizó para
@@ -259,7 +267,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | SUS-011 | TODO + AUD-SUS | Señales invalidan antes del commit. | C | C03 | P2 | ACREDITADO | `506edf2` | Invalidación de cache diferida a `transaction.on_commit`; test de suscripciones. |
 | SUS-012 | TODO + AUD-SUS | Registro código y espejo DB divergen. | C | C03 | P2 | ACREDITADO | `d968e3f` | `checks.py` falla ruidoso si el catálogo en código y el espejo DB divergen; test de suscripciones. |
 | SUS-013 | TODO + AUD-SUS | `activo`/estados sin semántica efectiva. | C | C03 | P2 | ACREDITADO | `6e3d551` | `Plan.activo` bloquea nuevas altas sin suspender el core; test de suscripciones. |
-| SUS-014 | TODO + AUD-SUS | Plan control-plane diverge del operativo. | C | C03 | P2 | PENDIENTE | — | Cross-DB consistente. |
+| SUS-014 | TODO + AUD-SUS | Plan control-plane diverge del operativo. | C+A | C03/A07 | P2 | PENDIENTE | `b318681`, `c003af8`; candidato `9c36dd9` | Prevención integrada en `bootstrap_tenant`; falta cablear y probar `PLAN_DRIFT` read-only en `verificar_identidad_tenant`. |
 | SUS-015 | TODO + AUD-SUS | Cambios comerciales sin auditoría. | C | C03 | P2 | ACREDITADO | `7201043` | `GuardDegradacionMixin` registra evento CT-01 en la misma transacción; productor de auditoría. |
 | SUS-016 | TODO + AUD-SUS | Bootstrap/sync parcial reporta éxito pobre. | C+A | C03/A hook | P2 | PENDIENTE | — | Crash/retry/estado parcial. Mitad C hecha (`--dry-run` + bootstrap atómico, `1ca1688`); falta la mitad A (reporte de sync parcial). |
 | SUS-017 | TODO + AUD-SUS | `sync_modulos` no sincroniza planes default. | C | C03 | P2 | ACREDITADO | `3018ce8` | `Plan.preset_version` + `sync_modulos` resincroniza planes gestionados desactualizados; test `test_sync_modulos`. |
@@ -274,7 +282,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | COT-009 | TODO + AUD-COT | Acepta cliente/producto inactivo. | C | C05 | Media-alta | ACREDITADO | `460e05e`, `18e0898` + `productos_vendibles()`/`es_vendible` (PRO-007, A05.2a, ya integrado en esta rama) + tests en `claude/cierre-prod-C05-ct04-selectores` | Cliente inactivo (18e0898) + producto/categoría inactivos y `MutacionMaestro` en `CONFLICTO` (producto o categoría) revalidados server-side en `guardar_cotizacion`; `PENDIENTE` sigue cotizable. Accesos rápidos de categoría alineados a la misma regla. |
 | COT-010 | TODO + AUD-COT | Numeración `count()+1` colisiona. | C | C05 | Media-alta | ACREDITADO | `460e05e`, `18e0898` | Máximo sufijo, unicidad legacy y retry/savepoint. |
 | COT-011 | TODO + AUD-COT | Cabecera/detalle quedan con totales distintos. | C | C05 | Media-alta | ACREDITADO | `b6e898a`, `18e0898` | Servicio atómico y reconciliación al editar/borrar líneas. |
-| COT-012 | TODO + AUD-COT | Ciclo sin auditoría de negocio. | C | C05 | Media-alta | ACREDITADO | `460e05e` | Crear/convertir auditan dentro de la transacción. |
+| COT-012 | TODO + AUD-COT | Ciclo sin auditoría de negocio. | C | C05 | Media-alta | ACREDITADO_LOCAL | `bbb5246`, `51946ef` | Crear/convertir persisten `audit.event.v1` dentro de la transacción; candidato local, sin publicar. |
 | COT-013 | TODO + AUD-COT | Borrado no converge local/cloud. | C+A | C05/A sync hook | Media-alta | PENDIENTE | — | Tombstone/replay. |
 | COT-014 | TODO + AUD-COT | Errores filtran internals/estatus incorrectos. | C | C05 | Media | ACREDITADO | `460e05e`, `18e0898` | Errores 4xx/5xx seguros y casos cliente/producto ausente. |
 | COT-015 | TODO + AUD-COT | Estado/vínculo venta sin invariante DB. | C | C05 | Media | ACREDITADO | `b6e898a`, `18e0898` | Invariante bidireccional estado/venta + `PROTECT`. |
