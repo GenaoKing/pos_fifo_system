@@ -56,7 +56,12 @@ if '*' in ALLOWED_HOSTS:
 
 CSRF_TRUSTED_ORIGINS = _csv_env('CSRF_TRUSTED_ORIGINS')
 
+# Azure Container Apps sobreescribe X-Forwarded-Proto, por lo que este es el
+# header de esquema que Django puede consumir en su ingress. La atribucion de
+# IP se mantiene separada y fail-closed: ACA agrega el valor confiable a la
+# derecha de X-Forwarded-For, pero su habilitacion requiere el preflight A08.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+AUDITORIA_CONFIAR_EN_PROXY = _bool_env('AUDITORIA_CONFIAR_EN_PROXY', False)
 SECURE_SSL_REDIRECT = _bool_env('SECURE_SSL_REDIRECT', True)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True

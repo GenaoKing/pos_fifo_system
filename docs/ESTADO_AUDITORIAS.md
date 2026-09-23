@@ -238,9 +238,11 @@ consulta por request y usuario. Con Redis configurado recupera el cache y la
 invalidacion por version alcanza a los tres workers a la vez.
 
 **`AUDITORIA_CONFIAR_EN_PROXY`** (opcional, default `False`). Ponerlo en
-`True` **solo** si hay un proxy delante que reescribe `X-Forwarded-For` y
-descarta la cabecera del cliente. Es una afirmacion sobre el despliegue: sin
-el, la IP de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
+`True` **solo** si el extremo derecho de `X-Forwarded-For` es aportado por un
+proxy confiable. Azure Container Apps conserva valores de cliente pero agrega
+el suyo a la derecha; las entradas anteriores no se usan. La configuracion real
+y prueba adversarial siguen pendientes en USR-014/A08. Sin ese preflight, la IP
+de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
 
 ### 2.3 Permisos nuevos en el catálogo RBAC
 

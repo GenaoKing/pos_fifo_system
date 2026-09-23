@@ -1,6 +1,6 @@
 # apps/auditoria — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 -->
+<!-- Última revisión: 2026-09-23 (A08: semántica proxy ACA) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -41,6 +41,10 @@ automática y un dashboard local en `/auditoria/`.
 - CT-01 persiste referencias opacas separadas para el actor operativo y, cuando
   corresponde, la identidad global que impersona. No guardar credenciales o
   tokens en snapshots, metadata ni errores.
+- La IP es fail-closed: `get_client_ip` usa `REMOTE_ADDR` salvo proxy declarado;
+  con Azure Container Apps toma solo la última entrada de `X-Forwarded-For`,
+  que la plataforma agrega. Las entradas anteriores son aportadas por cliente
+  o proxies previos y no prueban identidad.
 - `Auditoria.derivar_sucursal(objeto)` para inferir la sucursal de un hecho.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md`) —
   **snapshot histórico**, verificar contra código.

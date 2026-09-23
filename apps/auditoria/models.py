@@ -959,8 +959,11 @@ def get_client_ip(request):
 
     Ahora solo se lee detras de un proxy DECLARADO, mediante
     `AUDITORIA_CONFIAR_EN_PROXY = True` en settings. Ese flag es una afirmacion
-    de despliegue: "hay un proxy delante que reescribe la cabecera y descarta la
-    del cliente". Sin el, se usa `REMOTE_ADDR`, que el cliente no controla.
+    de despliegue: el extremo derecho de la cadena debe ser aportado por un
+    proxy confiable. Azure Container Apps conserva valores que llegaron del
+    cliente pero agrega su propio valor a la derecha; otros proxies deben
+    reescribir/descartar la cabecera o aportar un extremo equivalente. Sin el,
+    se usa `REMOTE_ADDR`, que el cliente no controla.
 
     Cuando el flag esta activo se toma la ULTIMA entrada de la cadena, no la
     primera: las anteriores las pudo haber puesto el cliente; la ultima la

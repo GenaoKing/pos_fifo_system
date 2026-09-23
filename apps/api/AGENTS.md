@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (C04 p5.2: administración tenant-scoped) -->
+<!-- Última revisión: 2026-09-23 (A08: atribución proxy fail-closed) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -55,6 +55,9 @@ tiene modelos propios (`models.py` vacío).
 - Throttling de login: `throttling.py`; paginación: `pagination.py`.
 - Todo token portal lleva `session_started_at`/`session_expires_at`; access y
   refresh rechazan la sesión al superar el máximo absoluto de 12 horas.
+- La IP de una impersonación usa `apps.auditoria.models.get_client_ip`: sin un
+  proxy declarado registra `REMOTE_ADDR`; con el preflight Azure aprobado toma
+  la última entrada de `X-Forwarded-For`, nunca la primera aportada por cliente.
 - CT-02: login/perfil conservan `permisos`/`modulos` y agregan
   `rbac.capabilities.v1`. Los pulls de roles/asignaciones sirven legacy por
   defecto y `rbac.sync.v2` solo con `X-RBAC-Schema: rbac.sync.v2`.

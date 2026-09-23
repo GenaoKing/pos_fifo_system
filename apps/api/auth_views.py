@@ -19,6 +19,7 @@ from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.api.throttling import LoginRafagaThrottle, LoginSostenidoThrottle
+from apps.auditoria.models import get_client_ip
 from apps.tenancy.authentication import _autorizar_tenant
 from apps.tenancy.context import tenant_context, tenancy_enabled
 from apps.tenancy.models import (
@@ -171,7 +172,10 @@ def impersonar_tenant(request):
         tenant=tenant,
         username_objetivo=user.username,
         motivo=motivo[:300],
-        ip_address=_ip_cliente(request),
+        # USR-014: la impersonacion es un rastro durable. Debe usar la misma
+        # politica de proxy fail-closed que el resto de la auditoria, no tomar
+        # la primera X-Forwarded-For que un cliente puede haber enviado.
+        ip_address=get_client_ip(request),
         expira=timezone.now() + api_settings.REFRESH_TOKEN_LIFETIME,
     )
 
@@ -182,13 +186,6 @@ def impersonar_tenant(request):
     )
     payload['impersonacion_id'] = sesion.pk
     return Response(payload)
-
-
-def _ip_cliente(request):
-    reenviada = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if reenviada:
-        return reenviada.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
 
 
 class TenantTokenRefreshSerializer(TokenRefreshSerializer):
