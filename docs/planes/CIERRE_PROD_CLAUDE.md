@@ -1,9 +1,11 @@
 # Encargo del agente B — Claude
 
 Fecha: **2026-09-23**. Estado: **C01-C03, C05/CT-04 y C05 p6 están integrados
-localmente; C04 p6+p5.2 está fusionado en
-`integration/cierre-prod-C04-admin@26e9bac`, con lint, build y 132 pruebas.
-Siguiente trabajo frontend: E2E de navegador sin mocks; C06 sigue pendiente**.
+localmente; C04 p6+p5.2+p5-admin+p5.3 está fusionado en
+`integration/cierre-prod-C04-admin@4ff4247`, con lint, build y 143 pruebas.
+La evidencia E2E real 10/10 está documentada; no se publicó ni desplegó.
+Siguiente trabajo: C06 en laboratorio CT-05; los ensayos sobre copias,
+servicios o instalaciones siguen pendientes de autorización**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Codex](CIERRE_PROD_CODEX.md).
 
