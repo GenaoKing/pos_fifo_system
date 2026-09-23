@@ -4,6 +4,9 @@ Estado: **código/documentación preparados; USR-014 permanece PENDIENTE de
 preflight autorizado**. No se consultó un entorno Azure, no se cambió ingress,
 variables, Terraform, base de datos ni tráfico real.
 
+Commit de implementación: `fb92c73` (`fix(security): harden proxy IP
+attribution`).
+
 ## Hallazgo corregido en código
 
 La ruta de impersonación de portal tenía un extractor propio que tomaba la

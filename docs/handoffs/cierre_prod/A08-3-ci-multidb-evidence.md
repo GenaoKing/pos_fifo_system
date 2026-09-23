@@ -4,6 +4,9 @@ Estado: **REVISION LOCAL**. Fecha: **2026-09-23**. Este bloque no ejecuta
 GitHub Actions, Azure, Terraform, Docker ni una BD fuera del runner hipotético;
 no crea ni elimina bases compartidas.
 
+Commit de implementación: `43a9d9f` (`ci(release): require physical tenant
+isolation gate`).
+
 ## Entrega
 
 | Superficie | Cambio |
