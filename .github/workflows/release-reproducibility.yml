@@ -10,6 +10,7 @@ on:
       - "requirements*.txt"
       - "apps/**/migrations/**"
       - "scripts/release/**"
+      - ".github/workflows/backend-ci.yml"
       - ".github/workflows/release-reproducibility.yml"
   push:
     branches: [develop, staging, main]
@@ -20,6 +21,7 @@ on:
       - "requirements*.txt"
       - "apps/**/migrations/**"
       - "scripts/release/**"
+      - ".github/workflows/backend-ci.yml"
       - ".github/workflows/release-reproducibility.yml"
   workflow_dispatch:
 
@@ -89,4 +91,4 @@ jobs:
           name: release-manifest-${{ github.sha }}
           path: ${{ runner.temp }}/release-manifest.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 180

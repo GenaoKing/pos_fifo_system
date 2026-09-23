@@ -52,6 +52,11 @@ adjunta `release-manifest-backend-<ambiente>-<sha>`. El manifiesto valida:
 - hash y dependencias declaradas de cada migracion;
 - referencia de registro terminada en el digest consumido.
 
+El artefacto se retiene 180 días. El workflow de reproducibilidad también se
+dispara si cambia `backend-ci.yml`, para que una alteración del gate no quede
+sin evidencia de locks, Docker y migraciones. Esta retención no es archivo
+durable ni una atestación firmada; ambos siguen siendo gates externos.
+
 El manifiesto no pregunta bases, tenants ni secretos. La prueba de que un
 artefacto se puede promover no prueba que las migraciones se hayan aplicado.
 

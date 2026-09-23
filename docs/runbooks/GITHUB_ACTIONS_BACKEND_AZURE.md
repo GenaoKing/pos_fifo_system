@@ -30,6 +30,9 @@ Job `checks`:
   test).
 - Ejecuta `python manage.py check --settings=config.settings_cloud`.
 - Ejecuta `collectstatic --dry-run`.
+- Exige el gate TEN-016 con control plane y dos BDs PostgreSQL tenant físicas
+  cuyo namespace depende de la corrida; no puede quedar `skip` por falta de
+  `TENANT_TEST_DB_NAMESPACE`.
 - Ejecuta tests Django con `manage.py test`, excluyendo
   `facturacion_electronica`.
 - Ejecuta tests e-CF con `pytest`, porque esa suite usa fixtures de pytest.
@@ -46,7 +49,7 @@ Job `deploy-backend`:
   `pull`/`inspect` de ese artefacto y exige que su label de revision coincida
   con el SHA de `main` seleccionado.
 - Genera, verifica y conserva como artefacto el manifiesto backend
-  promocionable (SHA, locks, Docker, migraciones y digest).
+  promocionable (SHA, locks, Docker, migraciones y digest) por 180 días.
 - Captura las imagenes actuales de API y job de notificaciones.
 - Actualiza imagen del job `migrate` si existe.
 - Para prod exige migraciones; para dev/staging las determina la politica del

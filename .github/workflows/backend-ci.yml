@@ -108,6 +108,18 @@ jobs:
       - name: Collect static dry run
         run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
 
+      - name: Run physical DB-per-tenant isolation gate
+        # A08/TEN-016: no basta que estas pruebas aparezcan por discovery. Este
+        # paso exige el namespace por corrida y ejercita default + dos BDs
+        # tenant fisicas antes del resto de la suite.
+        shell: bash
+        run: |
+          test -n "$TENANT_TEST_DB_NAMESPACE"
+          python manage.py test \
+            apps.tenancy.tests.test_multidb_isolation \
+            apps.api.tests.test_administracion_portal.AdministracionPortalTenantFisicoTests \
+            --settings=config.settings_development
+
       - name: Run test suite
         # settings_development hereda DB_* del entorno del job. El usuario
         # creado por el contenedor es superuser y puede crear test_ci_check y
@@ -402,6 +414,7 @@ jobs:
           name: release-manifest-backend-${{ matrix.environment }}-${{ github.sha }}
           path: ${{ runner.temp }}/release-manifest-backend.json
           if-no-files-found: error
+          retention-days: 180
 
       - name: Capture current API image
         if: steps.target.outputs.deploy == 'true'
