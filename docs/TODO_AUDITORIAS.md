@@ -4,11 +4,11 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-18**. CT-03/C04 p6 fueron aceptados, A07
-revalidó 605 pruebas backend y C04 p5.2 backend está integrado localmente en
-`50fe658`, pendiente de consumir por C04. Sus detalles viven en
-`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md` y
-`handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
+Última actualización: **2026-09-23**. CT-03/C04 p6 fueron aceptados, A07
+revalidó 605 pruebas backend y C04 p5.2 ya fue consumido e integrado localmente
+en `integration/cierre-prod-C04-admin@26e9bac` (lint/build y 132 tests OK).
+Quedan E2E de navegador, el gate JWT frontend y los gates operativos. Sus
+detalles viven en `handoffs/cierre_prod/INTEGRACION-C04P52-ADMIN-2026-09-23.md`.
 
 ## Cierre A02 (sin despliegue)
 
@@ -42,11 +42,12 @@ datos de clientes.
 ## Cierre C05 parte 2 (sin despliegue)
 
 > **Actualización A07 (2026-09-18, sin publicar).** El candidato
-> `integration/cierre-prod-A06-C04-C05@1357cd7` integra el backend/POS A06,
-> selectores comerciales C05/CT-04, C05 p6 y CT-03. C04 p6 está integrado en
-> `claude/cierre-prod-C04@f0e6c2d`, con 120 pruebas, build/lint y evidencia HTTP
-> 24/24 a 201 filas. Ambas puntas fueron aceptadas; A07 ejecutó 605 pruebas
-> backend aisladas. Falta C04 p5 y los gates operativos, no otra aceptación p6.
+> `integration/cierre-prod-A06-C04-C05@4fd5c46` integra el backend/POS A06,
+> selectores comerciales C05/CT-04, C05 p6 y CT-03. C04 p6+p5.2 está integrado
+> en `integration/cierre-prod-C04-admin@26e9bac`, con lint, build y 132 pruebas;
+> el smoke de contrato real p5.2 reportó 20/20 y p6 24/24 a 201 filas. A07
+> ejecutó 605 pruebas backend aisladas. Falta E2E de navegador y los gates
+> operativos, no reimplementar C04 p5 ni otra aceptación p6.
 
 La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
 Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
@@ -64,8 +65,8 @@ frontend, sin publicar) — ver
 `docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
 existe en candidato aislado y el smoke HTTP real está acreditado. Los selectores
   comerciales ya están dentro del candidato; C04 p6 cerró UI/cursor/selectores
-  a más de 200 filas. El siguiente frontend es C04 p5, no reimplementar el
-  selector.
+  a más de 200 filas y p5.2 añadió administración real. El siguiente frontend
+  es un E2E de navegador sin mocks, no reimplementar el selector ni p5-admin.
 
 ---
 

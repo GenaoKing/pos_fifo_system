@@ -1,8 +1,9 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-18**. Estado: **en ejecución; CT-03 sync y C04 p6 aceptados
-localmente; A07 backend revalidado y C04 p5.2 backend integrado localmente,
-listo para que Claude abra el consumidor frontend**.
+Fecha: **2026-09-23**. Estado: **en ejecución; CT-03 sync, C04 p6 y el
+consumidor C04 p5.2 están integrados localmente; A07 backend fue revalidado.
+El siguiente bloque C04 permitido es un E2E de navegador separado, no una
+promoción ni una operación sobre datos reales**.
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -172,7 +173,7 @@ versión, compatibilidad, fixtures de contrato y un commit consumible.
 | CT-01 — auditoría e identidad | A02: actor, tenant, sucursal, canal, objeto estable, before/after, resultado y correlación; transacciones y redacción | B puede empezar PDF/Windows antes; productores de auditoría se integran después de este commit. |
 | CT-02 — permisos y capacidades | A03: autorización, revocaciones, catálogo/presets, capacidades POS viejo/nuevo | B aplica gates en C02/C03/C04/C05; ningún bypass paralelo. |
 | CT-03 — configuración efectiva | B/C03 publicó fixture/test `capacidades.efectivas.v1`; A integró SUS-007/CFG-007 en el candidato local | A consume desde sync/settings; B desde UI/API/servicios. Lecturas consistentes sin Redis. |
-| CT-04 — maestros offline | A05/A06: identidad, revisiones, cola, ACK/retry, conflictos y visibilidad efectiva | B/C04 integró p6: UI a 201 filas, contratos HTTP vivos y cobertura de pantalla; pendiente aceptación técnica, no publicación. |
+| CT-04 — maestros offline | A05/A06: identidad, revisiones, cola, ACK/retry, conflictos y visibilidad efectiva | B/C04 integró p6 y p5.2 en un candidato React: volumen, administración y contratos HTTP reales. Pendiente E2E de navegador y release; no publicación. |
 | CT-05 — artefacto y actualización | A01/A08: runtimes, locks, manifiesto/digest y migraciones; C01/C06: paquete y preflight Windows | Ambos prueban la misma versión congelada, sin recompilar el artefacto aprobado para prod. |
 
 ### Ciclo de cada bloque
@@ -330,6 +331,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014 y CT-03 sync están integrados localmente y aceptados** | `integration/cierre-prod-A06-C04-C05@50fe658` suma A06, selectores, 12 productores CT-01, SUS-014, CT-03, A07 y backend C04 p5.2. C04 p6 está en `claude/cierre-prod-C04@f0e6c2d`; Claude puede iniciar su consumidor p5.2. C06 sigue pendiente. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6 aceptados y A07 backend revalidado; G1-G4 siguen pendientes de preflight/release** | Backend: 398 focales y A07 605 OK. Frontend C04: build/lint 120 tests y evidencia HTTP a 201 filas 24/24. Faltan preflight read-only autorizado, C04 p5, C06 y gates de release. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014, CT-03 y C04 p5.2 están integrados localmente** | Backend `integration/cierre-prod-A06-C04-C05@4fd5c46` contiene A06, selectores, 12 productores CT-01, SUS-014, CT-03, A07 y backend p5.2. Frontend `integration/cierre-prod-C04-admin@26e9bac` une C04 p6+p5.2. C06 sigue pendiente. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6/p5.2 aceptados localmente y A07 backend revalidado; G1-G4 siguen pendientes de preflight/release** | Backend: 398 focales y A07 605 OK. Frontend C04 integrado: lint, build y 132 tests; evidencia HTTP p6 24/24 y p5.2 20/20. Faltan E2E de navegador, preflight read-only autorizado, C06 y gates de release. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

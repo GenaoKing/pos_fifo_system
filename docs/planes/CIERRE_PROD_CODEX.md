@@ -1,7 +1,9 @@
 # Encargo del agente A — Codex
 
-Fecha: **2026-09-18**. Estado: **A00-A07 backend integrados/validados localmente;
-CT-03/C04 p6 aceptados y C04 p5 queda como siguiente punta frontend**.
+Fecha: **2026-09-23**. Estado: **A00-A07 backend integrados/validados localmente;
+CT-03/C04 p6+p5.2 aceptados localmente. A08 puede comenzar en código y
+artefactos aislados; el cierre de su gate sigue esperando C06 y preflights
+autorizados**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Claude](CIERRE_PROD_CLAUDE.md).
 
@@ -176,7 +178,8 @@ entidad; no pérdida de cambios por pull ni duplicación del maestro.
 CT-03 en `integration/cierre-prod-A06-C04-C05@2df0749`; la matriz backend
 combinada dio 398 OK. C04 p6 completó 120 tests y evidencia HTTP 24/24 a 201
 filas; ambas puntas fueron aceptadas. No está publicado. A07 volvió a validar
-605 tests backend y el siguiente bloque frontend permitido es C04 p5.
+605 tests backend. C04 p5.2 quedó integrado en frontend; el siguiente bloque
+permitido para Claude es E2E de navegador sin mocks.
 
 1. API y UI POS de conflictos: conservar ambas propuestas. Resolver «conservar
    cloud» o «aplicar local» con motivo, permiso y revisión actual; si cambió de

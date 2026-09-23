@@ -170,11 +170,13 @@ inexistente no escribe nada). La prueba física ya acreditada por la fuente usó
 dos PostgreSQL descartables y JWT tenant-aware: alta en tenant y revocación de
 Membership en control plane.
 
-El siguiente consumidor autorizado es Claude/C04 p5.2, desde
-`claude/cierre-prod-C04@2df99c2407fd90c457b178f0f8d5bb65ba054fda`, sin mocks ni
-mutaciones backend. Playwright queda posterior al consumo HTTP real y a sus
-tests de UI. Esta integración sigue siendo local: no autoriza push, despliegue
-ni cambios de datos operativos.
+El consumidor Claude/C04 p5.2 ya se fusionó sin conflicto como
+`integration/cierre-prod-C04-admin@26e9bac`; conserva p5.2 y excluye la rama
+solapada p5-admin. Se repitieron lint, build y 132 tests sobre ese SHA. El
+smoke real de contrato de su handoff es sesión+CSRF y no una prueba de
+navegador/JWT; Playwright queda ahora desbloqueado como bloque separado.
+Esta integración sigue siendo local: no autoriza push, despliegue ni cambios de
+datos operativos.
 
 ## Secuencia recomendada
 

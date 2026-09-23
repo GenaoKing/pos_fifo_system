@@ -15,7 +15,7 @@ las pruebas consumidoras.
 | CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
 | CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados, validados y aceptados localmente; A07 revalidó backend | `dfb1dfc`, `1019500`, `6c74d16`, `1357cd7` |
 | CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados y aceptados localmente | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
-| C04 p5.2 administración portal | rutas REST tenant-scoped | A / Codex | C04 frontend | **PUBLICADA_LOCAL** | Usuarios, sucursales y configuración operativa; baja de Membership y CT-01 acreditadas localmente | `5790ec2` |
+| C04 p5.2 administración portal | rutas REST tenant-scoped | A / Codex | C04 frontend | **INTEGRADA_LOCAL** | Usuarios, sucursales y configuración operativa consumidos por React; baja de Membership y CT-01 acreditadas localmente. Falta E2E de navegador/JWT frontend. | Backend `5790ec2`; frontend `26e9bac` |
 | CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
 
 Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
@@ -410,9 +410,12 @@ sí están cubiertos por CT-01 y por esta implementación.
 
 ## C04 p5.2 — administración portal tenant-scoped
 
-**Estado:** integrado localmente en
-`integration/cierre-prod-A06-C04-C05@50fe658`; pendiente solo del consumidor
-React. No mueve `develop`, no se publicó ni se desplegó.
+**Estado:** backend integrado localmente en
+`integration/cierre-prod-A06-C04-C05@4fd5c46` y consumidor React fusionado en
+`integration/cierre-prod-C04-admin@26e9bac`. La integración frontend repitió
+lint, build y 132 tests; el smoke de contrato real previo fue sesión+CSRF, por
+lo que siguen pendientes E2E de navegador y JWT tenant-aware desde el cliente.
+No mueve `develop`, no se publicó ni se desplegó.
 
 | Recurso | Interfaz | RBAC y límites |
 | --- | --- | --- |

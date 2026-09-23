@@ -1,8 +1,9 @@
 # Encargo del agente B — Claude
 
-Fecha: **2026-09-18**. Estado: **C01-C03, C05/CT-04 y C05 p6 integrados en el
-candidato local; C04 p6 fue aceptado con 120 tests y evidencia HTTP 24/24 a 201
-filas. Siguiente trabajo frontend: C04 p5; C06 pendiente**.
+Fecha: **2026-09-23**. Estado: **C01-C03, C05/CT-04 y C05 p6 están integrados
+localmente; C04 p6+p5.2 está fusionado en
+`integration/cierre-prod-C04-admin@26e9bac`, con lint, build y 132 pruebas.
+Siguiente trabajo frontend: E2E de navegador sin mocks; C06 sigue pendiente**.
 Fuente de alcance/propiedad/gates: [plan maestro](../PLAN_CIERRE_PROD.md).
 Contraparte: [encargo de Codex](CIERRE_PROD_CODEX.md).
 

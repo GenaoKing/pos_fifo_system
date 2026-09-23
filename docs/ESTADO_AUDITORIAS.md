@@ -1,7 +1,8 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-18** · CT-03/C04 p6 aceptados, checkpoint A07
-y backend C04 p5.2 integrados localmente en `50fe658`
+Última actualización: **2026-09-23** · CT-03/C04 p6, A07 y C04 p5.2 backend
+siguen integrados localmente; el consumidor React p5.2 quedó fusionado en
+`integration/cierre-prod-C04-admin@26e9bac`.
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -115,14 +116,21 @@ un fixture de pruebas cloud de clientes sin abrir escritura de API en POS real.
 La evidencia y los límites operativos están en
 `handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
 
-### Actualización C04 p5.2 backend — 2026-09-18
+### Actualización C04 p5.2 backend y frontend — 2026-09-23
 
 El candidato `codex/cierre-prod-C04-p5-backend-admin@5790ec2` agrega escritura
 tenant-scoped para usuarios, sucursales y configuración del negocio, con CT-01,
 RBAC global y baja lógica. En cloud la baja de usuario revoca Membership y el
-gate con dos PostgreSQL/JWT tenant-aware lo comprobó. No hay migración ni
-operación de datos reales. Queda que Claude consuma el contrato; el detalle
-vive en `handoffs/cierre_prod/A-C04P5-BACKEND-ADMIN-2026-09-18.md`.
+gate con dos PostgreSQL/JWT tenant-aware lo comprobó.
+
+El consumidor React se fusionó sin conflicto como
+`integration/cierre-prod-C04-admin@26e9bac`, desde C04+p6 `2df99c2` y
+`claude/cierre-prod-C04-p5.2@e8b0a17`. Esta integración conserva únicamente
+p5.2, no la rama alternativa p5-admin. Se revalidaron lint, build y **132**
+tests. Su smoke de contrato real documentado es 20/20 con sesión+CSRF; no hubo
+un E2E de navegador ni prueba frontend JWT tenant-aware. No hay migración ni
+operación de datos reales. El detalle vive en
+`handoffs/cierre_prod/INTEGRACION-C04P52-ADMIN-2026-09-23.md`.
 
 ### Auditorías escritas pero todavía sin procesar
 
