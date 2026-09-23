@@ -63,7 +63,9 @@ Al publicar un candidato autorizado, el pipeline que haga push debe consultar
 el digest remoto, regenerar el manifiesto con la referencia
 `<registry>/<repo>@sha256:<digest>` y validarlo con
 `--require-promotable`. El job de deploy consume exactamente esa referencia; no
-vuelve a ejecutar `docker build`.
+vuelve a ejecutar `docker build`. La politica CI que materializa ese consumo
+para backend esta en [RELEASE_PROMOTION_A08_2.md](RELEASE_PROMOTION_A08_2.md);
+su presencia en codigo no sustituye una corrida autorizada ni el restore drill.
 
 ## Manifiesto de migraciones
 
