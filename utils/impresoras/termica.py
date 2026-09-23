@@ -712,11 +712,11 @@ class ThermalPrinter2Connect:
             self.printer.text("=" * self.config['PAPER_WIDTH'] + "\n\n")
             self.printer.text("Estado: CONECTADA\n")
             self.printer.text("Cortador: OK\n")
-            self.printer.text("Encoding: CP850\n\n")
+            self.printer.text(f"Encoding: {self.config['CODE_PAGE']}\n\n")
             
             self.printer.text("Caracteres especiales:\n")
-            self.printer.text("n N a e i o u\n")
-            self.printer.text("? ! $ \n\n")
+            self.printer.text("ñ Ñ á é í ó ú ü\n")
+            self.printer.text("¿ ¡ RD$\n\n")
             
             if self.config['AUTO_CUT']:
                 self.printer.cut()
