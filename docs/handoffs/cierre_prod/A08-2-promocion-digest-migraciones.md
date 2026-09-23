@@ -8,6 +8,8 @@ un entorno o dato real.
 
 - Candidato de entrada: `fc42fca4381d22b2dae8ddc779f15b586ecccb8f` sobre el
   frente backend `integration/cierre-prod-A06-C04-C05`.
+- Commit de implementacion A08.2: `063d74a` (`build(release): gate prod
+  promotion by digest`).
 - Worktree aislado: `C:\Proyectos\pos_fifo_system_integracion_a08_claude`.
 - Rama candidata: `codex/cierre-prod-A08-1-reconciliacion-claude`.
 - No se movio `develop`, `main` ni la rama de integracion; no hubo push.
@@ -44,6 +46,10 @@ Resultado: **6/6 tests OK**. La prueba adicional del bloque shell de
 `run_migrations=true`, y rechazo el mismo caso con `run_migrations=false`.
 La ayuda instalada de `az acr repository show` confirma que `--image` acepta
 una imagen por tag o por `name@digest`; no se hizo login ni consulta a ACR.
+Despues del commit, `release_manifest.py --write/--verify
+--require-promotable --assert-git-source` paso para `063d74a` con **121
+migraciones** y una referencia digest sintetica; `git status --short` y
+`git diff --check` quedaron limpios.
 
 No ejecutado: GitHub Actions remoto, Docker build/push/pull contra ACR,
 migrate job, API/jobs, health check, Terraform, backup ni restore. Docker local
