@@ -181,10 +181,13 @@ datos operativos.
 ## Secuencia recomendada
 
 1. Conservar los SHAs y límites de transporte/evidencia de las integraciones
-   locales CT-03 y C04 p6 ya aceptadas.
-2. A07 reconcilia inventario y evidencia vigente, sin iniciar A08 ni promover.
-   C04 p5 puede iniciar en un worktree frontend nuevo desde la punta p6.
-3. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
+   locales CT-03, C04 p6 y C04 p5.2 ya aceptadas.
+2. C04 p5.2 ya está integrado; su siguiente bloque es C04 p5.3 E2E de
+   navegador desde `integration/cierre-prod-C04-admin@26e9bac`, sin mocks.
+3. A07 quedó revalidado. Codex puede iniciar A08.1 en un worktree aislado sin
+   promover ni operar datos reales; C06 y los preflights siguen siendo gates
+   separados.
+4. Mantener los productores CT-01 fuera de p6 con su dueño actual hasta que se
    delimite un bloque independiente.
 
 ## Reversión
