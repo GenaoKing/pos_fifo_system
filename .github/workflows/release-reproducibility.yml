@@ -1,0 +1,92 @@
+name: Release reproducibility
+
+on:
+  pull_request:
+    branches: [develop, staging, main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements/**"
+      - "requirements*.txt"
+      - "apps/**/migrations/**"
+      - "scripts/release/**"
+      - ".github/workflows/release-reproducibility.yml"
+  push:
+    branches: [develop, staging, main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements/**"
+      - "requirements*.txt"
+      - "apps/**/migrations/**"
+      - "scripts/release/**"
+      - ".github/workflows/release-reproducibility.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-evidence:
+    name: Immutable inputs and Docker evidence
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Setup manifest runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+
+      - name: Test manifest generator
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m unittest discover -s scripts/release/tests -v
+
+      - name: Generate source and migration manifest
+        shell: bash
+        run: |
+          python scripts/release/release_manifest.py \
+            --write "$RUNNER_TEMP/release-manifest-prebuild.json" \
+            --source-sha "$GITHUB_SHA" \
+            --assert-git-source
+          python scripts/release/release_manifest.py \
+            --verify "$RUNNER_TEMP/release-manifest-prebuild.json" \
+            --expect-source-sha "$GITHUB_SHA"
+
+      - name: Build pinned backend image
+        shell: bash
+        run: |
+          source_epoch=$(git show -s --format=%ct "$GITHUB_SHA")
+          docker build \
+            --iidfile "$RUNNER_TEMP/backend-image.iid" \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --build-arg SOURCE_DATE_EPOCH="$source_epoch" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            -t "pos-fifo-backend:ci-$GITHUB_SHA" \
+            .
+          docker run --rm --entrypoint python "pos-fifo-backend:ci-$GITHUB_SHA" -m pip check
+
+      - name: Attach local artifact identity to manifest
+        shell: bash
+        run: |
+          image_digest=$(tr -d '\n' < "$RUNNER_TEMP/backend-image.iid")
+          python scripts/release/release_manifest.py \
+            --write "$RUNNER_TEMP/release-manifest.json" \
+            --source-sha "$GITHUB_SHA" \
+            --image-reference "local/pos-fifo-backend" \
+            --local-image-id "$image_digest" \
+            --assert-git-source
+          python scripts/release/release_manifest.py \
+            --verify "$RUNNER_TEMP/release-manifest.json" \
+            --expect-source-sha "$GITHUB_SHA"
+
+      - name: Upload candidate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ github.sha }}
+          path: ${{ runner.temp }}/release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
