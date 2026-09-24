@@ -20,6 +20,35 @@ REM   2. PostgreSQL 15 (con bin\ agregado al PATH del sistema)
 REM
 REM EJECUTAR: Click derecho > Ejecutar como administrador
 REM ============================================================================
+REM
+REM OBSOLETO (C06.1, 2026-09-24) -- NO EJECUTAR.
+REM
+REM Nadie mantiene este script desde la migracion a `.env` (CT-03/C01): la
+REM FASE 2 sigue leyendo `env_cliente.env` con `for /f ... delims==`, el mismo
+REM patron de bug #9 (un `&`/`%%` en DJANGO_SECRET_KEY o DB_PASSWORD se trunca
+REM en silencio) que `actualizar.bat` ya dejo de usar. Ademas intenta abrir
+REM en notepad un `env_cliente.bat` que este mismo bloque nunca crea (crea
+REM `.env`). El procedimiento vigente de instalacion nueva es enteramente
+REM manual y esta en `docs\runbooks\INSTALACION_CLIENTE_NUEVO.md` -- no
+REM depende de este archivo. Se conserva el archivo (no se borra) porque
+REM varios documentos historicos lo citan; el guardia de abajo evita que se
+REM ejecute por error.
+echo.
+echo  ============================================================
+echo    OBSOLETO: no ejecutar deploy\instalar.bat
+echo  ============================================================
+echo.
+echo  Este instalador quedo desactualizado (usa un parser de .env con el
+echo  mismo defecto del bug #9, ya corregido en actualizar.bat).
+echo.
+echo  Para una instalacion NUEVA, seguir el procedimiento manual de:
+echo    docs\runbooks\INSTALACION_CLIENTE_NUEVO.md
+echo.
+echo  Para actualizar una instalacion existente:
+echo    deploy\actualizar.bat
+echo.
+pause
+exit /b 1
 
 echo.
 echo  ============================================================

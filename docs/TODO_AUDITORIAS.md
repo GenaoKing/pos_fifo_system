@@ -4,30 +4,84 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-05**
+Última actualización: **2026-09-24**. CT-03, SUS-014/016, A07/A08 y las
+entregas disponibles C06 están integradas. Frontend p6/p5.2/p5-admin/p5.3
+conserva evidencia E2E real 10/10; el fix UUID `dec46a3` ya está en el candidato.
+Queda repetir C06.1 completo y los gates operativos sobre el nuevo SHA.
+Detalle: `handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md`.
+
+## Cierre A02 (sin despliegue)
+
+Los commits `583863f` + `f0a255c` + `bb7f774`, sobre CT-01 `cd8a3b4`, cierran en código los pendientes de
+auditoría, identidad, negocios y tenancy asignados a A02: AUD-008/009/010/013/
+016/018/019/020/021, USR-007/010/011/013/015/016/017/019,
+NEG-006/007/008/009/011/012/013/014/016/017 y TEN-016. USR-012 queda parcial:
+la identidad ya está acotada, pero las invariantes de privilegio/revocación son
+A03/CT-02. USR-014 sigue A08. Los preflights sobre filas operativas continúan
+abiertos para A08; A02 no leyó ni modificó datos reales.
+
+## Cierre A03 / CT-02 (sin despliegue)
+
+La implementación `3e6cec1`, integrada localmente en `develop` por `b7147fb` y
+validada con la matriz combinada, cierra en código PER-006/007, PER-012 y
+PER-014–021: identidad/revisión/tombstones RBAC, servicios atómicos y auditados,
+seed/comandos tenant-aware y migraciones históricas congeladas. PER-013 se
+entrega a C02/C05 porque sus consumidores son superficies Claude. El bypass de
+ADMIN no se retira en esta fase: queda condicionado al preflight por tenant de
+A08/A09.
+
+## Cierre A04 + C05 parte 1 (sin despliegue)
+
+A04 (`be15ea0`) y C05 parte 1 (`60c6dbc`) se integraron localmente en el árbol
+`9ff61c2`. A04 cierra claim/lease, diferidos durables, identidad scopeada y la
+herramienta dry-run de BUG-K; C05 cierra PER-013 en anulación/reimpresión y
+SUS-006 con gates HTML/API de CxC y reportes on-demand. La matriz conjunta pasó
+237 focales, 1.386 Django y 72 e-CF. No hubo push, despliegue ni operación sobre
+datos de clientes.
+
+## Cierre C05 parte 2 (sin despliegue)
+
+> **Actualización A07 (2026-09-18, sin publicar).** El candidato
+> `integration/cierre-prod-A06-C04-C05@4fd5c46` integra el backend/POS A06,
+> selectores comerciales C05/CT-04, C05 p6 y CT-03. C04 p6+p5.2 está integrado
+> en `integration/cierre-prod-C04-admin@26e9bac`, con lint, build y 132 pruebas;
+> el smoke de contrato real p5.2 reportó 20/20 y p6 24/24 a 201 filas. A07
+> ejecutó 605 pruebas backend aisladas. Falta E2E de navegador y los gates
+> operativos, no reimplementar C04 p5 ni otra aceptación p6.
+
+La entrega Claude (`b6e898a..fc0aafd`) se revisó y endureció en `18e0898`.
+Quedan cerrados DB-CONSTRAINTS, COT-008/010/011/012/014/015,
+CXC-MIG-ALIAS, CXC-IDEMP-CONC, INV-RBAC-SCOPE, PAG-CXC-CAJA y RPT-005;
+CAJA-002, CXC-006, RPT-004 y VEN-ANULAR-LEGACY se revalidaron. **COT-009 ya
+cierra del todo**: el selector `productos_vendibles()`/`es_vendible` (PRO-007)
+ya filtra activo+categoría activa+`MutacionMaestro` en `CONFLICTO` en
+búsqueda, escaneo, accesos rápidos y — el gate final — la carga transaccional
+de la venta; `guardar_cotizacion` usa el mismo selector. Solo faltaba
+cobertura de test del lado producto/categoría (ya existía para cliente) y un
+accesorio menor (categoría en accesos rápidos no miraba conflicto) — ambos
+cerrados en `claude/cierre-prod-C05-ct04-selectores`. **C04 arrancó** con la
+pantalla de conflictos de maestros (rama `claude/cierre-prod-C04`, repo
+frontend, sin publicar) — ver
+`docs/handoffs/cierre_prod/C04-conflictos-maestros-ct04.md`. El backend A06 ya
+existe en candidato aislado y el smoke HTTP real está acreditado. Los selectores
+  comerciales ya están dentro del candidato; C04 p6 cerró UI/cursor/selectores
+  a más de 200 filas y p5.2 añadió administración real. El siguiente frontend
+  es un E2E de navegador sin mocks, no reimplementar el selector ni p5-admin.
 
 ---
 
-## 🔴 Bloqueantes de seguridad — privilegio que persiste
+## ✅ Bloqueantes de seguridad cerrados por A03
 
-Lo único de esta lista donde **hoy hay un permiso vivo que alguien cree
-retirado**. Recomendado tomar a continuación.
+Los dos casos de privilegio persistente quedaron resueltos en código por el
+contrato `rbac.sync.v2`; el despliegue y su verificación operativa siguen fuera
+de este cierre.
 
-- [ ] **PER-006 — Mover una asignación no revoca la anterior en el POS local.**
-      El payload cloud→local identifica la asignación por
-      `usuario_username + rol_slug + sucursal_codigo`, y la API permite cambiar
-      esos tres campos. La nueva relación baja a la sucursal; la anterior queda
-      activa **indefinidamente**.
-      *Arreglo:* identidad cloud inmutable en la asignación + tratar el cambio
-      de terna como revoke-old + create-new en una transacción.
-      *Contención barata:* hacer inmutables esos tres campos y exigir
-      soft-delete + alta nueva.
-- [ ] **PER-007 — Borrar un rol custom no se propaga.** La API hace
-      `instance.delete()` físico; el endpoint de sync solo emite filas
-      existentes y `_pull_roles()` solo hace upsert, nunca reconcilia ausencias.
-      El rol y sus asignaciones siguen activos en cada sucursal.
-      *Arreglo:* soft-delete versionado o ledger de tombstones, más una
-      reconciliación completa periódica.
+- [x] **PER-006 — Mover una asignación revoca la anterior en el POS local.**
+      A03 agrega `cloud_id` inmutable y movimiento revoke-old/create-new
+      transaccional; V2 conserva claves legacy solo por compatibilidad.
+- [x] **PER-007 — Borrar un rol custom se propaga.** A03 usa baja lógica
+      versionada y snapshots completos que reconcilian únicamente filas
+      `origen_cloud`, luego de validar tenant y sucursal.
 
 > Ambos son P1 críticos de `apps/permisos` y comparten solución: es un cambio de
 > contrato de sincronización con su propia migración, del tamaño de las
@@ -35,43 +89,28 @@ retirado**. Recomendado tomar a continuación.
 
 ---
 
-## 🟠 Decisiones que dependen del negocio
+## 🟠 Decisiones y deuda explícita de maestros
 
-- [ ] **PRO-002 + PRO-003 + PRO-004 — quién es el escritor autoritativo de
-      los maestros de producto.** Los tres son la misma pregunta:
-      * las escrituras HTML son locales y no se propagan (PRO-002);
-      * el SKU, que el pull usa como clave, es editable localmente, y
-        cambiarlo y bajar el anterior crea DOS productos (PRO-003);
-      * el `DELETE` de la API no deja tombstone, así que la sucursal
-        conserva y vende lo que el cloud ya borró (PRO-004).
-      La base de la solución es darle a `Producto` una identidad cloud
-      inmutable, como ya tienen las categorías. **No se aplicó la
-      contención que sí se puso en clientes** porque ahí `origen_cloud_id`
-      ya existía; en productos no, y no hay forma fiable de distinguir un
-      producto bajado del cloud de uno creado en la sucursal.
-- [ ] **CLI-004 — proxy de escritura de maestros hacia el cloud.** Hoy, con
-      sync activo, editar un cliente adoptado por el cloud devuelve **409** y
-      remite al portal: es contencion, no la solucion. La decision ya tomada
-      en el roadmap es que toda mutacion local de maestros pase por la API
-      cloud y refresque la replica. Falta construirla.
+- [x] **PRO-002 + PRO-003 + PRO-004 — escritor de Producto/Categoría.** A05/A06
+      implementan la decisión: mutación local durable/auditada/idempotente,
+      identidad cloud y SKU inmutables, receptor CAS y baja lógica que el pull
+      conserva. A07 lo volvió a ejecutar; ver el inventario y su handoff.
+- [ ] **CLI-004 — transporte offline de mutaciones de cliente.** Con sync activo,
+      el cliente ya adoptado devuelve **409** y remite al portal: contención que
+      evita pérdida silenciosa, no la cola/CAS de cliente. Es
+      `DIFERIDO_EXPLICITO`: no se habilita como si estuviera resuelto ni se borra
+      de un futuro bloque de backend.
 
-Ninguna está tomada. El sistema funciona con la opción elegida; cambiarla es
-acotado. Ver §3 de ESTADO_AUDITORIAS.
-
-- [ ] **CAJA-002 — ¿Una tienda sin caja abierta puede cobrar en efectivo?**
-      Hoy: sí, y el pago queda sin turno (distinguible). Rechazarlo es un `if`
-      en `_resolver_turno_caja` (`apps/ventas/services/ventas_service.py`).
-- [ ] **CXC-006 — ¿Qué pasa al anular una venta con abonos aplicados?**
-      Hoy: se bloquea con 409 y el operador revierte los abonos a mano.
-      Alternativas: reversa automática LIFO con egreso de caja, o saldo a favor.
-- [ ] **RPT-004 — ¿Cuándo queda cerrado contablemente un día?**
-      Hoy: el resumen nace BORRADOR y se recalcula; `--finalizar` lo congela.
-      Falta decidir si debe finalizar solo cuando no queden turnos abiertos.
-- [ ] **RPT-005 — Hora y zona del cierre automático.**
-      `instalar_cierre.ps1` está roto a propósito: apunta a un `.bat` ausente,
-      usa NSSM autoarranque para una tarea one-shot, y dice 7 PM mientras el
-      modelo documenta 10 PM. El comando ya es correcto; falta el launcher real
-      y la hora acordada.
+- [x] **CAJA-002 — Efectivo sin caja abierta.** La política mantiene la venta
+      habilitada; el pago queda sin turno y la matriz C05 revalidó que sea
+      distinguible en el arqueo.
+- [x] **CXC-006 — Anulación con abonos aplicados.** Se bloquea con 409 hasta que
+      el operador revierta manualmente los abonos LIFO auditados.
+- [x] **RPT-004 — Cierre contable deliberado.** El resumen nace BORRADOR y se
+      recalcula; solo `--finalizar` lo congela.
+- [x] **RPT-005 — Sin cierre automático.** Se retiró el launcher NSSM roto y la
+      operación soportada quedó en `docs/runbooks/CIERRE_DIARIO_MANUAL.md`.
+      Automatizar con Task Scheduler es una decisión explícita por instalación.
 - [ ] **¿Backfill de datos históricos?** Tres posibles, ninguno hecho:
       `turno_caja` en pagos viejos, `sucursal` en cierres diarios,
       conciliación de movimientos de inventario duplicados.
@@ -80,6 +119,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟡 Infraestructura y despliegue
 
+- [ ] **Antes de desplegar: ejecutar el preflight financiero read-only.**
+      `python manage.py verificar_integridad_financiera` y, bajo tenancy,
+      `--tenant <tenant_key>`/`--todos-los-tenants`. Las migraciones nuevas de
+      ventas, inventario y cotizaciones abortan ante PKs incompatibles; no
+      corrigen historia automáticamente.
 - [ ] **Antes de desplegar: avisar del cambio de `$` a `RD$`** en todos los
       PDFs. Es visible para el cliente final; si hay plantillas, capturas o
       material impreso que lo referencien, conviene anticiparlo.
@@ -123,8 +167,9 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 - [ ] **Decidir el resto de USR-002**: restringir `/admin/` por red, exigir
       MFA y auditarlo como frontera aparte. El gate de identidad global ya
       está; esto es despliegue.
-- [ ] **Matriz PostgreSQL multi-DB en CI** (TEN-016). Único hallazgo de tenancy
-      sin corregir; requiere levantar dos bases en el pipeline.
+- [x] **Matriz PostgreSQL multi-DB en CI** (TEN-016). `583863f` levanta dos
+      bases namespaced por corrida, prueba mismo PK con filas/referencias
+      aisladas y destruye únicamente esos artefactos de test.
 - [ ] **Drill de restauración.** `backup_tenant` verifica el artefacto, pero
       nadie lo restauró end-to-end.
 - [ ] **Antes de desplegar: revisar categorias inactivas con productos
@@ -152,39 +197,45 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
 
 ## 🟢 Robustez y deuda de contrato
 
-- [ ] **Claim durable del push de sync** (`IN_FLIGHT` + lease): el claim local
-      no sobrevive a un crash a mitad de envío.
-- [ ] **Cola durable de diferidos** en sync: un ítem diferido congela la marca
-      de agua.
-- [ ] **`_pull_legacy`** sigue existiendo como fallback para clouds pre-Fase 2.
-- [ ] **`CheckConstraint` de respaldo** en ventas e inventario: las invariantes
-      de importes y cantidades se validan solo en la aplicación.
-- [ ] **Idempotencia concurrente del cobro CxC**: falta el test de N reintentos
-      con la misma clave.
-- [ ] **`_puede_anular` usa el rol legacy** (`ADMIN`/`SYSADMIN`) en vez de RBAC.
-- [ ] **Scope por sucursal en los gates de inventario**: `tiene_permiso` se
-      llama sin sucursal en varios puntos de esa app. Con el contrato nuevo del
-      motor (PER-003) esos gates ahora consultan solo asignaciones globales —
-      correcto pero más restrictivo de lo que probablemente se quiso.
-- [ ] **Identidad compuesta en el cloud** para `_handler_venta_creada`.
+- [x] **Claim durable del push de sync** (`EN_VUELO` + lease): A04 persiste un
+      lease de cinco minutos antes del HTTP, recupera vencidos e ignora ACK de
+      un worker que perdió la propiedad (`be15ea0`).
+- [x] **Cola durable de diferidos** en sync: A04 avanza el cursor solo tras
+      aplicar o persistir; reintenta en transacción y reporta `PARCIAL` mientras
+      haya pendientes (`be15ea0`).
+- [ ] **`_pull_legacy`** se conserva deliberadamente como compatibilidad con
+      clouds pre-Fase 2; retirarlo requiere terminar la flota y la matriz real.
+- [x] **`CheckConstraint` de respaldo** en ventas, inventario y cotizaciones:
+      constraints + preflight acreditados en `b6e898a`/`18e0898`.
+- [x] **Idempotencia del cobro CxC**: seis reintentos con la misma clave dejan
+      exactamente un efecto financiero (`b066636`).
+- [x] **PER-013 / consumidores C02-C05 — anulación y reimpresión usan RBAC y
+      scope de la venta.** C05 consume el helper de A03 contra la sucursal de la
+      propia venta y la integración repitió la matriz (`60c6dbc`, `9ff61c2`).
+- [x] **Scope por sucursal en inventario**: el servicio reautoriza el ajuste
+      contra la sucursal del lote bloqueado y cubre asignaciones A/B (`95dddb3`).
+- [x] **Identidad compuesta en el receptor cloud**: A04 deduplica por identidad
+      estable/hash + sucursal autenticada y los handlers de venta/CxC consultan
+      la venta dentro de esa sucursal; una colisión real queda `ERROR`, no ACK
+      exitoso (`be15ea0`).
 - [ ] **Auditoría de mutaciones API bajo tenancy**: `SesionImpersonacion`
       registra el acceso, no cada mutación de la sesión.
-- [ ] **Retirar el bypass de `ADMIN`** en `es_acceso_total`. Exige migrar antes
-      a cada admin a asignaciones explícitas, con comprobación previa de
-      lockout. Ya está acotado: no aprueba códigos inexistentes ni capacidades
-      del operador SaaS.
-- [ ] **Unificar los guards RBAC de notificaciones con `permisos.engine`.**
-      `notificaciones.services._asignaciones_en_alcance` copia los filtros
-      `activo` (rol/negocio/sucursal) de `_resolver_permisos`; extraer un helper
-      compartido evita que diverjan. Hoy están sincronizados y con comentario
-      cruzado. Deuda menor del code review de notificaciones (2026-09-05).
+- [ ] **Retirar el bypass de `ADMIN`** solo después de ejecutar
+      `preflight_rbac_admin_cutover --tenant <tenant_key>` y corregir los
+      ADMIN activos reportados. El código ya soporta
+      `RBAC_LEGACY_ADMIN_BYPASS=False`; A03 no leyó datos operativos ni cambió
+      esa bandera.
+- [x] **Guards RBAC de notificaciones unificados.** Notificaciones consume
+      `permisos.engine.asignaciones_efectivas` como consulta canónica.
 
 ---
 
 ## 🔵 Presentación y rendimiento
 
-- [ ] **Paginación real** en cartera CxC (corta a 300) e historial de turnos
-      (corta a 50, **sin avisar**). El inventario ya declara `productos_ocultos`.
+- [x] **Paginación/visibilidad CxC-caja**: historial de turnos paginado
+      (`eb72f69`); cartera conserva el tope de 300 pero informa
+      `cuentas_ocultas`/`tope_lista`. El inventario ya declara
+      `productos_ocultos`.
 - [ ] **Cerrar el último tramo de AUD-002.** El historial ya es append-only
       contra la aplicación, y una edición externa es **detectable** por el
       hash de cada fila. Lo que falta: borrar la ÚLTIMA fila no deja hueco de
@@ -192,9 +243,11 @@ acotado. Ver §3 de ESTADO_AUDITORIAS.
       INSERT de auditoría — caro en el camino de una venta) o, mejor, una
       **exportación periódica a almacenamiento WORM**, que además protege
       contra el borrado total de la tabla.
-- [ ] **Chart.js desde CDN** sin integridad ni fallback local
-      (`templates/reportes/on_demand.html`). En un POS sin Internet estable los
-      gráficos fallan aunque los datos estén.
+- [x] **Chart.js desde CDN** sin integridad ni fallback local
+      (`templates/reportes/on_demand.html`). Resuelto: sirve el asset local
+      `static/js/chart.min.js` (Chart.js 4.4.0). Revisado PASS (`f085d77`) e
+      **integrado por Codex en `integration/cierre-prod-A05-C03`** (`1009ba3`);
+      aún no en `develop`. Ver `docs/handoffs/cierre_prod/C02-chart-offline.md`.
 
 ---
 
@@ -205,95 +258,105 @@ ya resueltos en junio de 2026 y re-verificados; su decisión de scope quedó
 superada por NEG-001). Lo que sigue abajo son hallazgos P2/P3 dentro de módulos
 ya procesados.
 
-**Pendientes de `apps/permisos`** (P1 cerrados; el resto sin entrar):
-PER-012 a PER-018 (P2) y PER-019 a PER-021 (P3).
+**Pendientes de `apps/permisos`:** no quedan hallazgos de código de la ronda;
+permanece el gate operacional de ADMIN documentado arriba.
 
-**Pendientes de `apps/common`** (P1 cerrado + COM-002/003/004/010/011/015):
-COM-005 (forma de tablas sin validar: una columna extra expandio la tabla
-a 777pt sobre 518pt disponibles, y el contenido financiero queda fuera de
-pagina sin error), COM-006, COM-007 (un logo corrupto rompe el documento),
-COM-008 (un fallo de storage se traga y genera el PDF sin logo),
-**COM-009 (el logo remoto se lee completo en memoria SIN LIMITE: el tamano
-del archivo que alguien suba determina cuanta memoria consume el worker en
-cada documento — el mas urgente de los seis)**, COM-012, COM-013 (los
-builds no fijan ReportLab/Pillow aunque existan snapshots exactos que el
-Dockerfile no usa), COM-014.
+**Pendientes de `apps/common`** — solo queda **COM-013** (los builds no fijan
+ReportLab/Pillow aunque existan snapshots exactos que el Dockerfile no usa; es
+A+C, la parte de deps es de Codex). **COM-012** (tablas materializaban todos los
+registros) quedó **integrado y revalidado localmente** en
+`integration/cierre-prod-A05-C03` el 2026-09-17 (origen `78bec9a`):
+`standard_table` recorre perezoso y corta en `TABLA_MAX_FILAS`.
+El resto de la ronda de renderizado quedó **cerrado en `develop` por
+C02** (`d937db5`, con tests en `apps/common/tests`, revalidado 2026-09-16):
+COM-005 (valida la forma de la tabla y rechaza geometría inválida), COM-006
+(vacíos/dimensiones degradan con aviso), COM-007 (degrada logo corrupto con
+warning), COM-008 (distingue "fallo de storage" de "no hay logo"), COM-009 (lee
+el logo remoto por chunks con tope `LOGO_MAX_BYTES` + pre-check de `size` — ya
+no agota memoria) y COM-014 (escala el logo manteniendo proporción). Ya estaban
+cerrados COM-001/002/003/004/010/011/015.
 
-Los seis P2 de renderizado se dejaron fuera porque cada uno necesita
-decidir QUE hacer cuando falla —emitir sin logo, fallar, degradar— y esa
-decision conviene tomarla con el comportamiento observado en produccion.
+**Pendientes de `apps/cotizaciones`** después de C05 parte 2: COT-013 (borrar
+no converge con cloud); COT-017 conserva el stock al convertir y el
+presupuesto de queries (la lista ya pagina); COT-018 conserva rutas/floats
+residuales. COT-008/009/010/011/012/014/015 quedaron acreditados.
 
-**Pendientes de `apps/cotizaciones`** (P1 cerrados, más COT-016):
-COT-008 (cantidades e importes imposibles), COT-009 (acepta clientes
-inactivos — los productos ya usan `productos_vendibles()`), **COT-010 (la
-numeración por `count()+1`: el mismo defecto ya corregido en ventas y
-lotes, aquí sigue vivo)**, COT-011 (cabecera y detalles con totales
-distintos), COT-012 (sin auditoría del ciclo), COT-013 (borrar no converge
-con cloud), COT-014 (parcial: faltan rutas), COT-015 (estado y vínculo a
-venta sin invariante de base), COT-017, COT-018.
+**Pendientes de `apps/suscripciones`** — el grueso quedó **cerrado en
+`develop` por C03** (revalidado 2026-09-16, con tests en
+`test_auditoria_suscripciones`/`test_sync_modulos`): SUS-008/009 (`1ca1688`,
+bootstrap preserva flags por sucursal y adopta legacy sin sucursal),
+SUS-010/012/018 (`d968e3f`, fail-closed en la baja, reconciliación ruidosa
+código↔DB y default-deny de key desconocida), SUS-011 (`506edf2`, invalidación
+diferida a `on_commit`), SUS-013 (`6e3d551`, semántica real de `Plan.activo`),
+SUS-015 (`7201043`, auditoría CT-01), SUS-017 (`3018ce8`, presets versionados).
+**SUS-019** (fronteras del guard de degradación por plan/`activa`) quedó
+integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el
+2026-09-17 (origen `0548384`). En el candidato consolidado
+`integration/cierre-prod-A06-C04-C05`, **SUS-007/CFG-007** están incorporados desde `1019500`:
+el pull conserva la forma legacy, pero deriva módulos desde el resolutor y
+rechaza el payload inválido antes de mutar. **SUS-016** queda cerrado por
+`f83f67d`: `verificar_suscripciones_sync` produce un checkpoint determinista y
+de solo lectura por instalación (catálogo/presets, suscripciones, configuración
+legacy y cursores/diferidos/último ciclo); `--strict` solo cambia el código de
+salida, nunca ejecuta bootstrap, sync de módulos ni reparaciones.
+**SUS-014** conserva prevención (`validar_plan_slug` + `bootstrap_tenant`)
+y detección read-only `PLAN_DRIFT` cableada a `verificar_identidad_tenant`;
+no corrige datos.
 
-**Pendientes de `apps/suscripciones`** (P1 5/10):
-SUS-006 (CxC y reportes on-demand sin enforcement HTML de módulo), SUS-007
-(plantillas y sync leen flags legacy, servicios leen el entitlement),
-SUS-008 (el bootstrap une flags entre sucursales: si A tenía e-CF y B no,
-ambas terminan con e-CF), SUS-009 (las configuraciones legacy sin sucursal
-se ignoran al migrar), **SUS-010 (los hooks de datos bloqueantes tragan
-cualquier excepción: un fallo de base se interpreta como "no hay datos
-pendientes" y AUTORIZA la baja — el más barato de los cinco y el más
-peligroso)**, SUS-011 a SUS-019.
+**Pendientes de `apps/configuracion`** — cerrados en `develop` por C03
+(revalidado 2026-09-16, con tests de configuración): CFG-006 (`38e5647`,
+`full_clean` rechaza combinaciones inseguras), CFG-009 (`b19c4a5`, la UI lee
+`modulos_efectivos()` en vez de `config.modulo_*`), CFG-011 (`38e5647`, el
+borrado por instancia y por `QuerySet` levanta `ConfiguracionProtegidaError`),
+CFG-013/014/015 (`fe5c8de`, diagnóstico fiel + comando sin objetivo ambiguo),
+CFG-017 (`7201043`, auditoría CT-01 transaccional). Integrados y revalidados
+localmente el 2026-09-17: **CFG-010** (ámbito por sucursal + integridad de fila;
+origen `0db8f57`; preflight: backfill legacy + CheckConstraint), **CFG-018**
+(borrar logo anterior al reemplazar), **CFG-019** (retirar decoradores sin uso)
+y **CFG-020** (validar formato del código de barras del lado config) — los tres
+con origen `1a7b767`. **CFG-021** verificado como ya cubierto por los tests de
+C03. **CFG-012** está acreditado en el candidato consolidado desde
+`23dc805`/`a865af3`: leer no crea y el bootstrap es explícito; `develop`
+conserva la versión anterior. Sigue abierto CFG-008 (controles e-CF sin unidad,
+diferida). **CFG-007** queda cerrado en el candidato consolidado por
+`1019500`: la allowlist se valida con DRF y `full_clean()` sobre una copia antes
+de guardar; el payload inválido bloquea el cursor sin diferirse ni dejar estado
+parcial. CFG-016
+(round-trip BAT→env) es de C01.
 
-**Pendientes de `apps/configuracion`** (P1 cerrados):
-CFG-006 (combinaciones operativas y fiscales inseguras), CFG-007 (el pull
-omite validadores), CFG-008 (controles e-CF sin unidad), CFG-009 (dos
-fuentes de verdad entre plantillas y gates), CFG-010, **CFG-011 (la
-proteccion contra borrar configuracion es ilusoria: `QuerySet.delete()` no
-pasa por el modelo)**, **CFG-012 + CFG-017 (leer configuracion puede
-crearla, y ningun cambio deja auditoria de dominio: hoy no se puede
-reconstruir quien activo el inventario negativo ni cuando)**, CFG-013,
-CFG-014, CFG-015, CFG-016, CFG-018 a CFG-021.
-
-**Pendientes de `apps/productos`** (P1 6/8; PRO-018 cerrado):
+**Pendientes de `apps/productos`** (PRO-002/003/004/019 acreditados localmente;
+PRO-018 cerrado):
 PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
 **PRO-010 (cambios de precio sin auditoría de dominio — conviene pronto:
 un precio es una decisión financiera y hoy no queda registro de que
 ocurrió)**, PRO-011, PRO-012 (ciclo de vida de imágenes no atómico),
 PRO-013, PRO-014 (carreras en los generadores de SKU y código de barras),
 PRO-015, PRO-016 (el chequeo cloud ocurre antes de autenticar), PRO-017
-(impresión sin permiso propio ni cuota), PRO-019 a PRO-022.
+(impresión sin permiso propio ni cuota), PRO-020 a PRO-022.
 
-**Pendientes de `apps/clientes`** (P1 cerrados, más CLI-014/020):
+**Pendientes de `apps/clientes`** (P1 cerrados; CLI-004 diferido explícitamente,
+más CLI-014/020):
 CLI-006 (aislamiento por negocio en base compartida — contenido por
 DB-per-tenant), CLI-008 (escrituras locales sin `full_clean`), CLI-009
 (cédula/RNC sin formato canónico), CLI-010 (identidad de origen a medias),
 CLI-011 (mutaciones sin auditoría), CLI-012 (sucursal en la auditoría de
 límite — hecho en el toggle, falta en la edición), CLI-013 (`DELETE` físico
-da 500 con referencias), **CLI-015 (la ruta de detalle apunta a una
-plantilla inexistente: 500 garantizado)**, CLI-016 (N+1 financieros),
+de un cliente real sigue permitido), CLI-015 (detalle requiere prueba
+autorizada 200/404), CLI-016 (N+1 financieros),
 CLI-017, CLI-018, CLI-019, CLI-021.
 
-**Pendientes de `apps/negocios`** (P1 cerrados, más NEG-010/015):
-NEG-006 (tres fuentes de identidad comercial), NEG-007 (ciclo de vida del
-tenant sin auditoría), NEG-008 (cascada al borrar un negocio — la mitad de
-usuarios ya la cubre USR-003), NEG-009 (`slug` mutable en identidad legacy),
-NEG-011 (RNC sin política de unicidad), NEG-012 (escrituras directas evitan
-validadores), NEG-013 (autogeneración de slug omitible), NEG-014 (carrera
-TOCTOU en el slug), NEG-016, NEG-017.
+**Pendientes posteriores a A02 de `apps/negocios`:** ninguno de código en el
+inventario A02. Persisten los preflights operativos de identidad/self-row para
+A08; no se resuelven adjudicando o fusionando filas automáticamente.
 
-**Pendientes de `apps/auditoria`** (P1 cerrados, más AUD-007/011/012/014/015/022):
-AUD-008 (política de fallo contradictoria), AUD-009 (la anulación registra el
-estado nuevo como si fuera el anterior), AUD-010 (acción/nivel/resultado
-incoherentes), AUD-013 (excepciones sin redacción), AUD-016
-(`registrar_compra()` no serializa su payload), AUD-018 (taxonomía sin
-productores), AUD-019 (el visor oculta datos), AUD-020 (sin lifecycle de
-retención), AUD-021 (identidad histórica del objeto).
+**Pendientes posteriores a A02 de `apps/auditoria`:** AUD-002-ULTIMA continúa
+como riesgo aceptado: sin WORM no se promete detectar el borrado externo de la
+última fila. La adopción de CT-01 por cada productor se acredita en su bloque.
 
-**Pendientes de `apps/usuarios`** (P1 cerrados, más USR-008/009/018):
-USR-007 (flujo de provisión de usuarios tenant), USR-010 (`Identity` y
-`Usuario` son credenciales independientes), USR-011 (el manager omite
-validación), USR-012 (tres fuentes de privilegio), USR-013 (mutaciones sin
-auditoría de dominio), USR-015 (`last_login` vs `ultimo_acceso`), USR-016
-(unicidad sensible a mayúsculas), USR-017 (sesión sin máximo absoluto),
-USR-019 (rutas de desarrollo).
+**Pendientes posteriores a A02 de `apps/usuarios`:** USR-012 pasa a A03/CT-02
+para unificar privilegios y revocaciones; USR-014 permanece en A08 porque exige
+validar la cadena real de proxies. La pantalla portal de gestión/clave sigue en
+C04; A02 publicó el servicio/comando backend y separó las credenciales.
 
 ---
 

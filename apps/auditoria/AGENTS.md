@@ -1,6 +1,6 @@
 # apps/auditoria — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-23 (A08: semántica proxy ACA) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -16,7 +16,9 @@ automática y un dashboard local en `/auditoria/`.
 
 | Necesito… | Voy a… |
 | --- | --- |
-| **Registrar una acción** | `Auditoria.registrar(accion, descripcion, usuario=, content_object=, metadata=, sucursal=, ...)`; atajos `registrar_venta`, `registrar_anulacion_venta`, `registrar_error`, … |
+| **Registrar una mutación nueva** | `services.registrar_mutacion(..., using=)` — contrato `audit.event.v1` / CT-01, redactado y transaccional |
+| Adaptar un productor histórico | `Auditoria.registrar(...)`; solo compatibilidad durante migración |
+| Cobertura real por tipo de evento | `productores.py` → `MATRIZ_V1` y `MATRIZ_LEGACY`; `SIN_PRODUCTOR` significa que el visor solo ofrece historia |
 | Tipos de acción | `Auditoria.TipoAccion` (`TextChoices`) |
 | Captura automática por request | `middleware.py` → `AuditoriaMiddleware`, `SesionAuditoriaMiddleware` |
 | Dashboard / búsqueda | `views.py` → `dashboard_auditoria`, `api_auditoria_buscar` |
@@ -30,10 +32,19 @@ automática y un dashboard local en `/auditoria/`.
   (`actor_*`) y calcula el hash; los registros previos a `0005` quedan sin hash.
 - Agregar una acción = nuevo miembro en `TipoAccion` + migración (solo
   `choices`), p. ej. `auditoria.0007` (`COMPROBANTE_PDF`).
-- Quien registra lo hace **best-effort**: la operación de negocio no se cae si
-  falla la auditoría (patrón en `utils/impresoras/manager.py` y
-  `apps/ventas/views.comprobante_venta_pdf`). Excepción deliberada: el logout
-  audita **después** de cerrar sesión (USR-004).
+- Una mutación exitosa nueva llama `registrar_mutacion` dentro del mismo
+  `transaction.atomic(using=...)`; un fallo del evento revierte el dominio. Los
+  intentos fallidos se registran después del rollback. Logout es la excepción:
+  invalida primero la sesión y su log es best-effort.
+- El adaptador `Auditoria.registrar` sigue disponible para productores legacy,
+  pero no satisface por sí solo CT-01.
+- CT-01 persiste referencias opacas separadas para el actor operativo y, cuando
+  corresponde, la identidad global que impersona. No guardar credenciales o
+  tokens en snapshots, metadata ni errores.
+- La IP es fail-closed: `get_client_ip` usa `REMOTE_ADDR` salvo proxy declarado;
+  con Azure Container Apps toma solo la última entrada de `X-Forwarded-For`,
+  que la plataforma agrega. Las entradas anteriores son aportadas por cliente
+  o proxies previos y no prueban identidad.
 - `Auditoria.derivar_sucursal(objeto)` para inferir la sucursal de un hecho.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md`) —
   **snapshot histórico**, verificar contra código.

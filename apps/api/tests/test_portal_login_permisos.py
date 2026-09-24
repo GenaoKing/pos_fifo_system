@@ -16,6 +16,7 @@ from rest_framework import serializers
 from rest_framework.test import APIClient
 
 from apps.api.auth_views import _validar_usuario_portal
+from apps.api.permissions import TienePermiso
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import Permiso
@@ -88,6 +89,14 @@ class LoginLegacyEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('productos.fotografiar', response.data['user']['permisos'])
         self.assertNotIn('productos.editar', response.data['user']['permisos'])
+        rbac = response.data['user']['rbac']
+        self.assertEqual(rbac['schema_version'], 'rbac.capabilities.v1')
+        self.assertEqual(rbac['tenant_key'], self.negocio.slug)
+        self.assertEqual(rbac['scope']['kind'], 'ANY_FOR_DISPLAY')
+        self.assertEqual(rbac['permissions'], response.data['user']['permisos'])
+        self.assertIn('catalog_revision', rbac)
+        self.assertIn('assignments_revision', rbac)
+        self.assertTrue(rbac['subject_ref'])
 
     def test_cajera_sin_permisos_recibe_400_con_el_code(self):
         User.objects.create_user(
@@ -101,3 +110,19 @@ class LoginLegacyEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data['detail'][0].code, 'sin_permisos_portal')
+
+    def test_permission_class_sin_codigo_configurado_deniega(self):
+        usuario = User.objects.create_user(
+            username='admin_permission_base',
+            email='admin_permission_base@test.local',
+            password='x',
+            rol='ADMIN',
+            activo=True,
+        )
+        request = type('Request', (), {
+            'user': usuario,
+            'sucursal': None,
+            'auth': None,
+        })()
+
+        self.assertFalse(TienePermiso().has_permission(request, object()))

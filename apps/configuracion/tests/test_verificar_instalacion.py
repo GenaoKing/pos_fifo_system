@@ -58,15 +58,76 @@ class VerificarInstalacionTestsBase(TestCase):
 
 
 class SucursalSinNegocioTests(VerificarInstalacionTestsBase):
-    def test_sin_negocio_es_modo_legacy_y_no_alerta(self):
+    def test_sin_negocio_es_modo_legacy_y_enumera_los_flags(self):
         """
-        Es un estado VALIDO: los modulos se resuelven por los flags de
-        ConfiguracionNegocio (fail-open). Una instalacion nueva queda asi.
+        CFG-013: el modo legacy consulta los flags REALES (antes devolvia
+        siempre `apagados=[]` sin mirarlos). Un default-off como etiquetas_zebra
+        aparece; impresion_termica (default on) no, y nada se marca roto.
+
+        CFG-012: el reporte ya no puede materializar la config leyendola (el
+        propio comando dejaria de detectar una instalacion sin
+        `crear_config_inicial`) -- la crea explicitamente, como haria la
+        instalacion real.
         """
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        ConfiguracionNegocio.objects.create(sucursal=self.sucursal, nombre_negocio='X')
+
         modulos = self._reporte()['modulos']
 
         self.assertEqual(modulos['modo'], 'legacy')
-        self.assertEqual(modulos['apagados'], [])
+        self.assertFalse(modulos['roto'])
+        self.assertNotIn('impresion_termica', modulos['apagados'])
+        self.assertIn('etiquetas_zebra', modulos['apagados'])
+
+    def test_sin_configuracion_creada_se_reporta_roto_no_sano_por_omision(self):
+        """
+        CFG-012 — la reproduccion exacta del riesgo: antes, ejecutar este
+        diagnostico ANTES de `crear_config_inicial` materializaba una config
+        "Mi Negocio" en silencio (via el `get_or_create` de `load()`) y el
+        reporte podia salir limpio. Ahora la ausencia de configuracion es un
+        hallazgo explicito del propio comando, no un efecto secundario de
+        haberlo corrido.
+        """
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+        modulos = self._reporte()['modulos']
+
+        self.assertEqual(modulos['modo'], 'legacy')
+        self.assertEqual(modulos['error'], 'CONFIGURACION_NO_INICIALIZADA')
+        self.assertTrue(modulos['roto'])
+        # El diagnostico no crea la fila que esta reportando como ausente.
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+    def test_sin_configuracion_creada_la_salida_dice_como_arreglarlo(self):
+        salida = self._salida()
+
+        self.assertIn('No existe ninguna ConfiguracionNegocio todavia', salida)
+        self.assertIn('crear_config_inicial', salida)
+        self.assertIn('RESULTADO: la instalacion tiene problemas', salida)
+
+    def test_impresion_termica_apagada_en_legacy_se_reporta_roto(self):
+        """
+        La reproduccion de CFG-013: con `modulo_impresion_termica=False` el gate
+        real devuelve False, pero el reporte legacy afirmaba `apagados=[]`.
+        """
+        from django.core.cache import cache
+
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal, nombre_negocio='X',
+            modulo_impresion_termica=False,
+        )
+        cache.clear()
+
+        modulos = self._reporte()['modulos']
+
+        self.assertEqual(modulos['modo'], 'legacy')
+        self.assertIn('impresion_termica', modulos['apagados'])
+        self.assertTrue(modulos['roto'])
 
     def test_salida_legible_lo_dice(self):
         self.assertIn('sin negocio asignado', self._salida())
@@ -167,3 +228,42 @@ class DiagnosticoGeneralTests(VerificarInstalacionTestsBase):
 
         self.assertIn('VERIFICACION DE INSTALACION', salida)
         self.assertIn('MODULOS VENDIBLES', salida)
+
+
+class SeedsReportanLaSucursalCorrectaTests(VerificarInstalacionTestsBase):
+    """CFG-014: el diagnostico muestra la config de la sucursal actual, no `.first()`."""
+
+    def test_reporta_la_config_de_la_sucursal_actual_no_la_primera(self):
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        # Una config de OTRA sucursal, creada ANTES (pk menor): con `.first()`
+        # el diagnostico mostraba esta, no la de la sucursal resuelta.
+        otra = Sucursal.objects.create(codigo='SD-OTRA', nombre='Otra', activa=True)
+        ConfiguracionNegocio.objects.create(sucursal=otra, nombre_negocio='Negocio B')
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal, nombre_negocio='Negocio A',
+        )
+
+        seeds = self._reporte()['seeds']
+
+        self.assertEqual(seeds['configuracion_negocio'], 'Negocio A')
+        self.assertIn('SD-VI', seeds['configuracion_sucursal'])
+
+
+class StrictExitTests(VerificarInstalacionTestsBase):
+    """CFG-014: --strict termina distinto de cero ante un estado roto."""
+
+    def test_strict_falla_si_hay_problema(self):
+        from django.core.cache import cache
+        from django.core.management.base import CommandError
+
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal, nombre_negocio='X',
+            modulo_impresion_termica=False,  # roto: el POS no imprimiria
+        )
+        cache.clear()
+
+        with self.assertRaises(CommandError):
+            call_command('verificar_instalacion', '--strict')

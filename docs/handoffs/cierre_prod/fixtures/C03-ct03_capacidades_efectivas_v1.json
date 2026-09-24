@@ -1,0 +1,62 @@
+{
+  "contract": "CT-03",
+  "schema_version": "capacidades.efectivas.v1",
+  "owner": "C / Claude; integrado localmente por Codex",
+  "descripcion": [
+    "Fixture canonico del resolutor de capacidades efectivas de CT-03.",
+    "Fija un escenario deterministico para apps.suscripciones.engine.",
+    "El Plan explicito evita depender de la evolucion de seed.TIERS."
+  ],
+  "reglas_ejercitadas": [
+    "plan.modulos define el piso vendible del negocio",
+    "override de negocio incluido=true suma un modulo a la carta",
+    "cierre de dependencias transitivas",
+    "core siempre activo",
+    "override negativo por sucursal apaga un modulo vendible",
+    "un override de sucursal sobre un modulo core se ignora"
+  ],
+  "escenario": {
+    "negocio": {"slug": "demo", "nombre": "Demo Ferreteria"},
+    "suscripcion": {"activa": true, "plan_slug": "profesional"},
+    "plan": {
+      "slug": "profesional",
+      "nombre": "Profesional",
+      "preset_version": null,
+      "modulos": ["cotizaciones", "cuentas_por_cobrar", "ecf", "dashboard"]
+    },
+    "overrides_negocio": [
+      {"modulo": "financiacion", "incluido": true}
+    ],
+    "sucursales": [
+      {"codigo": "01", "nombre": "Casa Matriz", "overrides": []},
+      {"codigo": "02", "nombre": "Sucursal Este", "overrides": [
+        {"modulo": "ecf", "activo": false},
+        {"modulo": "ventas", "activo": false}
+      ]}
+    ]
+  },
+  "esperado": {
+    "estado_suscripcion": "CON_PLAN",
+    "modulos_negocio": [
+      "caja", "clientes", "cotizaciones", "cuentas_por_cobrar", "dashboard",
+      "ecf", "financiacion", "inventario", "productos", "ventas"
+    ],
+    "modulos_activos_por_sucursal": {
+      "01": [
+        "caja", "clientes", "cotizaciones", "cuentas_por_cobrar", "dashboard",
+        "ecf", "financiacion", "inventario", "productos", "ventas"
+      ],
+      "02": [
+        "caja", "clientes", "cotizaciones", "cuentas_por_cobrar", "dashboard",
+        "financiacion", "inventario", "productos", "ventas"
+      ]
+    },
+    "notas_por_sucursal": {
+      "01": "sin overrides: refleja exactamente el set efectivo del negocio",
+      "02": "override negativo de ecf lo apaga; el override de ventas core se ignora"
+    },
+    "ausentes_intencionales": [
+      "etiquetas_zebra", "reportes_ondemand", "impresion_termica", "barcode_scanner"
+    ]
+  }
+}

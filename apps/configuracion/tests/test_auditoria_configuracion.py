@@ -6,12 +6,16 @@ Regresion de los hallazgos de
 """
 from io import StringIO
 
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 
-from apps.configuracion.models import ConfiguracionNegocio
+from apps.auditoria.models import Auditoria
+from apps.configuracion.models import AccesoRapidoPOS, ConfiguracionNegocio
 from apps.configuracion.utils import (
     ConfiguracionNoResuelta,
     cache_key_config,
@@ -272,6 +276,72 @@ class AdminGateadoPorRbacTests(ConfiguracionTestCase):
         )
 
 
+class CFG017AuditoriaTests(ConfiguracionTestCase):
+    """
+    CFG-017 — Admin es la unica interfaz de escritura de `ConfiguracionNegocio`
+    hoy; sin evento CT-01 no puede reconstruirse quien cambio que.
+    """
+
+    def _admin(self):
+        from django.contrib import admin as django_admin
+
+        from apps.configuracion.admin import ConfiguracionNegocioAdmin
+
+        return ConfiguracionNegocioAdmin(
+            ConfiguracionNegocio, django_admin.site,
+        )
+
+    def _request(self, user):
+        peticion = RequestFactory().get('/admin/')
+        peticion.user = user
+        return peticion
+
+    def test_editar_deja_exactamente_un_evento_con_diff(self):
+        self.config_a.pago_tarjeta = True
+        self.config_a.permitir_inventario_negativo = True
+
+        self._admin().save_model(
+            self._request(None), self.config_a, form=None, change=True,
+        )
+
+        eventos = Auditoria.objects.filter(accion='configuracion.negocio.actualizado')
+        self.assertEqual(eventos.count(), 1)
+        evento = eventos.get()
+        self.assertFalse(evento.datos_anteriores['pago_tarjeta'])
+        self.assertTrue(evento.datos_nuevos['pago_tarjeta'])
+        self.assertTrue(evento.datos_nuevos['permitir_inventario_negativo'])
+        self.assertEqual(evento.sucursal_id, self.suc_a.id)
+
+    def test_crear_deja_evento_con_antes_vacio(self):
+        nueva = ConfiguracionNegocio(sucursal=None, nombre_negocio='Legacy')
+
+        self._admin().save_model(
+            self._request(None), nueva, form=None, change=False,
+        )
+
+        evento = Auditoria.objects.get(accion='configuracion.negocio.creado')
+        self.assertEqual(evento.datos_anteriores, {})
+        self.assertEqual(evento.datos_nuevos['nombre_negocio'], 'Legacy')
+
+    def test_editar_registra_al_actor_real(self):
+        # Actor del MISMO negocio que `config_a` (via `suc_a`): CT-01 rechaza
+        # un actor de otro tenant, y `_usuario()`/`habilitar_cajero()` sin
+        # `negocio=` explicito crea uno propio por llamada.
+        admin_user = User.objects.create_user(
+            username='admin_cfg', email='admin_cfg@test.local', password='x',
+            rol='ADMIN', activo=True, is_staff=True, negocio=self.negocio,
+        )
+        self.config_a.rnc = '999'
+
+        self._admin().save_model(
+            self._request(admin_user), self.config_a, form=None, change=True,
+        )
+
+        evento = Auditoria.objects.get(accion='configuracion.negocio.actualizado')
+        self.assertEqual(evento.actor_username, 'admin_cfg')
+        self.assertEqual(evento.metadata['source'], 'DJANGO_ADMIN_LOCAL')
+
+
 class SecretosEnDryRunTests(ConfiguracionTestCase):
     """CFG-004: el dry-run no imprime credenciales."""
 
@@ -334,3 +404,284 @@ class SecretosEnDryRunTests(ConfiguracionTestCase):
                 self.assertTrue(comando._es_sensible(nombre))
 
         self.assertFalse(comando._es_sensible('DB_NAME'))
+
+
+class ValidacionCruzadaTests(ConfiguracionTestCase):
+    """CFG-006: `full_clean()` rechaza combinaciones operativas/fiscales inseguras."""
+
+    def test_una_config_por_defecto_es_valida(self):
+        self.config_a.full_clean()  # no levanta
+
+    def test_sin_ningun_medio_de_pago_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba cero metodos de pago."""
+        self.config_a.pago_efectivo = False
+        self.config_a.pago_transferencia = False
+        self.config_a.pago_tarjeta = False
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('pago_efectivo', ctx.exception.message_dict)
+
+    def test_ecf_activo_sin_emisor_se_rechaza(self):
+        """La reproduccion: `modulo_ecf=True` coexistia con `emisor_activo=NULL`."""
+        self.config_a.modulo_ecf = True  # emisor_activo queda None
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('emisor_activo', ctx.exception.message_dict)
+
+    def test_itbis_fuera_de_rango_se_rechaza(self):
+        """La reproduccion: `full_clean()` aceptaba ITBIS -5.00."""
+        self.config_a.itbis_porcentaje_global = Decimal('-5.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+    def test_itbis_por_encima_de_cien_se_rechaza(self):
+        self.config_a.itbis_porcentaje_global = Decimal('200.00')
+
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('itbis_porcentaje_global', ctx.exception.message_dict)
+
+
+class BorradoProtegidoTests(ConfiguracionTestCase):
+    """CFG-011: borrar configuracion falla uniforme por instancia y por QuerySet."""
+
+    def test_delete_de_instancia_levanta_y_no_borra(self):
+        """Antes era un `pass`: el caller creia haber borrado y seguia con estado falso."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            self.config_a.delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
+
+    def test_delete_por_queryset_tambien_levanta_y_no_borra(self):
+        """La otra mitad del hallazgo: `QuerySet.delete()` SI borraba de verdad."""
+        from apps.configuracion.models import ConfiguracionProtegidaError
+
+        with self.assertRaises(ConfiguracionProtegidaError):
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).delete()
+
+        self.assertTrue(
+            ConfiguracionNegocio.objects.filter(pk=self.config_a.pk).exists()
+        )
+
+
+@override_settings(SUCURSAL_CODIGO='CFG-A')
+class ModulosEfectivosTests(ConfiguracionTestCase):
+    """
+    CFG-009 / SUS-007: la UI consulta el entitlement efectivo, no `config.modulo_*`.
+    `modulos_efectivos()` alimenta el context processor; debe coincidir con lo que
+    gatea el backend, no con el flag legacy crudo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from apps.suscripciones import seed
+        from apps.suscripciones.models import Modulo, Plan
+
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        cache.clear()
+
+    def test_no_muestra_un_modulo_que_el_plan_no_incluye_aunque_el_flag_este_on(self):
+        """
+        La reproduccion: flag `modulo_cotizaciones=True` con un negocio cuyo plan
+        NO incluye cotizaciones -> el template veia True (enlace a 404) mientras
+        el backend devolvia False.
+        """
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='basico'), activa=True,
+        )
+        self.config_a.modulo_cotizaciones = True
+        self.config_a.save()
+        cache.clear()
+
+        efectivos = modulos_efectivos()
+        self.assertNotIn('cotizaciones', efectivos)   # manda el entitlement
+        self.assertTrue(self.config_a.modulo_cotizaciones)  # el flag crudo seguia True
+
+    def test_muestra_lo_que_el_plan_agrega_aunque_el_flag_este_off(self):
+        """El reverso: un modulo comprado en el plan aparece aunque el flag este off."""
+        from apps.configuracion.utils import modulos_efectivos
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        self.assertIn('ecf', modulos_efectivos())      # el plan lo incluye
+        self.assertFalse(self.config_a.modulo_ecf)      # el flag crudo seguia False
+
+    def test_el_context_processor_expone_el_set(self):
+        from apps.configuracion.context_processors import config_negocio
+        from apps.suscripciones.models import Plan, SuscripcionNegocio
+
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=Plan.objects.get(slug='empresarial'), activa=True,
+        )
+        cache.clear()
+
+        ctx = config_negocio(RequestFactory().get('/'))
+        self.assertIn('modulos_efectivos', ctx)
+        self.assertIn('ecf', ctx['modulos_efectivos'])
+
+
+class AccesoRapidoInvarianteTests(TestCase):
+    """CFG-010 (parcial): ninguna fila invalida de `AccesoRapidoPOS` persiste por
+    ORM/import.
+
+    `clean()` exige exactamente producto XOR categoria segun `tipo`, pero `save()`
+    no lo invocaba: `objects.create(tipo='producto')` guardaba una fila que el POS
+    no sabe resolver. Ahora `save()` valida a nivel aplicacion (mismo criterio que
+    CFG-006; el `CheckConstraint` de base queda para un preflight coordinado). El
+    El ámbito por sucursal se acredita por separado en los tests del endpoint
+    POS; este grupo cubre la invariante de forma del modelo.
+    """
+
+    def setUp(self):
+        from apps.productos.models import Categoria, Producto
+
+        self.categoria = Categoria.objects.create(nombre='Vasos')
+        self.producto = Producto.objects.create(
+            sku='CFG010-1',
+            codigo_barras='CFG010-1',
+            nombre='Vaso',
+            descripcion='',
+            categoria=self.categoria,
+            precio_venta='100.00',
+            stock_minimo=5,
+            activo=True,
+            estado='nuevo',
+            marca='',
+            atributos={},
+        )
+
+    def test_create_sin_producto_para_tipo_producto_se_rechaza(self):
+        """La reproduccion del hallazgo: la fila invalida ya no persiste."""
+        with self.assertRaises(ValidationError):
+            AccesoRapidoPOS.objects.create(
+                etiqueta='Roto', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            )
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_create_con_producto_y_categoria_a_la_vez_se_rechaza(self):
+        with self.assertRaises(ValidationError):
+            AccesoRapidoPOS.objects.create(
+                etiqueta='Ambiguo', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+                producto=self.producto, categoria=self.categoria,
+            )
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_save_directo_de_instancia_invalida_se_rechaza(self):
+        acceso = AccesoRapidoPOS(
+            etiqueta='Sin categoria', tipo=AccesoRapidoPOS.TIPO_CATEGORIA,
+        )
+        with self.assertRaises(ValidationError):
+            acceso.save()
+        self.assertEqual(AccesoRapidoPOS.objects.count(), 0)
+
+    def test_un_acceso_valido_persiste(self):
+        acceso = AccesoRapidoPOS.objects.create(
+            etiqueta='Vaso', tipo=AccesoRapidoPOS.TIPO_PRODUCTO,
+            producto=self.producto, orden=1,
+        )
+        self.assertTrue(AccesoRapidoPOS.objects.filter(pk=acceso.pk).exists())
+class FormatoCodigoBarrasTests(ConfiguracionTestCase):
+    """CFG-020: el `formato_codigo_barras` no debe prometer mas de lo que el
+    generador honra.
+
+    `generar_codigo_barra_interno()` toma solo el prefijo antes del primer '-' y
+    siempre produce 6 digitos, asi que un formato con otra forma (sin '-', otra
+    cantidad de 'X', minusculas o mas de un '-') describiria un resultado que
+    nunca ocurre. Se valida a nivel aplicacion (`full_clean`), no como constraint
+    de base (mismo criterio que CFG-006).
+    """
+
+    def test_formato_por_defecto_es_valido(self):
+        self.config_a.formato_codigo_barras = 'RP-XXXXXX'
+        self.config_a.full_clean()  # no levanta
+
+    def test_prefijo_alfanumerico_mas_largo_es_valido(self):
+        self.config_a.formato_codigo_barras = 'ROYAL01-XXXXXX'
+        self.config_a.full_clean()
+
+    def test_cantidad_de_equis_distinta_de_seis_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'RP-XXXX'
+        with self.assertRaises(ValidationError) as ctx:
+            self.config_a.full_clean()
+        self.assertIn('formato_codigo_barras', ctx.exception.message_dict)
+
+    def test_sin_guion_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'RPXXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+    def test_prefijo_en_minusculas_se_rechaza(self):
+        self.config_a.formato_codigo_barras = 'rp-XXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+    def test_mas_de_un_guion_se_rechaza(self):
+        # El generador solo mira el primer segmento; 'RP-A-XXXXXX' daria 'RP-...'.
+        self.config_a.formato_codigo_barras = 'RP-A-XXXXXX'
+        with self.assertRaises(ValidationError):
+            self.config_a.full_clean()
+
+
+class LogoLifecycleTests(ConfiguracionTestCase):
+    """CFG-018: reemplazar el logo borra el archivo anterior.
+
+    El config no se borra (CFG-011), asi que el reemplazo es el unico camino a
+    archivos huerfanos. Antes cada reemplazo dejaba el anterior sin referencia.
+    """
+
+    def _png(self, nombre):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image as PILImage
+
+        buffer = BytesIO()
+        PILImage.new('RGB', (2, 2), 'blue').save(buffer, format='PNG')
+        return SimpleUploadedFile(nombre, buffer.getvalue(), content_type='image/png')
+
+    def test_reemplazar_el_logo_borra_el_anterior(self):
+        self.config_a.logo = self._png('a.png')
+        self.config_a.save()
+        primero = self.config_a.logo.name
+        storage = self.config_a.logo.storage
+        # Deja el arbol de medios limpio pase lo que pase.
+        self.addCleanup(lambda: storage.delete(self.config_a.logo.name))
+        self.assertTrue(storage.exists(primero))
+
+        self.config_a.logo = self._png('b.png')
+        self.config_a.save()
+        segundo = self.config_a.logo.name
+
+        self.assertNotEqual(primero, segundo)
+        self.assertFalse(storage.exists(primero))   # el viejo se borro
+        self.assertTrue(storage.exists(segundo))
+
+    def test_guardar_sin_cambiar_el_logo_no_lo_borra(self):
+        self.config_a.logo = self._png('c.png')
+        self.config_a.save()
+        nombre = self.config_a.logo.name
+        storage = self.config_a.logo.storage
+        self.addCleanup(lambda: storage.delete(nombre))
+
+        # Un save() que no toca el logo (p. ej. cambia otro campo) lo conserva.
+        self.config_a.nombre_negocio = 'Renombrado'
+        self.config_a.save()
+
+        self.assertEqual(self.config_a.logo.name, nombre)
+        self.assertTrue(storage.exists(nombre))

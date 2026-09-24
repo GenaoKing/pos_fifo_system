@@ -245,6 +245,15 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
         if activo is not None:
             queryset = queryset.filter(activo=activo.lower() == 'true')
 
+        operativo = self.request.query_params.get('operativo')
+        if operativo is not None:
+            from django.db.models import Q
+
+            if operativo.lower() == 'true':
+                queryset = queryset.filter(activo=True, categoria__activa=True)
+            elif operativo.lower() == 'false':
+                queryset = queryset.filter(Q(activo=False) | Q(categoria__activa=False))
+
         categoria = self.request.query_params.get('categoria')
         if categoria:
             queryset = queryset.filter(categoria_id=categoria)
@@ -264,6 +273,21 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
             )
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        """DELETE conserva el maestro y exige el motivo de baja lógica."""
+        producto = self.get_object()
+        serializer = self.get_serializer(
+            producto,
+            data={
+                'activo': False,
+                'motivo_inactivacion': request.data.get('motivo_inactivacion', ''),
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        producto = serializer.save()
+        return Response(self._read(producto).data, status=status.HTTP_200_OK)
 
     def get_permissions(self):
         # La action de foto acepta `productos.editar` O el permiso acotado
@@ -369,6 +393,21 @@ class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncremental
 
         return queryset
 
+    def destroy(self, request, *args, **kwargs):
+        """DELETE de categoría es una baja lógica y nunca borra históricos."""
+        categoria = self.get_object()
+        serializer = self.get_serializer(
+            categoria,
+            data={
+                'activa': False,
+                'motivo_inactivacion': request.data.get('motivo_inactivacion', ''),
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        categoria = serializer.save()
+        return Response(self._read(categoria).data, status=status.HTTP_200_OK)
+
 
 class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
@@ -386,7 +425,7 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
         GET    /api/v1/maestros/clientes/<id>/       detalle
         POST   /api/v1/maestros/clientes/           crear (admin)
         PATCH  /api/v1/maestros/clientes/<id>/       editar (admin)
-        DELETE /api/v1/maestros/clientes/<id>/       borrar (admin)
+        DELETE /api/v1/maestros/clientes/<id>/       desactivar (admin)
 
     Filtros:
         ?tipo=PERSONAL/CORPORATIVO/CONTADO  → tipo de cliente
@@ -403,21 +442,15 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
             return ClienteSerializer
         return ClienteWriteSerializer
 
-    def perform_destroy(self, instance):
-        """
-        El generico CONTADO no se borra (CLI-007).
-
-        `ModelViewSet` conservaba el `destroy` fisico estandar, asi que un
-        DELETE sobre el generico sin referencias lo eliminaba. `get_cliente_contado()`
-        pasaba entonces a crearlo de nuevo con otro PK, y las ventas historicas
-        quedaban apuntando a una fila que ya no es "el" generico.
-        """
-        if getattr(instance, 'es_contado', False):
-            raise exceptions.PermissionDenied(
-                'El cliente CONTADO es la identidad generica del sistema y no '
-                'se puede eliminar.'
-            )
-        super().perform_destroy(instance)
+    def destroy(self, request, *args, **kwargs):
+        """Baja logica: conserva ventas y emite el cambio al pull incremental."""
+        cliente = self.get_object()
+        serializer = self.get_serializer(
+            cliente, data={'activo': False}, partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        cliente = serializer.save()
+        return Response(self._read(cliente).data, status=status.HTTP_200_OK)
 
     def get_base_queryset(self):
         queryset = Cliente.objects.all()

@@ -1,6 +1,6 @@
 # apps/sucursales — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-18 (C04 p5.2: ciclo de vida portal) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -24,6 +24,7 @@ instalación local **es** una sucursal, identificada por
 | Crear una sucursal al instalar | `manage.py crear_sucursal --codigo SD-001 --nombre ... [--preset]` |
 | Vincular su token de sync | `manage.py vincular_sucursal_token` (vive en `apps/api`) |
 | Estado de sucursales en el portal | `apps/api/views/sucursales.py` → `sucursales_status` |
+| Administrar topología desde portal | `services.crear_sucursal` / `actualizar_sucursal` / `desactivar_sucursal`; CT-01 y permiso global `permisos.administrar` |
 
 ## Invariantes / trampas
 
@@ -34,6 +35,13 @@ instalación local **es** una sucursal, identificada por
   código" no prueba que alguien lo configuró (CFG-002).
 - `ConfiguracionNegocio.sucursal` es OneToOne: la identidad fiscal es de la
   sucursal, no del negocio.
+- En cloud `sucursales` es **dual-home**: la FK de `Auditoria` debe vivir en la
+  misma base que la sucursal. Si una instalacion heredada registro migraciones
+  sin materializar la tabla, usar `reparar_sucursales_dual_home` con dry-run;
+  no borrar `django_migrations` a mano.
 - Sin `tests/` propios; la cobertura vive en las apps que la consumen.
+- La baja portal es lógica (`activa=False`) y conserva ventas, configuración y
+  eventos; `codigo` queda inmutable porque participa en identidad/sync. El
+  serializer portal jamás expone `api_key` ni `usuario_servicio`.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUCURSALES.md`)
   — **snapshot histórico**, verificar contra código.

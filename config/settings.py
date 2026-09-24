@@ -5,6 +5,8 @@ Django settings for POS FIFO System.
 from pathlib import Path
 import os
 
+from config.env_loader import cargar_env_file
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -32,21 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # archivo**. Eso mantiene funcionando el rig de pruebas, los tests y Azure, donde
 # la configuracion llega por entorno y no por archivo.
 
-def _cargar_env_file():
-    """Carga el .env de la instalacion. Devuelve la ruta usada, o None."""
-    ruta = os.environ.get('POS_ENV_FILE') or (BASE_DIR / 'deploy' / 'env_cliente.env')
-    ruta = Path(ruta)
-    if not ruta.is_file():
-        return None
-    try:
-        from dotenv import load_dotenv
-    except ImportError:  # pragma: no cover - entorno sin la dependencia
-        return None
-    load_dotenv(ruta, override=False, encoding='utf-8')
-    return ruta
-
-
-POS_ENV_FILE_CARGADO = _cargar_env_file()
+POS_ENV_FILE_CARGADO = cargar_env_file(base_dir=BASE_DIR, environ=os.environ)
 
 
 def _env_text(name, default=''):
@@ -144,12 +132,20 @@ WEB_PUSH_VAPID_SUBJECT = _env_text(
 WEB_PUSH_TIMEOUT_SECONDS = _env_int('WEB_PUSH_TIMEOUT_SECONDS', 10)
 WEB_PUSH_TTL_SECONDS = _env_int('WEB_PUSH_TTL_SECONDS', 14400)
 
+# Compatibilidad temporal del rol legacy ADMIN. Solo se puede apagar despues
+# de ejecutar `preflight_rbac_admin_cutover` en cada tenant y confirmar cero
+# bloqueadores. SYSADMIN/superuser siguen siendo identidades globales aparte.
+RBAC_LEGACY_ADMIN_BYPASS = _env_bool('RBAC_LEGACY_ADMIN_BYPASS', True)
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Maximo absoluto de jornada: SESSION_SAVE_EVERY_REQUEST puede renovar la
+    # inactividad, pero nunca extiende una sesion mas alla de 12 horas.
+    'apps.usuarios.middleware.SesionAbsolutaMiddleware',
     # Acota el memo de permisos a un request. Va DESPUES de Authentication
     # (necesita request.user resuelto) y ANTES de cualquier cosa que consulte
     # permisos.
@@ -283,6 +279,7 @@ LOGOUT_REDIRECT_URL = '/login/'
 SESSION_COOKIE_AGE = 43200              # 12 horas (jornada larga)
 SESSION_SAVE_EVERY_REQUEST = True       # Renueva con cada request activo
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Cierra sesion al cerrar navegador
+SESSION_ABSOLUTE_MAX_AGE = 43200        # maximo real aunque haya actividad
 
 # =============================================================================
 # LOGGING — config básico, principalmente para módulos e-CF y ventas
@@ -494,6 +491,14 @@ SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
 SYNC_BATCH_SIZE = int(os.environ.get('SYNC_BATCH_SIZE', '50'))
 SYNC_MAX_RETRIES = int(os.environ.get('SYNC_MAX_RETRIES', '10'))
 SYNC_HTTP_TIMEOUT = int(os.environ.get('SYNC_HTTP_TIMEOUT', '10'))
+# A04: el claim debe sobrevivir al commit anterior al HTTP. Cinco minutos es
+# el contrato del cierre; valores distintos sirven solo para laboratorio/tests.
+SYNC_LEASE_SECONDS = _env_int('SYNC_LEASE_SECONDS', 300)
+# El health puede tardar durante un arranque en frio. Ya no usa un guard fijo de
+# 3 s: timeout, cantidad de intentos y backoff son configurables sin tocar NSSM.
+SYNC_HEALTH_TIMEOUT = _env_int('SYNC_HEALTH_TIMEOUT', SYNC_HTTP_TIMEOUT)
+SYNC_HEALTH_RETRIES = _env_int('SYNC_HEALTH_RETRIES', 3)
+SYNC_HEALTH_RETRY_BACKOFF = _env_int('SYNC_HEALTH_RETRY_BACKOFF', 1)
 
 # Conciliacion diaria (Fase 3, anti-entropia). El daemon la corre como mucho
 # una vez por dia, a partir de esta hora local: la PC de una sucursal suele

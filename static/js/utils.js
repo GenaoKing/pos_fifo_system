@@ -29,6 +29,34 @@ function jsonHeaders() {
 }
 
 
+/**
+ * UUID v4 para una intencion de mutacion de maestro. Debe sobrevivir a un
+ * timeout y reutilizarse solo al reintentar esa misma accion.
+ */
+function crearUuidMutacionMaestro() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    // Los POS locales pueden abrirse por HTTP, donde randomUUID no siempre
+    // esta disponible. La forma sigue siendo UUID v4, que es lo que valida el
+    // backend; el UUID no se usa como secreto ni como autorizacion.
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (caracter) => {
+        const aleatorio = Math.floor(Math.random() * 16);
+        const valor = caracter === 'x' ? aleatorio : ((aleatorio & 0x3) | 0x8);
+        return valor.toString(16);
+    });
+}
+
+
+function headersMutacionMaestro(mutacionId) {
+    return {
+        ...jsonHeaders(),
+        'X-Master-Mutation-ID': mutacionId,
+    };
+}
+
+
 // ============================================
 // TOAST NOTIFICATIONS
 // ============================================

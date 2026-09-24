@@ -189,7 +189,7 @@
                 Cuentas por Cobrar
             </a>
 
-            {% if config.modulo_cotizaciones %}
+            {% if 'cotizaciones' in modulos_efectivos %}
             <a href="{% url 'cotizaciones:lista' %}"
                class="{% if request.resolver_match.app_name == 'cotizaciones' %}sidebar-item-active{% else %}sidebar-item{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,7 +199,7 @@
             </a>
             {% endif %}
 
-            {% if config.modulo_financiacion_coop %}
+            {% if 'financiacion' in modulos_efectivos %}
             <a href="{% url 'pos:lista' %}"
                class="{% if request.resolver_match.url_name == 'lista' and request.resolver_match.app_name == 'pos' %}sidebar-item-active{% else %}sidebar-item{% endif %}">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -213,7 +213,7 @@
                 REPORTES
                 ============================== -->
             {% if request.user|puede:'reportes.ver' %}
-            {% if config.modulo_reportes_ondemand %}
+            {% if 'reportes_ondemand' in modulos_efectivos %}
             <div class="px-6 py-2 mt-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Reportes
             </div>

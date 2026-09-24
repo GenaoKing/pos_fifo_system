@@ -27,6 +27,11 @@ from .views.permisos import (
     SucursalAsignableViewSet,
     UsuarioAsignableViewSet,
 )
+from .views.administracion import (
+    ConfiguracionAdministracionViewSet,
+    SucursalAdministracionViewSet,
+    UsuarioAdministracionViewSet,
+)
 from .views.suscripciones import (
     ModuloViewSet,
     NegocioModuloViewSet,
@@ -41,6 +46,10 @@ from .views.notificaciones import (
     PushConfigView,
     ReglasNotificacionesView,
     SuscripcionPushViewSet,
+)
+from .views.maestros_conflictos import (
+    conflictos_maestros,
+    resolver_conflicto_maestro,
 )
 
 # ============================================
@@ -66,6 +75,21 @@ router_v1.register(
 )
 router_v1.register(
     r'permisos/sucursales', SucursalAsignableViewSet, basename='sucursal-asignable'
+)
+
+# Panel C04 p5.2: escrituras administrativas tenant-scoped. Los selectores
+# `permisos/usuarios` y `permisos/sucursales` siguen read-only por compatibilidad.
+router_v1.register(
+    r'administracion/usuarios', UsuarioAdministracionViewSet,
+    basename='administracion-usuario',
+)
+router_v1.register(
+    r'administracion/sucursales', SucursalAdministracionViewSet,
+    basename='administracion-sucursal',
+)
+router_v1.register(
+    r'administracion/configuraciones', ConfiguracionAdministracionViewSet,
+    basename='administracion-configuracion',
 )
 
 # Administracion de suscripciones/modulos (operador SaaS).
@@ -121,6 +145,15 @@ urlpatterns_v1 = [
     path('sucursales/', include('apps.api.sucursales_urls')),
 
     # Datos maestros (router DRF)
+    path(
+        'maestros/conflictos/', conflictos_maestros,
+        name='maestros-conflictos',
+    ),
+    path(
+        'maestros/conflictos/<uuid:mutacion_id>/resolver/',
+        resolver_conflicto_maestro,
+        name='maestros-conflictos-resolver',
+    ),
     path('', include(router_v1.urls)),
 
     # Sync endpoints (placeholders funcionales — lógica completa en Fase 2)

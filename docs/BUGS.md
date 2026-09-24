@@ -25,6 +25,22 @@
 
 ## Pendientes
 
+### SEC-001 — Credenciales de prueba en un archivo versionado
+
+- Fecha de hallazgo: 2026-09-23, durante el empaquetado aislado C06.1.
+- Severidad: alta si la identidad de prueba se reutilizó en algún entorno.
+- Estado: **saneado en el tip actual; rotación/revocación e historial pendientes de decisión autorizada.**
+- Hallazgo: un script ad-hoc trackeado para smoke del portal contenía tokens
+  JWT y credenciales de prueba en texto plano. El paquete C06.1 lo excluye y
+  el archivo actual es un stub no ejecutable, sin material autenticado.
+- Acción necesaria fuera del repositorio: el operador debe confirmar si esa
+  identidad se reutilizó y, de ser así, rotarla/revocar sesiones en el entorno
+  correspondiente. No se accedió a entornos reales, no se rotó ninguna
+  credencial y no se reescribió el historial Git durante esta corrección.
+- Prevención: los smokes autorizados usan entornos locales no versionados y
+  credenciales efímeras; nunca se agregan tokens o contraseñas a scripts
+  trackeados.
+
 ### BUG-A — Perdida SILENCIOSA de eventos de sync cuando el servicio del POS no tiene `SYNC_ENABLED`
 
 - Fecha de hallazgo: 2026-08-19.
@@ -655,7 +671,8 @@ lo que no existe") -- ahora aplica igual a productos.
   `apps/caja/tests/test_auditoria_caja.py`. Como `autocomplete="off"` es una
   indicacion y Chrome conserva heuristicas propias, el gate final sigue siendo
   repetir el caso con credenciales guardadas en la laptop. La matriz de cierre
-  no registra esa comprobación como aprobada.
+  no registra esa comprobación como aprobada. C05 parte 2 revalidó la regresión
+  automatizada; no sustituye el gate visual de C06.
 
 ### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
 
@@ -674,7 +691,8 @@ lo que no existe") -- ahora aplica igual a productos.
   formulario de logout como POST con token CSRF.
 - La matriz física de staging validó Web Push en Windows, pero no volvió a
   inspeccionar visualmente este comentario; queda registrado como diferido y
-  no como aprobado.
+  no como aprobado. C05 parte 2 revalidó la regresión automatizada y conserva
+  explícitamente esa inspección visual para C06.
 
 ### BUG-L — El portal mostraba HTML crudo de un 500 y declaraba push suscrito sin backend
 
@@ -736,3 +754,8 @@ lo que no existe") -- ahora aplica igual a productos.
   realmente existe. Si no existe, responder `ERROR` sin detalles internos para
   que el POS lo reintente. La prueba de concurrencia existente sigue exigiendo
   exactamente un `CONFIRMADO` y un `DUPLICADO` para una colisión real.
+- A04 (`be15ea0`, 2026-09-11) agrega identidad estable y scopeada, lease
+  durable, sonda read-only `sync.reconciliation.v1` y el comando
+  `reparar_bug_k`, dry-run por defecto. El código/herramienta quedaron integrados
+  y validados localmente en `9ff61c2`; **no** se consultaron clientes ni se ejecutó una reparación
+  real y producción/historia continúan como pendiente operativo de A09.

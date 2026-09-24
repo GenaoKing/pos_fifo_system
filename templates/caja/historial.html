@@ -17,7 +17,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Historial de Turnos</h1>
-            <p class="text-sm text-gray-500 mt-1">Ultimos 50 turnos cerrados</p>
+            <p class="text-sm text-gray-500 mt-1">{{ page_obj.paginator.count }} turnos cerrados</p>
         </div>
         <a href="{% url 'caja:index' %}" class="text-sm text-gray-600 hover:text-primary-600 inline-flex items-center">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,7 +151,7 @@
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
                                     Reimprimir documento
                                 </a>
-                                {% if config.modulo_impresion_termica %}
+                                {% if 'impresion_termica' in modulos_efectivos %}
                                 <button type="button" @click="imprimirTermica({{ t.id }})"
                                         class="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M7 4h10M7 4H5m2 0h10m0 0v16m0-16h2M9 8h6m-6 4h6m-5 4h4"></path></svg>
@@ -175,6 +175,22 @@
             {% endfor %}
         </div>
     </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="flex items-center justify-between mt-4 text-sm">
+        <span class="text-gray-500">
+            Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+        </span>
+        <div class="flex gap-2">
+            {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="text-gray-600 hover:text-primary-600">Anterior</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="text-gray-600 hover:text-primary-600">Siguiente</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="card">
         <div class="card-body text-center py-12 text-gray-400">

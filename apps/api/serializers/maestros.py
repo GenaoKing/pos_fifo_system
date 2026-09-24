@@ -11,6 +11,7 @@ reconstruir el registro. Campos computados (stock, valuación) se
 excluyen porque son locales a cada sucursal.
 """
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import exceptions, serializers
 from apps.productos.models import Producto, Categoria
 from apps.clientes.models import Cliente
@@ -34,6 +35,8 @@ class CategoriaSerializer(serializers.ModelSerializer):
             'nombre',
             'descripcion',
             'activa',
+            'motivo_inactivacion',
+            'inactivado_at',
             'tipo_negocio',
             'atributos_configurados',
             'total_productos',
@@ -62,12 +65,14 @@ class CategoriaWriteSerializer(serializers.ModelSerializer):
             'nombre',
             'descripcion',
             'activa',
+            'motivo_inactivacion',
             'tipo_negocio',
             'atributos_configurados',
         ]
         extra_kwargs = {
             'descripcion': {'required': False, 'allow_blank': True},
             'activa': {'required': False},
+            'motivo_inactivacion': {'required': False, 'allow_blank': True},
             'tipo_negocio': {'required': False},
             'atributos_configurados': {'required': False},
         }
@@ -86,6 +91,43 @@ class CategoriaWriteSerializer(serializers.ModelSerializer):
                 'Los atributos configurados deben ser un objeto JSON.'
             )
         return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        actual = self.instance.activa if self.instance is not None else True
+        deseada = attrs.get('activa', actual)
+        if actual and not deseada:
+            try:
+                Categoria().establecer_estado_operativo(
+                    False, motivo=attrs.get('motivo_inactivacion'),
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({
+                    'motivo_inactivacion': exc.messages,
+                }) from exc
+        return attrs
+
+    def _guardar_con_estado(self, instance, validated_data):
+        tiene_estado = 'activa' in validated_data
+        deseada = validated_data.pop('activa', instance.activa)
+        motivo = validated_data.pop('motivo_inactivacion', None)
+        for campo, valor in validated_data.items():
+            setattr(instance, campo, valor)
+        if tiene_estado:
+            instance.establecer_estado_operativo(deseada, motivo=motivo)
+        instance.save()
+        return instance
+
+    def create(self, validated_data):
+        deseada = validated_data.pop('activa', True)
+        motivo = validated_data.pop('motivo_inactivacion', None)
+        instancia = Categoria(**validated_data)
+        instancia.establecer_estado_operativo(deseada, motivo=motivo)
+        instancia.save()
+        return instancia
+
+    def update(self, instance, validated_data):
+        return self._guardar_con_estado(instance, validated_data)
 
 
 class ProductoSerializer(serializers.ModelSerializer):
@@ -116,6 +158,8 @@ class ProductoSerializer(serializers.ModelSerializer):
         read_only=True,
         default=None,
     )
+    categoria_activa = serializers.BooleanField(source='categoria.activa', read_only=True)
+    operativamente_activo = serializers.SerializerMethodField()
 
     class Meta:
         model = Producto
@@ -132,6 +176,10 @@ class ProductoSerializer(serializers.ModelSerializer):
             'precio_venta',
             'stock_minimo',
             'activo',
+            'motivo_inactivacion',
+            'inactivado_at',
+            'categoria_activa',
+            'operativamente_activo',
             'imagen_url',
             'imagen_thumb_url',
             'atributos',
@@ -147,6 +195,12 @@ class ProductoSerializer(serializers.ModelSerializer):
 
     def get_imagen_thumb_url(self, obj):
         return self._url(obj.imagen_preview)
+
+    @staticmethod
+    def get_operativamente_activo(obj):
+        # El conflicto A06 se presenta por su propio recurso CT-04. No hacer
+        # una consulta por fila de catálogo solo para serializar esta señal.
+        return bool(obj.activo and obj.categoria.activa)
 
     def _url(self, campo):
         if not campo:
@@ -184,6 +238,7 @@ class ProductoWriteSerializer(serializers.ModelSerializer):
             'codigo_barras',
             'categoria',
             'activo',
+            'motivo_inactivacion',
             'estado',
             'marca',
             'stock_minimo',
@@ -197,6 +252,7 @@ class ProductoWriteSerializer(serializers.ModelSerializer):
             'marca': {'required': False, 'allow_blank': True},
             'stock_minimo': {'required': False},
             'atributos': {'required': False},
+            'motivo_inactivacion': {'required': False, 'allow_blank': True},
         }
 
     def update(self, instance, validated_data):
@@ -217,7 +273,41 @@ class ProductoWriteSerializer(serializers.ModelSerializer):
         if instance.pendiente_revision and 'categoria' in validated_data:
             validated_data['pendiente_revision'] = False
 
-        return super().update(instance, validated_data)
+        return self._guardar_con_estado(instance, validated_data)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        actual = self.instance.activo if self.instance is not None else True
+        deseada = attrs.get('activo', actual)
+        if actual and not deseada:
+            try:
+                Producto().establecer_estado_operativo(
+                    False, motivo=attrs.get('motivo_inactivacion'),
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({
+                    'motivo_inactivacion': exc.messages,
+                }) from exc
+        return attrs
+
+    def _guardar_con_estado(self, instance, validated_data):
+        tiene_estado = 'activo' in validated_data
+        deseada = validated_data.pop('activo', instance.activo)
+        motivo = validated_data.pop('motivo_inactivacion', None)
+        for campo, valor in validated_data.items():
+            setattr(instance, campo, valor)
+        if tiene_estado:
+            instance.establecer_estado_operativo(deseada, motivo=motivo)
+        instance.save()
+        return instance
+
+    def create(self, validated_data):
+        deseada = validated_data.pop('activo', True)
+        motivo = validated_data.pop('motivo_inactivacion', None)
+        instancia = Producto(**validated_data)
+        instancia.establecer_estado_operativo(deseada, motivo=motivo)
+        instancia.save()
+        return instancia
 
     def validate_precio_venta(self, value):
         if value is None or value <= 0:

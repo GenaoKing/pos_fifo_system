@@ -19,6 +19,7 @@ from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.api.throttling import LoginRafagaThrottle, LoginSostenidoThrottle
+from apps.auditoria.models import get_client_ip
 from apps.tenancy.authentication import _autorizar_tenant
 from apps.tenancy.context import tenant_context, tenancy_enabled
 from apps.tenancy.models import (
@@ -26,6 +27,11 @@ from apps.tenancy.models import (
     Membership,
     SesionImpersonacion,
     Tenant,
+)
+from apps.tenancy.session_policy import (
+    SesionAbsolutaExpirada,
+    agregar_limite_absoluto,
+    validar_limite_absoluto,
 )
 
 logger = logging.getLogger('tenancy.auth')
@@ -35,6 +41,7 @@ class LegacyPortalTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        agregar_limite_absoluto(token)
         token['username'] = user.username
         token['rol'] = getattr(user, 'rol', None)
         token['full_name'] = (
@@ -165,7 +172,10 @@ def impersonar_tenant(request):
         tenant=tenant,
         username_objetivo=user.username,
         motivo=motivo[:300],
-        ip_address=_ip_cliente(request),
+        # USR-014: la impersonacion es un rastro durable. Debe usar la misma
+        # politica de proxy fail-closed que el resto de la auditoria, no tomar
+        # la primera X-Forwarded-For que un cliente puede haber enviado.
+        ip_address=get_client_ip(request),
         expira=timezone.now() + api_settings.REFRESH_TOKEN_LIFETIME,
     )
 
@@ -176,13 +186,6 @@ def impersonar_tenant(request):
     )
     payload['impersonacion_id'] = sesion.pk
     return Response(payload)
-
-
-def _ip_cliente(request):
-    reenviada = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if reenviada:
-        return reenviada.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
 
 
 class TenantTokenRefreshSerializer(TokenRefreshSerializer):
@@ -200,6 +203,10 @@ class TenantTokenRefreshSerializer(TokenRefreshSerializer):
 
     def validate(self, attrs):
         refresh = RefreshToken(attrs['refresh'])
+        try:
+            validar_limite_absoluto(refresh)
+        except SesionAbsolutaExpirada as exc:
+            raise InvalidToken(str(exc)) from exc
         identity_id = refresh.get('identity_id')
         tenant_key = refresh.get('tenant_key') or refresh.get('tenant_id')
 
@@ -327,6 +334,7 @@ def _tenant_token_payload(identity, tenant, user, *, impersonado=False):
 
 def _global_token_payload(identity):
     refresh = RefreshToken()
+    agregar_limite_absoluto(refresh)
     refresh['identity_id'] = identity.pk
     refresh['is_global'] = True
     refresh['email'] = identity.email
@@ -347,11 +355,19 @@ def _global_token_payload(identity):
             'permisos': [],
             'modulos': [],
             'is_global': True,
+            'rbac': _rbac_capabilities_payload(
+                identity,
+                tenant_key=None,
+                negocio=None,
+                permisos=[],
+                modulos=[],
+            ),
         },
     }
 
 
 def _add_tenant_claims(token, identity, tenant, user, *, impersonado=False):
+    agregar_limite_absoluto(token)
     token['identity_id'] = identity.pk
     token['impersonado'] = impersonado
     token['tenant_key'] = tenant.tenant_key
@@ -394,8 +410,10 @@ def _validar_usuario_portal(user):
 
 def _touch_user(user):
     if hasattr(user, 'ultimo_acceso'):
-        user.ultimo_acceso = timezone.now()
-        user.save(update_fields=['ultimo_acceso'])
+        instante = timezone.now()
+        user.last_login = instante
+        user.ultimo_acceso = instante
+        user.save(update_fields=['last_login', 'ultimo_acceso'])
 
 
 def _user_payload(user):
@@ -413,6 +431,13 @@ def _user_payload(user):
             'permisos': [],
             'modulos': [],
             'is_global': True,
+            'rbac': _rbac_capabilities_payload(
+                user,
+                tenant_key=None,
+                negocio=None,
+                permisos=[],
+                modulos=[],
+            ),
         }
 
     from apps.permisos.engine import TODAS, permisos_de_usuario
@@ -430,6 +455,12 @@ def _user_payload(user):
     tenant_id = getattr(user, 'tenant_key', None)
     if tenant_id is None and negocio is not None:
         tenant_id = negocio.slug
+
+    permisos = sorted(permisos_de_usuario(user, sucursal=TODAS))
+    from apps.permisos.catalogo import PERMISOS_OPERADOR_SAAS
+    if not getattr(user, 'is_superuser', False) and getattr(user, 'rol', None) != 'SYSADMIN':
+        permisos = sorted(set(permisos) - set(PERMISOS_OPERADOR_SAAS))
+    modulos = sorted(modulos_negocio(negocio))
 
     return {
         'id': user.id,
@@ -449,6 +480,44 @@ def _user_payload(user):
         # puede en alguna sucursal, para que el portal sepa que menus dibujar.
         # Cada endpoint revalida con el scope real (apps/api/permissions.py);
         # que un boton aparezca no significa que la accion vaya a pasar.
-        'permisos': sorted(permisos_de_usuario(user, sucursal=TODAS)),
-        'modulos': sorted(modulos_negocio(negocio)),
+        'permisos': permisos,
+        'modulos': modulos,
+        'rbac': _rbac_capabilities_payload(
+            user,
+            tenant_key=tenant_id,
+            negocio=negocio,
+            permisos=permisos,
+            modulos=modulos,
+        ),
+    }
+
+
+def _rbac_capabilities_payload(
+    subject, *, tenant_key, negocio, permisos, modulos,
+):
+    """Envelope aditivo ``rbac.capabilities.v1``; la UI no es enforcement."""
+    from apps.auditoria.services import referencia_modelo
+    from apps.permisos.models import EstadoRBAC
+
+    catalog_revision = 1
+    assignments_revision = 0
+    if negocio is not None:
+        estado = EstadoRBAC.objects.filter(negocio=negocio).first()
+        if estado is not None:
+            catalog_revision = estado.catalog_revision
+            assignments_revision = estado.assignments_revision
+        else:
+            assignments_revision = 1
+
+    return {
+        'schema_version': 'rbac.capabilities.v1',
+        'subject_ref': str(referencia_modelo(
+            getattr(subject, 'identity', subject), tenant_key=tenant_key,
+        )),
+        'tenant_key': tenant_key,
+        'scope': {'branch_code': None, 'kind': 'ANY_FOR_DISPLAY'},
+        'catalog_revision': catalog_revision,
+        'assignments_revision': assignments_revision,
+        'permissions': list(permisos),
+        'modules': list(modulos),
     }

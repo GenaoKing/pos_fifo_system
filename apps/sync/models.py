@@ -19,6 +19,8 @@ Diseno:
 - LogSync NO se limpia automaticamente; un command aparte puede purgar los
   mas antiguos de N dias si el volumen se vuelve un problema.
 """
+import uuid
+
 from django.db import models
 from django.utils import timezone
 from apps.sync.constants import TIPOS_EVENTO
@@ -28,7 +30,7 @@ class EventoSync(models.Model):
     """
     Evento pendiente de enviar al cloud.
 
-    Lifecycle: PENDIENTE -> (push exitoso) -> CONFIRMADO
+    Lifecycle: PENDIENTE -> EN_VUELO (lease) -> CONFIRMADO
                          -> (error temporal) -> ERROR (intentos++)
                          -> (intentos >= max) -> DESCARTADO (manual review)
     """
@@ -39,6 +41,7 @@ class EventoSync(models.Model):
     ESTADO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
         ('SIN_PAYLOAD', 'Sin payload (serializar al enviar)'),
+        ('EN_VUELO', 'En vuelo (lease activo)'),
         ('CONFIRMADO', 'Confirmado'),
         ('ERROR', 'Error'),
         ('DESCARTADO', 'Descartado'),
@@ -48,6 +51,13 @@ class EventoSync(models.Model):
     ESTADOS_ENVIABLES = ['PENDIENTE', 'ERROR', 'SIN_PAYLOAD']
 
     # Identidad del evento
+    event_id = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        db_index=True,
+        verbose_name='Identidad estable del evento',
+        help_text='UUID que se conserva entre reintentos y se envia al cloud.',
+    )
     sucursal = models.ForeignKey(
         'sucursales.Sucursal',
         on_delete=models.PROTECT,
@@ -117,6 +127,19 @@ class EventoSync(models.Model):
         default='',
         verbose_name='Ultimo error'
     )
+    lease_id = models.UUIDField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True,
+        verbose_name='Lease de envio',
+    )
+    lease_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name='Vencimiento del lease',
+    )
 
     # Timestamps
     created_at = models.DateTimeField(
@@ -145,6 +168,16 @@ class EventoSync(models.Model):
             models.Index(fields=['tipo_evento', 'estado']),
         ]
         constraints = [
+            models.UniqueConstraint(
+                fields=['sucursal', 'event_id'],
+                condition=models.Q(sucursal__isnull=False),
+                name='uniq_eventosync_sucursal_event_id',
+            ),
+            models.UniqueConstraint(
+                fields=['event_id'],
+                condition=models.Q(sucursal__isnull=True),
+                name='uniq_eventosync_legacy_event_id',
+            ),
             # Idempotencia con respaldo de BD, no solo de aplicacion.
             #
             # En el cloud, `recibir_eventos` consultaba el hash y DESPUES abria
@@ -163,9 +196,20 @@ class EventoSync(models.Model):
             # Se excluye el hash vacio: los eventos SIN_PAYLOAD todavia no lo
             # tienen y son varios legitimamente.
             models.UniqueConstraint(
+                fields=['sucursal', 'hash_payload'],
+                condition=(
+                    models.Q(sucursal__isnull=False)
+                    & ~models.Q(hash_payload='')
+                ),
+                name='uniq_eventosync_sucursal_hash',
+            ),
+            models.UniqueConstraint(
                 fields=['hash_payload'],
-                condition=~models.Q(hash_payload=''),
-                name='uniq_eventosync_hash_no_vacio',
+                condition=(
+                    models.Q(sucursal__isnull=True)
+                    & ~models.Q(hash_payload='')
+                ),
+                name='uniq_eventosync_legacy_hash',
             ),
         ]
 
@@ -173,15 +217,38 @@ class EventoSync(models.Model):
         ref = self.objeto_referencia or f'#{self.pk}'
         return f'{self.tipo_evento} {ref} [{self.estado}]'
 
-    def marcar_confirmado(self):
-        """Marca el evento como confirmado por el cloud."""
-        self.estado = 'CONFIRMADO'
-        self.confirmed_at = timezone.now()
-        if not self.sent_at:
-            self.sent_at = self.confirmed_at
-        self.save(update_fields=['estado', 'confirmed_at', 'sent_at'])
+    def marcar_confirmado(self, lease_id=None):
+        """Confirma el evento solo si el caller todavia posee su lease."""
+        ahora = timezone.now()
+        filtros = {'pk': self.pk}
+        if lease_id is not None:
+            filtros.update(estado='EN_VUELO', lease_id=lease_id)
+        else:
+            filtros['estado__in'] = self.ESTADOS_ENVIABLES + ['EN_VUELO']
 
-    def marcar_error(self, mensaje, max_retries=10):
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(**filtros).update(
+            estado='CONFIRMADO',
+            confirmed_at=ahora,
+            sent_at=models.Case(
+                models.When(sent_at__isnull=True, then=models.Value(ahora)),
+                default=models.F('sent_at'),
+                output_field=models.DateTimeField(),
+            ),
+            lease_id=None,
+            lease_expires_at=None,
+        )
+        if aplicado:
+            self.refresh_from_db(
+                using=using,
+                fields=[
+                    'estado', 'confirmed_at', 'sent_at', 'lease_id',
+                    'lease_expires_at',
+                ],
+            )
+        return bool(aplicado)
+
+    def marcar_error(self, mensaje, max_retries=10, lease_id=None):
         """
         Marca error; si supera max_retries, pasa a DESCARTADO.
 
@@ -191,10 +258,14 @@ class EventoSync(models.Model):
         sobre una instancia obsoleta reabria un evento ya entregado y lo hacia
         rebotar contra el cloud hasta agotar intentos.
         """
-        aplicado = type(self).objects.filter(
-            pk=self.pk,
-            estado__in=self.ESTADOS_ENVIABLES,
-        ).update(
+        filtros = {'pk': self.pk}
+        if lease_id is not None:
+            filtros.update(estado='EN_VUELO', lease_id=lease_id)
+        else:
+            filtros['estado__in'] = self.ESTADOS_ENVIABLES + ['EN_VUELO']
+
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(**filtros).update(
             intentos=models.F('intentos') + 1,
             ultimo_error=(mensaje or '')[:2000],
             estado=models.Case(
@@ -205,9 +276,17 @@ class EventoSync(models.Model):
                 default=models.Value('ERROR'),
                 output_field=models.CharField(),
             ),
+            lease_id=None,
+            lease_expires_at=None,
         )
         if aplicado:
-            self.refresh_from_db(fields=['estado', 'intentos', 'ultimo_error'])
+            self.refresh_from_db(
+                using=using,
+                fields=[
+                    'estado', 'intentos', 'ultimo_error', 'lease_id',
+                    'lease_expires_at',
+                ],
+            )
         return bool(aplicado)
 
     def reactivar(self):
@@ -224,7 +303,12 @@ class EventoSync(models.Model):
         self.intentos = 0
         self.ultimo_error = ''
         self.sent_at = None
-        self.save(update_fields=['estado', 'intentos', 'ultimo_error', 'sent_at'])
+        self.lease_id = None
+        self.lease_expires_at = None
+        self.save(update_fields=[
+            'estado', 'intentos', 'ultimo_error', 'sent_at', 'lease_id',
+            'lease_expires_at',
+        ])
         return self
 
 
@@ -248,8 +332,15 @@ def reactivar_eventos(queryset, reserializar=False):
     if not ids:
         return 0
 
-    base = EventoSync.objects.filter(id__in=ids)
-    comun = {'intentos': 0, 'ultimo_error': '', 'sent_at': None}
+    using = queryset.db
+    base = EventoSync.objects.using(using).filter(id__in=ids)
+    comun = {
+        'intentos': 0,
+        'ultimo_error': '',
+        'sent_at': None,
+        'lease_id': None,
+        'lease_expires_at': None,
+    }
 
     if reserializar:
         # Descarta el payload guardado para que el push lo reconstruya con el
@@ -272,7 +363,7 @@ def reactivar_eventos(queryset, reserializar=False):
             if objeto_id and registry.por_tipo(tipo) is not None
         ]
         if reconstruibles:
-            EventoSync.objects.filter(id__in=reconstruibles).update(
+            EventoSync.objects.using(using).filter(id__in=reconstruibles).update(
                 payload=None, hash_payload='',
             )
 
@@ -299,6 +390,7 @@ class VersionMaestro(models.Model):
         ('metodos_credito', 'Metodos de credito'),
         ('roles', 'Roles'),
         ('asignaciones', 'Asignaciones'),
+        ('resoluciones_conflicto', 'Resoluciones de conflictos de maestros'),
     ]
 
     tabla = models.CharField(
@@ -377,6 +469,319 @@ class VersionMaestro(models.Model):
         self.bloqueado_desde = None
         self.bloqueado_detalle = ''
         self.save(update_fields=['bloqueado_desde', 'bloqueado_detalle'])
+
+
+class DiferidoSync(models.Model):
+    """Item de pull que no pudo aplicarse pero ya quedo capturado localmente.
+
+    Guardarlo permite avanzar el cursor sin perderlo. El payload se reintenta
+    dentro de una transaccion local; si el proceso muere, la fila continua
+    PENDIENTE y el efecto de dominio se revierte con ella.
+    """
+
+    ESTADO_CHOICES = [
+        ('PENDIENTE', 'Pendiente'),
+        ('RESUELTO', 'Resuelto'),
+    ]
+
+    tenant_key = models.CharField(max_length=100, blank=True, default='')
+    sucursal_codigo = models.CharField(max_length=50, blank=True, default='')
+    tabla = models.CharField(max_length=32, db_index=True)
+    identidad = models.CharField(max_length=200, blank=True, default='')
+    cursor_fecha = models.DateTimeField(null=True, blank=True)
+    cursor_id = models.PositiveIntegerField(default=0)
+    payload_hash = models.CharField(max_length=64)
+    payload = models.JSONField()
+    estado = models.CharField(
+        max_length=16,
+        choices=ESTADO_CHOICES,
+        default='PENDIENTE',
+        db_index=True,
+    )
+    intentos = models.PositiveIntegerField(default=1)
+    ultimo_error = models.TextField(blank=True, default='')
+    creado_at = models.DateTimeField(auto_now_add=True)
+    actualizado_at = models.DateTimeField(auto_now=True)
+    resuelto_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['creado_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'tenant_key', 'sucursal_codigo', 'tabla', 'payload_hash',
+                ],
+                name='uniq_diferido_sync_ambito_payload',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=[
+                    'tenant_key', 'sucursal_codigo', 'tabla', 'estado',
+                ],
+                name='sync_dif_ambito_estado_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.tabla} {self.identidad or self.payload_hash[:12]} [{self.estado}]'
+
+
+class MutacionMaestro(models.Model):
+    """Outbox local de cambios de catálogo, separada de ``EventoSync``.
+
+    A05.2a guarda propuestas de Producto/Categoria hechas en un POS antes de
+    que exista el receptor cloud.  No es un hecho financiero, no participa del
+    batch de ``EventoSync`` y tampoco la consume todavia ``SyncEngine``.  La
+    fila conserva el CAS que el receptor A05.3 debera comparar y el vinculo
+    opaco con la auditoria CT-01 creada en la misma transaccion.
+    """
+
+    class Entidad(models.TextChoices):
+        PRODUCTO = 'PRODUCTO', 'Producto'
+        CATEGORIA = 'CATEGORIA', 'Categoria'
+
+    class Operacion(models.TextChoices):
+        CREAR = 'CREAR', 'Crear'
+        ACTUALIZAR = 'ACTUALIZAR', 'Actualizar'
+        ACTIVAR = 'ACTIVAR', 'Activar'
+        DESACTIVAR = 'DESACTIVAR', 'Desactivar'
+
+    class Estado(models.TextChoices):
+        PENDIENTE = 'PENDIENTE', 'Pendiente de enviar'
+        ENVIANDO = 'ENVIANDO', 'Enviando'
+        CONFIRMADA = 'CONFIRMADA', 'Confirmada por cloud'
+        CONFLICTO = 'CONFLICTO', 'Conflicto visible'
+        RECHAZADA = 'RECHAZADA', 'Rechazada por cloud'
+
+    mutacion_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name='UUID idempotente',
+    )
+    entidad = models.CharField(max_length=16, choices=Entidad.choices, db_index=True)
+    entidad_id = models.PositiveIntegerField(db_index=True)
+    operacion = models.CharField(max_length=16, choices=Operacion.choices)
+    revision_base = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Revision local observada antes de editar; vacia solo al crear.',
+    )
+    revision_resultante = models.CharField(max_length=64, blank=True, default='')
+    # Resultado autoritativo del receptor cloud. ``revision_resultante``
+    # conserva la propuesta local para trazabilidad; esta columna es la
+    # precondición que la siguiente propuesta debe enviar al cloud.
+    cloud_revision = models.CharField(max_length=64, blank=True, default='')
+    cloud_entidad_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    cloud_categoria_id = models.PositiveIntegerField(null=True, blank=True)
+    delta = models.JSONField(
+        default=dict,
+        help_text='Cambios JSON seguros: campo -> {before, after}.',
+    )
+    estado = models.CharField(
+        max_length=16,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+        db_index=True,
+    )
+    actor = models.ForeignKey(
+        'usuarios.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mutaciones_maestro_locales',
+    )
+    actor_username = models.CharField(max_length=150, blank=True, default='')
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.PROTECT,
+        related_name='mutaciones_maestro_locales',
+    )
+    sucursal_codigo = models.CharField(max_length=40, editable=False)
+    tenant_key = models.CharField(max_length=64, blank=True, default='', editable=False)
+    auditoria_event_id = models.UUIDField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True,
+        help_text='event_id CT-01, no una FK mutable al historial.',
+    )
+    intentos = models.PositiveIntegerField(default=0)
+    envio_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    envio_expira_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    codigo_resultado = models.CharField(max_length=100, blank=True, default='')
+    ultimo_error = models.TextField(blank=True, default='')
+    conflicto_detalle = models.TextField(blank=True, default='')
+    creado_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    actualizado_at = models.DateTimeField(auto_now=True)
+    conflicto_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Mutacion local de maestro'
+        verbose_name_plural = 'Mutaciones locales de maestros'
+        ordering = ['creado_at', 'id']
+        indexes = [
+            models.Index(
+                fields=['sucursal', 'estado', 'creado_at'],
+                name='sync_master_suc_est_idx',
+            ),
+            models.Index(
+                fields=['entidad', 'entidad_id', 'estado'],
+                name='sync_master_ent_est_idx',
+            ),
+            models.Index(
+                fields=['sucursal', 'estado', 'envio_expira_at'],
+                name='sync_master_send_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.entidad}:{self.entidad_id} {self.operacion} '
+            f'[{self.estado}] {self.mutacion_id}'
+        )
+
+    def _filtros_resultado(self, envio_id=None):
+        filtros = {'pk': self.pk}
+        if envio_id is not None:
+            filtros.update(estado=self.Estado.ENVIANDO, envio_id=envio_id)
+        else:
+            filtros['estado__in'] = (
+                self.Estado.PENDIENTE,
+                self.Estado.ENVIANDO,
+            )
+        return filtros
+
+    def marcar_confirmada(self, *, cloud_entidad_id, cloud_revision, envio_id=None):
+        """Confirma solo si este proceso conserva el lease de envío.
+
+        La transición condicional evita que un ACK tardío de un worker anterior
+        sobrescriba el resultado de quien recuperó una propuesta vencida.
+        """
+        using = self._state.db or 'default'
+        ahora = timezone.now()
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.CONFIRMADA,
+            cloud_entidad_id=cloud_entidad_id,
+            cloud_revision=str(cloud_revision or ''),
+            envio_id=None,
+            envio_expira_at=None,
+            codigo_resultado='',
+            ultimo_error='',
+            conflicto_detalle='',
+            actualizado_at=ahora,
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_reintento(self, detalle, *, envio_id=None):
+        """Devuelve una propuesta al outbox sin descartarla silenciosamente."""
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.PENDIENTE,
+            intentos=models.F('intentos') + 1,
+            ultimo_error=str(detalle or '')[:2000],
+            envio_id=None,
+            envio_expira_at=None,
+            actualizado_at=timezone.now(),
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_conflicto(
+        self, detalle, *, codigo='MASTER_CONFLICT', cloud_entidad_id=None,
+        cloud_revision='', envio_id=None,
+    ):
+        """Conserva una divergencia para resolución explícita en A06."""
+        using = self._state.db or 'default'
+        ahora = timezone.now()
+        cambios = {
+            'estado': self.Estado.CONFLICTO,
+            'conflicto_detalle': str(detalle or '')[:2000],
+            'conflicto_at': ahora,
+            'codigo_resultado': str(codigo or 'MASTER_CONFLICT')[:100],
+            'envio_id': None,
+            'envio_expira_at': None,
+            'actualizado_at': ahora,
+        }
+        if cloud_entidad_id is not None:
+            cambios['cloud_entidad_id'] = cloud_entidad_id
+        if cloud_revision:
+            cambios['cloud_revision'] = str(cloud_revision)[:64]
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(**cambios)
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+    def marcar_rechazada(self, detalle, *, codigo, envio_id=None):
+        """Registra una denegación vigente del cloud sin perder la propuesta."""
+        using = self._state.db or 'default'
+        aplicado = type(self).objects.using(using).filter(
+            **self._filtros_resultado(envio_id)
+        ).update(
+            estado=self.Estado.RECHAZADA,
+            codigo_resultado=str(codigo or 'MASTER_REJECTED')[:100],
+            ultimo_error=str(detalle or '')[:2000],
+            envio_id=None,
+            envio_expira_at=None,
+            actualizado_at=timezone.now(),
+        )
+        if aplicado:
+            self.refresh_from_db(using=using)
+        return bool(aplicado)
+
+
+class ResolucionConflictoMaestro(models.Model):
+    """Ledger separado de la decisión humana sobre una propuesta negativa.
+
+    ``MutacionMaestro.estado`` conserva el veredicto que emitió el receptor
+    cloud (``CONFLICTO`` o ``RECHAZADA``).  Reescribirlo como ``CONFIRMADA`` al
+    cerrar un conflicto borraría precisamente el contexto que el operador
+    necesita auditar.  Esta fila separada registra la decisión y permite que
+    el listado activo no vuelva a ofrecer una propuesta ya resuelta.
+    """
+
+    class Accion(models.TextChoices):
+        CONSERVAR_CLOUD = 'CONSERVAR_CLOUD', 'Conservar cloud'
+        APLICAR_LOCAL = 'APLICAR_LOCAL', 'Aplicar local'
+
+    mutacion = models.OneToOneField(
+        MutacionMaestro,
+        on_delete=models.PROTECT,
+        related_name='resolucion_conflicto',
+    )
+    accion = models.CharField(max_length=20, choices=Accion.choices)
+    motivo = models.TextField()
+    actor = models.ForeignKey(
+        'usuarios.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resoluciones_conflicto_maestro',
+    )
+    actor_username = models.CharField(max_length=150, blank=True, default='')
+    cloud_revision_observada = models.CharField(max_length=64)
+    cloud_revision_resultante = models.CharField(max_length=64, blank=True, default='')
+    cloud_entidad_id = models.PositiveIntegerField(null=True, blank=True)
+    resuelto_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Resolución de conflicto de maestro'
+        verbose_name_plural = 'Resoluciones de conflictos de maestros'
+
+    def __str__(self):
+        return f'{self.mutacion.mutacion_id} {self.accion}'
 
 
 class InventarioMovimientoSync(models.Model):
@@ -490,6 +895,7 @@ class LogSync(models.Model):
         ('PING', 'Verificar conexion'),
         ('FULL', 'Ciclo completo'),
         ('CONCILIACION', 'Conciliacion (anti-entropia)'),
+        ('REPARACION', 'Reparacion dirigida'),
     ]
 
     RESULTADO_CHOICES = [

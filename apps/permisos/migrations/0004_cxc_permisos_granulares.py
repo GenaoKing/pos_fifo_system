@@ -14,15 +14,28 @@ from django.db import migrations
 
 CAJERO_NUEVOS = ['cuentas_por_cobrar.ver', 'cuentas_por_cobrar.cobrar']
 ADMIN_NUEVOS = ['cuentas_por_cobrar.ver', 'cuentas_por_cobrar.cobrar', 'cuentas_por_cobrar.anular_pago']
+CATALOGO_0004 = [
+    ('cuentas_por_cobrar.ver', 'Ver cuentas por cobrar', 'cuentas_por_cobrar',
+     'Consultar cartera y cuentas por cobrar.'),
+    ('cuentas_por_cobrar.cobrar', 'Registrar abonos CxC', 'cuentas_por_cobrar',
+     'Registrar abonos a cuentas por cobrar.'),
+    ('cuentas_por_cobrar.anular_pago', 'Anular abonos CxC', 'cuentas_por_cobrar',
+     'Anular/revertir abonos registrados (reversa LIFO).'),
+]
 
 
 def aplicar(apps, schema_editor):
     Permiso = apps.get_model('permisos', 'Permiso')
     Rol = apps.get_model('permisos', 'Rol')
 
-    from apps.permisos.catalogo import sembrar_catalogo
-
-    sembrar_catalogo(Permiso)
+    for codigo, nombre, modulo, descripcion in CATALOGO_0004:
+        Permiso.objects.update_or_create(
+            codigo=codigo,
+            defaults={
+                'nombre': nombre, 'modulo': modulo,
+                'descripcion': descripcion,
+            },
+        )
 
     permisos_cajero = list(Permiso.objects.filter(codigo__in=CAJERO_NUEVOS))
     for rol in Rol.objects.filter(es_sistema=True, slug='cajero'):

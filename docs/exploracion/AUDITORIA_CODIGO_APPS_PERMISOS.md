@@ -11,10 +11,10 @@ Fecha: 2026-08-20
 Revisión de cierre: `3f22385`  
 Modo: lectura, pruebas y documentación; no se aplicaron correcciones funcionales.
 
-> **Estado (2026-08-27): P1 MITIGADO (10/10).** Los diez hallazgos P1 se
-> verificaron contra el código y los diez resultaron reales; los diez están
-> corregidos, con pruebas de regresión. **P2 y P3 siguen abiertos** salvo
-> PER-011, que se cerró junto con las señales. Ver
+> **Estado actualizado (2026-09-11): 20/21 mitigados en código por A03/CT-02.**
+> PER-013 queda entregado a C02/C05 porque sus consumidores son superficies de
+> Claude. La retirada del bypass legacy de ADMIN queda como gate operacional:
+> ejecutar el preflight por tenant antes de cambiar la bandera. Ver
 > [Estado de mitigación](#estado-de-mitigación) al final.
 > **Incluye 1 migración con deduplicación previa, un cambio de contrato del
 > motor** (qué significa llamar sin sucursal) **y un cambio de alcance del
@@ -955,12 +955,22 @@ obsoleto.
 | PER-003 | Sí | Corregido | `sucursal=None` ahora significa **solo asignaciones globales**. La unión de todo el negocio existe pero hay que pedirla por su nombre: `sucursal=TODAS`. Decoradores y filtro de plantilla resuelven la sucursal real del request/instalación. |
 | PER-004 | Sí | Corregido | `AsignacionRol.clean()` exige mismo negocio para usuario, rol y sucursal. El resolver además filtra `rol__negocio_id == usuario.negocio_id` y estados activos: aunque la fila exista, no se convierte en privilegio. |
 | PER-005 | Sí | Corregido | `negocio_actual()` exige identidad global (`es_principal_global`: superusuario, SYSADMIN o `identity.is_global`) antes de aceptar `?negocio=`. Un usuario sin negocio ya no resuelve ninguno. |
-| PER-006 | Sí | **Abierto** | Ver «Lo que no se tocó». |
-| PER-007 | Sí | **Abierto** | Ver «Lo que no se tocó». |
+| PER-006 | Sí | Corregido A03 | `AsignacionRol.cloud_id` es inmutable; mover revoca la fila anterior y crea/reactiva una identidad nueva en una transacción. |
+| PER-007 | Sí | Corregido A03 | Rol y asignaciones usan baja lógica versionada; V2 transporta tombstones y el snapshot completo reconcilia solo filas de propiedad cloud. |
 | PER-008 | Sí | Corregido | Dos índices únicos **parciales** en lugar de `unique_together`: uno para `sucursal IS NULL` y otro para el resto. |
 | PER-009 | Sí | Corregido | Dos límites por encima del acceso total: un código fuera del catálogo **siempre deniega** (con warning), y las capacidades del operador SaaS (`PERMISOS_OPERADOR_SAAS`) solo las aprueba un principal global. |
 | PER-010 | Sí | Corregido | `Usuario.is_active` pasa a ser una propiedad ligada a `activo`; el motor comprueba `activo` en cada resolución; las señales observan además Usuario, Negocio y Sucursal. |
 | PER-011 | Sí | Corregido | La señal limpia el memo local **de inmediato** y difiere el bump de versión global a `transaction.on_commit`. |
+| PER-012 | Sí | Corregido A03 | Las señales M2M cubren add/remove/clear/set y el lado reverso; avanzan revisión y timestamp del rol. |
+| PER-013 | Sí | **PARCIAL_A03 / C02-C05** | A03 publica códigos, helper y matriz. El servicio de anulación y la reimpresión siguen en superficies C y deben integrar permiso + scope allí. |
+| PER-014 | Sí | Corregido A03 | Los servicios transaccionales de rol/asignación registran exactamente un evento CT-01 por mutación. |
+| PER-015 | Sí | Corregido A03 | `sync_permisos` solo sincroniza catálogo por defecto; aplicar presets requiere una opción explícita y preserva revocaciones/customizaciones. |
+| PER-016 | Sí | Corregido A03 | Seed y bootstrap son transaccionales, alias-aware, exigen negocio ante ambigüedad y no adoptan huérfanos en bases multi-negocio. |
+| PER-017 | Sí | Corregido A03 | La API delega a servicios con `atomic`, locks, constraints y conflicto de revisión como 409. |
+| PER-018 | Sí | Corregido A03 | Admin RBAC queda read-only y los comandos son tenant-aware con alias explícito. |
+| PER-019 | Sí | Corregido A03 | Las migraciones históricas congelan sus filas/helpers y dejan de importar catálogo o seed vivos. |
+| PER-020 | Sí | Corregido A03 | `TienePermiso` sin código deniega; el filtro de template deniega y registra solo el tipo de excepción. |
+| PER-021 | Sí | Corregido A03 | La suite agrega fronteras de revisiones, tombstones, snapshots, M2M, tenant/sucursal, seeds, auditoría y contrato consumidor pendiente. |
 
 ## El cambio que más conviene entender: qué significa llamar sin sucursal
 
@@ -1035,24 +1045,28 @@ Mientras tanto, conviene corregir dos textos que se contradicen con el
 single-worker, y el mismo supuesto estaba en el comentario del motor (ya
 corregido ahí).
 
-## Lo que no se tocó, y por qué
+## Gate operacional que no ejecuta A03
 
-- **PER-006 y PER-007 (tombstones de sync).** Cambiar el usuario, el rol o la
-  sucursal de una asignación crea la relación nueva en el POS local y deja la
-  anterior activa para siempre; borrar un rol custom hace lo mismo. La
-  corrección de fondo es una identidad cloud inmutable que viaje al local, más
-  un ledger de tombstones y una reconciliación completa periódica — es un
-  cambio de contrato de sincronización con su propia migración, del tamaño de
-  las auditorías de `apps/sync`. **Sigue siendo un privilegio que persiste
-  indefinidamente: conviene tomarlo a continuación.**
-- **P2 restantes (PER-012 a PER-018)** y **P3 (PER-019 a PER-021)**: no se
-  entraron en esta pasada.
-- **Retirar el bypass de `ADMIN`.** La auditoría lo pide, pero exige migrar
-  antes a cada admin a asignaciones explícitas con una comprobación previa de
-  lockout. Lo que sí se hizo es acotarlo: ya no aprueba códigos inexistentes ni
-  capacidades del operador.
+- **Retirar el bypass de `ADMIN`.** El código ya permite
+  `RBAC_LEGACY_ADMIN_BYPASS=False` y aporta
+  `preflight_rbac_admin_cutover --tenant <tenant_key>`. A03 no inspecciona ni
+  modifica datos operativos: cada tenant debe obtener un preflight verde antes
+  de cambiar la bandera. `SYSADMIN` y superusuarios conservan acceso global.
 
-## Pruebas
+## Validación A03 integrada — 2026-09-11
+
+- Focal combinada A02/C01-C03/A03: **957 pruebas OK**, con cuatro BDs
+  PostgreSQL desechables creadas y destruidas.
+- Django completa sin e-CF: **1346 OK**, con los gates tenant/atomicidad activos.
+- e-CF separada: **72 passed**.
+- PostgreSQL nueva desde cero hasta `permisos.0011`: **7 pruebas de seed OK**.
+- `check`, `makemigrations --check --dry-run`, `compileall`, `git diff --check`
+  e imagen/check cloud Python 3.12.14: verdes.
+
+Evidencia y comandos exactos:
+`docs/handoffs/cierre_prod/A03-rbac-ct02.md`.
+
+## Pruebas históricas de la mitigación P1 (2026-08-27)
 
 Suite completa, serial: **886 tests, OK.**
 

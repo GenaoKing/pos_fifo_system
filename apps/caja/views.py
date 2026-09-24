@@ -7,6 +7,7 @@ import json
 import logging
 from decimal import Decimal, InvalidOperation
 
+from django.core.paginator import Paginator
 from django.http import Http404, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -821,12 +822,21 @@ def historial_turnos(request):
         from django.shortcuts import redirect
         return redirect('caja:index')
 
-    turnos = turnos_en_alcance(request).filter(
+    # PAG-CXC-CAJA: el corte a 50 era silencioso — un turno mas viejo quedaba
+    # invisible sin ningun aviso. Ahora se pagina (50 por pagina) y el operador
+    # puede recorrer todo el historial. `page_obj` es iterable, asi que el
+    # template que recorria `turnos` sigue funcionando.
+    turnos_qs = turnos_en_alcance(request).filter(
         estado='CERRADO'
-    ).select_related('caja', 'usuario', 'cerrado_por').order_by('-fecha_cierre')[:50]
+    ).select_related('caja', 'usuario', 'cerrado_por').order_by('-fecha_cierre')
+
+    paginator = Paginator(turnos_qs, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
 
     context = {
-        'turnos': turnos,
+        'turnos': page_obj,
+        'page_obj': page_obj,
+        'paginator': paginator,
     }
 
     return render(request, 'caja/historial.html', context)

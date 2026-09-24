@@ -42,6 +42,14 @@ class Plan(models.Model):
     modulos = models.ManyToManyField(
         Modulo, related_name='planes', blank=True, verbose_name='Modulos incluidos',
     )
+    preset_version = models.PositiveIntegerField(
+        'Version del preset', null=True, blank=True,
+        help_text='SUS-017 — version de `seed.TIERS` que este plan tiene '
+                  'aplicada. Vacio = plan personalizado: `manage.py '
+                  'sync_modulos` no lo toca. Un valor desactualizado respecto '
+                  'de TIERS se resincroniza (modulos + version) al correr '
+                  'sync_modulos.',
+    )
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
@@ -134,3 +142,29 @@ class SucursalModuloOverride(models.Model):
 
     def __str__(self):
         return f'{self.sucursal} apaga {self.modulo.key}'
+
+    def clean(self):
+        """
+        SUS-013 — el modelo dice "la sucursal solo puede apagar", pero exponia
+        `activo=True` (que el resolutor ignora: un no-op enganoso) y permitia
+        apuntar a un modulo core (que tampoco se puede apagar). Se rechazan los
+        dos estados imposibles. Validacion de aplicacion (Admin); el bootstrap
+        crea filas `activo=False` que pasan sin problema.
+        """
+        from django.core.exceptions import ValidationError
+
+        from . import registry
+
+        errors = {}
+        if self.activo:
+            errors['activo'] = (
+                'Una sucursal solo puede APAGAR un modulo (activo=False), no '
+                'encenderlo; un override activo=True no tiene efecto.'
+            )
+        if self.modulo_id and self.modulo.key in registry.core_keys():
+            errors['modulo'] = (
+                f"'{self.modulo.key}' es un modulo core: no se puede apagar por "
+                f"sucursal."
+            )
+        if errors:
+            raise ValidationError(errors)

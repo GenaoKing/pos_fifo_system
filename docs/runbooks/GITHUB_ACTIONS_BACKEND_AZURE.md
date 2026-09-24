@@ -30,6 +30,9 @@ Job `checks`:
   test).
 - Ejecuta `python manage.py check --settings=config.settings_cloud`.
 - Ejecuta `collectstatic --dry-run`.
+- Exige el gate TEN-016 con control plane y dos BDs PostgreSQL tenant físicas
+  cuyo namespace depende de la corrida; no puede quedar `skip` por falta de
+  `TENANT_TEST_DB_NAMESPACE`.
 - Ejecuta tests Django con `manage.py test`, excluyendo
   `facturacion_electronica`.
 - Ejecuta tests e-CF con `pytest`, porque esa suite usa fixtures de pytest.
@@ -40,12 +43,18 @@ Job `deploy-backend`:
 - Imprime contexto Azure no sensible: subscription, resource group, Container
   Apps y jobs.
 - Login a ACR.
-- Build de Docker image.
-- Tags con SHA de commit, `<ambiente>-<sha>` y tag estable del ambiente.
-- Push a ACR.
+- En dev/staging construye la imagen, la publica con tags de conveniencia y
+  resuelve inmediatamente su digest inmutable en ACR.
+- En prod **no construye ni publica**: recibe un digest ya aprobado, hace
+  `pull`/`inspect` de ese artefacto y exige que su label de revision coincida
+  con el SHA de `main` seleccionado.
+- Genera, verifica y conserva como artefacto el manifiesto backend
+  promocionable (SHA, locks, Docker, migraciones y digest) por 180 días.
 - Captura las imagenes actuales de API y job de notificaciones.
 - Actualiza imagen del job `migrate` si existe.
-- Opcionalmente ejecuta migraciones y espera resultado.
+- Para prod exige migraciones; para dev/staging las determina la politica del
+  ambiente o el input manual. Si el job falla o queda incompleto, la API no se
+  actualiza.
 - Actualiza imagen de la API.
 - Smoke test de `/api/v1/health/`.
 - Solo despues de una API sana actualiza el job de notificaciones, ejecuta un
@@ -159,11 +168,11 @@ AZURE_API_BASE_URL=https://posfifo-dev-api.calmflower-b43e72c3.canadacentral.azu
 RUN_MIGRATIONS_ON_DEPLOY=true
 ```
 
-`RUN_MIGRATIONS_ON_DEPLOY=true` hace que cada push a la rama del ambiente corra
-el job de migraciones antes del deploy de API. Dev y staging lo mantienen en
-`true`; una promocion a staging solo se fusiona despues de auditar migraciones y
-respaldar las bases afectadas. Produccion permanece en `false` y requiere una
-decision manual.
+`RUN_MIGRATIONS_ON_DEPLOY=true` hace que cada push de dev/staging corra el job
+de migraciones antes del deploy de API. Ambos ambientes lo mantienen en `true`;
+una promocion a staging solo se fusiona despues de auditar migraciones y
+respaldar las bases afectadas. En prod la variable historica no es un bypass:
+el dispatch exige explicitamente `run_migrations=true`.
 
 ### Crear las variables en la UI de GitHub
 
@@ -230,7 +239,7 @@ PROD_AZURE_ACR_LOGIN_SERVER=posfifodevacr.azurecr.io
 PROD_AZURE_CONTAINER_APP_NAME=posfifo-prod-api
 PROD_AZURE_MIGRATE_JOB_NAME=posfifo-prod-migrate
 PROD_AZURE_API_BASE_URL=https://posfifo-prod-api.greenglacier-6158bae1.canadacentral.azurecontainerapps.io
-PROD_RUN_MIGRATIONS_ON_DEPLOY=false
+PROD_RUN_MIGRATIONS_ON_DEPLOY=false  # legado; prod usa el gate del dispatch
 ```
 
 Secrets actuales de prod:
@@ -531,13 +540,17 @@ Desde GitHub:
 4. Seleccionar el branch del ambiente: `develop`, `staging` o `main`.
 5. `target_environment = dev`, `staging` o `prod`.
 6. `deploy_backend = true`.
-7. `run_migrations = false` para primer test.
+7. Para una candidata de release, `run_migrations = true`.
 
-Si el deploy pasa, probar de nuevo con:
+Para prod agregar siempre `approved_image_digest=sha256:<64-hex>`. Debe ser el
+digest existente de una imagen aprobada cuya etiqueta
+`org.opencontainers.image.revision` coincida con el SHA exacto de `main`
+seleccionado. Un digest ausente/malformado, una revision distinta o
+`run_migrations=false` hacen fallar el workflow antes de actualizar la API.
 
-```text
-run_migrations = true
-```
+Un dispatch dev/staging con migraciones desactivadas solo es aceptable para una
+prueba de plataforma que ya demostro no introducir schema nuevo; no es un
+atajo para desplegar una candidata con migraciones.
 
 Si `Backend CI/CD` no aparece en Actions, primero hay que subir al repo el
 archivo:
@@ -573,16 +586,34 @@ eso significa que el gate de prod funciono correctamente: no se publico nada
 automaticamente. Para publicar prod hay que usar `Run workflow` o `gh workflow
 run` con `deploy_backend=true`.
 
-Para prod, `run_migrations=true` solo debe usarse cuando se haya revisado el
-plan de cambios de schema y el backup/cutover correspondiente.
+Para prod los inputs obligatorios son:
 
-Los tags de imagen seran:
+```text
+branch main exacto de la candidata
+target_environment=prod
+deploy_backend=true
+run_migrations=true
+approved_image_digest=sha256:<64-hex>
+```
+
+El digest se promociona sin `docker build` ni `docker push`. El workflow solo
+acepta un artefacto cuyo label OCI de revision sea el mismo SHA del branch
+seleccionado, actualiza el job `migrate`, espera `Succeeded` y recien entonces
+actualiza API/notificaciones usando la referencia
+`<registry>/<repositorio>@sha256:...`. La corrida adjunta
+`release-manifest-backend-<ambiente>-<sha>`; no sustituye el ledger operativo
+por tenant ni el backup/cutover del runbook A08.1.
+
+En dev/staging los tags de conveniencia son:
 
 ```text
 <commit-sha>
 <ambiente>-<commit-sha>
 <ambiente>
 ```
+
+Nunca se usa uno de esos tags mutables para actualizar Container Apps: despues
+del push se resuelve el digest y ese es el unico valor consumido por API y jobs.
 
 En este primer corte, el SHA queda en el tag de la imagen. La deuda de
 `commit: unknown` en `/api/v1/health/` queda pendiente hasta que el deploy sea
@@ -733,11 +764,13 @@ El workflow ahora imprime:
 
 Usa esa salida para comparar GitHub vs local.
 
-El workflow actualiza primero la imagen del job de migraciones si existe. Si
-`run_migrations=true`, el job debe existir, se ejecuta antes del cambio de API y
-el deploy falla si la migracion no termina en `Succeeded`. Despues de ese gate
-se cambia la imagen de la API, se valida `/api/v1/health/` y por ultimo se
-actualiza/ejecuta el job de notificaciones.
+El workflow actualiza primero la imagen del job de migraciones si existe. Si la
+politica marca migraciones requeridas —siempre en prod—, el job debe existir,
+se ejecuta antes del cambio de API y el deploy falla si no termina en
+`Succeeded`. Tras un fallo o timeout no hay paso que actualice la API. Despues
+de ese gate se cambia la imagen de la API por digest, se valida
+`/api/v1/health/` y por ultimo se actualiza/ejecuta el job de notificaciones
+con el mismo digest.
 
 ## CI de Terraform
 
@@ -765,6 +798,5 @@ remoto de cada ambiente.
 - Mantener prod con `workflow_dispatch` manual hasta tener approvals formales.
 - Documentar rollback operativo por revision/imagen anterior con un ejemplo de
   comando manual.
-- Definir politica por ambiente para `run_migrations`:
-  - dev: automatico actualmente.
-  - staging/prod: manual actualmente.
+- Firmar/atestiguar el manifiesto y conservarlo fuera de la retencion estandar
+  de artefactos de GitHub antes de declarar una liberacion auditable.

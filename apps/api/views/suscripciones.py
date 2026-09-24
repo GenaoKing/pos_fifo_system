@@ -70,29 +70,76 @@ def _validar_degradacion(negocio, antes, despues):
 
 class GuardDegradacionMixin:
     """
-    Envuelve create/update/destroy comparando el entitlement efectivo.
+    Envuelve create/update/destroy comparando el entitlement efectivo y
+    registrando el evento CT-01 (SUS-015) dentro de la MISMA transaccion.
 
-    El calculo se hace DENTRO de una transaccion y la escritura se revierte si
-    el guard rechaza: sin eso, la comprobacion pasaria sobre datos que ya
-    cambiaron.
+    El calculo del guard se hace DENTRO de una transaccion y la escritura se
+    revierte si rechaza: sin eso, la comprobacion pasaria sobre datos que ya
+    cambiaron. La auditoria se registra recien despues de que el guard pasa,
+    asi que un rechazo -o cualquier fallo posterior, incluido el propio
+    writer de auditoria- no deja ni escritura ni evento (mismo contrato que
+    `apps/negocios/services.py`).
     """
 
     def _negocio_de(self, instance):
         raise NotImplementedError
 
-    def _aplicar(self, guardar, negocio):
+    def _accion(self, operacion):
+        """operacion: 'creado' | 'actualizado' | 'eliminado'."""
+        raise NotImplementedError
+
+    def _snapshot(self, instance):
+        """Campos comerciales relevantes de `instance`, para el diff de CT-01."""
+        raise NotImplementedError
+
+    def _aplicar(self, guardar, negocio, *, entidad_getter, operacion):
         from django.db import transaction
 
+        from apps.auditoria.models import Auditoria
+        from apps.auditoria.services import registrar_mutacion
         from apps.suscripciones.engine import invalidar_cache, modulos_negocio
+        from apps.tenancy.context import get_current_tenant_alias
 
-        with transaction.atomic():
-            antes = modulos_negocio(negocio)
+        # MERGE-C03-ALIAS-ATOMIC: bajo `with_tenant` los managers escriben en
+        # la BD del tenant; `transaction.atomic()` sin alias se abre sobre
+        # `default` y no protege esa escritura (ni la auditoria, que exige
+        # correr dentro del atomic de la misma BD que la entidad).
+        alias = get_current_tenant_alias() or 'default'
+
+        entidad_previa = entidad_getter()
+        antes = self._snapshot(entidad_previa) if entidad_previa is not None else {}
+        pk_previo = entidad_previa.pk if entidad_previa is not None else None
+
+        with transaction.atomic(using=alias):
+            antes_set = modulos_negocio(negocio)
             guardar()
             # El cache se invalida para que `modulos_negocio` recalcule con el
             # estado nuevo dentro de la misma transaccion.
             invalidar_cache()
-            despues = modulos_negocio(negocio)
-            _validar_degradacion(negocio, antes, despues)
+            despues_set = modulos_negocio(negocio)
+            _validar_degradacion(negocio, antes_set, despues_set)
+
+            entidad = entidad_getter()
+            if operacion == 'eliminado':
+                # `delete()` limpia el pk de la instancia; se restituye solo
+                # para que la referencia opaca de CT-01 sea estable, no para
+                # reescribir la fila (ya no existe).
+                entidad.pk = pk_previo
+                despues = {}
+            else:
+                despues = self._snapshot(entidad)
+
+            registrar_mutacion(
+                accion=self._accion(operacion),
+                actor=self.request.user,
+                entidad=entidad,
+                antes=antes,
+                despues=despues,
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.PORTAL_API,
+                tenant=negocio.slug,
+                using=alias,
+            )
         invalidar_cache()
 
     def perform_create(self, serializer):
@@ -100,15 +147,24 @@ class GuardDegradacionMixin:
         if negocio is None:
             serializer.save()
             return
-        self._aplicar(serializer.save, negocio)
+        self._aplicar(
+            serializer.save, negocio,
+            entidad_getter=lambda: serializer.instance, operacion='creado',
+        )
 
     def perform_update(self, serializer):
         negocio = self._negocio_de(serializer.instance)
-        self._aplicar(serializer.save, negocio)
+        self._aplicar(
+            serializer.save, negocio,
+            entidad_getter=lambda: serializer.instance, operacion='actualizado',
+        )
 
     def perform_destroy(self, instance):
         negocio = self._negocio_de(instance)
-        self._aplicar(instance.delete, negocio)
+        self._aplicar(
+            instance.delete, negocio,
+            entidad_getter=lambda: instance, operacion='eliminado',
+        )
 
 
 class SuscripcionNegocioViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
@@ -122,6 +178,15 @@ class SuscripcionNegocioViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
     def _negocio_de(self, instance):
         return instance.negocio
 
+    def _accion(self, operacion):
+        return f'suscripciones.suscripcion.{operacion}'
+
+    def _snapshot(self, instance):
+        return {
+            'plan': instance.plan.slug if instance.plan_id else None,
+            'activa': instance.activa,
+        }
+
 
 class NegocioModuloViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
     """Overrides à la carte. Toda transicion pasa por `puede_desactivarse`."""
@@ -132,6 +197,16 @@ class NegocioModuloViewSet(GuardDegradacionMixin, viewsets.ModelViewSet):
 
     def _negocio_de(self, instance):
         return instance.negocio
+
+    def _accion(self, operacion):
+        return f'suscripciones.override_negocio.{operacion}'
+
+    def _snapshot(self, instance):
+        return {
+            'negocio': instance.negocio_id,
+            'modulo': instance.modulo.key if instance.modulo_id else None,
+            'incluido': instance.incluido,
+        }
 
     # La comparacion de sets no alcanza sola aca, y el motivo es interesante:
     # excluir `ventas` mientras `cuentas_por_cobrar` sigue activo NO retira

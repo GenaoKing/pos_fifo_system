@@ -1,0 +1,26 @@
+# Dependencias directas del POS Windows (Python 3.11).
+# Los instaladores consumen el lock generado ../../requirements.txt.
+
+Django==5.2.17
+psycopg[binary]==3.3.4
+
+waitress==3.0.2
+whitenoise==6.12.0
+python-dotenv==1.2.3
+
+Pillow==12.1.0
+reportlab==4.4.9
+python-barcode==0.16.1
+openpyxl==3.1.5
+PyYAML==6.0.3
+pytz==2025.2
+qrcode==8.2
+
+python-escpos==3.1
+pywin32==311
+pyserial==3.5
+
+django-extensions==4.1
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+requests==2.33.1

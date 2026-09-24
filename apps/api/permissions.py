@@ -8,6 +8,8 @@ Niveles:
 - EsSucursalAutenticada: para sync (requiere token de usuario_servicio
   de una sucursal activa)
 """
+from django.conf import settings
+from django.db import connections
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 
@@ -33,6 +35,32 @@ class EsSoloLectura(BasePermission):
 
     def has_permission(self, request, view):
         return request.method in ('GET', 'HEAD', 'OPTIONS')
+
+
+class EsInstanciaCloudParaMutarMaestros(BasePermission):
+    """Las escrituras del API de maestros existen solo en el portal cloud.
+
+    El POS local dispone de sus propias vistas, que resuelven sucursal y pasan
+    por la terna maestro + auditoria CT-01 + ``MutacionMaestro``. Permitir el
+    ViewSet del portal localmente seria un bypass de esa frontera. El unico
+    escape existe en una base ``test_*`` y exige un flag explicito, para que
+    las pruebas del contrato cloud no alteren la seguridad del POS.
+    """
+
+    message = 'Las escrituras de maestros solo estan disponibles en el portal cloud.'
+
+    def has_permission(self, request, view):
+        if getattr(settings, 'TENANCY_DB_PER_TENANT_ENABLED', False):
+            return True
+        nombre_db = str(connections['default'].settings_dict.get('NAME') or '')
+        return bool(
+            nombre_db.startswith('test_')
+            and getattr(
+                settings,
+                'API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST',
+                False,
+            )
+        )
 
 
 class EsSucursalAutenticada(BasePermission):
@@ -77,8 +105,8 @@ class TienePermiso(BasePermission):
     Concede acceso si el usuario tiene un permiso concreto del catalogo.
 
     El codigo se toma de `self.codigo` (via requiere_permiso(...)) o de
-    `view.required_permission`. Si no hay codigo declarado, no bloquea
-    (combinar siempre con IsAuthenticated).
+    `view.required_permission`. Si no hay codigo declarado, deniega: usar la
+    clase base sin configurar no puede abrir una vista por accidente.
     """
     codigo = None
     message = 'No tiene el permiso requerido para realizar esta accion.'
@@ -89,7 +117,7 @@ class TienePermiso(BasePermission):
             return False
         codigo = self.codigo or getattr(view, 'required_permission', None)
         if not codigo:
-            return True
+            return False
         sucursal = _request_sucursal(request)
         return user.tiene_permiso(codigo, sucursal=sucursal)
 
@@ -184,7 +212,11 @@ class MaestroPermisoMixin:
             return [IsAuthenticated(), PuedeLeerMaestro()]
         sufijo = self._ACCION_SUFIJO.get(self.action)
         if sufijo and self.permiso_base:
-            return [IsAuthenticated(), requiere_permiso(f'{self.permiso_base}.{sufijo}')()]
+            return [
+                IsAuthenticated(),
+                EsInstanciaCloudParaMutarMaestros(),
+                requiere_permiso(f'{self.permiso_base}.{sufijo}')(),
+            ]
         # Fallback conservador para acciones no mapeadas.
         return [IsAuthenticated(), EsAdminOSysadmin()]
 

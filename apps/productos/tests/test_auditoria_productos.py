@@ -7,16 +7,20 @@ La app no aportaba casos propios (PRO-018); este modulo es el arranque.
 """
 import io
 import json
+import uuid
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from apps.configuracion.models import ConfiguracionNegocio
+from apps.negocios.models import Negocio
 from apps.permisos import testing as permisos_testing
 from apps.productos.models import Categoria, Producto, productos_vendibles
+from apps.sucursales.models import Sucursal
 from apps.ventas.services import procesar_venta_service
 from apps.ventas.services.exceptions import ProductoInexistenteError
 
@@ -32,9 +36,19 @@ def _png_valido(color=(255, 0, 0)):
     return buffer.getvalue()
 
 
+@override_settings(SUCURSAL_CODIGO='SD-001')
 class ProductosTestCase(TestCase):
     def setUp(self):
         cache.clear()
+        self.negocio = Negocio.objects.create(
+            nombre='Negocio Productos Test', slug='negocio-productos-test',
+        )
+        self.sucursal = Sucursal.objects.create(
+            negocio=self.negocio, codigo='SD-001', nombre='Sucursal Productos Test',
+        )
+        ConfiguracionNegocio.objects.create(
+            nombre_negocio='Productos Test', sucursal=self.sucursal,
+        )
         self.categoria = Categoria.objects.create(nombre='Herramientas', activa=True)
         self.producto = Producto.objects.create(
             sku='PRO-001', codigo_barras='PRO-001',
@@ -51,18 +65,72 @@ class ProductosTestCase(TestCase):
             username=username, email=f'{username}@test.local',
             password='Prueba123', rol=rol, activo=True,
         )
-        permisos_testing.habilitar_cajero(user, permisos=list(permisos))
+        permisos_testing.habilitar_cajero(
+            user,
+            negocio=self.negocio,
+            permisos=list(permisos),
+            sucursal=self.sucursal,
+        )
         return user
 
     def _post(self, user, nombre, args=None, cuerpo=None, **extra):
         self.client.force_login(user)
         url = reverse(nombre, args=args or [])
+        extra.setdefault('HTTP_X_MASTER_MUTATION_ID', str(uuid.uuid4()))
         if cuerpo is None:
             return self.client.post(url, **extra)
         return self.client.post(
             url, data=json.dumps(cuerpo),
             content_type='application/json', **extra,
         )
+
+
+class CrearProductoSinConfiguracionTests(TestCase):
+    """CFG-012: crear catálogo no oculta una instalación sin configurar."""
+
+    def setUp(self):
+        cache.clear()
+        self.categoria = Categoria.objects.create(
+            nombre='Sin configuracion', activa=True,
+        )
+        self.usuario = User.objects.create_user(
+            username='crear_sin_config',
+            email='crear_sin_config@test.local',
+            password='Prueba123',
+            rol='CAJERA',
+            activo=True,
+        )
+        permisos_testing.habilitar_cajero(
+            self.usuario, permisos=['productos.crear'],
+        )
+        self.client.force_login(self.usuario)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_error_de_configuracion_se_sanea_sin_crear_producto_ni_config(self):
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+        respuesta = self.client.post(
+            reverse('productos:crear'),
+            data=json.dumps({
+                'nombre': 'Producto sin configuracion',
+                'precio_venta': '100.00',
+                'categoria_id': self.categoria.id,
+            }),
+            content_type='application/json',
+            HTTP_X_MASTER_MUTATION_ID=str(uuid.uuid4()),
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(respuesta.json(), {
+            'success': False,
+            'message': 'No se pudo procesar la solicitud.',
+        })
+        self.assertFalse(
+            Producto.objects.filter(nombre='Producto sin configuracion').exists(),
+        )
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
 
 
 class GatesDelCatalogoTests(ProductosTestCase):

@@ -115,6 +115,9 @@ function posData() {
         },
 
         procesandoVenta: false,
+        // Se conserva entre un timeout y el reintento del mismo cobro. Solo se
+        // rota cuando el operador abandona o completa esa intencion de venta.
+        claveIdempotenciaVenta: null,
 
         // Ultima venta procesada en esta sesion del POS: habilita el panel
         // de "Comprobante (PDF)" / "Ver detalle" sin forzar una redireccion
@@ -431,6 +434,7 @@ function posData() {
             this.resetCredito();
             this.resetDescuentoAuth();
             this.procesandoVenta = false;
+            this.claveIdempotenciaVenta = null;
         },
         
         // ============================================
@@ -992,6 +996,7 @@ function posData() {
         cancelarPago() {
             this.panelPagoActivo = false;
             this.modalCreditoAbierto = false;
+            this.claveIdempotenciaVenta = null;
             this.$nextTick(() => {
                 this.focusScanner();
             });
@@ -1117,6 +1122,8 @@ function posData() {
          * Confirma la venta (Parte 3: enviar al backend)
          */
         async confirmarVenta() {
+            if (this.procesandoVenta) return;
+
             if (!this.validarPago()) {
                 showToast('warning', 'El monto pagado es insuficiente');
                 return;
@@ -1132,6 +1139,16 @@ function posData() {
                 }
             }
             
+            // La misma clave viaja en un reintento tras timeout. Si el servidor
+            // ya habia hecho commit, devuelve esa venta sin volver a cobrar ni
+            // consumir FIFO.
+            if (!this.claveIdempotenciaVenta) {
+                this.claveIdempotenciaVenta = (
+                    globalThis.crypto?.randomUUID?.()
+                    || `pos-${Date.now()}-${Math.random().toString(16).slice(2)}`
+                );
+            }
+
             // Preparar datos de la venta
             const datosVenta = {
                 carrito: this.carrito.map(item => ({
@@ -1151,6 +1168,7 @@ function posData() {
                 cotizacion_id: this.cotizacionId || null,
                 total: this.calcularTotal(),
                 tipo_ecf: this.tipoEcf || '32',
+                clave_idempotencia: this.claveIdempotenciaVenta,
                 // Vacio si el descuento no lo necesitaba: el servidor decide,
                 // no el cliente.
                 descuento_override_token: this.descuentoAuth.token || '',

@@ -87,6 +87,11 @@ Generar una `SECRET_KEY` válida:
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
+> Esto es solo para la creación inicial (el `.env` todavía no existe). Para
+> **rotar** la key de una instalación ya funcionando, no editar el archivo a
+> mano: usar `python manage.py rotar_secret_key`, que reemplaza únicamente esa
+> línea, deja un respaldo recuperable de la anterior y nunca imprime el valor.
+
 ---
 
 ## 3. Entorno virtual y dependencias

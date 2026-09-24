@@ -1,6 +1,6 @@
 # apps/inventario — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -20,7 +20,7 @@ Compras y stock por lotes **FIFO** (`apps/inventario/models.py`): `Compra` →
 | **Consumir / devolver stock FIFO** | `fifo_logic.py` → `procesar_venta_fifo`, `anular_venta_devolver_stock`; `obtener_lotes_fifo(..., bloquear=True)` |
 | Stock disponible / valuación / mínimos | `fifo_logic.obtener_stock_disponible`, `calcular_valuacion_fifo`, `verificar_stock_minimo`, `obtener_productos_bajo_stock` |
 | Compras | `views.compras_lista`, `compra_crear`, `compra_detalle`, `compra_editar` (corrige lotes: `_anular_lote_por_correccion`), `compra_imprimir_etiquetas` (Zebra, `utils/impresoras/zebra.py`) |
-| Ajustes manuales | `views.vista_ajustes`, `api_lotes_producto`, `api_ajustar_inventario` → `services.registrar_ajuste_service` |
+| Ajustes manuales | `views.vista_ajustes`, `api_lotes_producto`, `api_ajustar_inventario` → `services.registrar_ajuste_service` (RBAC: `inventario.ajustar` re-autorizado en el SERVICIO contra la sucursal del LOTE bloqueado, INV-RBAC-SCOPE) |
 | Errores de dominio | `services/exceptions.py` |
 
 ## Invariantes / trampas
@@ -31,6 +31,10 @@ Compras y stock por lotes **FIFO** (`apps/inventario/models.py`): `Compra` →
   venta (`apps/ventas/services/ventas_service.py`); nunca mutar stock desde una
   vista.
 - Inventario negativo solo si `ConfiguracionNegocio.permitir_inventario_negativo`.
+- **DB-CONSTRAINTS:** `Compra.total >= 0` (la cabecera se crea con 0 y se
+  completa tras los detalles), `DetalleCompra`/`Lote` con cantidad `>= 1` y costo
+  `>= 0.01`. `Lote.cantidad_actual` NO se restringe (inventario negativo). El
+  preflight vive en `manage.py verificar_integridad_financiera`.
 - Permisos: `compras.ver` / `compras.registrar` / `inventario.ver` /
   `inventario.ajustar`.
 - Sync: `evento_compra_registrada`, `evento_inventario_movimiento`,

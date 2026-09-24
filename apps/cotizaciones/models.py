@@ -1,9 +1,13 @@
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.core.validators import MinValueValidator
 from django.conf import settings
 from decimal import Decimal
 from django.utils import timezone
 import pytz
+
+
+# Reintentos de asignacion de numero_cotizacion ante colision (COT-010).
+MAX_INTENTOS_NUMERO_COTIZACION = 5
 
 
 class Cotizacion(models.Model):
@@ -78,10 +82,18 @@ class Cotizacion(models.Model):
         verbose_name='Estado'
     )
 
-    # Referencia a la venta si fue convertida
+    # Referencia a la venta si fue convertida.
+    #
+    # COT-015: `on_delete=PROTECT` (antes `SET_NULL`). Una cotizacion CONVERTIDA
+    # DEBE conservar el vinculo a la venta que la consumio — es la invariante que
+    # el CheckConstraint `cotizacion_convertida_exige_venta` exige a nivel de BD.
+    # Con SET_NULL, borrar la venta dejaba la cotizacion CONVERTIDA con
+    # `venta=NULL` (violando esa invariante). Las ventas se ANULAN, no se borran;
+    # PROTECT convierte un borrado accidental en un error claro en vez de
+    # orfandad silenciosa.
     venta = models.OneToOneField(
         'ventas.Venta',
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         blank=True,
         null=True,
         related_name='cotizacion_origen',
@@ -109,6 +121,42 @@ class Cotizacion(models.Model):
                 fields=['sucursal', 'numero_cotizacion'],
                 name='unique_cotizacion_por_sucursal_numero',
             ),
+            # PostgreSQL considera distintos dos NULL en una unique compuesta.
+            # Las cotizaciones legacy no tienen sucursal, por lo que necesitan
+            # esta segunda guarda para no admitir numeros indistinguibles.
+            models.UniqueConstraint(
+                fields=['numero_cotizacion'],
+                condition=models.Q(sucursal__isnull=True),
+                name='unique_cotizacion_legacy_numero',
+            ),
+            # COT-008: importes imposibles no persistibles ni por escritura directa.
+            models.CheckConstraint(
+                condition=models.Q(subtotal__gte=Decimal('0.00')),
+                name='cotizacion_subtotal_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_total__gte=Decimal('0.00')),
+                name='cotizacion_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total__gte=Decimal('0.00')),
+                name='cotizacion_total_no_negativo',
+            ),
+            # COT-015: estado y vinculo son una sola invariante. Una convertida
+            # exige venta y una pendiente no puede venir ya vinculada.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(estado='CONVERTIDA')
+                        & models.Q(venta__isnull=False)
+                    )
+                    | (
+                        ~models.Q(estado='CONVERTIDA')
+                        & models.Q(venta__isnull=True)
+                    )
+                ),
+                name='cotizacion_estado_venta_consistente',
+            ),
         ]
 
     def __str__(self):
@@ -119,16 +167,52 @@ class Cotizacion(models.Model):
             santo_domingo_tz = pytz.timezone('America/Santo_Domingo')
             self.fecha_creacion = timezone.now().astimezone(santo_domingo_tz)
 
-        if not self.numero_cotizacion:
-            fecha_str = self.fecha_creacion.strftime('%Y%m%d')
-            prefijo = f'{self.sucursal.codigo}-COT-{fecha_str}' if self.sucursal else f'COT-{fecha_str}'
-            ultimo = Cotizacion.objects.filter(
-                sucursal=self.sucursal,
-                numero_cotizacion__startswith=prefijo
-            ).count()
-            self.numero_cotizacion = f'{prefijo}-{str(ultimo + 1).zfill(5)}'
+        # Si el numero ya viene asignado (replicacion, correcciones, segundo
+        # save() para actualizar totales), no se recalcula.
+        if self.numero_cotizacion:
+            return super().save(*args, **kwargs)
 
-        super().save(*args, **kwargs)
+        # COT-010: numeracion por MAXIMO sufijo + reintento en savepoint, no
+        # `count()+1`. Contar filas reutiliza un numero en cuanto la secuencia
+        # tiene un hueco, y bajo concurrencia dos cotizaciones proponen el mismo
+        # numero; la unique (sucursal, numero_cotizacion) lo rechazaba con un 500
+        # DESPUES de que el usuario ya guardo. Se reintenta leyendo el numero que
+        # el otro proceso acaba de tomar (mismo patron que Venta.save).
+        fecha_str = self.fecha_creacion.strftime('%Y%m%d')
+        prefijo = (
+            f'{self.sucursal.codigo}-COT-{fecha_str}'
+            if self.sucursal_id else f'COT-{fecha_str}'
+        )
+        for intento in range(MAX_INTENTOS_NUMERO_COTIZACION):
+            self.numero_cotizacion = self._siguiente_numero_cotizacion(prefijo)
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                if intento == MAX_INTENTOS_NUMERO_COTIZACION - 1:
+                    raise
+                self.numero_cotizacion = ''
+
+    @staticmethod
+    def _siguiente_numero_cotizacion(prefijo):
+        """
+        Siguiente correlativo del prefijo, a partir del MAXIMO sufijo existente.
+
+        El prefijo ya incluye el codigo de sucursal (o `COT-` para las legacy sin
+        sucursal), asi que filtrar por `startswith` respeta el alcance de la
+        unique `(sucursal, numero_cotizacion)`.
+        """
+        numeros = Cotizacion.objects.filter(
+            numero_cotizacion__startswith=prefijo
+        ).values_list('numero_cotizacion', flat=True)
+
+        ultimo = 0
+        for numero in numeros:
+            sufijo = numero.rsplit('-', 1)[-1]
+            if sufijo.isdigit():
+                ultimo = max(ultimo, int(sufijo))
+
+        return f'{prefijo}-{str(ultimo + 1).zfill(5)}'
 
     def calcular_totales(self):
         """Recalcula totales basado en detalles"""
@@ -230,6 +314,30 @@ class DetalleCotizacion(models.Model):
     class Meta:
         verbose_name = 'Detalle de Cotizacion'
         verbose_name_plural = 'Detalles de Cotizacion'
+        # COT-008: la cotizacion es fuente autorizada de precio para la venta;
+        # una linea con cantidad/precio/descuento imposible no debe persistir.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gte=1),
+                name='detallecotizacion_cantidad_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(precio_unitario__gte=Decimal('0.01')),
+                name='detallecotizacion_precio_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__gte=Decimal('0.00')),
+                name='detallecotizacion_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__lte=models.F('subtotal')),
+                name='detallecotizacion_descuento_no_supera_subtotal',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_linea__gte=Decimal('0.00')),
+                name='detallecotizacion_total_no_negativo',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.producto.nombre} x {self.cantidad}"
@@ -240,3 +348,27 @@ class DetalleCotizacion(models.Model):
             self.descuento_porcentaje = (self.descuento_monto / self.subtotal) * 100
         self.total_linea = self.subtotal - self.descuento_monto
         super().save(*args, **kwargs)
+        self._reconciliar_cabecera(self.cotizacion_id, self._state.db)
+
+    def delete(self, *args, **kwargs):
+        cotizacion_id = self.cotizacion_id
+        using = kwargs.get('using') or self._state.db
+        resultado = super().delete(*args, **kwargs)
+        self._reconciliar_cabecera(cotizacion_id, using)
+        return resultado
+
+    @classmethod
+    def _reconciliar_cabecera(cls, cotizacion_id, using):
+        """Mantiene la cabecera derivada al editar/borrar lineas (COT-011)."""
+        totales = cls.objects.using(using).filter(
+            cotizacion_id=cotizacion_id,
+        ).aggregate(
+            subtotal=models.Sum('subtotal'),
+            descuento=models.Sum('descuento_monto'),
+            total=models.Sum('total_linea'),
+        )
+        Cotizacion.objects.using(using).filter(pk=cotizacion_id).update(
+            subtotal=totales['subtotal'] or Decimal('0.00'),
+            descuento_total=totales['descuento'] or Decimal('0.00'),
+            total=totales['total'] or Decimal('0.00'),
+        )

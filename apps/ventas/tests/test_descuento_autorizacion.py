@@ -313,18 +313,29 @@ class AuditoriaDescuentoTests(DescuentoAutorizacionTestCase):
     """
 
     def test_se_registra_una_entrada_de_auditoria(self):
+        # C05 p6: el descuento autorizado usa el contrato CT-01
+        # (`registrar_mutacion`), no el adaptador legacy.
         self._activar_gate(monto='0.00', porcentaje='0.00')
         token = self._emitir_token(monto='50.00', motivo='Cliente frecuente')
 
         venta = self._vender_con_descuento('50.00', token=token)
 
         entrada = Auditoria.objects.get(
-            accion=Auditoria.TipoAccion.DESCUENTO_AUTORIZADO
+            accion='ventas.descuento.autorizado',
+            object_id=venta.id,
         )
+        self.assertEqual(entrada.schema_version, 'audit.event.v1')
+        self.assertEqual(entrada.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(entrada.resultado, Auditoria.Resultado.SUCCEEDED)
         self.assertEqual(entrada.usuario, self.cajera)
-        self.assertIn(venta.numero_venta, entrada.descripcion)
-        self.assertEqual(entrada.metadata['autorizado_por'], self.supervisor.username)
-        self.assertEqual(entrada.metadata['motivo'], 'Cliente frecuente')
+        self.assertEqual(entrada.datos_nuevos['autorizado_por'], self.supervisor.username)
+        self.assertEqual(entrada.datos_nuevos['motivo'], 'Cliente frecuente')
+        # Ya no se emite el código legacy DESCUENTO_AUTORIZADO.
+        self.assertFalse(
+            Auditoria.objects.filter(
+                accion=Auditoria.TipoAccion.DESCUENTO_AUTORIZADO,
+            ).exists()
+        )
 
     def test_el_descuento_autorizado_viaja_en_el_payload_de_sync(self):
         """

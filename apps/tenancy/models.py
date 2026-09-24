@@ -1,6 +1,8 @@
 import hashlib
+import re
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.db.models.functions import Lower
@@ -8,6 +10,15 @@ from django.utils.text import slugify
 
 
 class Tenant(models.Model):
+    class EstadoProvisioning(models.TextChoices):
+        PENDING = 'PENDING', 'Pendiente'
+        DB_READY = 'DB_READY', 'Base creada'
+        SCHEMA_READY = 'SCHEMA_READY', 'Esquema migrado'
+        TENANT_READY = 'TENANT_READY', 'Datos tenant listos'
+        CONTROL_READY = 'CONTROL_READY', 'Control plane listo'
+        ACTIVE = 'ACTIVE', 'Activo'
+        FAILED = 'FAILED', 'Fallido/reanudable'
+
     tenant_key = models.SlugField(
         max_length=64,
         unique=True,
@@ -16,6 +27,9 @@ class Tenant(models.Model):
     slug = models.SlugField(max_length=120, unique=True)
     nombre = models.CharField(max_length=200)
     rnc = models.CharField(max_length=20, blank=True)
+    rnc_canonico = models.CharField(
+        max_length=9, null=True, blank=True, unique=True, editable=False,
+    )
     db_name = models.CharField(max_length=128, unique=True, blank=True)
     # UNICO: es el namespace de archivos del tenant. Sin unicidad, dos negocios
     # podian tener `media_prefix='shared/'` y resolver exactamente el mismo path
@@ -23,6 +37,15 @@ class Tenant(models.Model):
     media_prefix = models.CharField(max_length=160, unique=True, blank=True)
     plan_slug = models.SlugField(max_length=100, blank=True)
     activo = models.BooleanField(default=True)
+    estado_provisioning = models.CharField(
+        max_length=20,
+        choices=EstadoProvisioning.choices,
+        default=EstadoProvisioning.ACTIVE,
+        db_index=True,
+    )
+    provisioning_error = models.TextField(blank=True)
+    provisioning_intentos = models.PositiveIntegerField(default=0)
+    provisioning_actualizado = models.DateTimeField(default=timezone.now)
     fecha_creacion = models.DateTimeField(default=timezone.now)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
@@ -35,12 +58,13 @@ class Tenant(models.Model):
     # con la conexion vieja, los tokens emitidos dejan de resolver y los blobs
     # quedan en el namespace anterior. Se declaran aca para que el admin los
     # muestre de solo lectura y para documentar la invariante en el modelo.
-    CAMPOS_INMUTABLES = ('tenant_key', 'db_name', 'media_prefix')
+    CAMPOS_INMUTABLES = ('tenant_key', 'slug', 'db_name', 'media_prefix')
 
     def __str__(self):
         return f'{self.nombre} ({self.tenant_key})'
 
     def save(self, *args, **kwargs):
+        using = kwargs.get('using') or self._state.db or 'default'
         if self.tenant_key:
             self.tenant_key = self.tenant_key.lower().replace('-', '_')
         if not self.slug:
@@ -52,7 +76,55 @@ class Tenant(models.Model):
         # entre si en el container compartido.
         if not (self.media_prefix or '').strip(' /'):
             self.media_prefix = f'{self.tenant_key}/'
+
+        if self.pk and not self._state.adding:
+            anterior = type(self).objects.using(using).only(
+                *self.CAMPOS_INMUTABLES,
+            ).get(pk=self.pk)
+            cambios = [
+                campo for campo in self.CAMPOS_INMUTABLES
+                if getattr(anterior, campo) != getattr(self, campo)
+            ]
+            if cambios:
+                raise ValidationError({
+                    campo: 'Identidad de routing inmutable; use una migracion '
+                           'controlada.'
+                    for campo in cambios
+                })
+
+        self.full_clean()
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'rnc' in update_fields:
+            kwargs['update_fields'] = set(update_fields) | {'rnc_canonico'}
         super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        self.nombre = (self.nombre or '').strip()
+        if not self.nombre:
+            raise ValidationError({'nombre': 'El nombre del tenant es obligatorio.'})
+        if not re.fullmatch(r'[a-z0-9_]+', self.tenant_key or ''):
+            raise ValidationError({
+                'tenant_key': 'Use solo minusculas, numeros y underscore.',
+            })
+        if self.db_name != f'tnt_{self.tenant_key}':
+            raise ValidationError({
+                'db_name': 'db_name debe derivarse exactamente de tenant_key.',
+            })
+        if self.media_prefix != f'{self.tenant_key}/':
+            raise ValidationError({
+                'media_prefix': 'media_prefix debe derivarse exactamente de tenant_key.',
+            })
+        raw_rnc = (self.rnc or '').strip()
+        if not raw_rnc:
+            self.rnc = ''
+            self.rnc_canonico = None
+        else:
+            canon = re.sub(r'\D', '', raw_rnc)
+            if len(canon) != 9:
+                raise ValidationError({'rnc': 'El RNC debe tener 9 digitos.'})
+            self.rnc = canon
+            self.rnc_canonico = canon
 
     @classmethod
     def _slug_unico(cls, nombre, *, tenant_key='', exclude_pk=None):

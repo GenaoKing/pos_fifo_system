@@ -8,13 +8,20 @@ La app no tenia cobertura propia (USR-018); este modulo es el arranque.
 from unittest.mock import patch
 
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.db.models import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.negocios.models import Negocio
+from apps.configuracion.models import ConfiguracionNegocio
+from apps.permisos.models import Rol
+from apps.sucursales.models import Sucursal
+from apps.auditoria.models import Auditoria
+from apps.usuarios.services import provisionar_usuario
 from apps.usuarios.throttling import limite_login
+from apps.usuarios.middleware import SESSION_INICIO_ABSOLUTO
 
 User = get_user_model()
 
@@ -22,6 +29,7 @@ User = get_user_model()
 class UsuariosTestCase(TestCase):
     def setUp(self):
         cache.clear()
+        ConfiguracionNegocio.objects.create(nombre_negocio='Usuarios Test')
         self.negocio = Negocio.objects.create(nombre='Negocio USR', slug='negocio-usr')
 
     def tearDown(self):
@@ -81,7 +89,7 @@ class DesactivacionRevocaTests(UsuariosTestCase):
 
     def test_un_staff_desactivado_no_abre_el_admin(self):
         usuario = self._usuario(
-            'staff_off', rol='ADMIN', is_staff=True, is_superuser=True,
+            'staff_off', rol='SYSADMIN', is_staff=True, is_superuser=True,
         )
         self.client.force_login(usuario)
         self.assertEqual(self.client.get('/admin/').status_code, 200)
@@ -203,6 +211,49 @@ class RedireccionDeLoginTests(UsuariosTestCase):
 
         self.assertEqual(respuesta['Location'], '/caja/')
 
+    def test_usuario_ya_autenticado_usa_el_mismo_home_por_rol(self):
+        self.client.logout()
+        cajera = self._usuario('cajera_home', rol='CAJERA')
+        self.client.force_login(cajera)
+
+        respuesta = self.client.get(reverse('usuarios:login'))
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(respuesta['Location'], reverse('pos:punto_venta'))
+
+    def test_login_local_unifica_last_login_y_ultimo_acceso(self):
+        self._login('/caja/')
+        usuario = User.objects.get(username='viajero')
+
+        self.assertIsNotNone(usuario.last_login)
+        self.assertEqual(usuario.ultimo_acceso, usuario.last_login)
+
+
+class SesionAbsolutaTests(UsuariosTestCase):
+    """USR-017: actividad continua no extiende la jornada mas de 12 horas."""
+
+    @override_settings(SESSION_ABSOLUTE_MAX_AGE=12 * 60 * 60)
+    def test_actividad_continua_no_supera_el_maximo_absoluto(self):
+        usuario = self._usuario('jornada', rol='ADMIN')
+        self.client.force_login(usuario)
+        session = self.client.session
+        session[SESSION_INICIO_ABSOLUTO] = 1_000.0
+        session.save()
+
+        with patch('apps.usuarios.middleware.time.time', return_value=44_201.0):
+            respuesta = self.client.get(reverse('pos:punto_venta'))
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_styleguide_exige_staff_aun_en_debug(self):
+        usuario = self._usuario('sin_styleguide', rol='CAJERA')
+        self.client.force_login(usuario)
+
+        respuesta = self.client.get('/styleguide/')
+
+        self.assertEqual(respuesta.status_code, 302)
+
 
 class FrenoDeFuerzaBrutaTests(UsuariosTestCase):
     """USR-006: el login local tiene limite."""
@@ -269,6 +320,59 @@ class FrenoDeFuerzaBrutaTests(UsuariosTestCase):
         self.assertEqual(inexistente.status_code, 429)
 
 
+class LoginSinConfiguracionTests(TestCase):
+    """CFG-012: los renders de error del login no materializan ni exigen config."""
+
+    def setUp(self):
+        cache.clear()
+        self.negocio = Negocio.objects.create(
+            nombre='Negocio USR sin configuracion', slug='negocio-usr-sin-config',
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _usuario(self, username, rol='CAJERA', **extra):
+        return User.objects.create_user(
+            username=username, email=f'{username}@test.local',
+            password='Prueba123', rol=rol, negocio=self.negocio, **extra,
+        )
+
+    def test_bloqueado_sin_configuracion_no_da_500_ni_crea_fila(self):
+        self._usuario('limite_sin_config', rol='ADMIN')
+
+        for _ in range(limite_login.rafaga_max):
+            respuesta = self.client.post(reverse('usuarios:login'), {
+                'username': 'limite_sin_config', 'password': 'incorrecta',
+            })
+            self.assertEqual(respuesta.status_code, 200)
+
+        respuesta = self.client.post(reverse('usuarios:login'), {
+            'username': 'limite_sin_config', 'password': 'incorrecta',
+        })
+
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+    def test_usuario_inactivo_sin_configuracion_no_da_500_ni_crea_fila(self):
+        usuario = self._usuario('inactivo_sin_config', rol='ADMIN')
+        usuario.activo = False
+        usuario.save(update_fields=['activo'])
+
+        # El backend normal rechaza inactivos antes de que la vista llegue a
+        # su rama defensiva. Se fuerza un formulario valido para cubrir ese
+        # render sin volver a abrir la autenticacion de cuentas inactivas.
+        with patch(
+            'django.contrib.auth.forms.authenticate', return_value=usuario,
+        ), patch.object(AuthenticationForm, 'confirm_login_allowed', return_value=None):
+            respuesta = self.client.post(reverse('usuarios:login'), {
+                'username': 'inactivo_sin_config', 'password': 'Prueba123',
+            })
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(ConfiguracionNegocio.objects.count(), 0)
+
+
 class NegocioNoSeVuelveNuloTests(UsuariosTestCase):
     """USR-003: borrar un negocio no convierte a sus usuarios en globales."""
 
@@ -311,6 +415,7 @@ class NegocioNoSeVuelveNuloTests(UsuariosTestCase):
 
         self.assertIn('negocio', campos_edicion)
         self.assertIn('negocio', campos_alta)
+        self.assertFalse(instancia.has_add_permission(None))
 
 
 class PuertaDeAdminTests(UsuariosTestCase):
@@ -318,7 +423,7 @@ class PuertaDeAdminTests(UsuariosTestCase):
 
     def test_sin_tenancy_admin_sigue_siendo_del_instalador(self):
         usuario = self._usuario(
-            'soporte_local', rol='ADMIN', is_staff=True, is_superuser=True,
+            'soporte_local', rol='SYSADMIN', is_staff=True, is_superuser=True,
         )
         self.client.force_login(usuario)
 
@@ -328,7 +433,7 @@ class PuertaDeAdminTests(UsuariosTestCase):
         from apps.usuarios.admin_site import _tiene_identidad_global
 
         usuario = self._usuario(
-            'staff_sin_identidad', rol='ADMIN', is_staff=True, is_superuser=True,
+            'staff_sin_identidad', rol='SYSADMIN', is_staff=True, is_superuser=True,
         )
 
         self.assertFalse(_tiene_identidad_global(usuario))
@@ -394,3 +499,125 @@ class ManagerDeUsuariosTests(UsuariosTestCase):
         self.assertNotIn("email=''", texto)
         # Y comprueba el codigo de salida en vez de seguir de largo.
         self.assertIn('errorlevel 1', texto)
+
+    def test_payload_de_identidad_invalido_falla_en_el_manager(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            User.objects.create_user(
+                username='rol_invalido', email='no-es-email', password='x',
+                rol='OWNER', negocio=self.negocio,
+            )
+
+    def test_alta_humana_aplica_validadores_de_password(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            User.objects.create_human_user(
+                username='humano', email='humano@example.com', password='1',
+                rol='CAJERA', negocio=self.negocio,
+            )
+
+    def test_username_y_email_son_case_insensitive(self):
+        from django.core.exceptions import ValidationError
+
+        User.objects.create_user(
+            username='CaseUser', email='Case@Example.com', password='x',
+            negocio=self.negocio,
+        )
+        with self.assertRaises(ValidationError):
+            User.objects.create_user(
+                username='CASEUSER', email='otra@example.com', password='x',
+                negocio=self.negocio,
+            )
+        self.assertIsNotNone(authenticate(username='CASEUSER', password='x'))
+
+    def test_superuser_es_global_y_sysadmin_explicito(self):
+        usuario = User.objects.create_superuser(
+            username='root_explicito', email='root@example.com', password='x',
+        )
+
+        self.assertEqual(usuario.rol, 'SYSADMIN')
+        self.assertIsNone(usuario.negocio_id)
+
+    def test_create_user_legacy_canoniza_privilegio_django_a_sysadmin(self):
+        usuario = User.objects.create_user(
+            username='root_legacy', email='root-legacy@example.com', password='x',
+            rol='CAJERA', is_staff=True, is_superuser=True,
+        )
+
+        self.assertEqual(usuario.rol, 'SYSADMIN')
+
+
+class ProvisioningAutoritativoTests(UsuariosTestCase):
+    """USR-007/010/013: alta usable, acotada y auditada."""
+
+    def setUp(self):
+        super().setUp()
+        self.actor = self._usuario('admin_provision', rol='ADMIN')
+        self.sucursal = Sucursal.objects.create(
+            negocio=self.negocio, codigo='USR-01', nombre='Principal', activa=True,
+        )
+        self.rol = Rol.objects.create(
+            negocio=self.negocio, nombre='Caja', slug='caja', activo=True,
+        )
+
+    def test_crea_usuario_asignacion_y_evento_en_la_misma_bd(self):
+        usuario, asignacion = provisionar_usuario(
+            actor=self.actor,
+            negocio=self.negocio,
+            username='Nueva.Cajera',
+            email='Nueva.Cajera@Example.com',
+            password='Una-Clave-Segura-2026!',
+            rol=self.rol,
+            sucursal=self.sucursal,
+            canal=Auditoria.Canal.POS_LOCAL,
+            using='default',
+        )
+
+        self.assertEqual(usuario.username, 'nueva.cajera')
+        self.assertEqual(asignacion.usuario_id, usuario.pk)
+        evento = Auditoria.objects.get(accion='usuarios.usuario.provisionado')
+        self.assertEqual(evento.entity_ref is not None, True)
+        self.assertEqual(
+            evento.metadata['credential_policy'],
+            'LOCAL_POS_SEPARATE_FROM_PORTAL',
+        )
+        self.assertNotIn('Una-Clave', str(evento.datos_nuevos))
+
+    def test_rollback_de_auditoria_no_deja_primer_usuario_huerfano(self):
+        with patch(
+            'apps.usuarios.services.registrar_mutacion',
+            side_effect=RuntimeError('sink'),
+        ), self.assertRaises(RuntimeError):
+            provisionar_usuario(
+                actor=self.actor,
+                negocio=self.negocio,
+                username='rollback',
+                email='rollback@example.com',
+                password='Una-Clave-Segura-2026!',
+                rol=self.rol,
+                sucursal=self.sucursal,
+                canal=Auditoria.Canal.POS_LOCAL,
+                using='default',
+            )
+
+        self.assertFalse(User.objects.filter(username='rollback').exists())
+
+    def test_actor_sin_permiso_no_puede_provisionar(self):
+        actor = self._usuario('sin_permiso', rol='CAJERA')
+
+        with self.assertRaisesMessage(ValueError, 'permisos.administrar'):
+            provisionar_usuario(
+                actor=actor,
+                negocio=self.negocio,
+                username='no-autorizado',
+                email='no-autorizado@example.com',
+                password='Una-Clave-Segura-2026!',
+                rol=self.rol,
+                sucursal=self.sucursal,
+                canal=Auditoria.Canal.COMMAND,
+                using='default',
+            )
+
+        self.assertFalse(User.objects.filter(username='no-autorizado').exists())

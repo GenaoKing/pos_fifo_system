@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from apps.auditoria.models import get_client_ip
+from apps.configuracion.decorators import requiere_modulo, requiere_modulo_json
 from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
 from apps.clientes.models import Cliente
 from apps.ventas.services import ErrorVentaBase
@@ -142,6 +143,7 @@ def obtener_cuenta_en_alcance(request, cuenta_id):
 
 
 @login_required
+@requiere_modulo('cuentas_por_cobrar')
 @requiere_permiso_local('cuentas_por_cobrar.ver')
 def lista_cuentas(request):
     estado = request.GET.get('estado') or ''
@@ -204,6 +206,7 @@ def lista_cuentas(request):
 
 
 @login_required
+@requiere_modulo('cuentas_por_cobrar')
 @requiere_permiso_local('cuentas_por_cobrar.ver')
 def estado_cuenta_cliente(request, cliente_id):
     cliente = get_object_or_404(Cliente, id=cliente_id)
@@ -236,6 +239,7 @@ def _cuentas_cliente_export(cliente):
 
 
 @login_required
+@requiere_modulo('cuentas_por_cobrar')
 @requiere_permiso_local('cuentas_por_cobrar.ver')
 @require_http_methods(['GET'])
 def estado_cuenta_cliente_pdf(request, cliente_id):
@@ -254,6 +258,7 @@ def estado_cuenta_cliente_pdf(request, cliente_id):
 
 
 @login_required
+@requiere_modulo('cuentas_por_cobrar')
 @requiere_permiso_local('cuentas_por_cobrar.ver')
 @require_http_methods(['GET'])
 def estado_cuenta_cliente_excel(request, cliente_id):
@@ -275,6 +280,7 @@ def estado_cuenta_cliente_excel(request, cliente_id):
 
 
 @login_required
+@requiere_modulo_json('cuentas_por_cobrar')
 @requiere_permiso_json('cuentas_por_cobrar.ver')
 @require_http_methods(['GET'])
 def api_metodos_credito(request):
@@ -305,6 +311,7 @@ def api_metodos_credito(request):
 
 
 @login_required
+@requiere_modulo_json('cuentas_por_cobrar')
 @requiere_permiso_json('cuentas_por_cobrar.ver')
 @require_http_methods(['GET'])
 def api_resumen_cliente(request, cliente_id):
@@ -323,6 +330,7 @@ def api_resumen_cliente(request, cliente_id):
 
 
 @login_required
+@requiere_modulo_json('cuentas_por_cobrar')
 @requiere_permiso_json('cuentas_por_cobrar.cobrar')
 @require_http_methods(['POST'])
 def api_registrar_pago(request):
@@ -412,6 +420,7 @@ def api_registrar_pago(request):
 
 
 @login_required
+@requiere_modulo_json('cuentas_por_cobrar')
 @requiere_permiso_json('cuentas_por_cobrar.anular_pago')
 @require_http_methods(['POST'])
 def api_anular_pago(request, pago_id):
@@ -457,6 +466,7 @@ def api_anular_pago(request, pago_id):
 
 
 @login_required
+@requiere_modulo_json('cuentas_por_cobrar')
 @requiere_permiso_json('cuentas_por_cobrar.ver')
 @require_http_methods(['POST'])
 def api_imprimir_recibo(request, pago_id):

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cuentas_por_cobrar.models import MetodoPlazoCredito
 from apps.inventario.models import Compra, DetalleCompra
 from apps.productos.models import Categoria, Producto
@@ -30,6 +31,11 @@ class ExportEstadoCuentaTests(TestCase):
         )
         # La venta exige `ventas.crear` server-side (RBAC del catalogo).
         habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         categoria = Categoria.objects.create(nombre='Export Test')
         self.producto = Producto.objects.create(
             sku='EXP-PROD-001',

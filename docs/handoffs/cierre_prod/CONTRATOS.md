@@ -1,0 +1,563 @@
+# Registro de contratos del cierre de producción
+
+Propietario: **A / Codex**. Última actualización: **2026-09-18**.
+
+Este archivo es la única fuente para nombres y semántica compartidos. Un
+contrato publicado no afirma que el backend ya lo implemente: la columna
+`Implementación` lo distingue. Cambiar semántica exige nueva revisión y repetir
+las pruebas consumidoras.
+
+## Registro
+
+| Contrato | Revisión | Productor | Consumidores | Interfaz | Implementación | Commit |
+| --- | --- | --- | --- | --- | --- | --- |
+| CT-01 auditoría/identidad | `audit.event.v1` | A02 | C01-C05 y dominios A | **PUBLICADA** | **IMPLEMENTADA / A02 CERRADO** | `cd8a3b4`, `583863f`, `f0a255c`, `bb7f774` |
+| CT-02 permisos/capacidades | `rbac.capabilities.v1` + `rbac.sync.v2` | A03 | C02-C05/POS/frontend | **PUBLICADA** | **PRODUCTOR A03 + CONSUMIDORES C05 INTEGRADOS/VALIDADOS** | `3e6cec1`, `60c6dbc`, árbol `9ff61c2` |
+| CT-03 configuración efectiva | `capacidades.efectivas.v1` + pull legacy `modulo_*` | C03; A integra sync | A01/A04 y C | **PUBLICADA_LOCAL** | SUS-007/CFG-007 integrados, validados y aceptados localmente; A07 revalidó backend | `dfb1dfc`, `1019500`, `6c74d16`, `1357cd7` |
+| CT-04 maestros offline | `master.offline.v1` | A05.4; A06 completa lecturas/decisiones | C04/C05 | **PUBLICADA_LOCAL** | Transporte, listado, resolución, retorno y C04 p6 a volumen integrados y aceptados localmente | `7e5535d` + A05.4 + A06 + `f0e6c2d` |
+| C04 p5.2 administración portal | rutas REST tenant-scoped | A / Codex | C04 frontend | **INTEGRADA_LOCAL** | Usuarios, sucursales y configuración operativa consumidos por React; baja de Membership y CT-01 acreditadas localmente. Falta E2E de navegador/JWT frontend. | Backend `5790ec2`; frontend `26e9bac` |
+| CT-05 artefacto/actualización | por cerrar | A01/A08 + C01/C06 | ambos | EN_CURSO | PENDIENTE | — |
+
+Las interfaces CT-01/02 se publicaron temprano para permitir trabajo paralelo.
+**Ninguna integración consumidora se considera terminada hasta consumir el
+commit de implementación de A02/A03 y repetir sus tests.**
+
+## CT-01 — auditoría e identidad (`audit.event.v1`)
+
+### Invariantes
+
+- Un evento exitoso y la mutación que describe se escriben en la **misma BD y
+  transacción**. `using` nunca cae implícitamente a `default` bajo tenancy.
+- Actor, tenant, sucursal, canal y objeto se congelan como identidad histórica.
+  Los textos de presentación son snapshots; no son claves.
+- Bajo impersonación, `actor.ref` identifica al usuario operativo del tenant y
+  `actor.impersonator_ref` identifica por separado a la `Identity` global.
+- `before`/`after` representan estados del dominio, no el objeto ya mutado en
+  ambos lados. `result` es `SUCCEEDED`, `DENIED` o `FAILED`.
+- Contraseñas, hashes de contraseña, tokens, cookies, claves, secretos,
+  `Authorization`, datos VAPID y credenciales de BD se redactan recursivamente
+  antes de persistir. Un productor no puede desactivar la redacción.
+- La correlación es propagable entre request, mutación, outbox y receptor sync.
+  Una clave idempotente no reemplaza al `event_id` del registro de auditoría.
+- Un fallo al auditar una mutación exitosa revierte esa mutación. Excepciones:
+  intentos rechazados/fallidos se registran después del rollback y el logout
+  invalida primero la sesión; si su log falla, la sesión continúa cerrada.
+- La retención consultable local mínima es 90 días. No hay purga ni WORM nuevo
+  en este release y no se promete detectar el borrado externo de la última fila.
+
+### Interfaz Python reservada
+
+El productor usará `apps.auditoria.services.registrar_mutacion`:
+
+```python
+registrar_mutacion(
+    *, accion, actor, entidad, antes, despues, resultado,
+    canal, tenant=None, sucursal=None, correlacion_id=None,
+    idempotencia_key=None, metadata=None, error=None, using,
+) -> Auditoria
+```
+
+Los códigos nuevos de `accion` usan tres o más segmentos en minúscula
+(`dominio.recurso.operacion`) y caracteres `[a-z0-9_]`; por ejemplo,
+`configuracion.sucursal.actualizada`. El productor conserva el código después
+de publicarlo. Los valores mayúsculos de `Auditoria.TipoAccion` son solo
+compatibilidad legacy y no se usan en productores CT-01 nuevos.
+
+`using` es obligatorio. Para una entidad persistida debe coincidir con
+`entidad._state.db`; para eventos de control-plane debe ser `default`. A02 puede
+añadir parámetros opcionales, pero no cambiar estos nombres en v1.
+
+El adaptador histórico `Auditoria.registrar(...)` se conserva durante la
+migración de productores. No es el contrato para código nuevo de C; no garantiza
+por sí solo canal, identidad estable, correlación o transacción correcta.
+
+### Productores de dominio C05 p6
+
+Integrados localmente en `claude/cierre-prod-C05-p6-auditoria-ct01@bbb5246`
+por `integration/cierre-prod-A06-C04-C05`. Todos persisten sin transformacion
+adicional el schema `audit.event.v1`; no sustituyen los `EventoSync` de dominio.
+
+| Accion CT-01 | Productor |
+| --- | --- |
+| `ventas.venta.creada` | `procesar_venta_service` |
+| `ventas.venta.anulada` | `anular_venta_service` |
+| `ventas.descuento.autorizado` | `_consumir_autorizacion_descuento` |
+| `inventario.ajuste.creado` | `registrar_ajuste_service` |
+| `cuentas_por_cobrar.cuenta.creada` | `crear_cuenta_para_venta` |
+| `cuentas_por_cobrar.credito.override_autorizado` | `crear_cuenta_para_venta` |
+| `cuentas_por_cobrar.abono.registrado` | `registrar_pago_cxc_service` |
+| `cuentas_por_cobrar.abono.anulado` | `anular_pago_cxc_service` |
+| `cuentas_por_cobrar.cuenta.anulada` | `anular_cuenta_por_venta` |
+| `cuentas_por_cobrar.plazo.reprogramado` | `reprogramar_cxc_por_plazo_cliente` |
+| `cotizaciones.cotizacion.creada` | `guardar_cotizacion` |
+| `cotizaciones.cotizacion.convertida` | `marcar_convertida` |
+
+`correlacion_id` conserva solo UUIDs; la clave idempotente opaca se registra en
+`idempotencia_key`. Esto evita que una clave de venta valida pero no UUID revierta
+el hecho al intentar registrar su auditoria.
+
+### Esquema transportable
+
+```json
+{
+  "schema_version": "audit.event.v1",
+  "event_id": "uuid",
+  "occurred_at": "RFC3339 con offset",
+  "recorded_at": "RFC3339 con offset",
+  "actor": {
+    "ref": "identidad opaca e inmutable",
+    "kind": "USER|SERVICE|SYSTEM",
+    "username_snapshot": "texto",
+    "display_snapshot": "texto",
+    "impersonator_ref": null
+  },
+  "tenant": {"key": "tenant estable"},
+  "branch": {"ref": "identidad opaca", "code_snapshot": "01"},
+  "channel": "POS_LOCAL|PORTAL_API|SYNC|COMMAND|SYSTEM",
+  "action": "codigo estable",
+  "entity": {
+    "type": "app.Model",
+    "ref": "identidad opaca e inmutable",
+    "display_snapshot": "texto"
+  },
+  "before": {},
+  "after": {},
+  "result": "SUCCEEDED|DENIED|FAILED",
+  "correlation": {
+    "correlation_id": "uuid o null",
+    "idempotency_key": "texto o null"
+  },
+  "metadata": {},
+  "error": {"code": "estable", "message": "redactado"}
+}
+```
+
+`tenant`/`branch` pueden ser `null` solo cuando el evento genuinamente pertenece
+al control plane o al sistema. “No pude resolverlos” es error de contexto, no
+permiso para guardar un evento sin scope.
+
+Fixture canónico:
+[`fixtures/ct01_audit_event_v1.json`](fixtures/ct01_audit_event_v1.json).
+
+### Errores y compatibilidad
+
+| Código | Condición | Efecto |
+| --- | --- | --- |
+| `AUDIT_CONTEXT_INVALID` | Falta/mismatch de BD, tenant, sucursal o entidad. | La mutación exitosa se revierte. |
+| `AUDIT_IDENTITY_UNRESOLVED` | Actor/objeto no tiene identidad estable cuando es obligatoria. | La mutación se revierte; el caller no inventa una PK global. |
+| `AUDIT_REDACTION_FAILED` | No se puede producir payload seguro. | No se persiste material sensible; la mutación se revierte salvo logout. |
+| `AUDIT_WRITE_FAILED` | Falló la escritura de auditoría. | Misma política transaccional; señal sanitizada. |
+
+Los lectores antiguos continúan viendo columnas históricas (`accion`,
+`descripcion`, `datos_anteriores`, `datos_nuevos`, `exito`, actor snapshot). La
+migración A02 rellena solo datos derivables sin inventar tenant/sucursal/actor.
+
+### Aceptación mínima
+
+- Rollback del dominio también revierte auditoría y viceversa, en `default` y
+  una BD tenant real.
+- Dos tenants con PK iguales producen `actor.ref`/`entity.ref` distintos.
+- Renombrar o borrar el objeto no cambia su identidad/snapshot histórico.
+- Redacción adversarial en diccionarios/listas anidados y excepciones.
+- Logout cierra sesión aunque el writer falle.
+- Consulta scoped de 90 días usa índices y no cruza sucursales/tenants.
+
+Implementación y pruebas focales publicadas en
+[`A02-CT01-temprano.md`](A02-CT01-temprano.md). La prueba PostgreSQL con dos BDs
+tenant físicas se entrega con TEN-016 al cierre de A02.
+
+## CT-02 — permisos y capacidades
+
+CT-02 separa tres conceptos: catálogo de códigos, presets de roles y decisión
+efectiva. El frontend refleja la decisión; el servidor siempre vuelve a
+autorizar la acción.
+
+### Interfaz server-side estable
+
+```python
+usuario.tiene_permiso(codigo, sucursal=<Sucursal>) -> bool
+permisos_de_usuario(usuario, sucursal=<Sucursal>|None|TODAS) -> set[str]
+```
+
+- `sucursal=None` significa **solo asignaciones globales**.
+- `TODAS` sirve únicamente para construir menús/resúmenes (“puede en algún
+  lugar”); no se usa para autorizar una mutación concreta.
+- Código fuera de `apps.permisos.catalogo` siempre deniega.
+- Una ruta protegida declara un código de catálogo; ocultar el botón no es
+  enforcement. DRF usa `requiere_permiso`, HTML/JSON los decoradores comunes.
+- Módulo/entitlement y permiso son gates ortogonales: ambos deben aprobar.
+- Presets de sistema son versionados; seed repetido no pisa rol custom ni
+  revive asignaciones revocadas.
+
+### Payload de capacidades para portal/POS
+
+`/api/v1/auth/perfil/` y el login conservan los campos actuales `permisos` y
+`modulos`, y añaden el envelope:
+
+```json
+{
+  "rbac": {
+    "schema_version": "rbac.capabilities.v1",
+    "subject_ref": "identidad opaca",
+    "tenant_key": "demo",
+    "scope": {"branch_code": null, "kind": "ANY_FOR_DISPLAY"},
+    "catalog_revision": 1,
+    "assignments_revision": 17,
+    "permissions": ["productos.ver"],
+    "modules": ["inventario"]
+  }
+}
+```
+
+La lista del perfil es pista de navegación. Antes de confirmar una operación,
+el endpoint reevalúa permiso, módulo, tenant, sucursal, usuario/rol activos y
+revisión relevante.
+
+Fixture canónico:
+[`fixtures/ct02_capabilities_v1.json`](fixtures/ct02_capabilities_v1.json).
+
+### Contrato de revocación cloud → POS (`rbac.sync.v2`)
+
+Se mantienen `/api/v1/sync/roles/` y `/api/v1/sync/asignaciones/`. El POS nuevo
+solicita `X-RBAC-Schema: rbac.sync.v2` con `snapshot=full`. Sin ese header, el
+servidor conserva la lista legacy; un POS nuevo también acepta una lista de un
+cloud anterior. V2 es aditivo sobre `slug`, `usuario_username`, `rol_slug`,
+`sucursal_codigo`, `activo`, `fecha_modificacion` y `cursor_id`.
+
+Respuesta de roles:
+
+```json
+{
+  "schema_version": "rbac.sync.v2",
+  "snapshot_complete": true,
+  "tenant_key": "demo",
+  "revision": 17,
+  "roles": [{
+    "cloud_id": "uuid", "revision": 4, "slug": "cajero",
+    "active": false, "permission_codes": [], "deleted_at": "RFC3339"
+  }]
+}
+```
+
+Respuesta de asignaciones para el token de sucursal:
+
+```json
+{
+  "schema_version": "rbac.sync.v2",
+  "snapshot_complete": true,
+  "tenant_key": "demo",
+  "scope": {"branch_ref": "uuid", "branch_code": "01"},
+  "revision": 21,
+  "assignments": [{
+    "cloud_id": "uuid", "revision": 9,
+    "user_ref": "uuid", "usuario_username": "ana",
+    "role_cloud_id": "uuid", "rol_slug": "cajero",
+    "branch_ref": "uuid", "sucursal_codigo": "01",
+    "active": false, "deleted_at": "RFC3339"
+  }]
+}
+```
+
+Reglas obligatorias:
+
+1. `cloud_id` es inmutable. Cambiar usuario/rol/sucursal equivale a revocar la
+   asignación anterior y crear otra dentro de una transacción.
+2. Borrar es baja lógica versionada. Reactivar un rol no reactiva asignaciones.
+3. El POS aplica `active=false` **antes** de validar permisos nuevos desconocidos;
+   una revocación nunca queda diferida por una capacidad que el POS viejo ignora.
+4. Un tombstone compatible no necesita códigos nuevos. Las claves legacy se
+   conservan hasta retirar la flota vieja.
+5. Ausencia solo revoca cuando `snapshot_complete=true`, la respuesta terminó
+   correctamente y pertenece al mismo tenant/sucursal. Una página parcial,
+   error o filtro incremental no es snapshot.
+6. Revisiones son monotónicas por entidad. Replay de revisión igual es
+   idempotente; una revisión menor se ignora y queda diagnosticada.
+7. El catálogo puede contener códigos desconocidos para un POS antiguo, pero
+   nunca debe bloquear bajas de rol/asignación ni el avance de otros recursos.
+8. Antes de aplicar o reconciliar, el POS compara `tenant_key` con el contexto
+   técnico activo (fallback `Negocio.slug` en row-level) y, para asignaciones,
+   exige el mismo `scope.branch_code` de la instalación.
+
+La negociación quedó implementada de forma aditiva en A03. No se retira ninguna
+clave legacy ni `_pull_legacy` durante esta transición.
+
+### Errores HTTP
+
+| HTTP / código | Uso |
+| --- | --- |
+| `401 authentication_required` | Falta/expiró identidad. |
+| `403 permission_denied` | Identidad válida sin permiso/módulo/scope; incluir `required` y `scope`, no datos sensibles. |
+| `409 rbac_revision_conflict` | Cliente intenta escribir/resolver contra revisión obsoleta. |
+| `400 unknown_permission_code` | Mutación administrativa trae un código fuera del catálogo. |
+
+### Aceptación mínima
+
+- Matriz acción × tenant × sucursal × global/custom/system role.
+- Mover, borrar y reactivar rol/asignación; revocación gana ante duplicados.
+- Cloud nuevo contra POS viejo y POS nuevo contra cloud viejo.
+- Permiso nuevo desconocido no bloquea `active=false` ni el cursor completo.
+- Snapshot parcial/fallido no revoca ausentes.
+- Seed repetido preserva customizaciones y revocaciones.
+- Remover bypass `ADMIN` solo después de preflight que evita lockout.
+
+## Extensión A04 — transporte financiero durable
+
+Implementación productora/consumidora: `be15ea0`. Es una extensión aditiva del
+batch existente de eventos; no crea CT-04 ni adelanta la cola de maestros A05.
+
+### Push y ACK compatibles
+
+- Cada elemento puede agregar `event_id` UUID. Es obligatorio en un POS A04 y
+  opcional para un POS legacy. El cloud nuevo sigue aceptando elementos sin él.
+- Las reservas únicas son `(sucursal, event_id)` y
+  `(sucursal, hash_payload)`; el tenant ya está determinado por el alias de BD.
+  Misma identidad/hash solo es `DUPLICADO` si tipo, hash y payload coinciden.
+- `detalle[]` refleja `event_id` cuando vino en la solicitud y conserva `hash`.
+  `CONFIRMADO`/`DUPLICADO` son terminales; `ERROR` siempre se reintenta. Los
+  códigos nuevos son `EVENT_SCOPE_MISMATCH` y `EVENT_IDENTITY_CONFLICT`.
+- Un POS A04 tolera un ACK legacy sin `event_id` mediante el hash scopeado. Un
+  cloud A04 tolera un POS legacy sin `event_id`; le asigna identidad interna.
+
+El POS persiste `EN_VUELO`, `lease_id` y `lease_expires_at` antes del HTTP. Solo
+el dueño del lease puede aplicar el ACK. El valor default es 300 segundos y se
+configura con `SYNC_LEASE_SECONDS`; leases vencidos se reclaman sin descartar el
+evento ni cambiar su identidad.
+
+### Pull diferido
+
+`DiferidoSync` guarda tenant técnico, sucursal, tabla, cursor, identidad legible,
+hash y payload. Un cursor solo atraviesa el elemento tras aplicar o confirmar
+esa escritura local. Los pendientes se reintentan dentro de la misma
+transacción que cambia `PENDIENTE` a `RESUELTO`; cualquier crash revierte el
+efecto y conserva la fila. Un ciclo con pendientes es `PARCIAL`.
+
+### Sonda `sync.reconciliation.v1`
+
+`POST /api/v1/sync/reconciliacion-eventos/` requiere token de sucursal y no
+escribe. Solicitud:
+
+```json
+{
+  "schema_version": "sync.reconciliation.v1",
+  "eventos": [{
+    "event_id": "uuid",
+    "tipo_evento": "VENTA_CREADA",
+    "payload": {},
+    "hash_payload": "sha256",
+    "objeto_referencia": "SD-001-V20260911-0001"
+  }]
+}
+```
+
+La respuesta fija `scope.tenant_key`, `scope.branch_code`, `scope.branch_ref` y
+clasifica cada fila como `DUPLICADO_REAL`, `DIVERGENCIA_CONTENIDO`,
+`HECHO_SIN_EVENTO_CLOUD`, `FALSO_ACK`, `NO_VERIFICABLE` o `AMBITO_INVALIDO`.
+Solo `FALSO_ACK` y `HECHO_SIN_EVENTO_CLOUD` proponen reenvío dirigido.
+
+`reparar_bug_k` es dry-run por defecto. Una escritura exige simultáneamente
+`--ejecutar`, un archivo `sync.bug_k.repair_plan.v1` revisado y su digest con
+`--confirmar-plan`; revalida cloud y precondiciones locales, guarda antes/después
+y rechaza repetir el mismo plan. A04 no autoriza ejecutar esos flags en clientes.
+
+## CT-03 — configuración y capacidades efectivas (`capacidades.efectivas.v1`)
+
+El fixture canónico es
+`docs/handoffs/cierre_prod/fixtures/C03-ct03_capacidades_efectivas_v1.json` y
+la prueba consumidora es `apps.suscripciones.tests.test_ct03_contrato`. Fijan
+plan, overrides de negocio/sucursal, cierre de dependencias y módulos core. Una
+modificación semántica exige una revisión nueva del fixture y su prueba.
+
+Restricciones ya fijadas por A00/A01:
+
+- variables de proceso > archivo indicado por `POS_ENV_FILE` > defaults;
+- `load_dotenv(..., override=False, encoding="utf-8")`;
+- C01 registra `POS_ENV_FILE` como ruta absoluta; comillas exteriores se
+  normalizan antes de resolverla;
+- si `POS_ENV_FILE` está declarada vacía, relativa, ausente, no apunta a un
+  archivo o no puede leerse como UTF-8, el arranque falla con
+  `ImproperlyConfigured` y la ruta/variable exacta, nunca con fallback oculto;
+- si `POS_ENV_FILE` no está declarada, `deploy/env_cliente.env` conserva
+  compatibilidad como default opcional; su ausencia devuelve `None`;
+- el cargador devuelve el `Path` absoluto efectivamente leído o `None`, no
+  registra valores ni secretos;
+- BD como verdad dinámica y memo solo por request, sin Redis;
+- leer no crea configuración (CFG-012 ya es lectura pura en este candidato);
+- Codex conserva `config/**`, routers/settings y `apps/sync`.
+
+**Implementación local CT03-SYNC (`1019500`, base `dfb1dfc`; aún sin
+integrar).** El endpoint conserva la lista y los mismos campos legacy
+`modulo_*`, pero cuando la sucursal tiene negocio calcula sus valores con
+`apps.suscripciones.engine`; una instalación sin negocio conserva los flags
+crudos para no cambiar su compatibilidad histórica. La marca
+`fecha_modificacion` pasa a ser la revisión efectiva del singleton: toma la
+configuración y las marcas de suscripción/plan/overrides, más el evento CT-01
+de las mutaciones oficiales de plan y override de negocio. Así un pull
+incremental existente vuelve a recibir la fila sin schema ni evento nuevos.
+
+CFG-007 valida la allowlist entrante con tipos DRF y `full_clean()` sobre una
+copia antes de guardar. Un payload inválido no deja estado parcial ni se
+persiste como diferido: bloquea el cursor hasta que cloud responda una revisión
+válida. Los payloads parciales de clouds anteriores y los campos no permitidos
+mantienen la conducta compatible previa.
+
+**Límite explícito.** Crear un `SucursalModuloOverride` mueve la revisión por
+su fecha de creación y el pull ya refleja su valor efectivo. La edición o baja
+directa desde Admin/ORM de ese override no emite actualmente CT-01 ni deja una
+marca durable equivalente; no es un mutador de sync soportado. Antes de
+exponerlo como operación cloud hay que hacerlo auditable o publicar una
+revisión aditiva del cursor. Los cambios oficiales de plan y `NegocioModulo`
+sí están cubiertos por CT-01 y por esta implementación.
+
+## C04 p5.2 — administración portal tenant-scoped
+
+**Estado:** backend integrado localmente en
+`integration/cierre-prod-A06-C04-C05@4fd5c46` y consumidor React fusionado en
+`integration/cierre-prod-C04-admin@26e9bac`. La integración frontend repitió
+lint, build y 132 tests; el smoke de contrato real previo fue sesión+CSRF, por
+lo que siguen pendientes E2E de navegador y JWT tenant-aware desde el cliente.
+No mueve `develop`, no se publicó ni se desplegó.
+
+| Recurso | Interfaz | RBAC y límites |
+| --- | --- | --- |
+| Usuarios | `GET/POST /api/v1/administracion/usuarios/`, `GET/PATCH/DELETE /{id}/` | `permisos.administrar` global. Alta asigna rol inicial; PATCH deja inmutables username/email/password. DELETE y `activo=false` son baja lógica e idempotente. Con tenancy activa revocan la Membership del tenant además del Usuario. |
+| Sucursales | `GET/POST /api/v1/administracion/sucursales/`, `GET/PATCH/DELETE /{id}/` | `permisos.administrar` global. Código inmutable; DELETE es `activa=false`, sin borrar historia, claves ni usuario de servicio. |
+| Configuración | `GET /api/v1/administracion/configuraciones/`, `GET/PATCH /{id}/` | `configuracion.administrar` global. No crea ni borra. Exige motivo y allowlist de operación; excluye logo, emisor e-CF y `modulo_*`. |
+
+Todas las mutaciones exitosas emiten `audit.event.v1` con canal `PORTAL_API`.
+Las rutas resuelven el negocio con `resolver_negocio()` y devuelven 404 para
+objetos fuera de ese tenant. No exponen password, hash, API key ni secretos.
+Los selectores RBAC C04 p6 permanecen read-only.
+
+La identity/membership vive en control plane y el dominio/auditoría en la BD
+tenant. No se declara transacción distribuida: el alta prevalida y compensa una
+confirmación incompleta dejando acceso revocado. El gate físico con dos
+PostgreSQL y JWT tenant-aware comprobó que revocar Membership invalida la
+autorización siguiente.
+
+## CT-04 — maestros offline (`master.offline.v1`)
+
+**Estado:** publicado por A05.4. El fixture canónico es
+`docs/handoffs/cierre_prod/fixtures/ct04_master_offline_v1.json`; la prueba de
+deriva es `apps.sync.tests.test_ct04_contrato`. C04/C05 consumen el fixture y
+estos nombres, no inventan otro endpoint, estado ni permiso. El contrato tiene
+tres superficies que conviene no confundir:
+
+| Superficie | Schema | Estado | Productor |
+| --- | --- | --- | --- |
+| Propuesta POS → cloud y ACK | `master.mutation.v1` | **IMPLEMENTADA** | A05.3, `POST /api/v1/sync/mutaciones-maestro/` |
+| Listado portal de decisiones negativas | `master.conflict-list.v1` / `master.conflict.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
+| Decisión humana | `master.conflict-resolution.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
+| Retorno de decisión cloud → POS | `master.conflict-resolution-sync.v1` | **IMPLEMENTADA EN CANDIDATO A06** | A06 |
+
+**Consumidor C04:** p6 está integrado localmente en
+`claude/cierre-prod-C04@f0e6c2d`, sin publicar. Pasó build/lint y 120 tests; su
+evidencia p6 ejerció 201 conflictos por cursor y resolución CAS contra A06 en
+una BD desechable (24/24), además de schema incompatible. No hubo click-through
+de navegador porque el proyecto no tiene Playwright/Cypress. Esto no altera la
+propiedad de A06 sobre GET/POST ni autoriza publicar el frontend; falta la
+aceptación técnica conjunta.
+
+### Transporte implementado
+
+- El envelope de solicitud y la respuesta 200 llevan
+  `schema_version: "master.mutation.v1"`. El token prueba la sucursal; el cloud
+  vuelve a resolver actor activo, ámbito, permiso CT-02 vigente y revisión CAS.
+- Cada propuesta conserva UUID, entidad/ID local, operación, delta
+  `{before, after}`, actor, identidad cloud, revisión base y, si corresponde,
+  la identidad cloud de categoría. No comparte cola, ACK ni semántica con
+  `EventoSync` financiero.
+- `CONFIRMADA`, `DUPLICADA`, `CONFLICTO` y `RECHAZADA` son terminales. `ERROR`
+  es técnico y reintentable con el mismo UUID. Reutilizar un UUID con contenido
+  diferente es `MASTER_MUTATION_ID_CONFLICT`, nunca un ACK exitoso.
+- `PENDIENTE` y `ENVIANDO` no bloquean una venta nueva. Solo `CONFLICTO`
+  bloquea el producto afectado y los productos de su categoría, sin borrar
+  historia. `RECHAZADA` se conserva/audita y no se reintenta automáticamente;
+  A05 no le inventa un bloqueo comercial que el código no aplica.
+
+### Listado implementado por A06 (candidato local integrado)
+
+El candidato `codex/cierre-prod-A06@b25a3b7` implementa la ruta portal
+`GET /api/v1/maestros/conflictos/`, que responde
+`master.conflict-list.v1`. A05.4 fija la forma antes de que C04 escriba contra
+ella: `items`, `next_cursor` opaco, máximo 100 elementos y filtros opcionales
+por `estado` (`CONFLICTO`/`RECHAZADA`), `entidad` y `sucursal_codigo`. Cada fila
+incluye UUID, estado/código/detalle, entidad con IDs local/cloud y snapshot
+visible, sucursal origen, actor snapshot, operación, ambas revisiones, delta,
+timestamps, `bloquea_nuevas_ventas` y acciones permitidas.
+
+El servidor A06 filtra cada fila por el permiso de lectura de su entidad
+en la sucursal origen: `productos.ver` o `categorias.ver`. No se usa el ID de
+una sucursal o un texto de actor como autorización. C04 puede usar el fixture
+para maquetar; el candidato integrado y el smoke HTTP real acreditan la
+integración de contrato. C04 p6 completó su evidencia local a más de 200 filas;
+queda la aceptación técnica, no una nueva ruta ni un cambio de contrato.
+
+### Decisiones implementadas por A06 (candidato local integrado)
+
+La ruta es
+`POST /api/v1/maestros/conflictos/{mutacion_id}/resolver/`, con
+`master.conflict-resolution.v1`. Requiere `accion` (`CONSERVAR_CLOUD` o
+`APLICAR_LOCAL`), `motivo` no vacío de hasta 500 caracteres y
+`cloud_revision_observada` como precondición CAS. Ambas acciones exigen el
+permiso de edición de la entidad en la sucursal origen:
+`productos.editar` o `categorias.editar`.
+
+`CONSERVAR_CLOUD` conserva el valor autoritativo y registra la decisión en
+`ResolucionConflictoMaestro`; `APLICAR_LOCAL` vuelve a validar y aplicar el
+delta contra la revisión observada. El ledger original preserva su resultado
+negativo y una resolución lo excluye solo del listado activo: no se borra ni se
+reescribe como una falsa confirmación. Si cambió otra vez, A06 actualiza el
+conflicto y devuelve `409`, sin last-write-wins, proxy online, escritura
+silenciosa ni resolución por texto. A05.4 **no** crea estas rutas ni muta una
+propuesta: eso pertenece a A06.
+
+### Retorno de decisiones al POS
+
+`GET /api/v1/sync/mutaciones-maestro/resoluciones/` es una ruta distinta del
+listado portal. Exige `EsSucursalAutenticada`, filtra por la sucursal de la
+propuesta y pagina por `(resuelto_at, id)` con un máximo de 100 filas. Responde
+un envelope y filas `master.conflict-resolution-sync.v1` que llevan UUID de
+mutación, acción, motivo, actor snapshot y revisiones cloud.
+
+El POS valida el envelope y cada fila en runtime. Un schema desconocido o una
+decisión que no coincide con un replay local falla cerrado y no libera el
+maestro. Una fila válida crea el ledger local separado; nunca reescribe el
+`CONFLICTO`/`RECHAZADA` histórico. El ciclo normal baja primero maestros y luego
+estas decisiones, por lo que los hechos financieros siguen independientes.
+
+## CT-05 — reserva para artefacto y actualización
+
+A01 fija runtimes/locks/imagen; C01 propone paquete/wheelhouse/preflight Windows;
+A08/C06 cierran el manifiesto con SHAs y hashes. El artefacto aprobado no se
+recompila para producción.
+
+Baseline consumible desde A01:
+
+- POS/paquete: CPython 3.11.14 x64 + `requirements.txt` con hashes;
+- desarrollo Windows: mismo runtime + `requirements-dev.txt`;
+- cloud: CPython 3.12.14 x64 + `requirements_cloud.txt`;
+- CI: CPython 3.12.14 x64 + `requirements_ci.txt`;
+- instalacion siempre con pip 26.0.1 y `--require-hashes`;
+- inputs humanos, regeneracion, digest de la imagen generadora y contrato de
+  wheelhouse en `requirements/README.md`;
+- C01 registra SHA-256 de cada wheel y del lock, y no incluye `.env`, dumps ni
+  credenciales en el paquete.
+
+## Propiedad de archivos y fixtures compartidos
+
+| Superficie compartida | Escritor | Consumidor / regla |
+| --- | --- | --- |
+| Este archivo, `INVENTARIO.md`, fixtures `ct01_*`/`ct02_*` | A | C propone cambios en su handoff; no edita en paralelo. |
+| Fixture CT-03 | C propuso `C03-*`; A integró el canónico en `dfb1dfc` | Un solo fixture/test antes de cambiar semántica. |
+| Futuro fixture CT-04 | A | C04/C05 consumen el commit integrado. |
+| `config/**`, `apps/api/urls.py`, routers/settings globales | A | C solicita firma/ruta. |
+| `apps/api/**` auth, RBAC, maestros, sync, sucursales, notificaciones | A | Excepciones de C son solo las listadas en el plan maestro. |
+| `apps/auditoria`, `permisos`, `usuarios`, `negocios`, `tenancy`, `sync` | A | C integra productores/gates a través de CT-01/02. |
+| `apps/common/pdf/**`, impresión e imágenes utilitarias | C | A integra hooks de Producto/Cliente. |
+| `templates/base.html`, navegación y estáticos globales | C | A solicita enlaces; no hay RBAC paralelo en JS. |
+| `requirements*`, locks, Docker, workflows, `infra/**` | A | C publica solicitudes de dependencias; no edita esos archivos. |
+| Workflows frontend | A | C posee resto del frontend. |
+| Tests/migraciones | Dueño del dominio | Fixture compartido se asigna aquí antes de editar. |
+
+Archivo no listado o frontera dudosa: se asigna en este registro antes de que
+alguien lo modifique.

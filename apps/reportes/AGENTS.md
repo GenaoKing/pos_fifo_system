@@ -1,6 +1,6 @@
 # apps/reportes — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-11 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -18,9 +18,10 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 | Necesito… | Voy a… |
 | --- | --- |
 | Dashboard | `views.dashboard`, `api_metricas_hoy` |
-| On-demand | `views.reportes_on_demand`, `api_cierre_manual`, `api_ventas_periodo`, `api_top_productos`, `api_inventario_valorizado`, `api_ventas_cajero` |
+| On-demand (gate módulo `reportes_ondemand`, SUS-006) | `views.reportes_on_demand`, `api_cierre_manual`, `api_ventas_periodo`, `api_top_productos`, `api_inventario_valorizado`, `api_ventas_cajero` |
 | **Generar** un reporte | `report_manager.ReporteManager` → `generar_cierre_diario`, `generar_top_productos`, `generar_inventario_valorizado` |
-| Cierre automático | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) |
+| Cierre diario **manual** (RPT-005: no hay servicio automático) | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) — ver `docs/runbooks/CIERRE_DIARIO_MANUAL.md` |
+| Preflight financiero read-only antes de migrar | `manage.py verificar_integridad_financiera` (`--tenant` / `--todos-los-tenants`) |
 | PDF del cierre | `pdf_generator.PDFGenerator.generar_cierre_caja` → `views.descargar_pdf_cierre` |
 | Dónde se guardan los PDFs | `almacenamiento.py` → `ruta_cierre` (`REPORTES_PRIVATE_ROOT`, **fuera** de `MEDIA_ROOT`) |
 | Alcance | `scope.alcance_de` (`reportes.sucursal.ver` / `reportes.consolidado.ver`), `puede_ver_reportes`; `reportes.ver` para el dashboard |
@@ -34,5 +35,7 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
   `config/urls.py` además bloquea `media/reportes/`.
 - Todo queryset se filtra con el **mismo** `Alcance` que declara RBAC (RPT-003).
 - Encabeza con `config_para_documento(cierre.sucursal)` — ver `apps/common`.
+- `verificar_integridad_financiera` no corrige filas: detecta importes/cantidades,
+  estados de cotización y números legacy incompatibles antes de las constraints.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md`) —
   **snapshot histórico**, verificar contra código.

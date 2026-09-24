@@ -35,3 +35,17 @@ class PuedeFilterTests(TestCase):
     def test_admin_acceso_total(self):
         u = User.objects.create_user('a', 'a@e.com', 'x', rol='ADMIN')
         self.assertEqual(_render(u, 'compras.registrar'), 'SI')
+
+    def test_error_del_motor_deniega_sin_filtrar_el_detalle(self):
+        class UsuarioRoto:
+            is_authenticated = True
+
+            def tiene_permiso(self, codigo, sucursal=None):
+                raise RuntimeError('secreto-no-debe-salir')
+
+        with self.assertLogs('permisos', level='WARNING') as logs:
+            self.assertEqual(_render(UsuarioRoto(), 'clientes.crear'), 'NO')
+
+        salida = '\n'.join(logs.output)
+        self.assertIn('RuntimeError', salida)
+        self.assertNotIn('secreto-no-debe-salir', salida)

@@ -23,11 +23,14 @@ Dos correcciones sobre la version anterior (PER-010, PER-011):
    nada, que es lo correcto.
 """
 from django.db import transaction
+from django.db.models import F
 from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from .engine import invalidar_cache, limpiar_memo
 from .models import AsignacionRol, Permiso, Rol
+from .revisions import avanzar_revision_rbac
 
 
 def _invalidar_tras_commit():
@@ -55,16 +58,82 @@ def _invalidar_tras_commit():
     transaction.on_commit(invalidar_cache)
 
 
-@receiver([post_save, post_delete], sender=Rol)
-@receiver([post_save, post_delete], sender=AsignacionRol)
 @receiver([post_save, post_delete], sender=Permiso)
-def _invalidar_en_cambio(sender, **kwargs):
+def _invalidar_en_cambio(sender, using, **kwargs):
+    from apps.negocios.models import Negocio
+
+    for negocio_id in Negocio.objects.using(using).values_list('id', flat=True):
+        avanzar_revision_rbac(
+            negocio_id,
+            using=using,
+            catalogo=True,
+            asignaciones=False,
+        )
+    _invalidar_tras_commit()
+
+
+@receiver([post_save, post_delete], sender=Rol)
+def _cambio_rol(sender, instance, using, **kwargs):
+    avanzar_revision_rbac(instance.negocio_id, using=using)
+    _invalidar_tras_commit()
+
+
+@receiver([post_save, post_delete], sender=AsignacionRol)
+def _cambio_asignacion(sender, instance, using, **kwargs):
+    negocio_id = None
+    if instance.rol_id:
+        negocio_id = (
+            Rol.objects.using(using).filter(pk=instance.rol_id)
+            .values_list('negocio_id', flat=True).first()
+        )
+    avanzar_revision_rbac(negocio_id, using=using)
     _invalidar_tras_commit()
 
 
 @receiver(m2m_changed, sender=Rol.permisos.through)
 def _invalidar_en_cambio_permisos_rol(sender, action, **kwargs):
+    instance = kwargs['instance']
+    using = kwargs['using']
+    reverse = kwargs.get('reverse', False)
+
+    if action == 'pre_clear' and reverse:
+        instance._rbac_roles_pre_clear = list(
+            instance.roles.using(using).values_list('pk', flat=True)
+        )
+        return
+
     if action in ('post_add', 'post_remove', 'post_clear'):
+        if reverse:
+            role_ids = kwargs.get('pk_set') or getattr(
+                instance, '_rbac_roles_pre_clear', (),
+            )
+            roles = list(
+                Rol.objects.using(using)
+                .filter(pk__in=role_ids)
+                .values_list('pk', 'negocio_id')
+            )
+        else:
+            roles = [(instance.pk, instance.negocio_id)]
+
+        preservar = (
+            not reverse
+            and getattr(instance, '_preserve_rbac_revision', False)
+        )
+        if not preservar:
+            Rol.objects.using(using).filter(
+                pk__in=[rol_id for rol_id, _ in roles],
+            ).update(
+                revision=F('revision') + 1,
+                fecha_modificacion=timezone.now(),
+            )
+        if not reverse:
+            instance.refresh_from_db(
+                using=using, fields=['revision', 'fecha_modificacion'],
+            )
+        for negocio_id in {negocio_id for _, negocio_id in roles}:
+            avanzar_revision_rbac(negocio_id, using=using)
+        if hasattr(instance, '_rbac_roles_pre_clear'):
+            del instance._rbac_roles_pre_clear
         _invalidar_tras_commit()
 
 

@@ -1,8 +1,15 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+
+ARG VCS_REF=unknown
+ARG SOURCE_DATE_EPOCH=0
+
+LABEL org.opencontainers.image.revision=$VCS_REF \
+      org.opencontainers.image.source-date-epoch=$SOURCE_DATE_EPOCH
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
     DJANGO_SETTINGS_MODULE=config.settings_cloud \
     PORT=8000
 
@@ -11,8 +18,8 @@ WORKDIR /app
 RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
 COPY requirements_cloud.txt /app/
-RUN pip install --upgrade pip \
-    && pip install -r requirements_cloud.txt
+RUN python -m pip install --no-cache-dir --upgrade "pip==26.0.1" \
+    && python -m pip install --no-cache-dir --require-hashes -r requirements_cloud.txt
 
 COPY --chown=appuser:appuser . /app/
 

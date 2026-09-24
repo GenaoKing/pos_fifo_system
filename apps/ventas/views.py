@@ -53,7 +53,11 @@ from apps.ventas.services import (
     anular_venta_service,
     ErrorVentaBase,
 )
-from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
+from apps.permisos.decorators import (
+    requiere_permiso_json,
+    requiere_permiso_local,
+    sucursal_del_request,
+)
 from apps.sucursales.models import get_sucursal_actual
 from apps.common.pdf.standard import ImporteInvalido
 
@@ -314,13 +318,38 @@ def producto_por_id(request, producto_id):
     })
 
 
+def _categoria_en_conflicto_maestro(categoria_id):
+    """Misma regla que `Producto.es_vendible` (PRO-007), del lado categoria.
+
+    El acceso rapido de categoria solo dispara una busqueda (`buscar_productos`,
+    que ya filtra con `productos_vendibles()`), asi que sin este chequeo el
+    boton no vendia nada igual -- pero aparecia como si lo hiciera, asimetrico
+    con la rama de producto de aca abajo, que si usa `es_vendible`.
+    """
+    from apps.sync.models import MutacionMaestro
+
+    return MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=categoria_id,
+        estado=MutacionMaestro.Estado.CONFLICTO,
+    ).exists()
+
+
 @login_required
 @require_http_methods(["GET"])
 def accesos_rapidos_pos(request):
-    """Lista los botones configurables globales del POS."""
+    """Lista los botones configurables del POS de ESTA sucursal.
+
+    CFG-010 pata 2 — antes listaba todos los accesos activos y un boton creado
+    en otra sucursal aparecia aca. Ahora se acota a la sucursal actual mas los
+    accesos legacy sin sucursal (NULL = global, visibles en todas hasta que un
+    operador los reasigne).
+    """
+    sucursal_actual = get_sucursal_actual()
     accesos = (
         AccesoRapidoPOS.objects
         .filter(activo=True)
+        .filter(Q(sucursal=sucursal_actual) | Q(sucursal__isnull=True))
         .select_related('producto', 'categoria')
         .order_by('orden', 'id')
     )
@@ -332,7 +361,11 @@ def accesos_rapidos_pos(request):
             if acceso.producto_id and acceso.producto.es_vendible:
                 accesos_validos.append(_acceso_rapido_pos_data(acceso))
         elif acceso.tipo == AccesoRapidoPOS.TIPO_CATEGORIA:
-            if acceso.categoria_id and acceso.categoria.activa:
+            if (
+                acceso.categoria_id
+                and acceso.categoria.activa
+                and not _categoria_en_conflicto_maestro(acceso.categoria_id)
+            ):
                 accesos_validos.append(_acceso_rapido_pos_data(acceso))
 
     return JsonResponse({
@@ -470,14 +503,14 @@ def procesar_venta(request):
             {'success': False, 'error': str(exc)},
             status=exc.status_code,
         )
-    except Exception as exc:
-        # Cualquier excepción no anticipada. Log completo, mensaje
-        # genérico al cliente.
-        import traceback
-        print(f'❌ ERROR no manejado en procesar_venta: {exc}')
-        traceback.print_exc()
+    except Exception:
+        # Cualquier excepción no anticipada. Log completo, mensaje genérico al
+        # cliente: el texto de la excepción no va al navegador (podía filtrar
+        # internals) y `logger.exception` no revienta en la consola cp1252 del
+        # proyecto como lo hacía el `print` con emoji.
+        logger.exception('Error no manejado en procesar_venta')
         return JsonResponse(
-            {'success': False, 'error': f'Error al procesar la venta: {exc}'},
+            {'success': False, 'error': 'No se pudo procesar la venta.'},
             status=500,
         )
 
@@ -753,19 +786,25 @@ def lista_financiaciones(request):
 def vista_anulaciones(request):
     """
     Página para gestionar anulaciones de venta.
-    Solo accesible por ADMIN y SYSADMIN.
+
+    El permiso `ventas.anular` se evalúa en la sucursal en la que se opera
+    (PER-013 / CT-02): un rol acotado a otra sucursal no abre esta pantalla. Y
+    el listado se acota al mismo alcance operativo, para no exhibir las ventas
+    de otra sucursal que igual no se podrían anular desde aquí.
     """
-    if not request.user.tiene_permiso('ventas.anular'):
+    if not request.user.tiene_permiso(
+        'ventas.anular', sucursal=sucursal_del_request(request)
+    ):
         messages.error(request, 'No tienes permisos para acceder a esta sección.')
         return redirect('pos:punto_venta')
- 
+
     config = get_config()
- 
+
     # Obtener ventas recientes (últimos 30 días, máx 100)
     from datetime import timedelta
     fecha_desde = timezone.now() - timedelta(days=30)
- 
-    ventas_qs = Venta.objects.filter(
+
+    ventas_qs = _ventas_en_alcance(request).filter(
         fecha_venta__gte=fecha_desde
     ).select_related('usuario', 'anulada_por', 'cliente').order_by('-fecha_venta')[:100]
  
@@ -846,6 +885,7 @@ def api_anular_venta(request):
             venta_id=venta_id,
             motivo=motivo,
             ip_address=get_client_ip(request),
+            sucursal=sucursal_del_request(request),
         )
     except ErrorVentaBase as exc:
         return JsonResponse(

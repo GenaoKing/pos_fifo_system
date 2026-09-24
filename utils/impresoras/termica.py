@@ -11,6 +11,7 @@ Versión: 2.0 - Migrado a ConfiguracionNegocio
 
 import logging
 import os
+import textwrap
 from pathlib import Path
 from time import sleep
 from PIL import Image
@@ -28,6 +29,20 @@ except ImportError:
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+SIMBOLO_MONEDA = 'RD$'
+
+
+def _wrap_ticket_text(text, width):
+    """Divide texto para ticket sin descartar caracteres al exceder el ancho."""
+    lines = textwrap.wrap(
+        str(text),
+        width=width,
+        break_long_words=True,
+        break_on_hyphens=False,
+        replace_whitespace=False,
+    )
+    return lines or ['']
 
 
 class ThermalPrinterException(Exception):
@@ -96,19 +111,16 @@ class ThermalPrinter2Connect:
                 self.config['PRINTER_NAME'],
             )
             self.printer = Win(self.config['PRINTER_NAME'])
+            self.printer.open()
             self.printer.profile.media['width'] = {'pixels': 576, 'mm': 80}
-            
-            try:
-                self.printer._raw(b'\x1D(L\x06\x00\x30\x00\x00\x00\x00\x00')
-                self.printer._raw(b'\x1D\x7C\x20')
-            except:
-                pass
+
+            # La conexión por nombre de Windows debe usar solamente ESC/POS
+            # estándar. Los comandos propietarios de un modelo concreto pueden
+            # dejar bloqueado un spooler que por lo demás funciona correctamente.
+            self.printer._raw(b'\x1b@')
 
             if hasattr(self.printer, 'charcode'):
                 self.printer.charcode(self.config['CODE_PAGE'])
-
-            if hasattr(self.printer, '_raw'):
-                self.printer._raw(b'\x1d\x7c\x0f') 
             
             logger.info("✓ Impresora 2Connect conectada exitosamente (Windows driver)")
             return True
@@ -138,9 +150,9 @@ class ThermalPrinter2Connect:
     def disconnect(self):
         """Cierra la conexión con la impresora de forma segura"""
         if self.printer:
+            printer = self.printer
             try:
-                self.printer.set(align='left', bold=False, normal_textsize=True)
-                self.printer.close()
+                printer.close()
                 logger.debug("Conexión con impresora cerrada")
             except Exception as e:
                 logger.warning(f"Error al cerrar impresora: {str(e)}")
@@ -298,8 +310,8 @@ class ThermalPrinter2Connect:
         
         for item in items:
             self.printer.set(bold=True, double_height=True)
-            nombre = item['producto'][:40]
-            self.printer.text(f"{nombre}\n")
+            for nombre_linea in _wrap_ticket_text(item['producto'], width=40):
+                self.printer.text(f"{nombre_linea}\n")
             
             self.printer.set(bold=False, double_height=False)
             
@@ -680,7 +692,7 @@ class ThermalPrinter2Connect:
 
     def _print_total_line(self, label, amount):
         """Helper para imprimir líneas de totales alineadas a la derecha"""
-        amount_str = f"${abs(amount):.2f}"
+        amount_str = f"{SIMBOLO_MONEDA}{abs(amount):.2f}"
         espacios_necesarios = self.config['PAPER_WIDTH'] - len(label) - len(amount_str)
         linea = label + " " * max(1, espacios_necesarios) + amount_str
         self.printer.text(linea + "\n")
@@ -712,11 +724,11 @@ class ThermalPrinter2Connect:
             self.printer.text("=" * self.config['PAPER_WIDTH'] + "\n\n")
             self.printer.text("Estado: CONECTADA\n")
             self.printer.text("Cortador: OK\n")
-            self.printer.text("Encoding: CP850\n\n")
+            self.printer.text(f"Encoding: {self.config['CODE_PAGE']}\n\n")
             
             self.printer.text("Caracteres especiales:\n")
-            self.printer.text("n N a e i o u\n")
-            self.printer.text("? ! $ \n\n")
+            self.printer.text("ñ Ñ á é í ó ú ü\n")
+            self.printer.text("¿ ¡ RD$\n\n")
             
             if self.config['AUTO_CUT']:
                 self.printer.cut()

@@ -1,12 +1,23 @@
 from io import StringIO
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.test import TestCase
 
+from apps.auditoria.models import Auditoria
+from apps.negocios.models import Negocio
+from apps.suscripciones.models import Plan, SuscripcionNegocio
 from apps.tenancy.models import Identity, Membership, SyncToken, Tenant
+from apps.tenancy.services import (
+    divergencias_identidad,
+    marcar_estado_provisioning,
+    preparar_tenant_provisioning,
+)
 
 
 class TenancyModelTests(TestCase):
@@ -23,12 +34,75 @@ class TenancyModelTests(TestCase):
         self.assertNotEqual(second.slug, first.slug)
         self.assertTrue(second.slug.startswith('mi-empresa'))
 
+    def test_identidad_de_routing_es_inmutable(self):
+        tenant = Tenant.objects.create(tenant_key='demo', slug='demo', nombre='Demo')
+        tenant.slug = 'otro'
+
+        with self.assertRaisesMessage(ValidationError, 'routing inmutable'):
+            tenant.save(update_fields=['slug'])
+
+    def test_rnc_se_canoniza_y_colisiona_antes_de_provisionar(self):
+        first = Tenant.objects.create(
+            tenant_key='demo', slug='demo', nombre='Demo', rnc='1-01-12345-6',
+        )
+        self.assertEqual(first.rnc_canonico, '101123456')
+
+        with self.assertRaises(ValidationError):
+            Tenant.objects.create(
+                tenant_key='demo2', slug='demo2', nombre='Demo 2', rnc='101123456',
+            )
+
     def test_sync_token_hash_is_stable_and_does_not_store_plain_token(self):
         token = 'secret-token'
         digest = SyncToken.hash_token(token)
         self.assertEqual(digest, SyncToken.hash_token(token))
         self.assertNotIn(token, digest)
         self.assertEqual(len(digest), 64)
+
+    def test_verificador_detecta_drift_sin_corregir_proyecciones(self):
+        tenant = Tenant.objects.create(
+            tenant_key='demo', slug='demo', nombre='Autoridad', rnc='101123456',
+        )
+        negocio = SimpleNamespace(
+            slug='demo', nombre='Nombre viejo', rnc_canonico='101123456', activo=True,
+        )
+        config = SimpleNamespace(
+            nombre_negocio='Autoridad', rnc='999999999',
+            sucursal=SimpleNamespace(codigo='SD-001'),
+        )
+
+        diferencias = divergencias_identidad(tenant, negocio, [config])
+
+        self.assertEqual(
+            {(fila['code'], fila['field']) for fila in diferencias},
+            {('NEGOCIO_DRIFT', 'nombre'), ('CONFIG_DRIFT', 'rnc')},
+        )
+        self.assertEqual(negocio.nombre, 'Nombre viejo')
+        self.assertEqual(config.rnc, '999999999')
+
+    def test_verificador_incluye_plan_drift_sin_corregirlo(self):
+        tenant = Tenant.objects.create(
+            tenant_key='demo-plan', slug='demo-plan', nombre='Autoridad',
+            plan_slug='empresarial',
+        )
+        negocio = Negocio.objects.create(nombre='Autoridad', slug='demo-plan')
+        plan = Plan.objects.create(
+            nombre='Plan operativo', slug='operativo-revision', activo=True,
+        )
+        SuscripcionNegocio.objects.create(negocio=negocio, plan=plan, activa=True)
+
+        diferencias = divergencias_identidad(tenant, negocio, [])
+
+        self.assertIn(
+            {
+                'code': 'PLAN_DRIFT',
+                'field': 'plan_slug',
+                'expected': 'empresarial',
+                'actual': 'operativo-revision',
+            },
+            diferencias,
+        )
+        self.assertEqual(negocio.suscripcion.plan.slug, 'operativo-revision')
 
 
 class BootstrapTenantDryRunTests(TestCase):
@@ -45,6 +119,162 @@ class BootstrapTenantDryRunTests(TestCase):
         self.assertIn('DRY-RUN', out.getvalue())
         self.assertEqual(Tenant.objects.count(), 0)
 
+    def test_rechaza_reutilizar_el_mismo_secreto_en_local_y_portal(self):
+        with self.assertRaisesMessage(CommandError, 'deben ser distintas'):
+            call_command(
+                'bootstrap_tenant',
+                tenant='demo',
+                nombre='Demo Tenant',
+                admin_email='admin@demo.local',
+                admin_password='A9!clave-larga-segura',
+                identity_password='A9!clave-larga-segura',
+                dry_run=True,
+            )
+
+        self.assertEqual(Tenant.objects.count(), 0)
+
+
+class BootstrapTenantLifecycleTests(TestCase):
+    def test_preparacion_y_auditoria_comparten_transaccion(self):
+        with patch(
+            'apps.tenancy.services.registrar_mutacion',
+            side_effect=RuntimeError('audit sink'),
+        ), self.assertRaises(RuntimeError):
+            preparar_tenant_provisioning(
+                tenant_key='sin_huerfano',
+                slug='sin-huerfano',
+                nombre='Sin huerfano',
+            )
+
+        self.assertFalse(Tenant.objects.filter(tenant_key='sin_huerfano').exists())
+
+    def test_checkpoint_y_auditoria_comparten_transaccion(self):
+        tenant = Tenant.objects.create(
+            tenant_key='estado', slug='estado', nombre='Estado', activo=False,
+        )
+
+        with self.assertRaises(RuntimeError):
+            with transaction.atomic(using='default'):
+                marcar_estado_provisioning(
+                    tenant,
+                    Tenant.EstadoProvisioning.DB_READY,
+                    incrementar_intento=True,
+                )
+                raise RuntimeError('rollback esperado')
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.estado_provisioning, Tenant.EstadoProvisioning.ACTIVE)
+        self.assertEqual(tenant.provisioning_intentos, 0)
+        self.assertFalse(
+            Auditoria.objects.filter(
+                tenant_key='estado', accion='tenant.provisioning.db_ready',
+            ).exists()
+        )
+
+    def test_fallo_queda_reanudable_y_rerun_activa(self):
+        from apps.tenancy.management.commands import bootstrap_tenant
+
+        real_atomic = transaction.atomic
+
+        def atomic_selectivo(*args, **kwargs):
+            using = kwargs.get('using') or (args[0] if args else None)
+            if str(using).startswith('tnt_'):
+                return nullcontext()
+            return real_atomic(*args, **kwargs)
+
+        base_patches = (
+            patch.object(bootstrap_tenant.Command, '_ensure_database'),
+            patch.object(bootstrap_tenant, 'configure_tenant_database'),
+            patch.object(
+                bootstrap_tenant,
+                'tenant_context',
+                side_effect=lambda tenant, **kwargs: nullcontext(tenant),
+            ),
+            patch.object(bootstrap_tenant, 'call_command'),
+            patch.object(
+                bootstrap_tenant.Command,
+                '_seed_tenant',
+                return_value={
+                    'token': 'sync-token',
+                    'admin_username': 'admin',
+                    'admin_password_applied': False,
+                },
+            ),
+            patch.object(bootstrap_tenant.transaction, 'atomic', side_effect=atomic_selectivo),
+            patch.object(bootstrap_tenant, 'validar_plan_slug'),
+        )
+        with (
+            base_patches[0], base_patches[1], base_patches[2],
+            base_patches[3], base_patches[4], base_patches[5], base_patches[6],
+        ):
+            with patch.object(
+                bootstrap_tenant.Command,
+                '_seed_control_plane',
+                side_effect=RuntimeError('token=secreto-no-loguear'),
+            ):
+                with self.assertRaises(RuntimeError):
+                    call_command(
+                        'bootstrap_tenant',
+                        tenant='retry',
+                        nombre='Retry',
+                        admin_email='admin@retry.local',
+                        admin_password='A9!clave-larga-segura',
+                        identity_password='B8!portal-distinto-seguro',
+                    )
+
+        tenant = Tenant.objects.get(tenant_key='retry')
+        self.assertEqual(tenant.estado_provisioning, Tenant.EstadoProvisioning.FAILED)
+        self.assertFalse(tenant.activo)
+        self.assertEqual(tenant.provisioning_intentos, 1)
+        self.assertNotIn('secreto-no-loguear', tenant.provisioning_error)
+
+        base_patches = (
+            patch.object(bootstrap_tenant.Command, '_ensure_database'),
+            patch.object(bootstrap_tenant, 'configure_tenant_database'),
+            patch.object(
+                bootstrap_tenant,
+                'tenant_context',
+                side_effect=lambda tenant, **kwargs: nullcontext(tenant),
+            ),
+            patch.object(bootstrap_tenant, 'call_command'),
+            patch.object(
+                bootstrap_tenant.Command,
+                '_seed_tenant',
+                return_value={
+                    'token': 'sync-token',
+                    'admin_username': 'admin',
+                    'admin_password_applied': False,
+                },
+            ),
+            patch.object(bootstrap_tenant.transaction, 'atomic', side_effect=atomic_selectivo),
+            patch.object(bootstrap_tenant, 'validar_plan_slug'),
+            patch.object(bootstrap_tenant.Command, '_seed_control_plane'),
+        )
+        with (
+            base_patches[0], base_patches[1], base_patches[2],
+            base_patches[3], base_patches[4], base_patches[5],
+            base_patches[6], base_patches[7],
+        ):
+            call_command(
+                'bootstrap_tenant',
+                tenant='retry',
+                nombre='Retry',
+                admin_email='admin@retry.local',
+                admin_password='A9!clave-larga-segura',
+                identity_password='B8!portal-distinto-seguro',
+            )
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.estado_provisioning, Tenant.EstadoProvisioning.ACTIVE)
+        self.assertTrue(tenant.activo)
+        self.assertEqual(tenant.provisioning_intentos, 2)
+        self.assertEqual(tenant.provisioning_error, '')
+        self.assertTrue(
+            Auditoria.objects.filter(
+                tenant_key='retry', accion='tenant.provisioning.failed',
+                resultado=Auditoria.Resultado.FAILED,
+            ).exists()
+        )
     def test_explicit_duplicate_slug_fails_fast(self):
         Tenant.objects.create(tenant_key='demo', slug='demo', nombre='Demo')
 
@@ -117,6 +347,7 @@ class NormalizeImportTenantCommandTests(TestCase):
             'sucursal_nombre': 'Principal',
             'admin_email': 'admin@example.com',
             'admin_password': 'Admin123!',
+            'identity_password': 'Portal456!Segura',
             'dry_run': True,
         }
         options.update(overrides)
@@ -127,6 +358,27 @@ class NormalizeImportTenantCommandTests(TestCase):
         ):
             call_command('normalizar_import_tenant', stdout=out, **options)
         return out
+
+    @patch('apps.tenancy.management.commands.normalizar_import_tenant.Command._normalize_tenant_db')
+    def test_slug_distinto_falla_antes_de_tocar_tenant_db(self, normalize):
+        Tenant.objects.create(tenant_key='demo', slug='estable', nombre='Demo')
+
+        with self.assertRaisesMessage(CommandError, 'slug de routing es inmutable'):
+            self._call_command(slug='otro')
+
+        normalize.assert_not_called()
+
+    @patch('apps.tenancy.management.commands.normalizar_import_tenant.Command._normalize_tenant_db')
+    def test_normalizador_rechaza_un_secreto_compartido(self, normalize):
+        Tenant.objects.create(tenant_key='demo', slug='demo', nombre='Demo')
+
+        with self.assertRaisesMessage(CommandError, 'deben ser distintas'):
+            self._call_command(
+                admin_password='A9!clave-larga-segura',
+                identity_password='A9!clave-larga-segura',
+            )
+
+        normalize.assert_not_called()
 
     @patch('apps.tenancy.management.commands.normalizar_import_tenant.Command._normalize_tenant_db')
     def test_reusing_admin_email_in_other_tenant_fails_before_tenant_db(self, normalize):

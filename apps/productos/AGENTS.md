@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-07 -->
+<!-- Última revisión: 2026-09-17 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,13 +34,57 @@ atributos configurables por categoría e imágenes con miniatura.
 
 Pull incremental, **no eventos**. La sucursal aplica cambios vía
 `apps/sync/engine.py` → `_pull_productos`, `_pull_categorias`,
-`_descargar_imagen_producto`. Adopción por identidad usa `origen_cloud_id` /
-`origen_sucursal`. Backfill de imágenes: `python manage.py descargar_imagenes_productos`.
+`_descargar_imagen_producto`. Categoría y Producto se adoptan primero por
+`origen_cloud_id`; el SKU de Producto solo es clave natural de la primera
+adopción y queda inmutable tras el alta. `origen_sucursal` conserva la
+procedencia de un stub BUG-H y nunca sustituye esa identidad. Backfill de
+imágenes: `python manage.py descargar_imagenes_productos`.
+
+Las escrituras locales del catálogo pasan por `services.py` (`crear_*_local`,
+`editar_*_local`, `cambiar_estado_*_local`): crean maestro, auditoría CT-01 y
+`MutacionMaestro` dentro de una sola transacción. Esa cola no es `EventoSync`.
+A05.3 la envía serialmente a `sync/mutaciones-maestro/`: el cloud autentica la
+sucursal, vuelve a resolver el actor/CT-02 y compara `revision_cloud` con CAS.
+La revisión remota es independiente de `fecha_modificacion`, que pertenece a
+la copia POS y cambia en cada pull. Un ACK confirma identidad/revisión cloud y
+rebasa la siguiente propuesta de la misma entidad; un ACK incierto reintenta el
+mismo UUID. Solo `CONFLICTO` bloquea la vendibilidad nueva; `PENDIENTE` sigue
+usable y `RECHAZADA` conserva la propuesta sin fingir aprobación. A06 publicará
+las acciones de resolución y CT-04.
+
+El POS envía `X-Master-Mutation-ID` por cada intención y conserva el UUID al
+reintentar. Un replay se limita a actor, sucursal, entidad y operación; una
+colisión responde `409`. Los cambios de activo mandan el estado objetivo, no un
+toggle ambiguo. En POS, el admin del catálogo es solo lectura y el ViewSet DRF
+de maestros rechaza escrituras: no abrir rutas alternativas que salten la
+transacción maestro + auditoría + cola.
+
+## Estado operativo A06
+
+`Producto` y `Categoria` tienen baja lógica (`activo`/`activa`),
+`motivo_inactivacion` e `inactivado_at`. Toda transición nueva a inactivo pasa
+por `establecer_estado_operativo(...)` y exige motivo; reactivar limpia sus
+metadatos. Reactivar una categoría **no** cambia los flags de sus productos.
+`productos_vendibles()` sigue siendo la regla única para escaneo/checkout:
+exige producto y categoría activos y conflicto CT-04 no resuelto. La API cloud
+expone `?operativo=true|false`, pero el pull incremental nunca filtra inactivos:
+debe transportarlos para que la baja llegue al POS.
+
+El POS recibe la decisión cloud por el pull
+`master.conflict-resolution-sync.v1`: el ledger local de resolución libera solo
+esa propuesta, sin borrar su resultado negativo. La vista
+`/productos/conflictos/` muestra únicamente conflictos locales aún no resueltos y
+remite la decisión humana al portal.
 
 ## Trampas
 
 - Editar en el portal actualiza `fecha_modificacion` (`auto_now`) → eso es lo que
   el pull incremental de la sucursal usa como cursor. No pisar ese campo a mano.
+- `Producto.origen_cloud_id` admite solo la adopción `NULL → id`; luego es
+  inmutable. Una colisión de identidad/SKU se difiere explícitamente en sync.
 - `Categoria "Sin clasificar"` tiene manejo especial (ver `test_categoria_sin_clasificar`).
+- Las respuestas JSON de fallos inesperados son genéricas y se registran con
+  traza; no devuelven `str(exc)`. Los fixtures que necesitan código de barras
+  crean `ConfiguracionNegocio` explícitamente: el catálogo no la crea por sí mismo.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md`) —
   **snapshot histórico**, verificar contra código.

@@ -51,9 +51,10 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.configuracion.utils import get_config, modulo_activo
 from apps.inventario.fifo_logic import procesar_venta_fifo
 from apps.inventario.models import Lote
@@ -176,6 +177,9 @@ def procesar_venta_service(
     cliente_id = datos.get('cliente_id')
     cotizacion_id = datos.get('cotizacion_id')
     tipo_ecf = (datos.get('tipo_ecf') or TIPO_ECF_DEFAULT).strip()
+    clave_idempotencia = _normalizar_clave_idempotencia(
+        datos.get('clave_idempotencia')
+    )
 
     # ----------------------- Validaciones pre-transacción (lectura pura)
     if not carrito:
@@ -203,6 +207,16 @@ def procesar_venta_service(
     # Autorización server-side. El catálogo RBAC declara estos permisos; hasta
     # ahora sólo los aplicaba la UI, así que un POST directo los saltaba.
     _autorizar(usuario=usuario, items=items, sucursal=sucursal)
+
+    # ----------------------- Idempotencia: chequeo previo barato
+    # Va despues de autenticar/autorizar el payload para que conocer una clave
+    # no permita recuperar una venta sin pasar el mismo gate de negocio.
+    if clave_idempotencia:
+        existente = _venta_idempotente_existente(
+            clave_idempotencia, usuario=usuario, sucursal=sucursal,
+        )
+        if existente is not None:
+            return existente
 
     # Gate opcional de descuentos (lo activa el negocio en su configuración).
     # Se evalúa ANTES de la transacción para no tocar inventario ni FIFO cuando
@@ -304,14 +318,28 @@ def procesar_venta_service(
         if ecf_activo:
             _validar_precondiciones_ecf(tipo_ecf=tipo_ecf, cliente=cliente)
 
-        venta = _crear_venta(
-            usuario=usuario,
-            items=items,
-            cliente=cliente,
-            sucursal=sucursal,
-            total_esperado=total_esperado,
-            condicion_pago='CREDITO' if es_credito else 'CONTADO',
-        )
+        try:
+            # Savepoint propio: si dos requests pasan el chequeo previo, la
+            # unica parcial rechaza al perdedor sin romper el atomic exterior.
+            with transaction.atomic():
+                venta = _crear_venta(
+                    usuario=usuario,
+                    items=items,
+                    cliente=cliente,
+                    sucursal=sucursal,
+                    total_esperado=total_esperado,
+                    condicion_pago='CREDITO' if es_credito else 'CONTADO',
+                    clave_idempotencia=clave_idempotencia,
+                )
+        except IntegrityError:
+            if not clave_idempotencia:
+                raise
+            existente = _venta_idempotente_existente(
+                clave_idempotencia, usuario=usuario, sucursal=sucursal,
+            )
+            if existente is None:
+                raise
+            return existente
 
         # El consumo va DENTRO de la transacción: si la venta falla más
         # adelante, la autorización del supervisor se libera con el rollback en
@@ -368,11 +396,36 @@ def procesar_venta_service(
                 ip_address=ip_address,
             )
 
-        # Auditoría dentro del atomic (atómica con la venta)
-        Auditoria.registrar_venta(
-            venta=venta,
-            usuario=usuario,
-            ip_address=ip_address,
+        # Auditoría CT-01 dentro del atomic (atómica con la venta): mismo
+        # `using` que la venta, actor/sucursal/tenant como identidad histórica.
+        # `tenant=None` → se deriva de la sucursal/negocio de la venta (vacío en
+        # una instalación local sin tenancy, que corre sobre `default`). Un
+        # fallo de auditoría revierte la venta (invariante CT-01); es correcto:
+        # no queremos un hecho financiero sin su registro.
+        registrar_mutacion(
+            accion='ventas.venta.creada',
+            actor=usuario,
+            entidad=venta,
+            antes=None,
+            despues={
+                'numero_venta': venta.numero_venta,
+                'total': str(venta.total),
+                'subtotal': str(venta.subtotal),
+                'descuento_total': str(venta.descuento_total),
+                'cantidad_items': venta.detalles.count(),
+                'es_credito': es_credito,
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=sucursal,
+            # La clave de idempotencia es un texto opaco (≤64), no un UUID: va
+            # en `idempotencia_key` (CharField). `correlacion_id` es un UUIDField
+            # y persistir un texto no-UUID revienta el save y REVIERTE la venta.
+            correlacion_id=None,
+            idempotencia_key=clave_idempotencia or None,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=venta._state.db or 'default',
         )
 
         # ------------------ Hooks post-commit
@@ -418,6 +471,50 @@ def _decimal(valor: Any) -> Decimal:
 def _dinero(valor: Any) -> Decimal:
     """Decimal redondeado a centavos, para comparar importes entre fuentes."""
     return _decimal(valor).quantize(CENTAVO)
+
+
+def _normalizar_clave_idempotencia(valor: Any) -> str | None:
+    """Clave opaca de hasta 64 caracteres; valores mal formados son un 400."""
+    if valor in (None, ''):
+        return None
+    if not isinstance(valor, str):
+        raise ItemCarritoInvalidoError(
+            'La clave de idempotencia de la venta debe ser texto.'
+        )
+    clave = valor.strip()
+    if not clave:
+        return None
+    if len(clave) > 64:
+        raise ItemCarritoInvalidoError(
+            'La clave de idempotencia de la venta excede 64 caracteres.'
+        )
+    return clave
+
+
+def _venta_idempotente_existente(clave: str, *, usuario, sucursal):
+    """Devuelve la venta reintentada solo dentro del alcance autorizado."""
+    existente = Venta.objects.select_related('sucursal').filter(
+        clave_idempotencia=clave,
+    ).first()
+    if existente is None:
+        return None
+
+    if (
+        existente.sucursal_id is not None
+        and (
+            sucursal is None
+            or existente.sucursal_id != getattr(sucursal, 'pk', None)
+        )
+    ):
+        raise PermisoDenegadoError(
+            'La clave de idempotencia ya pertenece a otra sucursal.'
+        )
+    scope = existente.sucursal or sucursal
+    if not _tiene_permiso(usuario, 'ventas.crear', scope):
+        raise PermisoDenegadoError(
+            'No tienes permisos para recuperar esta venta.'
+        )
+    return existente
 
 
 # -----------------------------------------------------------------------------
@@ -586,24 +683,28 @@ def _consumir_autorizacion_descuento(*, venta, token, usuario, ip_address) -> No
         'descuento_autorizado_por', 'descuento_autorizacion_motivo',
     ])
 
-    Auditoria.registrar(
-        accion=Auditoria.TipoAccion.DESCUENTO_AUTORIZADO,
-        descripcion=(
-            f'Descuento de ${venta.descuento_total} en venta '
-            f'#{venta.numero_venta} autorizado por '
-            f'{autorizacion.autorizado_por.get_short_name() or autorizacion.autorizado_por.username}'
-        ),
-        usuario=usuario,
-        content_object=venta,
-        ip_address=ip_address,
-        nivel_importancia='ALTA',
-        metadata={
-            'autorizado_por': autorizacion.autorizado_por.username,
-            'solicitado_por': getattr(usuario, 'username', ''),
+    # Auditoría CT-01 dentro del atomic de la venta: el descuento autorizado es
+    # un hecho financiero atado a la venta. Identidad = la sucursal de la venta.
+    registrar_mutacion(
+        accion='ventas.descuento.autorizado',
+        actor=usuario,
+        entidad=venta,
+        antes=None,
+        despues={
             'descuento_total': str(venta.descuento_total),
             'subtotal': str(venta.subtotal),
+            'autorizado_por': autorizacion.autorizado_por.username,
             'motivo': autorizacion.motivo,
         },
+        resultado=Auditoria.Resultado.SUCCEEDED,
+        canal=Auditoria.Canal.POS_LOCAL,
+        tenant=None,
+        sucursal=venta.sucursal,
+        metadata={
+            'solicitado_por': getattr(usuario, 'username', ''),
+            'ip_address': ip_address,
+        },
+        using=venta._state.db or 'default',
     )
 
 
@@ -704,10 +805,12 @@ def _cargar_productos(items: list[dict]) -> dict[int, Producto]:
             f'El producto con id={primero} no existe.'
         )
 
-    motivo = (
-        'esta inactivo' if not producto.activo
-        else 'pertenece a una categoria inactiva'
-    )
+    if not producto.activo:
+        motivo = 'esta inactivo'
+    elif not producto.categoria.activa:
+        motivo = 'pertenece a una categoria inactiva'
+    else:
+        motivo = 'tiene un conflicto de maestro pendiente de resolver'
     raise ProductoInexistenteError(
         f'El producto "{producto.nombre}" {motivo} y no se puede vender.'
     )
@@ -906,6 +1009,24 @@ def _marcar_cotizacion_convertida(cotizacion, venta: Venta) -> None:
     cotizacion.save(update_fields=['estado', 'venta'])
     sync_events.evento_cotizacion_convertida(cotizacion)
 
+    # COT-012: auditoria de negocio del ciclo de la cotizacion, atomica con la
+    # venta. La conversion es el hecho financiero (fija el precio autorizado).
+    Auditoria.registrar(
+        accion=Auditoria.TipoAccion.EDITAR,
+        descripcion=(
+            f'Cotizacion {cotizacion.numero_cotizacion} convertida en venta '
+            f'{venta.numero_venta}'
+        ),
+        usuario=venta.usuario,
+        content_object=cotizacion,
+        nivel_importancia='MEDIA',
+        metadata={
+            'cotizacion': cotizacion.numero_cotizacion,
+            'venta': venta.numero_venta,
+            'total': str(cotizacion.total),
+        },
+    )
+
 
 # -----------------------------------------------------------------------------
 # Cliente y precondiciones fiscales
@@ -964,11 +1085,17 @@ def _crear_venta(
     sucursal,
     total_esperado: Decimal,
     condicion_pago: str,
+    clave_idempotencia: str | None = None,
 ) -> Venta:
     """
     Crea la cabecera Venta. Calcula totales desde el carrito ya validado y los
     contrasta con `total_esperado`. El número de venta lo asigna el propio
     modelo en su save(), usando el prefijo de la sucursal recibida.
+
+    `clave_idempotencia` se persiste en la cabecera: la unica parcial garantiza
+    que dos peticiones con la misma clave nunca produzcan dos ventas (un solo
+    efecto financiero). El chequeo previo del service devuelve la original en el
+    reintento; la constraint es el respaldo ante la carrera verdadera.
     """
     subtotal = sum(
         (item['precio'] * item['cantidad'] for item in items),
@@ -997,6 +1124,7 @@ def _crear_venta(
         total=total,
         condicion_pago=condicion_pago,
         estado='COMPLETADA',
+        clave_idempotencia=clave_idempotencia,
     )
 
 

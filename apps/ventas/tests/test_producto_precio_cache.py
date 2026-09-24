@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.configuracion.utils import get_config
 from apps.productos.models import Categoria, Producto
 from apps.sync.engine import SyncEngine
@@ -82,6 +83,9 @@ class PrecioProductoCacheTests(TestCase):
             return engine._pull_productos()['count']
 
     def test_pos_lee_precio_actualizado_despues_del_pull_con_config_cacheada(self):
+        # CFG-012: get_config() ya no crea la fila sola -- se crea explicita
+        # antes de cachearla, que es justo lo que este test necesita probar.
+        ConfiguracionNegocio.objects.create()
         get_config()
 
         count = self._pull_precio('125.00')

@@ -28,16 +28,21 @@ on:
         type: boolean
         default: false
       run_migrations:
-        description: "Start Container Apps migrate job after deploy"
+        description: "Start Container Apps migrate job before deploy (mandatory for prod)"
         required: true
         type: boolean
         default: false
+      approved_image_digest:
+        description: "Existing approved backend OCI digest (sha256:...) required for prod; prod never rebuilds it"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.12.14"
   DJANGO_SETTINGS_MODULE: config.settings_cloud
   IMAGE_REPOSITORY: pos-fifo-backend
 
@@ -60,6 +65,9 @@ jobs:
       DB_PORT: "5432"
       DB_SSLMODE: disable
       SECURE_SSL_REDIRECT: "false"
+      # TEN-016: namespace por ejecucion; el runner crea/destruye solo estas
+      # dos BDs fisicas y evita colisiones entre reintentos concurrentes.
+      TENANT_TEST_DB_NAMESPACE: ci_${{ github.run_id }}_${{ github.run_attempt }}
 
     services:
       postgres:
@@ -91,14 +99,26 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_ci.txt
+          python -m pip install --upgrade "pip==26.0.1"
+          python -m pip install --require-hashes -r requirements_ci.txt
 
       - name: Django system check
         run: python manage.py check --settings=config.settings_cloud
 
       - name: Collect static dry run
         run: python manage.py collectstatic --dry-run --noinput --settings=config.settings_cloud
+
+      - name: Run physical DB-per-tenant isolation gate
+        # A08/TEN-016: no basta que estas pruebas aparezcan por discovery. Este
+        # paso exige el namespace por corrida y ejercita default + dos BDs
+        # tenant fisicas antes del resto de la suite.
+        shell: bash
+        run: |
+          test -n "$TENANT_TEST_DB_NAMESPACE"
+          python manage.py test \
+            apps.tenancy.tests.test_multidb_isolation \
+            apps.api.tests.test_administracion_portal.AdministracionPortalTenantFisicoTests \
+            --settings=config.settings_development
 
       - name: Run test suite
         # settings_development hereda DB_* del entorno del job. El usuario
@@ -193,8 +213,11 @@ jobs:
           MATRIX_ENVIRONMENT: ${{ matrix.environment }}
           DISPATCH_TARGET_ENVIRONMENT: ${{ inputs.target_environment || '' }}
           DISPATCH_DEPLOY_BACKEND: ${{ inputs.deploy_backend || false }}
+          DISPATCH_RUN_MIGRATIONS: ${{ inputs.run_migrations || false }}
+          DISPATCH_APPROVED_IMAGE_DIGEST: ${{ inputs.approved_image_digest || '' }}
         run: |
           deploy=false
+          migrations_required=false
 
           # Push auto-deploya dev/staging, pero NO prod: prod requiere
           # workflow_dispatch manual (gate interino hasta tener GitHub
@@ -210,12 +233,38 @@ jobs:
             deploy=true
           fi
 
+          if [ "$deploy" = "true" ]; then
+            if [ "$MATRIX_ENVIRONMENT" = "prod" ]; then
+              # Produccion no acepta una API nueva sobre un schema potencialmente
+              # viejo. migrate_cloud incluye control plane y tenant activos.
+              if [ "$DISPATCH_RUN_MIGRATIONS" != "true" ]; then
+                echo "Production deployment requires run_migrations=true; refusing to update the API."
+                exit 1
+              fi
+              if ! [[ "$DISPATCH_APPROVED_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "Production deployment requires approved_image_digest=sha256:<64 lowercase hex>."
+                exit 1
+              fi
+              migrations_required=true
+            elif { [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$RUN_MIGRATIONS_ON_DEPLOY" = "true" ]; } || \
+                 { [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DISPATCH_RUN_MIGRATIONS" = "true" ]; }; then
+              migrations_required=true
+            fi
+          fi
+
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
-          echo "Target row: environment=$MATRIX_ENVIRONMENT branch=$MATRIX_BRANCH deploy=$deploy"
+          echo "migrations_required=$migrations_required" >> "$GITHUB_OUTPUT"
+          echo "Target row: environment=$MATRIX_ENVIRONMENT branch=$MATRIX_BRANCH deploy=$deploy migrations_required=$migrations_required"
 
       - name: Checkout
         if: steps.target.outputs.deploy == 'true'
         uses: actions/checkout@v4
+
+      - name: Setup Python for release manifest
+        if: steps.target.outputs.deploy == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Validate required variables
         if: steps.target.outputs.deploy == 'true'
@@ -278,22 +327,94 @@ jobs:
         run: az acr login --name "$AZURE_ACR_NAME"
 
       - name: Build image
-        if: steps.target.outputs.deploy == 'true'
+        if: steps.target.outputs.deploy == 'true' && matrix.environment != 'prod'
+        shell: bash
         run: |
+          source_date_epoch=$(git log -1 --format=%ct "$GITHUB_SHA")
+          if ! [[ "$source_date_epoch" =~ ^[0-9]+$ ]]; then
+            echo "Could not resolve SOURCE_DATE_EPOCH for $GITHUB_SHA."
+            exit 1
+          fi
           docker build \
-            --label org.opencontainers.image.revision="${GITHUB_SHA}" \
-            --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --build-arg SOURCE_DATE_EPOCH="$source_date_epoch" \
             -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG" \
             -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG" \
             -t "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG" \
             .
 
       - name: Push image
-        if: steps.target.outputs.deploy == 'true'
+        if: steps.target.outputs.deploy == 'true' && matrix.environment != 'prod'
         run: |
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$PROMOTION_TAG"
           docker push "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$STABLE_ENV_TAG"
+
+      - name: Resolve immutable release image
+        if: steps.target.outputs.deploy == 'true'
+        id: release_image
+        shell: bash
+        env:
+          MATRIX_ENVIRONMENT: ${{ matrix.environment }}
+          APPROVED_IMAGE_DIGEST: ${{ inputs.approved_image_digest || '' }}
+        run: |
+          if [ "$MATRIX_ENVIRONMENT" = "prod" ]; then
+            # Solo se hace pull/inspect de un artefacto aprobado: no hay docker
+            # build ni docker push en la ruta de promocion de produccion.
+            digest="$APPROVED_IMAGE_DIGEST"
+            reference="$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$digest"
+            docker pull "$reference" >/dev/null
+            artifact_source_sha=$(docker image inspect \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+              "$reference")
+            if [ "$artifact_source_sha" != "$GITHUB_SHA" ]; then
+              echo "Approved image revision ($artifact_source_sha) does not match selected main SHA ($GITHUB_SHA)."
+              exit 1
+            fi
+          else
+            digest=$(az acr repository show \
+              --name "$AZURE_ACR_NAME" \
+              --image "$IMAGE_REPOSITORY:$IMAGE_TAG" \
+              --query digest -o tsv)
+            if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "ACR did not return a valid immutable digest for $IMAGE_REPOSITORY:$IMAGE_TAG."
+              exit 1
+            fi
+            reference="$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$digest"
+          fi
+
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Resolved immutable release image: $reference"
+
+      - name: Generate promotable backend manifest
+        if: steps.target.outputs.deploy == 'true'
+        id: release_manifest
+        shell: bash
+        env:
+          RELEASE_IMAGE_REFERENCE: ${{ steps.release_image.outputs.reference }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.release_image.outputs.digest }}
+        run: |
+          manifest="$RUNNER_TEMP/release-manifest-backend.json"
+          python scripts/release/release_manifest.py \
+            --write "$manifest" \
+            --source-sha "$GITHUB_SHA" \
+            --image-reference "$RELEASE_IMAGE_REFERENCE" \
+            --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --assert-git-source
+          python scripts/release/release_manifest.py \
+            --verify "$manifest" \
+            --expect-source-sha "$GITHUB_SHA" \
+            --require-promotable
+
+      - name: Upload promotable backend manifest
+        if: always() && steps.release_manifest.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-backend-${{ matrix.environment }}-${{ github.sha }}
+          path: ${{ runner.temp }}/release-manifest-backend.json
+          if-no-files-found: error
+          retention-days: 180
 
       - name: Capture current API image
         if: steps.target.outputs.deploy == 'true'
@@ -351,13 +472,14 @@ jobs:
             az containerapp job update \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --name "$AZURE_MIGRATE_JOB_NAME" \
-              --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+              --image "${{ steps.release_image.outputs.reference }}"
           else
             echo "::warning::Container Apps job '$AZURE_MIGRATE_JOB_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'. Skipping migrate job image update."
           fi
 
       - name: Run migrations and wait for completion
-        if: steps.target.outputs.deploy == 'true' && ((github.event_name == 'push' && env.RUN_MIGRATIONS_ON_DEPLOY == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_migrations))
+        if: steps.target.outputs.deploy == 'true' && steps.target.outputs.migrations_required == 'true'
+        id: migrations
         shell: bash
         run: |
           if ! az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_MIGRATE_JOB_NAME" >/dev/null 2>&1; then
@@ -392,13 +514,16 @@ jobs:
           exit 1
 
       - name: Update API image
-        if: steps.target.outputs.deploy == 'true'
+        if: >-
+          steps.target.outputs.deploy == 'true' &&
+          (steps.target.outputs.migrations_required == 'false' ||
+          steps.migrations.outcome == 'success')
         id: update_api
         run: |
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_CONTAINER_APP_NAME" \
-            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+            --image "${{ steps.release_image.outputs.reference }}"
 
       - name: Smoke test health
         if: steps.target.outputs.deploy == 'true'
@@ -450,7 +575,7 @@ jobs:
           az containerapp job update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
-            --image "$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+            --image "${{ steps.release_image.outputs.reference }}"
 
       - name: Run and wait for one notifications cycle
         if: steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.job_exists == 'true'

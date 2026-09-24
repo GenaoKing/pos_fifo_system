@@ -13,4 +13,5 @@ class CotizacionAdmin(admin.ModelAdmin):
     list_display = ['numero_cotizacion', 'cliente', 'total', 'estado', 'fecha_creacion']
     list_filter = ['estado']
     search_fields = ['numero_cotizacion', 'cliente__nombre']
+    readonly_fields = ['subtotal', 'descuento_total', 'total']
     inlines = [DetalleCotizacionInline]
