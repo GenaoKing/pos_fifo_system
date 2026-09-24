@@ -368,7 +368,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 
 | ID local | Fuente | Dueño / bloque | Estado | Evidencia de cierre |
 | --- | --- | --- | --- | --- |
-| RM-SYNC-RIG | `ROADMAP_SYNC_CONFIABLE`: rig `royalplastdemo`/compatibilidad. | A A09 + C06 | OPERATIVO_PENDIENTE; no ejecutar ahora | RC exacto, tokens autorizados, dos ciclos. |
+| RM-SYNC-RIG | `ROADMAP_SYNC_CONFIABLE`: rig `royalplastdemo`/compatibilidad. | A A09 + C06 | LOCAL_PARCIAL; remoto/instalado pendiente | `A09-rig-local-2026-09-24.md`: HTTP local, 273 productos, delta y replay; faltan SHA instalado, tenant demo remoto autorizado y ciclos operativos. |
 | RM-SYNC-PREFLIGHT | `verificar_sync` y versión exacta en RP/SK. | A09 + C06 | OPERATIVO_PENDIENTE | Preflight read-only autorizado por tienda. |
 | RM-SYNC-ROLLOUT | Cloud primero, luego RP y SK con reparación dirigida. | A09 + C06 | OPERATIVO_PENDIENTE | G2/G3/G4 y autorización explícita. |
 | RM-AZURE-PROD | Promoción prod, migraciones por BD, rollback/observabilidad/restore. | A08/A09 | PENDIENTE; despliegue no autorizado | Digest, plan sin destrucción, restore y acta. |
