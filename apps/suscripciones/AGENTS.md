@@ -1,6 +1,6 @@
 # apps/suscripciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (SUS-014: detección cableada al verificador tenancy) -->
+<!-- Última revisión: 2026-09-23 (SUS-016: checkpoint read-only por instalación) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -25,6 +25,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 | ¿Se puede desactivar? | `engine.puede_desactivarse(negocio, key)` (bloquea si hay dependientes o datos en vuelo: CxC abiertas, ECF en proceso) |
 | Declarar un módulo | `registry.CATALOGO_MODULOS` (`key`, `depende_de`, `core`, `flag_legacy`) → `manage.py sync_modulos` |
 | Aprovisionar negocios existentes | `manage.py bootstrap_suscripciones` · `seed.py` |
+| Ver si bootstrap/sync quedó parcial | `manage.py verificar_suscripciones_sync [--json] [--strict]` — checkpoint de solo lectura por instalación |
 | Resincronizar los planes default (Basico/Pro/Empresarial) | `manage.py sync_modulos` · `seed.sincronizar_planes_preset` — solo toca planes con `preset_version` no nulo (SUS-017) |
 | Validar un `plan_slug` antes de escribirlo en dos bases | `seed.validar_plan_slug(slug, using=<alias>)` (SUS-014) — cableada en `bootstrap_tenant --plan` por Codex (`c003af8`); slug vacío es válido, uno inexistente levanta `PlanDesconocido` sin tocar ninguna base |
 | Detectar un plan YA divergente (control plane vs. operativo) | `engine.divergencias_plan_operativo(tenant_plan_slug, negocio)` (SUS-014, mitad 2) — solo lectura, agregado a `verificar_identidad_tenant` como `PLAN_DRIFT` |
@@ -61,6 +62,10 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
 - `Plan.preset_version=None` = personalizado: `sync_modulos` nunca lo toca.
   Un valor = versión de `seed.TIERS` aplicada; desactualizado se resincroniza
   solo, con la sincronizacion real, al correr el comando (SUS-017).
+- **SUS-016 — diagnosticar no es reparar.** `verificar_suscripciones_sync`
+  toma una foto determinista de catálogo/presets, suscripciones, configuración
+  legacy y señales del pull; nunca llama bootstrap, `sync_modulos`, reintentos
+  ni crea cursores. `--strict` solo cambia el código de salida.
 - **SUS-014 — prevención y postcondición cerradas en el candidato local.**
   `validar_plan_slug` valida contra la base del `using` dado, no contra
   `default` por defecto: quien la llame bajo tenancy debe pasar el alias del

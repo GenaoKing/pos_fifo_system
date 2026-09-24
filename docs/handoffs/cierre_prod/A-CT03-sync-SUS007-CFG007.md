@@ -9,7 +9,9 @@ operación sobre datos reales.
 - Base aislada: `integration/cierre-prod-A06-C04-C05@dfb1dfc7f5866d05e4bd8d1d1df2baa70c24dc51`.
 - Rama/worktree: `codex/cierre-prod-CT03-sync` en
   `C:\Proyectos\pos_fifo_system_ct03_sync`.
-- Resultado: `1019500` (`feat(sync): cerrar SUS-007 y CFG-007 CT-03`).
+- Resultados:
+  - `1019500` (`feat(sync): cerrar SUS-007 y CFG-007 CT-03`).
+  - `f83f67d` (`feat(suscripciones): reportar checkpoint parcial de sync`).
 - No hay migraciones nuevas ni cambios en `develop`.
 
 ## Alcance entregado
@@ -30,10 +32,21 @@ operación sobre datos reales.
    de mutar. Un error permanente no entra en `DiferidoSync`: el cursor queda
    bloqueado y la siguiente respuesta cloud válida puede resolverlo sin que un
    payload antiguo se reaplique después.
+4. **SUS-016.** `python manage.py verificar_suscripciones_sync` entrega el
+   checkpoint `suscripciones.sync-checkpoint.v1` de la instalación actual. La
+   foto cubre catálogo/presets, cada negocio y su suscripción, configuraciones
+   legacy sin sucursal y señales ya existentes del sync (diferidos, cursores
+   bloqueados y último ciclo). La huella SHA-256 es estable si no cambia el
+   estado material, para archivar o comparar ejecuciones. `--json` conserva
+   esa forma y `--strict` da salida no cero ante `PARCIAL`; ambos son **solo
+   lectura** y no llaman `bootstrap_suscripciones`, `sync_modulos`, reintentos
+   ni reparaciones.
 
 Archivos de código: `apps/sync/configuracion.py`, `apps/sync/engine.py`,
-`apps/api/views/sync.py`. También se actualizaron los mapas de `apps/sync` y
-`apps/api`, la entrada CT-03 de `CONTRATOS.md`, y pruebas focales propias.
+`apps/api/views/sync.py`, `apps/suscripciones/checkpoint.py` y el comando
+`verificar_suscripciones_sync`. También se actualizaron los mapas de `apps/sync`,
+`apps/api` y `apps/suscripciones`, la entrada CT-03 de `CONTRATOS.md`, y pruebas
+focales propias.
 
 ## Evidencia local
 
@@ -53,10 +66,16 @@ operativa.
   --settings=config.settings_development --noinput --verbosity 1
 ```
 
-Resultado: **35 OK** en 13.194 s. Cubre payload inválido sin mutación, sin
-diferido y con cursor bloqueado; payload parcial compatible; flags efectivos
-por negocio/sucursal; fallback legacy; y el recorrido incremental real tras
-cambiar plan y override mediante las rutas oficiales.
+Resultado inicial CT-03: **35 OK** en 13.194 s. Cubre payload inválido sin
+mutación, sin diferido y con cursor bloqueado; payload parcial compatible;
+flags efectivos por negocio/sucursal; fallback legacy; y el recorrido
+incremental real tras cambiar plan y override mediante las rutas oficiales.
+
+Resultado extendido SUS-016 (misma `.venv`, `--keepdb` sobre la base temporal):
+**59 OK**. Incluye cuatro regresiones del checkpoint: foto estable sin escrituras,
+detección simultánea de bootstrap/cursor/diferido/ciclo parcial, JSON +
+`--strict` sin mutar, y plan personalizado que no se etiqueta falsamente como
+drift. También pasaron `manage.py check` y `makemigrations --check --dry-run`.
 
 También pasaron:
 
@@ -81,7 +100,8 @@ la BD temporal del runner); no fue un error de migración ni produjo escritura.
   ya tenga `emisor_activo`; un POS sin ese prerequisito queda bloqueado en vez
   de almacenar una configuración fiscal inválida. El aprovisionamiento de ese
   emisor no pertenece a este bloque.
-- Rollback local: revertir `1019500`; no hay migración ni estado remoto que
+- Rollback local: revertir `f83f67d` retira solo el checkpoint SUS-016;
+  revertir además `1019500` retira CT-03. No hay migración ni estado remoto que
   revertir.
 - Siguiente gate: revisión contra `dfb1dfc`, repetir esta matriz y el smoke
   HTTP con cloud/POS desechables. Integrar solo en un candidato controlado;

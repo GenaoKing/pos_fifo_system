@@ -291,12 +291,17 @@ diferida a `on_commit`), SUS-013 (`6e3d551`, semántica real de `Plan.activo`),
 SUS-015 (`7201043`, auditoría CT-01), SUS-017 (`3018ce8`, presets versionados).
 **SUS-019** (fronteras del guard de degradación por plan/`activa`) quedó
 integrado y revalidado localmente en `integration/cierre-prod-A05-C03` el
-2026-09-17 (origen `0548384`). Quedan
-abiertos: **SUS-007** (mitad UI hecha, falta migrar el pull de sync a derivar del
-engine — es de Codex) y **SUS-016** (C+A: `--dry-run`/atomicidad hechos, falta el
-reporte de sync parcial de Codex). **SUS-014** quedó acreditado localmente:
-prevención (`validar_plan_slug` + `bootstrap_tenant`) y detección read-only
-`PLAN_DRIFT` cableada a `verificar_identidad_tenant`; no corrige datos.
+2026-09-17 (origen `0548384`). En el candidato consolidado
+`integration/cierre-prod-A06-C04-C05`, **SUS-007/CFG-007** están incorporados desde `1019500`:
+el pull conserva la forma legacy, pero deriva módulos desde el resolutor y
+rechaza el payload inválido antes de mutar. **SUS-016** queda cerrado por
+`f83f67d`: `verificar_suscripciones_sync` produce un checkpoint determinista y
+de solo lectura por instalación (catálogo/presets, suscripciones, configuración
+legacy y cursores/diferidos/último ciclo); `--strict` solo cambia el código de
+salida, nunca ejecuta bootstrap, sync de módulos ni reparaciones.
+**SUS-014** conserva prevención (`validar_plan_slug` + `bootstrap_tenant`)
+y detección read-only `PLAN_DRIFT` cableada a `verificar_identidad_tenant`;
+no corrige datos.
 
 **Pendientes de `apps/configuracion`** — cerrados en `develop` por C03
 (revalidado 2026-09-16, con tests de configuración): CFG-006 (`38e5647`,
@@ -312,8 +317,11 @@ y **CFG-020** (validar formato del código de barras del lado config) — los tr
 con origen `1a7b767`. **CFG-021** verificado como ya cubierto por los tests de
 C03. Quedan
 abiertos: **CFG-012** (leer configuración aún puede crearla — el fix vive solo en
-`integration/cierre-prod-A05-C03`, no en `develop`), CFG-007 (el pull omite
-validadores; C+A) y CFG-008 (controles e-CF sin unidad, diferida). CFG-016
+`integration/cierre-prod-A05-C03`, no en `develop`) y CFG-008 (controles e-CF
+sin unidad, diferida). **CFG-007** queda cerrado en el candidato CT03-SYNC por
+`1019500`: la allowlist se valida con DRF y `full_clean()` sobre una copia antes
+de guardar; el payload inválido bloquea el cursor sin diferirse ni dejar estado
+parcial. CFG-016
 (round-trip BAT→env) es de C01.
 
 **Pendientes de `apps/productos`** (PRO-002/003/004/019 acreditados localmente;
