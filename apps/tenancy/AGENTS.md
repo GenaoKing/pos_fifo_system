@@ -1,6 +1,6 @@
 # apps/tenancy — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 -->
+<!-- Última revisión: 2026-09-24 (gate TEN-016 con colisión de PK explícita) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código

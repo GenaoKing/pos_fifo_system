@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-23 (A08: atribución proxy fail-closed) -->
+<!-- Última revisión: 2026-09-24 (gate CAS A06 con revisión posterior explícita) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código

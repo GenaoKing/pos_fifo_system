@@ -1,7 +1,9 @@
 """Contrato A06 para listado y resolución humana de CT-04."""
 import threading
 import uuid
+from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection
@@ -163,7 +165,15 @@ class ConflictosMaestrosA06Tests(TestCase):
     def test_aplicar_local_revalida_cas_y_no_pisa_un_cloud_mas_nuevo(self):
         mutacion = self._mutacion(nombre='Nombre decidido localmente A06')
         self.producto.nombre = 'Cloud más nuevo A06'
-        self.producto.save()
+        # El escenario requiere una revisión posterior. Dos save() inmediatos
+        # pueden recibir el mismo tick del reloj en Windows; fijar el tiempo
+        # hace determinista esa precondición sin simular el resolver ni su CAS.
+        posterior = self.producto.fecha_modificacion + timedelta(seconds=1)
+        with patch('django.utils.timezone.now', return_value=posterior):
+            self.producto.save()
+        self.assertNotEqual(
+            self.producto.fecha_modificacion.isoformat(), mutacion.cloud_revision,
+        )
 
         conflicto = self._resolver(mutacion, accion='APLICAR_LOCAL')
 

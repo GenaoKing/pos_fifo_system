@@ -91,10 +91,15 @@ class TenantPhysicalDatabaseIsolationTests(TestCase):
         tokens = set_current_tenant(tenant_key, alias)
         try:
             with force_tenancy(True):
+                # La colisión de PK es parte del escenario. Las secuencias de
+                # PostgreSQL no retroceden con el rollback de otros TestCase
+                # (administración usa ALIAS_A), por eso no se infiere del orden.
                 negocio = Negocio.objects.using(alias).create(
+                    pk=1,
                     nombre=f'Negocio {tenant_key}', slug=tenant_key,
                 )
                 usuario = Usuario.objects.db_manager(alias).create_human_user(
+                    pk=1,
                     username='admin',
                     email=f'admin@{tenant_key.replace("_", "-")}.example',
                     password='A9!clave-larga-segura',
