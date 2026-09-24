@@ -19,6 +19,14 @@ set "PROJECT_DIR=%~dp0.."
 set "DIST_DIR=%PROJECT_DIR%\dist\pos_fifo_system"
 cd /d "%PROJECT_DIR%"
 
+REM El lock y el wheelhouse son exclusivamente para CPython 3.11 x64.
+python -c "import sys, struct; sys.exit(0 if sys.version_info[:2] == (3, 11) and struct.calcsize('P') == 8 else 1)"
+if errorlevel 1 (
+    echo [ERROR] Active CPython 3.11 x64 antes de preparar el paquete Windows.
+    pause
+    exit /b 1
+)
+
 REM --- Gate de validacion: no empaquetar un paquete invalido (lint .bat + check venv limpio) ---
 echo [0/5] Validando antes de empaquetar...
 call "%PROJECT_DIR%\scripts\validar_paquete.bat"
@@ -38,10 +46,10 @@ REM --- Compilar Tailwind CSS para produccion ---
 echo [1/5] Compilando Tailwind CSS (produccion)...
 if exist "%PROJECT_DIR%\package.json" (
     call npx tailwindcss -i ./static/css/styles.css -o ./static/css/output.css --minify 2>nul
-    if %errorlevel% equ 0 (
-        echo   [OK] CSS compilado y minificado
-    ) else (
+    if errorlevel 1 (
         echo   [AVISO] No se pudo compilar Tailwind. Copiando CSS existente...
+    ) else (
+        echo   [OK] CSS compilado y minificado
     )
 ) else (
     echo   [AVISO] No hay package.json, copiando CSS existente
@@ -51,6 +59,11 @@ REM --- Collectstatic ---
 echo [2/5] Recolectando archivos estaticos...
 set DJANGO_SETTINGS_MODULE=config.settings_production
 python manage.py collectstatic --noinput >nul 2>&1
+if errorlevel 1 (
+    echo   [ERROR] collectstatic fallo; el paquete no esta completo.
+    pause
+    exit /b 1
+)
 echo   [OK] Staticfiles listos
 
 REM --- Copiar archivos del proyecto (excluyendo innecesarios) ---

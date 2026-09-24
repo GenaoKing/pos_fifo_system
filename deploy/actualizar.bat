@@ -68,7 +68,7 @@ if not exist "%DST_DIR%\manage.py" (
 if not exist "%DST_DIR%\deploy\env_cliente.bat" if not exist "%DST_DIR%\deploy\env_cliente.env" (
     echo [ERROR] Falta la configuracion del cliente: no existe
     echo         "%DST_DIR%\deploy\env_cliente.bat" ni "%DST_DIR%\deploy\env_cliente.env".
-    echo         Si es una instalacion nueva use deploy\instalar.bat, no este script.
+    echo         Si es una instalacion nueva siga docs\runbooks\INSTALACION_CLIENTE_NUEVO.md.
     pause
     exit /b 1
 )
@@ -196,8 +196,8 @@ robocopy "%SRC_DIR%\config"    "%DST_DIR%\config"    /e /xd __pycache__ /xf *.py
 robocopy "%SRC_DIR%\templates" "%DST_DIR%\templates" /e >nul
 robocopy "%SRC_DIR%\static"    "%DST_DIR%\static"    /e >nul
 if exist "%SRC_DIR%\utils" robocopy "%SRC_DIR%\utils" "%DST_DIR%\utils" /e /xd __pycache__ /xf *.pyc >nul
-REM deploy: copiar scripts nuevos PERO sin pisar el env_cliente.bat del cliente
-robocopy "%SRC_DIR%\deploy"    "%DST_DIR%\deploy"    /e /xf env_cliente.bat >nul
+REM deploy: copiar scripts nuevos sin pisar ninguna configuracion del cliente.
+robocopy "%SRC_DIR%\deploy"    "%DST_DIR%\deploy"    /e /xf env_cliente.bat env_cliente.env >nul
 for %%f in (manage.py server.py requirements.txt) do (
     if exist "%SRC_DIR%\%%f" copy /y "%SRC_DIR%\%%f" "%DST_DIR%\" >nul
 )
@@ -212,17 +212,17 @@ REM ============================================================================
 REM FASE 4: Dependencias
 REM ============================================================================
 echo [FASE 4/8] Actualizando dependencias de Python...
-python -m pip install --upgrade pip >nul 2>&1
 REM El paquete offline (C06.1/CT-05) trae wheelhouse\windows-py311 junto al
 REM .bat; si esta presente, instalar sin red y con verificacion de hashes en
 REM vez de salir a PyPI desde la PC del cliente. Sin esto, un paquete armado
 REM como "offline" igual dependia de internet en el momento de actualizar.
 if exist "%SRC_DIR%\wheelhouse\windows-py311" (
     echo   Instalando sin red desde wheelhouse\windows-py311 -- paquete offline...
-    pip install --no-index --find-links "%SRC_DIR%\wheelhouse\windows-py311" --require-hashes -r "%DST_DIR%\requirements.txt"
+    python -m pip install --no-index --find-links "%SRC_DIR%\wheelhouse\windows-py311" --require-hashes -r "%DST_DIR%\requirements.txt"
 ) else (
     echo   [AVISO] Este paquete no trae wheelhouse\windows-py311; instalando con red.
-    pip install -r "%DST_DIR%\requirements.txt"
+    python -m pip install --upgrade pip >nul 2>&1
+    python -m pip install -r "%DST_DIR%\requirements.txt"
 )
 if %errorlevel% neq 0 (
     echo   [ERROR] Fallo pip install. Revise los errores arriba.
