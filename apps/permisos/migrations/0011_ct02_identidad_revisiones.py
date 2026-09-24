@@ -4,6 +4,28 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+def poblar_cloud_ids(apps, schema_editor):
+    """Asigna una identidad distinta a cada fila previa a CT-02.
+
+    Un ``default=uuid.uuid4`` en ``AddField`` se evalúa una vez al alterar una
+    tabla existente; por eso no se puede declarar ``unique=True`` hasta que
+    cada fila histórica tenga su propio UUID.
+    """
+    db = schema_editor.connection.alias
+
+    for model_name in ('Rol', 'AsignacionRol'):
+        Modelo = apps.get_model('permisos', model_name)
+        for fila in Modelo.objects.using(db).filter(cloud_id__isnull=True).iterator():
+            Modelo.objects.using(db).filter(
+                pk=fila.pk,
+                cloud_id__isnull=True,
+            ).update(cloud_id=uuid.uuid4())
+
+
+def sin_reversa(apps, schema_editor):
+    """Al revertir se quitan las columnas; no hay identidades que restaurar."""
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -15,7 +37,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='rol',
             name='cloud_id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
+            field=models.UUIDField(editable=False, null=True),
         ),
         migrations.AddField(
             model_name='rol',
@@ -39,7 +61,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='asignacionrol',
             name='cloud_id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
+            field=models.UUIDField(editable=False, null=True),
         ),
         migrations.AddField(
             model_name='asignacionrol',
@@ -59,6 +81,17 @@ class Migration(migrations.Migration):
                 editable=False,
                 help_text='La fila local fue adoptada o creada por el pull RBAC cloud.',
             ),
+        ),
+        migrations.RunPython(poblar_cloud_ids, sin_reversa),
+        migrations.AlterField(
+            model_name='rol',
+            name='cloud_id',
+            field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
+        ),
+        migrations.AlterField(
+            model_name='asignacionrol',
+            name='cloud_id',
+            field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.CreateModel(
             name='EstadoRBAC',
