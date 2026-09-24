@@ -4,11 +4,11 @@ Lista accionable. El contexto de cada punto está en
 [ESTADO_AUDITORIAS.md](ESTADO_AUDITORIAS.md) y en el documento de auditoría del
 módulo. Marcar `[x]` al cerrar.
 
-Última actualización: **2026-09-23**. CT-03/C04 p6 fueron aceptados, A07
-revalidó 605 pruebas backend y C04 p5.2 ya fue consumido e integrado localmente
-en `integration/cierre-prod-C04-admin@26e9bac` (lint/build y 132 tests OK).
-Quedan E2E de navegador, el gate JWT frontend y los gates operativos. Sus
-detalles viven en `handoffs/cierre_prod/INTEGRACION-C04P52-ADMIN-2026-09-23.md`.
+Última actualización: **2026-09-24**. CT-03, SUS-014/016, A07/A08 y las
+entregas disponibles C06 están integradas. Frontend p6/p5.2/p5-admin/p5.3
+conserva evidencia E2E real 10/10; el fix UUID `dec46a3` ya está en el candidato.
+Queda repetir C06.1 completo y los gates operativos sobre el nuevo SHA.
+Detalle: `handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md`.
 
 ## Cierre A02 (sin despliegue)
 
@@ -315,10 +315,10 @@ origen `0db8f57`; preflight: backfill legacy + CheckConstraint), **CFG-018**
 (borrar logo anterior al reemplazar), **CFG-019** (retirar decoradores sin uso)
 y **CFG-020** (validar formato del código de barras del lado config) — los tres
 con origen `1a7b767`. **CFG-021** verificado como ya cubierto por los tests de
-C03. Quedan
-abiertos: **CFG-012** (leer configuración aún puede crearla — el fix vive solo en
-`integration/cierre-prod-A05-C03`, no en `develop`) y CFG-008 (controles e-CF
-sin unidad, diferida). **CFG-007** queda cerrado en el candidato CT03-SYNC por
+C03. **CFG-012** está acreditado en el candidato consolidado desde
+`23dc805`/`a865af3`: leer no crea y el bootstrap es explícito; `develop`
+conserva la versión anterior. Sigue abierto CFG-008 (controles e-CF sin unidad,
+diferida). **CFG-007** queda cerrado en el candidato consolidado por
 `1019500`: la allowlist se valida con DRF y `full_clean()` sobre una copia antes
 de guardar; el payload inválido bloquea el cursor sin diferirse ni dejar estado
 parcial. CFG-016

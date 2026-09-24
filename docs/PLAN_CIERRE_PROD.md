@@ -1,9 +1,9 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
-Fecha: **2026-09-23**. Estado: **en ejecución; CT-03 sync, C04 p6 y el
-consumidor C04 p5.2 están integrados localmente; A07 backend fue revalidado.
-El siguiente bloque C04 permitido es un E2E de navegador separado, no una
-promoción ni una operación sobre datos reales**.
+Fecha: **2026-09-24**. Estado: **avances disponibles consolidados en los
+candidatos backend y frontend, incluidos SUS-016, el fix de permisos.0011 y
+C06.1/2/3. El siguiente ensayo es C06.1 completo sobre el SHA integrado**.
+Inventario de ramas y relevo: [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
 `develop` corregido a `staging`, luego a producción y, finalmente, a los POS de
@@ -331,6 +331,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014, CT-03, A07, A08.1-A08.4, C04 p5.3 y C06.1 están integrados localmente** | Backend `integration/cierre-prod-A06-C04-C05@6fc61c5` contiene el candidato A08/C06.1 y SEC-001; frontend `integration/cierre-prod-C04-admin@4ff4247` une C04 p6, p5.2, p5-admin y p5.3. C06 físico y preflights siguen pendientes de autorización. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 y C06.1 aceptados localmente; G1-G4 siguen pendientes de preflight/release** | Frontend: lint, build y 143 tests; E2E real 10/10 documentado. A08/C06.1 aportan CI, locks, Docker, manifiesto, restore plan y paquete offline reproducido; faltan CI remoto, preflight autorizado y gates físicos/release. |
+| Implementación A01–A08 / C01–C06 | **Avances disponibles integrados localmente, incluidos SUS-016, `dec46a3` y C06.1/2/3** | Backend `integration/cierre-prod-A06-C04-C05`; frontend `integration/cierre-prod-C04-admin@a9d960e`. Ver `INTEGRACION-TOTAL-2026-09-24.md`. Ensayo completo C06.1 del nuevo SHA, resto de matriz física y gates operativos pendientes. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 integrados; G1-G4 pendientes de preflight/release** | Frontend: lint, build y 143 tests; E2E real 10/10 documentado. A08/C06.1 aportan tooling y evidencia del paquete anterior; falta repetir C06.1 completo con el fix UUID y las demás correcciones, además de CI remoto/digest y los gates operativos. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

@@ -1,5 +1,9 @@
 # A / CT-03 sync — SUS-007 y CFG-007
 
+> Actualización 2026-09-24: CT-03 y SUS-016 están integrados en el candidato
+> consolidado. La espera de revisión/merge descrita abajo pertenece a la entrega
+> original. Evidencia conjunta y siguiente gate: `INTEGRACION-TOTAL-2026-09-24.md`.
+
 Estado: **implementado y validado localmente; pendiente de revisión e
 integración.** Fecha: **2026-09-18**. No se hizo push, merge, despliegue ni
 operación sobre datos reales.

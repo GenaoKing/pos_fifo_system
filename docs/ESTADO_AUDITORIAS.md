@@ -1,8 +1,10 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-23** · CT-03/C04 p6, A07 y C04 p5.2 backend
-siguen integrados localmente; el consumidor React p5.2 quedó fusionado en
-`integration/cierre-prod-C04-admin@26e9bac`.
+Última actualización: **2026-09-24** · Candidato consolidado con SUS-016,
+corrección `dec46a3` de permisos.0011, impresión y entregas C06.1/2/3.
+Frontend p6/p5.2/p5-admin/p5.3 integrado en `a9d960e`.
+Ver [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
+La corrección de 0011 está en código; el ensayo C06.1 completo sigue pendiente.
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué

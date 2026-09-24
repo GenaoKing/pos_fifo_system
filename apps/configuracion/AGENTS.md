@@ -1,6 +1,6 @@
 # apps/configuracion — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (C04 p5.2: edición portal allowlisted) -->
+<!-- Última revisión: 2026-09-24 (CT-03 y administración integrados) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -79,7 +79,8 @@ UI: es el *control plane* de la instalación. Se edita por Django admin
 - Los flags `modulo_*` son legacy: la verdad de entitlements está en
   `apps/suscripciones` (`flag_legacy` en su `registry`). La UI ya **no** los lee:
   `utils.modulos_efectivos()` (via context processor) resuelve por el mismo motor
-  que gatea el backend (CFG-009/SUS-007). Falta migrar el pull de sync (Codex).
+  que gatea el backend (CFG-009/SUS-007). El pull de sync ya deriva los flags
+  del mismo motor y valida el payload antes de guardar (CT-03, `1019500`).
 - `texto_pie_ticket` / `imprimir_logo_ticket` fueron eliminados en `0002`; el
   driver térmico los lee con `getattr` y cae al default.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md`)

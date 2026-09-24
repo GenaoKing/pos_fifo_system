@@ -1,14 +1,19 @@
 # Estado maestro del proyecto
 
 Ultima revision: **2026-09-24**. `develop@fffd02b` permanece intacto. El
-candidato backend local `integration/cierre-prod-A06-C04-C05@4f3e03c` reúne
+candidato backend local `integration/cierre-prod-A06-C04-C05` reúne
 A05/C03, A06, C05/CT-04, C05 p6, SUS-014, CT-03, A07, A08.1-A08.4, C06.1-C06.3
 y la mitigación SEC-001; no es un release ni se publicó. C06 acreditó en
 laboratorio el ticket CP850 y el comprobante PDF de oficina, ambos físicos; no
 sustituye los ensayos de actualización, backup/restore ni operación autorizada.
 El candidato frontend
-separado `integration/cierre-prod-C04-admin@4ff4247` integra p6, p5.2,
+separado `integration/cierre-prod-C04-admin@a9d960e` integra p6, p5.2,
 p5-admin y p5.3; conserva la evidencia E2E real documentada, sin despliegue.
+
+También están integrados `dec46a3` (UUID de permisos.0011) y SUS-016.
+Detalle y relevo: [integración total 2026-09-24](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
+El ensayo completo C06.1 debe repetirse sobre el SHA final integrado;
+el test de 0011 no sustituye las 32 migraciones sobre la copia restaurada.
 
 Sobre ese SHA frontend de integración pasaron `npm run lint`, `npm run test:run`
 (**143/143**) y `npm run build`. La evidencia E2E real 10/10 de p5.3 está
@@ -57,11 +62,11 @@ Encargos: [Codex](planes/CIERRE_PROD_CODEX.md) y
 [Claude](planes/CIERRE_PROD_CLAUDE.md). Estado: **el `develop` local integra
 A00-A04, C01-C03 y C05 partes 1-2; el candidato aislado
 `integration/cierre-prod-A05-C03@609c98f` suma A05.1-A05.4. El candidato
-consolidado `integration/cierre-prod-A06-C04-C05@4f3e03c` integra A06,
+consolidado `integration/cierre-prod-A06-C04-C05` integra A06,
 selectores C05/CT-04, doce productores C05 p6 CT-01, SUS-014, CT-03 sync, A07
 y el backend de administración C04 p5.2.
 C04 p6, p5.2, p5-admin y p5.3 están juntos en
-`integration/cierre-prod-C04-admin@4ff4247`, con evidencia E2E real 10/10 y
+`integration/cierre-prod-C04-admin@a9d960e`, con evidencia E2E real 10/10 y
 143 pruebas. A07 dejó evidencia local de 605 pruebas backend. C06.1-C06.3 y la
 evidencia física de impresión siguen siendo candidatas locales. G1-G4 siguen
 pendientes de preflight y release; nada está aprobado ni publicado**.
@@ -86,7 +91,7 @@ recomendaciones historicas de este indice; no prueban el estado actual de Azure.
 | Notificaciones portal | **V1 validada en staging; fase cerrada** | `docs/runbooks/NOTIFICACIONES_WEB_PUSH.md` | Preparar la evaluación staging → producción. La matriz y sus casos físicos diferidos están en `docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`; eventos nuevos, en `docs/runbooks/EXTENDER_NOTIFICACIONES.md`. |
 | Modulos vendibles | Fundación completa; SUS-006, SUS-014, SUS-007/CFG-007 y SUS-016 integrados localmente | `ARQUITECTURA_MODULOS.md` | CxC/reportes on-demand tienen gate HTML/API; CT-03 deriva capacidades efectivas y valida el pull. SUS-016 aporta checkpoint de solo lectura; no repara datos. |
 | e-CF | Fase inicial/MSeller implementada | `docs/handoffs/HANDOFF_ECF.md` + `apps/facturacion_electronica/AGENTS.md`; el roadmap de la Fase Inicial se archivo en `docs/historico/` | Mantener MSeller operativo; nativa/certificacion DGII quedan fase futura. |
-| Testing | CT-03/C04, A07 y C06 integrados localmente | `TESTING.md` | A07: 605 backend OK; frontend C04: E2E 10/10, lint, build y 143 tests OK; C06: 5 pruebas térmicas, 7 de comprobante PDF y ticket/PDF físicos PASS. Faltan e-CF, Linux, preflights autorizados, ensayos de actualización/restore y artefacto en A09. |
+| Testing | CT-03/C04, A07 y C06 integrados localmente | `TESTING.md` | Matriz general, e-CF y release actuales: `INTEGRACION-TOTAL-2026-09-24.md`. Frontend: lint, build y 143 pruebas; E2E real 10/10 anterior preservado. C06 conserva ticket/PDF físicos PASS. Linux/CI remoto, preflights y ensayo completo del paquete actualizado siguen separados. |
 | Auditorias de codigo | 191 hallazgos en 18 modulos | `ESTADO_AUDITORIAS.md` (estado) + `TODO_AUDITORIAS.md` (accionable) | C05 p6 registra 12 productores CT-01 en el candidato; CT-04/C04 operativo y deuda residual siguen abiertos. |
 | KB para agentes | 21/21 apps mapeadas | `AGENTS.md` (raiz) + `apps/<app>/AGENTS.md` | Convencion cerrada el 2026-09-08. Al tocar una app, actualizar la linea `Ultima revision` de su mapa en el mismo commit. |
 | Sync confiable | **Fases 0/1/2/4 desplegadas previamente; A04 durable integrado localmente** | `ROADMAP_SYNC_CONFIABLE.md` + handoff A04 | Compatibilidad HTTP real, dry-run de clientes y despliegue quedan para A09 con autorización. |

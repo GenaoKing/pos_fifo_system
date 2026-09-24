@@ -1,6 +1,6 @@
 # apps/suscripciones — mapa para agentes
 
-<!-- Última revisión: 2026-09-23 (SUS-016: checkpoint read-only por instalación) -->
+<!-- Última revisión: 2026-09-24 (SUS-016 integrado en candidato consolidado) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -80,7 +80,7 @@ cierre( plan.modulos ∪ {incluidos} − {excluidos} ) ∪ core − {overrides a
   `engine.divergencias_plan_operativo`, ahora sumada a
   `divergencias_identidad`/`verificar_identidad_tenant` como `PLAN_DRIFT`.
 - Auditoría 2026-08-30 (`docs/exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md`)
-  — **snapshot histórico**. Cierre en curso (bloque C03): cerrados SUS-008, -009,
-  -010, -012, -013, -015, -016 (parcial), -017, -018; SUS-014 cerrada en el
-  candidato local; abiertos SUS-006,
-  -007, -011, -019.
+  — **snapshot histórico**. El candidato consolidado integra SUS-006..019:
+  CT-03 cierra SUS-007/CFG-007, SUS-014 conserva prevención y PLAN_DRIFT,
+  y SUS-016 agrega el checkpoint read-only. Ver el ledger vigente y los gates
+  operativos pendientes en `docs/handoffs/cierre_prod/INVENTARIO.md`.

@@ -1,7 +1,7 @@
 # CT-03 — configuración y capacidades efectivas
 
-Estado: **contrato local versionado y probado en el candidato; consumidores de
-sync aún parciales.** Fecha: **2026-09-18**.
+Estado: **contrato y consumidores de sync integrados localmente.**
+Actualización: **2026-09-24**. El contrato original se fijó el 2026-09-18.
 
 Esta es la integración rebasada del material C03 `312e78c`. El texto histórico
 que afirmaba que CFG-012 era solo diseño no se incorporó: en este candidato
@@ -22,11 +22,11 @@ la única vía que materializa la configuración inicial.
 
 ## Límites pendientes
 
-- SUS-007 sigue pendiente: el pull de configuración todavía transporta los
-  flags legacy `modulo_*`; debe derivarlos del engine sin romper clientes viejos
-  ni dejar fuera cambios de plan/override del cursor incremental.
-- CFG-007 sigue pendiente: el receptor debe rechazar payload de configuración
-  inválido sin aplicarlo.
+- SUS-007/CFG-007 están integrados desde `1019500`: el pull deriva los flags
+  legacy del engine, incluye cambios oficiales de plan/override en su cursor y
+  rechaza payloads inválidos antes de mutar. Ver `A-CT03-sync-SUS007-CFG007.md`.
+- SUS-016 está integrado desde `f83f67d`: checkpoint de solo lectura para
+  detectar bootstrap o sync parcial; no ejecuta reparaciones.
 - Este contrato no autoriza despliegue ni cambia el alcance C04/C06.
 
 ## Verificación
