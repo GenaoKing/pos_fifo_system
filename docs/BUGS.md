@@ -25,6 +25,22 @@
 
 ## Pendientes
 
+### SEC-001 — Credenciales de prueba en un archivo versionado
+
+- Fecha de hallazgo: 2026-09-23, durante el empaquetado aislado C06.1.
+- Severidad: alta si la identidad de prueba se reutilizó en algún entorno.
+- Estado: **saneado en el tip actual; rotación/revocación e historial pendientes de decisión autorizada.**
+- Hallazgo: un script ad-hoc trackeado para smoke del portal contenía tokens
+  JWT y credenciales de prueba en texto plano. El paquete C06.1 lo excluye y
+  el archivo actual es un stub no ejecutable, sin material autenticado.
+- Acción necesaria fuera del repositorio: el operador debe confirmar si esa
+  identidad se reutilizó y, de ser así, rotarla/revocar sesiones en el entorno
+  correspondiente. No se accedió a entornos reales, no se rotó ninguna
+  credencial y no se reescribió el historial Git durante esta corrección.
+- Prevención: los smokes autorizados usan entornos locales no versionados y
+  credenciales efímeras; nunca se agregan tokens o contraseñas a scripts
+  trackeados.
+
 ### BUG-A — Perdida SILENCIOSA de eventos de sync cuando el servicio del POS no tiene `SYNC_ENABLED`
 
 - Fecha de hallazgo: 2026-08-19.
