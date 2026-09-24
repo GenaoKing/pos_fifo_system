@@ -20,7 +20,11 @@ Detalle y relevo: [integración total 2026-09-24](handoffs/cierre_prod/INTEGRACI
 El ensayo completo C06.1 ya pasó sobre el código integrado `d69c73e`:
 paquete offline, 32/32 migraciones y backup/restore en copia de desarrollo.
 Ver [relevo C06.1](handoffs/cierre_prod/C06.1-relevo-d69c73e-ensayo-completo.md).
-No acredita copias de ambas tiendas ni los gates G1–G4.
+No acredita copias actuales de ambas tiendas ni los gates G1–G4.
+Después se integró el procedimiento Windows de Claude y se cerró la ruta
+offline en `639d3b4`; [A09](handoffs/cierre_prod/A09-rig-local-2026-09-24.md)
+registró paquete reproducible y rig HTTP local. Los dumps históricos RP/SK
+migraron, pero las copias actuales y los gates siguen pendientes.
 
 Sobre ese SHA frontend de integración pasaron `npm run lint`, `npm run test:run`
 (**143/143**) y `npm run build`. La evidencia E2E real 10/10 de p5.3 está

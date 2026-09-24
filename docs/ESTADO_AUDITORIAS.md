@@ -5,7 +5,8 @@ corrección `dec46a3` de permisos.0011, impresión y entregas C06.1/2/3.
 Frontend p6/p5.2/p5-admin/p5.3 integrado en `a9d960e`.
 Ver [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
 La corrección de 0011 y el ensayo C06.1 completo sobre `d69c73e` están
-acreditados localmente; copias por tienda y G1–G4 siguen pendientes.
+acreditados localmente; los dumps históricos RP/SK también migraron, pero
+copias actuales por tienda y G1–G4 siguen pendientes.
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
