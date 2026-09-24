@@ -13,8 +13,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.tenancy.context import force_tenancy, tenant_context
 from apps.tenancy.migration_repair import (
-    desregistrar_migraciones_sucursales,
     inspeccionar_sucursales,
+    materializar_sucursal_fantasma,
 )
 from apps.tenancy.models import Tenant
 from apps.tenancy.registry import configure_tenant_database
@@ -35,7 +35,7 @@ class Command(BaseCommand):
         destino.add_argument('--tenant', help='tenant_key exacto a reparar.')
         parser.add_argument(
             '--apply', action='store_true',
-            help='Borra solo el historial de sucursales y reaplica esa app.',
+            help='Materializa la tabla historica faltante y aplica lo pendiente.',
         )
         parser.add_argument(
             '--dry-run', action='store_true',
@@ -68,9 +68,10 @@ class Command(BaseCommand):
                 ))
                 return
 
-            eliminadas = desregistrar_migraciones_sucursales(alias)
+            materializar_sucursal_fantasma(alias, estado.migraciones_registradas)
             self.stdout.write(
-                f'APPLY: se desregistraron {eliminadas} filas de sucursales en {alias}.'
+                f'APPLY: tabla materializada en {alias}; se conservaron '
+                f'{len(estado.migraciones_registradas)} filas de migraciones.'
             )
             call_command(
                 'migrate', 'sucursales', database=alias, interactive=False,

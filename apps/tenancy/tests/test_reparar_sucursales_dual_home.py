@@ -82,8 +82,8 @@ class RepararSucursalesDualHomeCommandTests(TestCase):
             ),
             patch(
                 'apps.tenancy.management.commands.reparar_sucursales_dual_home.'
-                'desregistrar_migraciones_sucursales',
-            ) as desregistrar,
+                'materializar_sucursal_fantasma',
+            ) as materializar,
             patch(
                 'apps.tenancy.management.commands.reparar_sucursales_dual_home.'
                 'call_command',
@@ -96,10 +96,10 @@ class RepararSucursalesDualHomeCommandTests(TestCase):
         self.assertIn('LEDGER', salida.getvalue())
         self.assertIn('0001_initial', salida.getvalue())
         self.assertIn('DRY-RUN', salida.getvalue())
-        desregistrar.assert_not_called()
+        materializar.assert_not_called()
         migrate.assert_not_called()
 
-    def test_apply_repara_unicamente_su_historial_y_reaplica_la_app(self):
+    def test_apply_materializa_sin_borrar_historial_y_aplica_pendientes(self):
         salida = StringIO()
         pendiente = _estado(tabla_presente=False, migraciones=('0001_initial', '0002_x'))
         reparada = _estado(
@@ -116,8 +116,8 @@ class RepararSucursalesDualHomeCommandTests(TestCase):
             ),
             patch(
                 'apps.tenancy.management.commands.reparar_sucursales_dual_home.'
-                'desregistrar_migraciones_sucursales', return_value=2,
-            ) as desregistrar,
+                'materializar_sucursal_fantasma',
+            ) as materializar,
             patch(
                 'apps.tenancy.management.commands.reparar_sucursales_dual_home.'
                 'call_command',
@@ -128,7 +128,7 @@ class RepararSucursalesDualHomeCommandTests(TestCase):
                 verbosity=1, stdout=salida,
             )
 
-        desregistrar.assert_called_once_with('default')
+        materializar.assert_called_once_with('default', pendiente.migraciones_registradas)
         migrate.assert_called_once_with(
             'migrate', 'sucursales', database='default', interactive=False,
             verbosity=1,

@@ -7,7 +7,9 @@ describe con precision el estado para que el comando explicito pueda hacerlo.
 
 from dataclasses import dataclass
 
+from django.core.management.base import CommandError
 from django.db import connections
+from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
 
@@ -60,7 +62,46 @@ def inspeccionar_sucursales(alias):
     )
 
 
-def desregistrar_migraciones_sucursales(alias):
-    """Quita solo el historial que impide que Django materialice la app."""
+_MIGRACIONES_SUCURSALES_CONOCIDAS = (
+    '0001_initial',
+    '0002_sucursal_ultima_sync_sucursal_usuario_servicio',
+    '0003_sucursal_negocio',
+    '0004_sucursal_dual_home_preflight',
+)
+
+
+def materializar_sucursal_fantasma(alias, migraciones_registradas):
+    """Crea la tabla en su estado historico sin romper dependencias ya aplicadas.
+
+    En una base heredada, auditoria.0002 y otras migraciones pueden depender de
+    sucursales.0001 y estar registradas. Desregistrar sucursales causa
+    InconsistentMigrationHistory antes de que ``migrate`` pueda recrear la tabla.
+    Se materializa solo la tabla ausente con el modelo del ultimo estado
+    registrado; el historial permanece intacto y ``migrate`` aplica lo pendiente.
+    """
+    registradas = tuple(migraciones_registradas)
+    if (
+        not registradas
+        or registradas != _MIGRACIONES_SUCURSALES_CONOCIDAS[:len(registradas)]
+    ):
+        raise CommandError(
+            f'{alias}: historial de sucursales no reconocido; no se materializo '
+            'ninguna tabla.'
+        )
+
     connection = connections[alias]
-    return MigrationRecorder(connection).migration_qs.filter(app=APP_LABEL).delete()[0]
+    if TABLA_SUCURSAL in connection.introspection.table_names():
+        raise CommandError(f'{alias}: {TABLA_SUCURSAL} ya existe; no se repara.')
+
+    estado = MigrationLoader(None).project_state(
+        [(APP_LABEL, registradas[-1])]
+    )
+    sucursal = estado.apps.get_model(APP_LABEL, 'Sucursal')
+    if sucursal._meta.db_table != TABLA_SUCURSAL:
+        raise CommandError(f'{alias}: nombre de tabla inesperado; no se repara.')
+
+    with connection.schema_editor() as editor:
+        editor.create_model(sucursal)
+
+    if TABLA_SUCURSAL not in connection.introspection.table_names():
+        raise CommandError(f'{alias}: la tabla no se materializo.')

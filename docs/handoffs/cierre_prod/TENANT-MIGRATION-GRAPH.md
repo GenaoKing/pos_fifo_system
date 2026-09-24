@@ -5,6 +5,14 @@ Base: `c95b9aff86fa6ef67d2bb90fe91d5a78b1b679b3`
 Rama: `codex/cierre-prod-tenant-migration-graph`
 Estado: **entrega aislada; no integrada, no publicable por si sola**.
 
+> **Corrección A09, 2026-09-24:** el procedimiento original de `--apply`
+> desregistraba `sucursales.0001–0003`; en el control plane dev eso produjo
+> `InconsistentMigrationHistory` porque `auditoria.0002` ya dependía de
+> `sucursales.0001`. El comando vigente materializa únicamente la tabla ausente
+> según el último estado histórico registrado, conserva las filas de
+> `django_migrations` y aplica las migraciones pendientes. Véase el ensayo
+> sobre copia restaurada en `A09-dev-preflight-2026-09-24.md`.
+
 Esta entrega no autoriza `develop`, push, staging, produccion, CT-03, CT-04 ni
 A05.2--A05.4. Corrige solo el grafo cloud que quedaba bloqueado antes de crear
 un tenant.
@@ -32,9 +40,9 @@ Luego `auditoria.0002` intentaba crear su FK sobre una tabla inexistente. Un
   fantasma, terminan sin migrar y muestran el comando de reparacion exacto.
 - `reparar_sucursales_dual_home` exige un solo destino (`--database` o
   `--tenant`). Sin `--apply` es dry-run por defecto y emite un `LEDGER` JSON
-  con alias, filas registradas y estado. Con `--apply`, desregistra **solo**
-  las filas de `django_migrations` cuyo `app='sucursales'`, reaplica solo esa
-  app y verifica que la tabla exista. No hay borrado SQL manual sugerido.
+  con alias, filas registradas y estado. Con `--apply`, materializa la tabla
+  faltante en el estado histórico registrado **sin borrar migraciones**,
+  aplica lo pendiente y verifica que la tabla exista.
 
 La app no tiene un `run_before` nuevo sobre una migracion historica de
 `auditoria`: hacerlo volveria inconsistente cualquier control plane donde
@@ -49,7 +57,8 @@ Tomar primero un backup verificado de la base objetivo y guardar la salida
 completa `LEDGER` en el acta de cambio.
 
 1. Detenerse ante el fallo de preflight de `migrate_cloud` o `migrate_tenants`.
-   No editar `django_migrations` por SQL.
+   No editar `django_migrations` por SQL. Confirmar que se usa el reparador
+   corregido en A09; el anterior falla con dependencias ya aplicadas.
 2. Ejecutar y revisar el dry-run del destino exacto:
 
    ```powershell
@@ -84,9 +93,9 @@ corregir el diagnostico y salir sin escritura. En la rama aislada se puede
 revertir el commit de esta entrega antes de integrarlo.
 
 Despues de `--apply`, **no** hay rollback automatico de esquema y no se deben
-eliminar `sucursales_sucursal` ni reinsertar filas antiguas en
-`django_migrations`: cualquiera de ambas acciones revive el estado que causo el
-incidente, y podria borrar sucursales creadas despues. Si el procedimiento no
+eliminar `sucursales_sucursal` ni alterar `django_migrations`: cualquiera de
+ambas acciones revive el estado que causo el incidente y podria borrar
+sucursales creadas despues. Si el procedimiento no
 puede continuar, conservar el `LEDGER`, detener la promocion y restaurar solo
 desde el backup verificado tomado antes de la operacion, siguiendo el proceso
 operativo aprobado. Para un fallo de migracion reintentable, la via preferida

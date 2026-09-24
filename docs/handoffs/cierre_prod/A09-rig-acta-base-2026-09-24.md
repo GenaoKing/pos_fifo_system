@@ -2,6 +2,9 @@
 
 Fecha: 2026-09-24. Estado: **rig local parcial acreditado; G1–G4 sin cerrar**.
 Resultados y límites: [ensayo A09](A09-rig-local-2026-09-24.md).
+Preflight de dev y reparación dirigida sobre restore:
+[A09-dev-preflight](A09-dev-preflight-2026-09-24.md). El backend y el portal
+están publicados como PR en borrador; dev todavía no se desplegó.
 Este registro aplica el [objetivo de release para RP y SK](../../planes/OBJETIVO_RELEASE_CLIENTES.md).
 El alcance de trabajo nuevo excluye e-CF, etiquetas y periféricos accesorios;
 se conserva la comprobación del comprobante habitual cuando se pruebe la venta.

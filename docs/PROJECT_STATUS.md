@@ -1,5 +1,15 @@
 # Estado maestro del proyecto
 
+Actualización A09 del 2026-09-24: backend y frontend están publicados como PR
+en borrador, sin merge ni despliegue. El CI remoto del backend anterior a la
+reparación final y el CI frontend pasaron. El
+[preflight Azure dev](handoffs/cierre_prod/A09-dev-preflight-2026-09-24.md)
+verificó 21 migraciones pendientes, respaldó y restauró control plane + tenant
+`demo`, y descubrió un fallo del reparador de `sucursales` que ya se corrigió y
+ensayó en una segunda copia limpia. Dev sigue en la imagen antigua; G1–G4
+permanecen abiertos. Las afirmaciones históricas de abajo se leen contra esta
+actualización.
+
 Foco solicitado el 2026-09-24: [objetivo de release para RP y SK](planes/OBJETIVO_RELEASE_CLIENTES.md).
 Prioriza operación comercial, datos, acceso, sync y actualización recuperable;
 e-CF y etiquetas quedan fuera del trabajo nuevo. El documento propone el corte
