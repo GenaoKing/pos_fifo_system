@@ -1,8 +1,9 @@
 # A09 — preflight de Azure dev y reparación de sucursales
 
-Fecha: 2026-09-24. Alcance: lectura de Azure dev, backups de `pos_fifo_dev` y
-`tnt_demo`, y ensayos sobre copias PostgreSQL **locales**. No se modificó Azure,
-`develop`, staging ni producción durante este preflight.
+Fecha: 2026-09-24. Alcance inicial: lectura de Azure dev, backups de
+`pos_fifo_dev` y `tnt_demo`, y ensayos sobre copias PostgreSQL **locales**. La
+reparación dirigida se aplicó después a dev real, como registra el último
+apartado. `develop`, staging y producción seguían intactos en ese punto.
 
 ## Estado observado
 
@@ -62,10 +63,25 @@ En una segunda restauración limpia, `--dry-run` enumeró exactamente tres filas
 con **1/1 tenant OK**, sin tablas faltantes. Log local:
 `C:\Proyectos\_lab_a09_rig_20260924\dev_repair2_migrate.log`.
 
-La reparación sobre el entorno dev real **sigue pendiente**. Antes del push a
-`develop`, ejecutar con el código corregido el dry-run contra `pos_fifo_dev`,
-comparar el ledger con esta foto y aplicar el mismo target solo si coincide;
-conservar el ledger. Entonces verificar backup reciente y dejar que el workflow
-ejecute `migrate_cloud`, inspeccionar su resultado por base y hacer smoke de API.
-No ejecutar el reparador antiguo sobre Azure: desregistraría migraciones ya
-referenciadas y bloquearía el despliegue.
+## Reparación aplicada a Azure dev
+
+Después de que CI Linux pasara en `438b38a`, se comprobó de nuevo que la API y
+el job dev seguían en `45ca23a`, que `origin/develop` no había avanzado y que el
+dry-run remoto listaba exactamente `sucursales.0001–0003` sin tabla. Se tomó
+un respaldo adicional justo antes de aplicar, con `pg_restore --list` válido:
+
+| Fuente | Bytes | SHA-256 | Objetos TOC |
+| --- | ---: | --- | ---: |
+| `pos_fifo_dev` | 72.143 | `B90AA50251E4F7FBD0320C4A0943FC4D06873F75E73C74B8146B275AFB7F68D0` | 185 |
+| `tnt_demo` | 330.890 | `5D4358F2AFA0FAF2FFDFC883834FAA04BA4DF989683E7206C986D964392EA2D3` | 783 |
+
+Con el código corregido y el target explícito `pos_fifo_dev` se repitió el
+dry-run, se comparó programáticamente alias, tabla y tres nombres de migración,
+y solo entonces se ejecutó `reparar_sucursales_dual_home --database default
+--apply`. Resultado: tabla presente, las tres filas conservadas y
+`sucursales.0004` aplicada. El dry-run posterior devolvió «Sin reparación».
+Ledger local: `C:\Proyectos\_lab_a09_rig_20260924\dev_repair_live_438b38a.log`.
+No se ejecutó aún `migrate_cloud` ni se cambió la imagen API. El merge a
+`develop` activará ambos pasos; verificar el ledger del job, el digest de la
+imagen y el health antes de declarar dev actualizado. No ejecutar el reparador
+antiguo sobre Azure: desregistraría migraciones ya referenciadas.

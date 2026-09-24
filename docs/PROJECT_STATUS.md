@@ -5,8 +5,9 @@ en borrador, sin merge ni despliegue. El CI remoto del backend anterior a la
 reparación final y el CI frontend pasaron. El
 [preflight Azure dev](handoffs/cierre_prod/A09-dev-preflight-2026-09-24.md)
 verificó 21 migraciones pendientes, respaldó y restauró control plane + tenant
-`demo`, y descubrió un fallo del reparador de `sucursales` que ya se corrigió y
-ensayó en una segunda copia limpia. Dev sigue en la imagen antigua; G1–G4
+`demo`, y descubrió un fallo del reparador de `sucursales` que ya se corrigió,
+ensayó en una segunda copia limpia y aplicó de forma dirigida en dev real.
+Dev sigue en la imagen antigua; G1–G4
 permanecen abiertos. Las afirmaciones históricas de abajo se leen contra esta
 actualización.
 
