@@ -244,7 +244,7 @@ snapshot; el bloque debe convertirla en regresión automatizada antes de cerrar.
 | CLI-010 | TODO + AUD-CLI | Identidad origen parcial/degrada al borrar sucursal. | A | A05 | No indicada | PENDIENTE | — | Identidad estable/adopción. |
 | CLI-011 | TODO + AUD-CLI | API/alta local sin auditoría. | A | A06 | No indicada | PENDIENTE | — | CT-01 transaccional. |
 | CLI-012 | TODO + AUD-CLI | Edición de límite no atribuye sucursal. | A | A06 | No indicada | PENDIENTE | — | CT-01 scope. |
-| CLI-013 | TODO + AUD-CLI | DELETE físico da 500 con referencias. | A | A06 | No indicada | PENDIENTE | — | Baja lógica/409 estable. |
+| CLI-013 | TODO + AUD-CLI | DELETE físico daba 500 con referencias. | A | A09 | No indicada | MITIGADO_CANDIDATO | `apps/api/views/maestros.py`, `test_cliente_viewset.py` | DELETE desactiva, conserva PK/referencias y publica `activo=false` al pull; genérico CONTADO protegido. CLI-011 (auditoría) sigue abierto. |
 | CLI-015 | TODO + AUD-CLI | Detalle apunta a plantilla inexistente. | A | A06 | No indicada | PENDIENTE | — | GET detalle 200/404. |
 | CLI-016 | TODO + AUD-CLI | Listado/búsqueda con N+1 financiero. | A | A06 | No indicada | PENDIENTE | — | Presupuesto de queries. |
 | CLI-017 | TODO + AUD-CLI | Admin muta internos fuera del dominio. | A | A06 | No indicada | PENDIENTE | — | Aceptación CLI-017. |

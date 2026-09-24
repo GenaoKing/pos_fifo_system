@@ -164,16 +164,65 @@ class ClienteViewSetPermissionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data['activo'])
 
-    def test_admin_puede_borrar_cliente(self):
+    def test_admin_desactiva_sin_borrar_y_sucursal_recibe_cambio(self):
+        from datetime import timedelta
+        from urllib.parse import quote
+        from django.utils import timezone
+
         nuevo = Cliente.objects.create(
             tipo='PERSONAL', nombre='Para borrar', activo=True
         )
+        cursor = timezone.now() - timedelta(milliseconds=100)
         response = self.api(user=self.admin).delete(
             f'{self.clientes_url}{nuevo.id}/'
         )
 
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Cliente.objects.filter(id=nuevo.id).exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['activo'])
+        nuevo.refresh_from_db()
+        self.assertFalse(nuevo.activo)
+        self.assertGreater(nuevo.fecha_modificacion, cursor)
+
+        pull = self.api(token=self.sucursal_token).get(
+            f'{self.clientes_url}?desde={quote(cursor.isoformat())}'
+        )
+        self.assertEqual(pull.status_code, 200)
+        self.assertIn(
+            {'id': nuevo.id, 'activo': False},
+            [{'id': item['id'], 'activo': item['activo']} for item in pull.data['results']],
+        )
+
+        otra_vez = self.api(user=self.admin).delete(f'{self.clientes_url}{nuevo.id}/')
+        self.assertEqual(otra_vez.status_code, 200)
+        self.assertEqual(Cliente.objects.filter(pk=nuevo.pk).count(), 1)
+
+    def test_admin_desactiva_cliente_con_cotizacion_protegida(self):
+        from django.utils import timezone
+        from apps.cotizaciones.models import Cotizacion
+
+        cotizacion = Cotizacion.objects.create(
+            numero_cotizacion='CLI-013', cliente=self.cliente,
+            usuario=self.admin, fecha_creacion=timezone.now(),
+        )
+        response = self.api(user=self.admin).delete(
+            f'{self.clientes_url}{self.cliente.id}/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.cliente.refresh_from_db()
+        cotizacion.refresh_from_db()
+        self.assertFalse(self.cliente.activo)
+        self.assertEqual(cotizacion.cliente_id, self.cliente.id)
+
+    def test_admin_no_desactiva_generico_contado(self):
+        contado = Cliente.objects.create(tipo='CONTADO', nombre='CONTADO')
+        response = self.api(user=self.admin).delete(
+            f'{self.clientes_url}{contado.id}/'
+        )
+
+        self.assertEqual(response.status_code, 403)
+        contado.refresh_from_db()
+        self.assertTrue(contado.activo)
 
     # --- Validaciones del serializer de escritura ---
 

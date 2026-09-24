@@ -71,6 +71,9 @@ tiene modelos propios (`models.py` vacío).
   /administracion/sucursales/{id}/` son bajas lógicas, nunca borrado físico.
   En cloud la baja de usuario también revoca `Membership`; username/email y
   código de sucursal son identidades inmutables en estas rutas.
+- `DELETE /api/v1/maestros/clientes/{id}/` desactiva el cliente y devuelve su
+  representación actualizada. Conserva las referencias históricas y el
+  genérico CONTADO sigue protegido; `activo=false` baja por el pull incremental.
 - Los ViewSets maestros solo aceptan escritura en la instancia cloud. En un POS
   local responden `403`, para no saltar maestro + auditoría CT-01 +
   `MutacionMaestro`. El flag de compatibilidad de sus tests exige además una

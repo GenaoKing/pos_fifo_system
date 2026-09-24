@@ -425,7 +425,7 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
         GET    /api/v1/maestros/clientes/<id>/       detalle
         POST   /api/v1/maestros/clientes/           crear (admin)
         PATCH  /api/v1/maestros/clientes/<id>/       editar (admin)
-        DELETE /api/v1/maestros/clientes/<id>/       borrar (admin)
+        DELETE /api/v1/maestros/clientes/<id>/       desactivar (admin)
 
     Filtros:
         ?tipo=PERSONAL/CORPORATIVO/CONTADO  → tipo de cliente
@@ -442,21 +442,15 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
             return ClienteSerializer
         return ClienteWriteSerializer
 
-    def perform_destroy(self, instance):
-        """
-        El generico CONTADO no se borra (CLI-007).
-
-        `ModelViewSet` conservaba el `destroy` fisico estandar, asi que un
-        DELETE sobre el generico sin referencias lo eliminaba. `get_cliente_contado()`
-        pasaba entonces a crearlo de nuevo con otro PK, y las ventas historicas
-        quedaban apuntando a una fila que ya no es "el" generico.
-        """
-        if getattr(instance, 'es_contado', False):
-            raise exceptions.PermissionDenied(
-                'El cliente CONTADO es la identidad generica del sistema y no '
-                'se puede eliminar.'
-            )
-        super().perform_destroy(instance)
+    def destroy(self, request, *args, **kwargs):
+        """Baja logica: conserva ventas y emite el cambio al pull incremental."""
+        cliente = self.get_object()
+        serializer = self.get_serializer(
+            cliente, data={'activo': False}, partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        cliente = serializer.save()
+        return Response(self._read(cliente).data, status=status.HTTP_200_OK)
 
     def get_base_queryset(self):
         queryset = Cliente.objects.all()
