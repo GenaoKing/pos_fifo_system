@@ -26,6 +26,8 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +78,32 @@ def git(*args, cwd):
     ).stdout.strip()
 
 
+def extraer_tar_seguro(tar_path: Path, destino: Path):
+    """Extrae solo miembros regulares dentro de ``destino``.
+
+    El tar procede de ``git archive``, pero esta comprobacion evita que un
+    path malicioso o un symlink versionado conviertan un futuro cambio de
+    origen en una escritura fuera del laboratorio.
+    """
+    raiz = destino.resolve()
+    with tarfile.open(tar_path) as archivo:
+        miembros = archivo.getmembers()
+        for miembro in miembros:
+            objetivo = (destino / miembro.name).resolve()
+            try:
+                objetivo.relative_to(raiz)
+            except ValueError as exc:
+                raise ValueError(
+                    f'El archive contiene una ruta fuera del staging: {miembro.name!r}'
+                ) from exc
+            if not (miembro.isfile() or miembro.isdir()):
+                raise ValueError(
+                    f'El archive contiene un tipo no permitido: {miembro.name!r}'
+                )
+        for miembro in miembros:
+            archivo.extract(miembro, destino)
+
+
 def construir_staging(repo_dir: Path, sha: str, staging: Path):
     if staging.exists():
         shutil.rmtree(staging)
@@ -86,9 +114,7 @@ def construir_staging(repo_dir: Path, sha: str, staging: Path):
     )
     tar_path = staging / '_archive.tar'
     tar_path.write_bytes(proc.stdout)
-    import tarfile
-    with tarfile.open(tar_path) as tf:
-        tf.extractall(staging)
+    extraer_tar_seguro(tar_path, staging)
     tar_path.unlink()
     return staging / 'pos_fifo_system'
 
@@ -125,27 +151,67 @@ def verificar_sin_prohibidos(paquete_root: Path):
     return hallazgos
 
 
-def copiar_wheelhouse(wheelhouse_src: Path, paquete_root: Path):
+def copiar_wheelhouse_verificado(wheelhouse_src: Path, requirements_path: Path, paquete_root: Path):
+    """Resuelve el lock sin red y copia solamente los wheels que lo satisfacen.
+
+    El manifiesto por si solo enumera hashes de lo que se copio; no demuestra
+    que esa coleccion sea instalable. ``pip download --no-index`` con el lock
+    y sus hashes valida ambas cosas antes de que el ZIP exista.
+    """
+    if not wheelhouse_src.is_dir():
+        raise ValueError(f'El wheelhouse no es un directorio: {wheelhouse_src}')
+
     destino = paquete_root / 'wheelhouse' / 'windows-py311'
-    destino.mkdir(parents=True, exist_ok=True)
     wheels = []
-    for whl in sorted(wheelhouse_src.glob('*.whl')):
-        shutil.copy2(whl, destino / whl.name)
-        wheels.append({
-            'archivo': whl.name,
-            'sha256': sha256_de(whl),
-            'bytes': whl.stat().st_size,
-        })
+    with tempfile.TemporaryDirectory(prefix='c06-wheelhouse-') as resolucion_tmp:
+        resultado = subprocess.run(
+            [
+                sys.executable, '-m', 'pip', 'download',
+                '--disable-pip-version-check', '--no-index',
+                '--find-links', str(wheelhouse_src), '--only-binary=:all:',
+                '--require-hashes', '--dest', resolucion_tmp,
+                '--requirement', str(requirements_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if resultado.returncode:
+            raise RuntimeError(
+                'El wheelhouse no satisface requirements.txt sin red y con hashes. '
+                'Reconstruilo con pip download --require-hashes antes de empaquetar.'
+            )
+        seleccionados = sorted(Path(resolucion_tmp).glob('*.whl'))
+        if not seleccionados:
+            raise RuntimeError('El lock no resolvio ningun wheel para el paquete Windows.')
+        destino.mkdir(parents=True, exist_ok=True)
+        for whl in seleccionados:
+            shutil.copyfile(whl, destino / whl.name)
+            wheels.append({
+                'archivo': whl.name,
+                'sha256': sha256_de(whl),
+                'bytes': whl.stat().st_size,
+            })
     return wheels
 
 
-def zip_de(paquete_root: Path, destino_zip: Path):
+def zip_de(paquete_root: Path, destino_zip: Path, source_date_epoch: int):
+    """Crea un ZIP reproducible: orden, timestamps y permisos estables."""
     if destino_zip.exists():
         destino_zip.unlink()
-    with zipfile.ZipFile(destino_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+    fecha = datetime.fromtimestamp(source_date_epoch, timezone.utc)
+    fecha_zip = (fecha.year, fecha.month, fecha.day, fecha.hour, fecha.minute, fecha.second)
+    with zipfile.ZipFile(destino_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for ruta in sorted(paquete_root.rglob('*')):
             if ruta.is_file():
-                zf.write(ruta, ruta.relative_to(paquete_root.parent))
+                info = zipfile.ZipInfo(
+                    ruta.relative_to(paquete_root.parent).as_posix(),
+                    date_time=fecha_zip,
+                )
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = 0o100644 << 16
+                zf.writestr(info, ruta.read_bytes(), compress_type=zipfile.ZIP_DEFLATED,
+                            compresslevel=9)
     return destino_zip
 
 
@@ -164,14 +230,15 @@ def main():
     wheelhouse_src = Path(args.wheelhouse).resolve()
     lab.mkdir(parents=True, exist_ok=True)
 
-    sha_real = git('rev-parse', args.sha, cwd=repo_dir)
-    rama_actual = git('rev-parse', '--abbrev-ref', 'HEAD', cwd=repo_dir)
+    sha_real = git('rev-parse', '--verify', f'{args.sha}^{{commit}}', cwd=repo_dir)
+    source_date_epoch = int(git('show', '-s', '--format=%ct', sha_real, cwd=repo_dir))
 
     staging = lab / 'paquete_staging'
     paquete_root = construir_staging(repo_dir, sha_real, staging)
 
     exclusiones = aplicar_exclusiones(paquete_root)
-    wheels = copiar_wheelhouse(wheelhouse_src, paquete_root)
+    requirements_path = paquete_root / 'requirements.txt'
+    wheels = copiar_wheelhouse_verificado(wheelhouse_src, requirements_path, paquete_root)
 
     prohibidos = verificar_sin_prohibidos(paquete_root)
     if prohibidos:
@@ -180,26 +247,24 @@ def main():
             print(f'  - {p}', file=sys.stderr)
         sys.exit(1)
 
-    requirements_path = paquete_root / 'requirements.txt'
     requirements_sha = sha256_de(requirements_path)
 
     paquete_dir = lab / 'paquete'
     paquete_dir.mkdir(exist_ok=True)
     nombre_zip = f'pos_fifo_system_C06.1_{sha_real[:12]}.zip'
     zip_path = paquete_dir / nombre_zip
-    zip_de(paquete_root, zip_path)
+    zip_de(paquete_root, zip_path, source_date_epoch)
     zip_sha = sha256_de(zip_path)
     zip_bytes = zip_path.stat().st_size
 
     manifiesto = {
         'schema_version': 'paquete.windows.c06_1.v1',
-        'generado_utc': datetime.now(timezone.utc).isoformat(),
+        'source_date_epoch': source_date_epoch,
+        'generado_utc': datetime.fromtimestamp(source_date_epoch, timezone.utc).isoformat(),
         'ct05_referencia': 'CT-05 (CONTRATOS.md) — artefacto/actualizacion, EN_CURSO',
         'estado': 'CANDIDATO LOCAL — NO PROMOTABLE',
         'backend': {
             'sha': sha_real,
-            'rama_base': 'integration/cierre-prod-A06-C04-C05',
-            'rama_trabajo': rama_actual,
         },
         'runtime': {'python': 'CPython 3.11.14 x64', 'pip_requerido': '26.0.1'},
         'lock': {'archivo': 'requirements.txt', 'sha256': requirements_sha},
