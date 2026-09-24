@@ -80,6 +80,23 @@ for %%d in (logs backups media) do (
 
 echo   [OK] Archivos copiados (sin __pycache__, sin .pyc, sin venv)
 
+REM --- Wheelhouse offline (C06.1/CT-05): sin esto, actualizar.bat cae a
+REM     "pip install -r requirements.txt" con red en la PC del cliente,
+REM     contradiciendo el contrato de paquete offline de requirements/README.md.
+REM     `pip download` valida los hashes del lock, asi que tambien es un gate:
+REM     si el lock esta roto, el empaquetado aborta aqui, no en el cliente.
+echo [3b/5] Descargando wheelhouse offline (requirements.txt, con hashes)...
+if exist "%DIST_DIR%\wheelhouse\windows-py311" rmdir /s /q "%DIST_DIR%\wheelhouse\windows-py311"
+mkdir "%DIST_DIR%\wheelhouse\windows-py311" 2>nul
+python -m pip download --require-hashes --only-binary=:all: --dest "%DIST_DIR%\wheelhouse\windows-py311" --requirement "%PROJECT_DIR%\requirements.txt"
+if errorlevel 1 (
+    echo   [ERROR] No se pudo construir el wheelhouse offline. Revise
+    echo           requirements.txt y la conexion de esta PC de desarrollo.
+    pause
+    exit /b 1
+)
+echo   [OK] Wheelhouse offline listo en wheelhouse\windows-py311
+
 REM --- Verificar paquete ---
 echo [4/5] Verificando paquete...
 set /a FILES=0
@@ -98,8 +115,10 @@ echo  ============================================================
 echo.
 echo  Instrucciones:
 echo    1. Copie la carpeta dist\pos_fifo_system\ a una USB
-echo    2. En la PC del cliente, copie a C:\pos_fifo_system\
-echo    3. Ejecute como admin: deploy\instalar.bat
+echo    2. En la PC del cliente:
+echo       - Instalacion NUEVA: seguir docs\runbooks\INSTALACION_CLIENTE_NUEVO.md
+echo         (deploy\instalar.bat quedo obsoleto, no lo ejecute)
+echo       - Actualizar una instalacion existente: deploy\actualizar.bat
 echo.
 
 pause

@@ -213,7 +213,17 @@ REM FASE 4: Dependencias
 REM ============================================================================
 echo [FASE 4/8] Actualizando dependencias de Python...
 python -m pip install --upgrade pip >nul 2>&1
-pip install -r "%DST_DIR%\requirements.txt"
+REM El paquete offline (C06.1/CT-05) trae wheelhouse\windows-py311 junto al
+REM .bat; si esta presente, instalar sin red y con verificacion de hashes en
+REM vez de salir a PyPI desde la PC del cliente. Sin esto, un paquete armado
+REM como "offline" igual dependia de internet en el momento de actualizar.
+if exist "%SRC_DIR%\wheelhouse\windows-py311" (
+    echo   Instalando sin red desde wheelhouse\windows-py311 -- paquete offline...
+    pip install --no-index --find-links "%SRC_DIR%\wheelhouse\windows-py311" --require-hashes -r "%DST_DIR%\requirements.txt"
+) else (
+    echo   [AVISO] Este paquete no trae wheelhouse\windows-py311; instalando con red.
+    pip install -r "%DST_DIR%\requirements.txt"
+)
 if %errorlevel% neq 0 (
     echo   [ERROR] Fallo pip install. Revise los errores arriba.
     echo           El codigo ya fue copiado pero la BD NO se ha migrado aun.
@@ -390,7 +400,7 @@ echo.
 if not "%SYNC_LISTO%"=="1" (
     echo  SYNC AUN NO ACTIVADO. Para encenderlo:
     echo    1. En el cloud: python manage.py vincular_sucursal_token --sucursal %SUCURSAL_CODIGO%
-    echo    2. Edite deploy\env_cliente.env (o .bat): SYNC_ENABLED=true, CLOUD_API_URL, CLOUD_API_TOKEN
+    echo    2. Edite deploy\env_cliente.env -- o el .bat legado --: SYNC_ENABLED=true, CLOUD_API_URL, CLOUD_API_TOKEN
     echo    3. Ejecute como admin: deploy\registrar_sync_servicio.bat
     echo    Ver: deploy\ACTUALIZACION_ROYAL_PLAST.md
 )
