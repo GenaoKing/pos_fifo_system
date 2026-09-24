@@ -35,7 +35,7 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 | `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
 | `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
-| `apps/suscripciones` | 19 | **P1 mitigado (6/10)**; SUS-007..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
+| `apps/suscripciones` | 19 | **SUS-007/CFG-007 y SUS-016 cerrados en candidato CT03-SYNC**; revisión/integración pendientes, SUS-014 abierto | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
 | `apps/cotizaciones` | 18 | **COT-008/010/011/012/014/015 acreditados**; CT-04 y deuda residual abiertos | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
