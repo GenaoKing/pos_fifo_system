@@ -1,6 +1,7 @@
 # C06 — diagnóstico de encoding térmico en laboratorio
 
-Estado: **EN CURSO**. Fecha: **2026-09-23**. Base: candidato local
+Estado: **CERRADO para encoding/ticket/PDF de laboratorio; C06 sigue abierto**.
+Inicio: **2026-09-23**. Cierre de esta evidencia: **2026-09-24**. Base: candidato local
 `integration/cierre-prod-A06-C04-C05@9e6fb99`. Sin push, despliegue, servicios
 Windows, migraciones ni lectura/escritura de datos operativos.
 
@@ -40,12 +41,14 @@ página de prueba de la aplicación ya corregida, no el emisor RAW de diagnósti
 2. Pruebas unitarias cubren el contenido y que la conexión selecciona la tabla
    configurada.
 3. `POS-80C` confirma físicamente la página CP850 corregida, con corte y sin
-   apertura de cajón.
+   apertura de cajón. **PASS**.
 
-Esto solo acredita el encoding y corte de la página diagnóstica. Continúan
-pendientes la matriz C06 completa (ticket, etiqueta, comprobante, reimpresión,
-nombres largos, imágenes, importes límite, cuenta de servicio), paquete
-Windows, backup/restauración y rollback.
+Esto acredita encoding, corte, un ticket sintético y un comprobante PDF de
+laboratorio. Continúan pendientes la matriz C06 que requiere instalación/cuenta
+de servicio, reimpresión explícita con autorización, imágenes, importes límite,
+paquete Windows, backup/restauración y rollback. **Etiquetas quedan excluidas
+por prioridad del responsable del producto**; no se presentan como pendiente
+del gate actual.
 
 ## Implementación y pruebas automatizadas
 
@@ -86,10 +89,35 @@ código: la impresora se había conectado a otro puerto USB físico y el driver
 driver, la cola se liberó. Los trabajos sintéticos no impresos se cancelaron
 para evitar una emisión tardía duplicada; no contenían datos operativos.
 
-La aceptación visual del ticket enviado sigue pendiente del responsable. No se
-declara cerrada la matriz física C06 hasta contar con esa confirmación y los
-casos que requieren una instalación/cuenta de servicio o la impresora de
-etiquetas.
+El responsable confirmó visualmente el ticket: acentos, nombre largo en dos
+líneas, RD$ y corte correctos. No se declara cerrada la matriz física C06: aún
+requiere los casos que dependen de una instalación/cuenta de servicio y de una
+operación autorizada.
+
+## Comprobante PDF de oficina
+
+Se generó con `apps.ventas.pdf_comprobante.generar_comprobante_venta` un PDF
+sintético Carta (PDF 1.4, 3,852 bytes) con nombre largo/acento, cliente,
+descuento, RD$ y firmas. No hubo `Venta`, `Pago` ni auditoría persistidos. El
+responsable lo imprimió desde Edge con `L4260 Series(Network)` (Epson L4260 por
+red) y confirmó que el resultado físico fue correcto.
+
+La cobertura automatizada del generador se repitió en una base exclusiva y
+desechable:
+
+```
+$env:DB_NAME = 'pos_fifo_c06_pdf'
+python manage.py test apps.ventas.tests.test_pdf_comprobante \
+  --settings=config.settings_development --verbosity 1
+# 7/7 OK; test_pos_fifo_c06_pdf creada y destruida por Django.
+```
+
+## Nota para integración
+
+El commit de este worktree `e846899` desciende de `ee7b98d`. C06.1 tiene el
+equivalente de ese primer delta como `d90b758` (cherry-pick de `ee7b98d`). Al
+integrar C06.1 y este bloque sobre el candidato, conservar **una sola** copia de
+los cambios de impresión y resolver el solapamiento antes de fusionar.
 
 ## Validación automatizada
 
