@@ -17,8 +17,10 @@ p5-admin y p5.3; conserva la evidencia E2E real documentada, sin despliegue.
 
 También están integrados `dec46a3` (UUID de permisos.0011) y SUS-016.
 Detalle y relevo: [integración total 2026-09-24](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
-El ensayo completo C06.1 debe repetirse sobre el SHA final integrado;
-el test de 0011 no sustituye las 32 migraciones sobre la copia restaurada.
+El ensayo completo C06.1 ya pasó sobre el código integrado `d69c73e`:
+paquete offline, 32/32 migraciones y backup/restore en copia de desarrollo.
+Ver [relevo C06.1](handoffs/cierre_prod/C06.1-relevo-d69c73e-ensayo-completo.md).
+No acredita copias de ambas tiendas ni los gates G1–G4.
 
 Sobre ese SHA frontend de integración pasaron `npm run lint`, `npm run test:run`
 (**143/143**) y `npm run build`. La evidencia E2E real 10/10 de p5.3 está

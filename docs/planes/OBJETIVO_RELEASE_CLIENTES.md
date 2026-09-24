@@ -35,12 +35,12 @@ previas son evidencia conservada, no un frente nuevo de este release.
 | Productos/categorías | Mutaciones offline, conflictos, inactivos y administración integrados | Validación del flujo completo y clasificación de deuda PRO todavía abierta. |
 | Clientes | CRUD y contención de edición local de clientes adoptados | Clasificar deuda CLI de aislamiento, validación, auditoría y borrado. CLI-004 no entrega edición offline con resolución de conflictos. |
 | Usuarios, roles, sucursales y configuración | Backend/portal integrados; pruebas de aislamiento y permisos | Identidad inicial, adopción, usuarios/roles reales y ausencia de bloqueos de acceso. |
-| Distribución y actualización | Tooling, locks, paquete y fix de permisos.0011 integrados | Ensayo C06.1 completo, copias representativas RP/SK, restore y artefactos remotos identificados. |
+| Distribución y actualización | Tooling, locks, paquete y fix de permisos.0011 integrados; C06.1 completo PASS sobre copia de desarrollo y código `d69c73e` | Copias representativas RP/SK, restore por entorno y artefactos remotos identificados. |
 | Entornos | Candidatos locales consolidados; develop aún no los contiene | Recorrer dev → staging → producción; verificar versiones desplegadas en cada paso. |
 
 No se verificó Azure ni las instalaciones de clientes para redactar este mapa.
-El relevo C06.1 ya tiene un worktree desde `d69c73e`; su existencia no acredita
-que el ensayo haya terminado. Este documento no cambia ese código base.
+El relevo C06.1 terminó con [evidencia de 32 migraciones y backup/restore](../handoffs/cierre_prod/C06.1-relevo-d69c73e-ensayo-completo.md)
+sobre `d69c73e`. Este documento no cambia ese código base.
 
 ## Alcance funcional y regla para detener la expansión
 
@@ -102,5 +102,5 @@ Ver `../runbooks/RELEASE_PROMOTION_A08_2.md` y los runbooks de actualización.
 - Responsable y operadores: concretar ventanas, autorizar pasos sobre entornos
   reales y aceptar la operación en cada tienda.
 
-El siguiente trabajo útil es terminar C06.1 y la clasificación acotada de
-bloqueadores para preparar dev. No se inicia otro bloque de funciones accesorias.
+El siguiente trabajo útil es la clasificación acotada de bloqueadores y el rig
+cloud/POS de A09 para preparar dev. No se inicia otro bloque de funciones accesorias.

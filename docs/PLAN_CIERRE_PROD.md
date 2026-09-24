@@ -7,7 +7,8 @@ por esta propuesta; el corte se registra antes de declarar G1 cumplido.
 
 Fecha: **2026-09-24**. Estado: **avances disponibles consolidados en los
 candidatos backend y frontend, incluidos SUS-016, el fix de permisos.0011 y
-C06.1/2/3. El siguiente ensayo es C06.1 completo sobre el SHA integrado**.
+C06.1/2/3. C06.1 completo PASS sobre el código integrado `d69c73e`;
+G1–G4 siguen pendientes**.
 Inventario de ramas y relevo: [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
 
 Este documento coordina el cierre de bugs y deuda técnica antes de promover el
@@ -336,6 +337,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **Avances disponibles integrados localmente, incluidos SUS-016, `dec46a3` y C06.1/2/3** | Backend `integration/cierre-prod-A06-C04-C05`; frontend `integration/cierre-prod-C04-admin@a9d960e`. Ver `INTEGRACION-TOTAL-2026-09-24.md`. Ensayo completo C06.1 del nuevo SHA, resto de matriz física y gates operativos pendientes. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 integrados; G1-G4 pendientes de preflight/release** | Frontend: lint, build y 143 tests; E2E real 10/10 documentado. A08/C06.1 aportan tooling y evidencia del paquete anterior; falta repetir C06.1 completo con el fix UUID y las demás correcciones, además de CI remoto/digest y los gates operativos. |
+| Implementación A01–A08 / C01–C06 | **Avances disponibles integrados localmente, incluidos SUS-016, `dec46a3` y C06.1/2/3** | Backend `integration/cierre-prod-A06-C04-C05`; frontend `integration/cierre-prod-C04-admin@a9d960e`. C06.1 completo PASS sobre el código `d69c73e`: paquete offline, 32/32 migraciones y backup/restore en copia de desarrollo. Ver `C06.1-relevo-d69c73e-ensayo-completo.md`. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 integrados; G1-G4 pendientes de preflight/release** | Frontend: lint, build y 143 tests; E2E real 10/10 documentado. C06.1 no sustituye compatibilidad real cloud/POS, copias de cada instalación, CI remoto/digest ni los gates operativos. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |

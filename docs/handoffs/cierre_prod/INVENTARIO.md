@@ -2,7 +2,8 @@
 
 Actualización vigente **2026-09-24**: SUS-007/CFG-007 y SUS-016 están
 incorporados al candidato consolidado. También `dec46a3` y C06.1/2/3;
-el ensayo completo del paquete nuevo sigue pendiente. Las capturas fechadas
+el ensayo completo del paquete nuevo pasó sobre `d69c73e` en copia de
+desarrollo; no cubre las copias de RP/SK ni G1–G4. Las capturas fechadas
 anteriores se conservan como historia. Ver `INTEGRACION-TOTAL-2026-09-24.md`.
 
 Captura: **2026-09-10 America/Santo_Domingo**. Base funcional auditada:
