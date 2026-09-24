@@ -47,6 +47,50 @@ pendientes la matriz C06 completa (ticket, etiqueta, comprobante, reimpresión,
 nombres largos, imágenes, importes límite, cuenta de servicio), paquete
 Windows, backup/restauración y rollback.
 
+## Implementación y pruebas automatizadas
+
+Se corrigió la página diagnóstica para que use el code page configurado e
+imprima `ñ Ñ á é í ó ú ü ¿ ¡` reales. La conexión Windows abre/cierra el trabajo
+RAW de modo explícito, inicializa con `ESC @` y selecciona la tabla configurada;
+no envía comandos propietarios de un modelo concreto. El cierre no agrega
+comandos de formato después del corte, pues cada nuevo trabajo ya se inicializa.
+
+También se corrigieron dos hallazgos del ticket: los totales se identifican como
+`RD$` y los nombres de producto de más de 40 caracteres se parten en líneas, en
+vez de truncarse silenciosamente.
+
+```
+python manage.py test utils.impresoras.tests.test_termica \
+  --settings=config.settings_development --verbosity 2
+# 5/5 OK; Skipping setup of unused database(s): default.
+
+python -m compileall -q utils/impresoras
+git diff --check
+# OK
+```
+
+Las pruebas cubren selector CP850/CP1252, página con caracteres reales, cierre
+del trabajo RAW, wrapping sin pérdida y símbolo RD$.
+
+## Ensayo físico adicional y estado del laboratorio
+
+Una página de aplicación CP850 corregida y un ticket sintético se enviaron con
+`POS-80C`; ambos devolvieron éxito y dejaron la cola Windows vacía. El ticket
+no creó venta, pago ni auditoría: QR, logo y cajón estuvieron deshabilitados e
+incluyó nombre largo con acentos, descuento y totales RD$.
+
+Durante el ensayo, los trabajos 7--10 y una prueba mínima quedaron con
+`PagesPrinted=0` aunque Windows mostraba estado normal. La causa fue externa al
+código: la impresora se había conectado a otro puerto USB físico y el driver
+`POS-80C` estaba asociado a `USB002`. Al volver al puerto donde se configuró el
+driver, la cola se liberó. Los trabajos sintéticos no impresos se cancelaron
+para evitar una emisión tardía duplicada; no contenían datos operativos.
+
+La aceptación visual del ticket enviado sigue pendiente del responsable. No se
+declara cerrada la matriz física C06 hasta contar con esa confirmación y los
+casos que requieren una instalación/cuenta de servicio o la impresora de
+etiquetas.
+
 ## Validación automatizada
 
 Ejecutado con el venv aislado de C06.1 (Django 5.2.17) y el `.env` sintético
