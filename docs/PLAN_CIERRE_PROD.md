@@ -1,5 +1,10 @@
 # Cierre del gate de producción — plan conjunto Codex / Claude
 
+Foco de entrega 2026-09-24: [objetivo de release para clientes](planes/OBJETIVO_RELEASE_CLIENTES.md).
+Recoge las exclusiones solicitadas (e-CF/etiquetas) y propone acotar el resto
+del backlog por impacto operativo. Los pendientes no se consideran cerrados
+por esta propuesta; el corte se registra antes de declarar G1 cumplido.
+
 Fecha: **2026-09-24**. Estado: **avances disponibles consolidados en los
 candidatos backend y frontend, incluidos SUS-016, el fix de permisos.0011 y
 C06.1/2/3. El siguiente ensayo es C06.1 completo sobre el SHA integrado**.

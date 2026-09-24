@@ -1,5 +1,10 @@
 # Estado maestro del proyecto
 
+Foco solicitado el 2026-09-24: [objetivo de release para RP y SK](planes/OBJETIVO_RELEASE_CLIENTES.md).
+Prioriza operación comercial, datos, acceso, sync y actualización recuperable;
+e-CF y etiquetas quedan fuera del trabajo nuevo. El documento propone el corte
+de deuda y concreta la ruta dev → staging → cloud → RP → SK.
+
 Ultima revision: **2026-09-24**. `develop@fffd02b` permanece intacto. El
 candidato backend local `integration/cierre-prod-A06-C04-C05` reúne
 A05/C03, A06, C05/CT-04, C05 p6, SUS-014, CT-03, A07, A08.1-A08.4, C06.1-C06.3
