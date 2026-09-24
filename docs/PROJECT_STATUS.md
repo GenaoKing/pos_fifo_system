@@ -1,19 +1,16 @@
 # Estado maestro del proyecto
 
 Ultima revision: **2026-09-23**. `develop@fffd02b` permanece intacto. El
-candidato backend local `integration/cierre-prod-A06-C04-C05@4fd5c46` reúne
-A05/C03, A06, C05/CT-04, C05 p6, SUS-014, CT-03 sync SUS-007/CFG-007, A07 y el
-contrato de administración C04 p5.2. El candidato frontend separado
-`integration/cierre-prod-C04-admin@26e9bac` fusiona explícitamente
-`claude/cierre-prod-C04-p5.2@e8b0a17` sobre
-`claude/cierre-prod-C04@2df99c2` (que ya incluye p6); no incorpora la rama
-solapada `claude/cierre-prod-C04-p5-admin`.
+candidato backend local `integration/cierre-prod-A06-C04-C05@6fc61c5` reúne
+A05/C03, A06, C05/CT-04, C05 p6, SUS-014, CT-03, A07, A08.1-A08.4, C06.1 y la
+mitigación SEC-001; no es un release ni se publicó. El candidato frontend
+separado `integration/cierre-prod-C04-admin@4ff4247` integra p6, p5.2,
+p5-admin y p5.3; conserva la evidencia E2E real documentada, sin despliegue.
 
 Sobre ese SHA frontend de integración pasaron `npm run lint`, `npm run test:run`
-(**132/132**) y `npm run build`. La evidencia previa de contrato real de p5.2
-es un smoke sesión+CSRF de **20/20** contra backend `4fd5c46`; no sustituye un
-recorrido de navegador ni ejerce JWT tenant-aware. No hubo push, despliegue ni
-lectura o escritura de datos operativos.
+(**143/143**) y `npm run build`. La evidencia E2E real 10/10 de p5.3 está
+documentada; no se reejecutó durante la integración porque crea y elimina BDs
+locales. No hubo push, despliegue ni lectura o escritura de datos operativos.
 
 Este documento es la puerta de entrada para leer el proyecto sin perderse entre
 roadmaps, runbooks y bitacoras historicas. **Verifica la fecha de cada fila

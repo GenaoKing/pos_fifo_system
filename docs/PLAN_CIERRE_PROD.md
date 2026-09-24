@@ -174,7 +174,7 @@ versión, compatibilidad, fixtures de contrato y un commit consumible.
 | CT-02 — permisos y capacidades | A03: autorización, revocaciones, catálogo/presets, capacidades POS viejo/nuevo | B aplica gates en C02/C03/C04/C05; ningún bypass paralelo. |
 | CT-03 — configuración efectiva | B/C03 publicó fixture/test `capacidades.efectivas.v1`; A integró SUS-007/CFG-007 en el candidato local | A consume desde sync/settings; B desde UI/API/servicios. Lecturas consistentes sin Redis. |
 | CT-04 — maestros offline | A05/A06: identidad, revisiones, cola, ACK/retry, conflictos y visibilidad efectiva | B/C04 integró p6, p5.2, p5-admin y p5.3 en un candidato React: volumen, administración y contratos HTTP reales. La evidencia E2E real 10/10 está documentada; sigue pendiente el release, sin publicación. |
-| CT-05 — artefacto y actualización | A01/A08: runtimes, locks, manifiesto/digest y migraciones; C01/C06: paquete y preflight Windows | Ambos prueban la misma versión congelada, sin recompilar el artefacto aprobado para prod. |
+| CT-05 — artefacto y actualización | A01/A08: runtimes, locks, manifiesto/digest y migraciones; C01/C06: paquete y preflight Windows | C06.1 produjo y reprodujo localmente el paquete offline con wheelhouse y hashes, referenciando el SHA congelado; sigue CANDIDATO LOCAL, nunca un artefacto aprobado para prod. |
 
 ### Ciclo de cada bloque
 
@@ -331,6 +331,6 @@ reales, push a ramas que autodespliegan o activación de notificaciones reales.
 | --- | --- | --- |
 | Reparto documental A/B | Preparado | Este plan y los dos encargos enlazados |
 | Bootstrap/base común A00 | **Integrado localmente (2026-09-10)** | Base `c4af604`; inventario/CT `eb5f6b0`; handoff `docs/handoffs/cierre_prod/A00-base-inventario.md`. Sin push/deploy. |
-| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014, CT-03, A07, A08.1-A08.4 y C04 p5.3 están integrados localmente** | Backend de aplicación `integration/cierre-prod-A06-C04-C05@910a7cd` incluye el candidato A08 local; frontend `integration/cierre-prod-C04-admin@4ff4247` une C04 p6, p5.2, p5-admin y p5.3. C06 puede iniciar su laboratorio CT-05; sigue pendiente el ensayo autorizado. |
-| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 aceptados localmente y A07/A08 revalidados localmente; G1-G4 siguen pendientes de preflight/release** | Frontend C04 integrado: lint, build y 143 tests; evidencia E2E real 10/10 documentada. A08 aporta CI/locks/Docker/manifiesto/restore local, pero faltan CI remoto, preflight read-only autorizado, C06 y gates de release. |
+| Implementación A01–A08 / C01–C06 | **A01-A04, C01-C03 y C05 partes 1-2 en `develop`; A05/A06, C05 CT-04/p6, SUS-014, CT-03, A07, A08.1-A08.4, C04 p5.3 y C06.1 están integrados localmente** | Backend `integration/cierre-prod-A06-C04-C05@6fc61c5` contiene el candidato A08/C06.1 y SEC-001; frontend `integration/cierre-prod-C04-admin@4ff4247` une C04 p6, p5.2, p5-admin y p5.3. C06 físico y preflights siguen pendientes de autorización. |
+| G0 / G1 / G2 / G3 / G4 | **G0 completado; CT-03/C04 p6+p5.3 y C06.1 aceptados localmente; G1-G4 siguen pendientes de preflight/release** | Frontend: lint, build y 143 tests; E2E real 10/10 documentado. A08/C06.1 aportan CI, locks, Docker, manifiesto, restore plan y paquete offline reproducido; faltan CI remoto, preflight autorizado y gates físicos/release. |
 | Despliegue cloud / RP / SK | No autorizado por este documento | Requiere autorización operativa explícita |
