@@ -59,6 +59,9 @@ durable ni una atestación firmada; ambos siguen siendo gates externos.
 
 El manifiesto no pregunta bases, tenants ni secretos. La prueba de que un
 artefacto se puede promover no prueba que las migraciones se hayan aplicado.
+Los hashes de sus inputs de texto normalizan finales de linea CRLF a LF, para
+que el manifiesto generado en CI Linux se pueda verificar desde un checkout
+Windows del mismo SHA sin confundir conversion de linea con un cambio de codigo.
 
 ## Gate operativo que permanece fuera de CI
 
