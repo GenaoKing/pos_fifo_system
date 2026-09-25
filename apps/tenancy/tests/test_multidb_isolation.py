@@ -150,6 +150,9 @@ class TenantPhysicalDatabaseIsolationTests(TestCase):
                     nombre='Categoria A05', origen_cloud_id=44,
                 )
                 producto = Producto.objects.using(alias).create(
+                    # PostgreSQL no revierte secuencias entre TestCase; fijar
+                    # la colision de PK que este gate pretende comprobar.
+                    pk=17,
                     sku='A05-TENANT-SKU',
                     nombre=nombre_local,
                     categoria=categoria,
