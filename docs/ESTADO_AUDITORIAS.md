@@ -1,6 +1,15 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-24** · Candidato consolidado con SUS-016,
+Actualización A09 del 2026-09-25: el [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27)
+ya integra auditoría CT-01 atómica en las mutaciones de catálogo y clientes
+del **portal**; `PRO-010` y `CLI-011` continúan parciales porque el camino
+HTML/local aún no comparte esa garantía. El pull RBAC acepta la identidad de
+usuario sin distinción de mayúsculas. La [promoción a staging #28](https://github.com/GenaoKing/pos_fifo_system/pull/28)
+quedó fusionada; el resultado operativo y las pruebas remotas se registran en
+el [acta A09](handoffs/cierre_prod/A09-staging-2026-09-25.md). Los gates G1–G4
+siguen abiertos.
+
+Corte histórico del **2026-09-24** · Candidato consolidado con SUS-016,
 corrección `dec46a3` de permisos.0011, impresión y entregas C06.1/2/3.
 Frontend p6/p5.2/p5-admin/p5.3 integrado en `a9d960e`.
 Ver [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
