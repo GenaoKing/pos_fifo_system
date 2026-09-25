@@ -51,15 +51,9 @@ if not exist "%PROJECT_DIR%\deploy\env_cliente.env" (
     exit /b 1
 )
 
-REM --- Validar que el sync este configurado ---
-if /i not "%SYNC_ENABLED%"=="true" (
-    echo [ERROR] SYNC_ENABLED no esta en "true" en deploy\env_cliente.bat
-    echo         Configure el sync antes de registrar el servicio.
-    pause
-    exit /b 1
-)
-if "%CLOUD_API_TOKEN%"=="PEGAR-TOKEN-DE-vincular_sucursal_token" (
-    echo [ERROR] Falta CLOUD_API_TOKEN real en deploy\env_cliente.bat
+REM Validar el .env real sin expandir secretos a traves del parser de cmd.
+"%PROJECT_DIR%\venv\Scripts\python.exe" "%PROJECT_DIR%\deploy\check_sync_env.py" "%PROJECT_DIR%\deploy\env_cliente.env"
+if errorlevel 1 (
     pause
     exit /b 1
 )

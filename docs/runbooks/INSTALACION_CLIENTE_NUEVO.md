@@ -233,11 +233,16 @@ la Fase 4.
 
 Solo cuando el cloud ya tenga la Sucursal creada.
 
-1. **En el cloud**, generar el token:
+1. **En el cloud DB-per-tenant**, generar el token dentro del tenant:
 
    ```bash
-   python manage.py vincular_sucursal_token --sucursal 01
+   python manage.py with_tenant --tenant <tenant_key> -- vincular_sucursal_token --sucursal 01 --settings=config.settings_cloud
    ```
+
+   El comando registra tanto el DRF Token de la base tenant como su hash en el
+   control plane. En un cloud mono-tenant se puede usar el comando directo.
+   Para rotar ambos registros, repetir con `--regenerar` y reemplazar el token
+   local antes de reanudar el daemon.
 
 2. **En el local**, editar `deploy\env_cliente.env`:
 
