@@ -339,7 +339,8 @@ más CLI-014/020):
 CLI-006 (aislamiento por negocio en base compartida — contenido por
 DB-per-tenant), CLI-008 (escrituras locales sin `full_clean`), CLI-009
 (cédula/RNC sin formato canónico), CLI-010 (identidad de origen a medias),
-CLI-011 (mutaciones sin auditoría), CLI-012 (sucursal en la auditoría de
+CLI-011 (parcial: API portal ya audita mutaciones y límite de crédito en la
+BD tenant; faltan rutas locales), CLI-012 (sucursal en la auditoría de
 límite — hecho en el toggle, falta en la edición), CLI-013 (`DELETE` físico
 de un cliente real sigue permitido), CLI-015 (detalle requiere prueba
 autorizada 200/404), CLI-016 (N+1 financieros),

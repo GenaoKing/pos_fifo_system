@@ -198,7 +198,7 @@ class ReadAfterWriteMixin:
         return Response(self._read(instance).data)
 
 
-def _snapshot_catalogo(instance):
+def _snapshot_maestro(instance):
     if isinstance(instance, Producto):
         return {
             'sku': instance.sku,
@@ -214,22 +214,38 @@ def _snapshot_catalogo(instance):
             'marca': instance.marca,
             'atributos': instance.atributos or {},
         }
-    return {
-        'nombre': instance.nombre,
-        'descripcion': instance.descripcion,
-        'activa': instance.activa,
-        'motivo_inactivacion': instance.motivo_inactivacion,
-        'tipo_negocio': instance.tipo_negocio,
-        'atributos_configurados': instance.atributos_configurados or {},
-    }
+    if isinstance(instance, Categoria):
+        return {
+            'nombre': instance.nombre,
+            'descripcion': instance.descripcion,
+            'activa': instance.activa,
+            'motivo_inactivacion': instance.motivo_inactivacion,
+            'tipo_negocio': instance.tipo_negocio,
+            'atributos_configurados': instance.atributos_configurados or {},
+        }
+    if isinstance(instance, Cliente):
+        return {
+            'tipo': instance.tipo,
+            'nombre': instance.nombre,
+            'cedula_rnc': instance.cedula_rnc,
+            'telefono': instance.telefono,
+            'direccion': instance.direccion,
+            'limite_credito': str(instance.limite_credito),
+            'plazo_credito_dias': instance.plazo_credito_dias,
+            'condiciones_pago': instance.condiciones_pago,
+            'notas': instance.notas,
+            'activo': instance.activo,
+        }
+    raise TypeError(f'Maestro no auditable: {type(instance).__name__}')
 
 
-class AuditoriaCatalogoMixin:
+class AuditoriaMaestroMixin:
     """Guarda maestro y evento CT-01 en la misma transaccion tenant."""
 
+    audit_namespace = None
     audit_entity = None
 
-    def _registrar_catalogo(self, instance, antes, despues):
+    def _registrar_maestro(self, instance, antes, despues):
         operacion = 'creado' if not antes else 'actualizado'
         if self.action == 'destroy':
             operacion = 'desactivado'
@@ -239,11 +255,17 @@ class AuditoriaCatalogoMixin:
             and antes['precio_venta'] != despues['precio_venta']
         ):
             operacion = 'precio_modificado'
+        elif (
+            isinstance(instance, Cliente)
+            and antes
+            and antes['limite_credito'] != despues['limite_credito']
+        ):
+            operacion = 'limite_modificado'
 
         actor = self.request.user
         negocio = getattr(actor, 'negocio', None)
         registrar_mutacion(
-            accion=f'productos.{self.audit_entity}.{operacion}',
+            accion=f'{self.audit_namespace}.{self.audit_entity}.{operacion}',
             actor=actor,
             entidad=instance,
             antes=antes,
@@ -258,20 +280,20 @@ class AuditoriaCatalogoMixin:
         alias = get_current_tenant_alias() or 'default'
         with transaction.atomic(using=alias):
             instance = serializer.save()
-            self._registrar_catalogo(instance, {}, _snapshot_catalogo(instance))
+            self._registrar_maestro(instance, {}, _snapshot_maestro(instance))
 
     def perform_update(self, serializer):
         instance = serializer.instance
         alias = instance._state.db
         with transaction.atomic(using=alias):
             locked = type(instance).objects.using(alias).select_for_update().get(pk=instance.pk)
-            antes = _snapshot_catalogo(locked)
+            antes = _snapshot_maestro(locked)
             serializer.instance = locked
             updated = serializer.save()
-            self._registrar_catalogo(updated, antes, _snapshot_catalogo(updated))
+            self._registrar_maestro(updated, antes, _snapshot_maestro(updated))
 
 
-class ProductoViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class ProductoViewSet(AuditoriaMaestroMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Productos.
 
@@ -298,6 +320,7 @@ class ProductoViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWrit
     permiso_base = 'productos'
     read_serializer_class = ProductoSerializer
     audit_entity = 'producto'
+    audit_namespace = 'productos'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -429,7 +452,7 @@ class ProductoViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWrit
         return Response(self._read(producto).data)
 
 
-class CategoriaViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class CategoriaViewSet(AuditoriaMaestroMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Categorías.
 
@@ -456,6 +479,7 @@ class CategoriaViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWri
     permiso_base = 'categorias'
     read_serializer_class = CategoriaSerializer
     audit_entity = 'categoria'
+    audit_namespace = 'productos'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -492,7 +516,7 @@ class CategoriaViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWri
         return Response(self._read(categoria).data, status=status.HTTP_200_OK)
 
 
-class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class ClienteViewSet(AuditoriaMaestroMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Clientes.
 
@@ -519,6 +543,8 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
     throttle_scope = 'maestros'
     permiso_base = 'clientes'
     read_serializer_class = ClienteSerializer
+    audit_entity = 'cliente'
+    audit_namespace = 'clientes'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -532,7 +558,8 @@ class ClienteViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMi
             cliente, data={'activo': False}, partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        cliente = serializer.save()
+        self.perform_update(serializer)
+        cliente = serializer.instance
         return Response(self._read(cliente).data, status=status.HTTP_200_OK)
 
     def get_base_queryset(self):

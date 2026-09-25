@@ -1,6 +1,6 @@
 # apps/clientes — mapa para agentes
 
-<!-- Última revisión: 2026-09-08 -->
+<!-- Última revisión: 2026-09-25 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -37,6 +37,10 @@ corporativo…), `cedula_rnc`, crédito (`limite_credito`, `plazo_credito_dias`,
 - Los clientes que vienen del cloud (`_es_del_cloud`) se adoptan por identidad;
   el receptor es `_resolver_o_crear_cliente` en `apps/api/views/sync.py` y el
   pull incremental está en `apps/sync/engine.py`.
+- Las altas, ediciones y bajas lógicas desde el portal registran CT-01 en la BD
+  tenant, junto con la escritura. Cambiar el límite usa la acción específica
+  `clientes.cliente.limite_modificado`. Las rutas POS locales de CLI-011 siguen
+  pendientes de cobertura completa; no atribuirles esta garantía.
 - `cedula_rnc` es obligatorio para e-CF tipo 31 (crédito fiscal).
 - `Venta.cliente = None` también significa contado.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md`) —

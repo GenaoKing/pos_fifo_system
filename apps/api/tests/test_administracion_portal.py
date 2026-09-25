@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.auditoria.models import Auditoria
 from apps.configuracion.models import ConfiguracionNegocio
+from apps.clientes.models import Cliente
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso
@@ -330,6 +331,39 @@ class AdministracionPortalTenantFisicoTests(TestCase):
         ), [evento.tenant_key for evento in eventos])
         self.assertFalse(Auditoria.objects.using('default').filter(
             accion__startswith='productos.producto.',
+        ).exists())
+
+    def test_limite_cliente_portal_auditado_en_bd_tenant(self):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        with patch(
+            'apps.tenancy.authentication.configure_tenant_database',
+            return_value=(self.tenant, ALIAS_A),
+        ):
+            alta = client.post('/api/v1/maestros/clientes/', {
+                'tipo': 'PERSONAL', 'nombre': 'Cliente fisico A09',
+                'limite_credito': '100.00',
+            }, format='json')
+            self.assertEqual(alta.status_code, 201, alta.data)
+            cambio = client.patch(
+                f"/api/v1/maestros/clientes/{alta.data['id']}/",
+                {'limite_credito': '200.00'}, format='json',
+            )
+        self.assertEqual(cambio.status_code, 200, cambio.data)
+        self.assertEqual(str(Cliente.objects.using(ALIAS_A).get(
+            pk=alta.data['id'],
+        ).limite_credito), '200.00')
+        eventos = list(Auditoria.objects.using(ALIAS_A).filter(
+            accion__startswith='clientes.cliente.', object_id=alta.data['id'],
+        ).order_by('id'))
+        self.assertEqual([evento.accion for evento in eventos], [
+            'clientes.cliente.creado', 'clientes.cliente.limite_modificado',
+        ])
+        self.assertTrue(all(
+            evento.tenant_key == self.tenant.tenant_key for evento in eventos
+        ))
+        self.assertFalse(Auditoria.objects.using('default').filter(
+            accion__startswith='clientes.cliente.',
         ).exists())
 
     def test_baja_revoca_membership_en_control_plane_desde_usuario_tenant(self):
