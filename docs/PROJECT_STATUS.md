@@ -1,22 +1,22 @@
 # Estado maestro del proyecto
 
-Actualización A09 del 2026-09-24: backend y frontend están publicados como PR
-en borrador, sin merge ni despliegue. El CI remoto del backend anterior a la
-reparación final y el CI frontend pasaron. El
-[preflight Azure dev](handoffs/cierre_prod/A09-dev-preflight-2026-09-24.md)
-verificó 21 migraciones pendientes, respaldó y restauró control plane + tenant
-`demo`, y descubrió un fallo del reparador de `sucursales` que ya se corrigió,
-ensayó en una segunda copia limpia y aplicó de forma dirigida en dev real.
-Dev sigue en la imagen antigua; G1–G4
-permanecen abiertos. Las afirmaciones históricas de abajo se leen contra esta
-actualización.
+Actualización A09 del 2026-09-25: el backend de `develop@c7bc435` ya integra
+el trabajo de cierre y la corrección de auditoría portal/RBAC del
+[PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27). El portal ya
+está integrado en dev y staging. El backend `staging@86adf7f` superó la
+[promoción #28](https://github.com/GenaoKing/pos_fifo_system/pull/28), la
+[CI/despliegue](https://github.com/GenaoKing/pos_fifo_system/actions/runs/36087732831),
+las migraciones de control y dos tenants, y el rig portal/POS. El detalle está en el
+[acta A09](handoffs/cierre_prod/A09-staging-2026-09-25.md). G1–G4 permanecen
+abiertos; las afirmaciones históricas de abajo se leen contra este corte.
 
 Foco solicitado el 2026-09-24: [objetivo de release para RP y SK](planes/OBJETIVO_RELEASE_CLIENTES.md).
 Prioriza operación comercial, datos, acceso, sync y actualización recuperable;
 e-CF y etiquetas quedan fuera del trabajo nuevo. El documento propone el corte
 de deuda y concreta la ruta dev → staging → cloud → RP → SK.
 
-Ultima revision: **2026-09-24**. `develop@fffd02b` permanece intacto. El
+Corte histórico previo: **2026-09-24**. En ese momento `develop@fffd02b`
+permanecía intacto. El
 candidato backend local `integration/cierre-prod-A06-C04-C05` reúne
 A05/C03, A06, C05/CT-04, C05 p6, SUS-014, CT-03, A07, A08.1-A08.4, C06.1-C06.3
 y la mitigación SEC-001; no es un release ni se publicó. C06 acreditó en
