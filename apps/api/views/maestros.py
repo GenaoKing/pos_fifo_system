@@ -18,6 +18,7 @@ Todos los modelos ya tienen `fecha_modificacion` con auto_now=True.
 
 import logging
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 from rest_framework import exceptions, serializers, viewsets, status
@@ -29,6 +30,9 @@ from ..permissions import MaestroPermisoMixin, _es_token_de_sucursal, requiere_a
 
 from apps.productos.models import Producto, Categoria
 from apps.clientes.models import Cliente
+from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
+from apps.tenancy.context import get_current_tenant_alias, get_current_tenant_key
 
 from ..serializers.maestros import (
     ProductoSerializer,
@@ -178,7 +182,8 @@ class ReadAfterWriteMixin:
     def create(self, request, *args, **kwargs):
         write_serializer = self.get_serializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
-        instance = write_serializer.save()
+        self.perform_create(write_serializer)
+        instance = write_serializer.instance
         return Response(self._read(instance).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
@@ -188,11 +193,85 @@ class ReadAfterWriteMixin:
             instance, data=request.data, partial=partial
         )
         write_serializer.is_valid(raise_exception=True)
-        instance = write_serializer.save()
+        self.perform_update(write_serializer)
+        instance = write_serializer.instance
         return Response(self._read(instance).data)
 
 
-class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+def _snapshot_catalogo(instance):
+    if isinstance(instance, Producto):
+        return {
+            'sku': instance.sku,
+            'codigo_barras': instance.codigo_barras,
+            'nombre': instance.nombre,
+            'descripcion': instance.descripcion,
+            'categoria_id': instance.categoria_id,
+            'precio_venta': str(instance.precio_venta),
+            'stock_minimo': instance.stock_minimo,
+            'activo': instance.activo,
+            'motivo_inactivacion': instance.motivo_inactivacion,
+            'estado': instance.estado,
+            'marca': instance.marca,
+            'atributos': instance.atributos or {},
+        }
+    return {
+        'nombre': instance.nombre,
+        'descripcion': instance.descripcion,
+        'activa': instance.activa,
+        'motivo_inactivacion': instance.motivo_inactivacion,
+        'tipo_negocio': instance.tipo_negocio,
+        'atributos_configurados': instance.atributos_configurados or {},
+    }
+
+
+class AuditoriaCatalogoMixin:
+    """Guarda maestro y evento CT-01 en la misma transaccion tenant."""
+
+    audit_entity = None
+
+    def _registrar_catalogo(self, instance, antes, despues):
+        operacion = 'creado' if not antes else 'actualizado'
+        if self.action == 'destroy':
+            operacion = 'desactivado'
+        elif (
+            isinstance(instance, Producto)
+            and antes
+            and antes['precio_venta'] != despues['precio_venta']
+        ):
+            operacion = 'precio_modificado'
+
+        actor = self.request.user
+        negocio = getattr(actor, 'negocio', None)
+        registrar_mutacion(
+            accion=f'productos.{self.audit_entity}.{operacion}',
+            actor=actor,
+            entidad=instance,
+            antes=antes,
+            despues=despues,
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.PORTAL_API,
+            tenant=get_current_tenant_key() or getattr(negocio, 'slug', ''),
+            using=instance._state.db,
+        )
+
+    def perform_create(self, serializer):
+        alias = get_current_tenant_alias() or 'default'
+        with transaction.atomic(using=alias):
+            instance = serializer.save()
+            self._registrar_catalogo(instance, {}, _snapshot_catalogo(instance))
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        alias = instance._state.db
+        with transaction.atomic(using=alias):
+            locked = type(instance).objects.using(alias).select_for_update().get(pk=instance.pk)
+            antes = _snapshot_catalogo(locked)
+            serializer.instance = locked
+            updated = serializer.save()
+            self._registrar_catalogo(updated, antes, _snapshot_catalogo(updated))
+
+
+class ProductoViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Productos.
 
@@ -218,6 +297,7 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
     throttle_scope = 'maestros'
     permiso_base = 'productos'
     read_serializer_class = ProductoSerializer
+    audit_entity = 'producto'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -286,7 +366,8 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        producto = serializer.save()
+        self.perform_update(serializer)
+        producto = serializer.instance
         return Response(self._read(producto).data, status=status.HTTP_200_OK)
 
     def get_permissions(self):
@@ -348,7 +429,7 @@ class ProductoViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalM
         return Response(self._read(producto).data)
 
 
-class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
+class CategoriaViewSet(AuditoriaCatalogoMixin, MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncrementalMixin, viewsets.ModelViewSet):
     """
     ViewSet de Categorías.
 
@@ -374,6 +455,7 @@ class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncremental
     throttle_scope = 'maestros'
     permiso_base = 'categorias'
     read_serializer_class = CategoriaSerializer
+    audit_entity = 'categoria'
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -405,7 +487,8 @@ class CategoriaViewSet(MaestroPermisoMixin, ReadAfterWriteMixin, SyncIncremental
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        categoria = serializer.save()
+        self.perform_update(serializer)
+        categoria = serializer.instance
         return Response(self._read(categoria).data, status=status.HTTP_200_OK)
 
 

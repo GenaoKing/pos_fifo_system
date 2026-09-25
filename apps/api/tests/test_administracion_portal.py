@@ -12,6 +12,7 @@ from apps.configuracion.models import ConfiguracionNegocio
 from apps.permisos import testing
 from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso
+from apps.productos.models import Categoria
 from apps.sucursales.models import Sucursal
 from apps.api.auth_views import _tenant_token_payload
 from apps.tenancy.authentication import _autorizar_tenant
@@ -293,6 +294,43 @@ class AdministracionPortalTenantFisicoTests(TestCase):
     def tearDown(self):
         reset_current_tenant(self._tokens)
         self._force.__exit__(None, None, None)
+
+    def test_precio_portal_auditado_en_bd_y_clave_tecnica_del_tenant(self):
+        # El slug comercial puede diferir del tenant_key autoritativo.
+        type(self.negocio).objects.using(ALIAS_A).filter(pk=self.negocio.pk).update(
+            slug='nombre-comercial-distinto',
+        )
+        categoria = Categoria.objects.using(ALIAS_A).create(nombre='Catalogo fisico')
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+
+        with patch(
+            'apps.tenancy.authentication.configure_tenant_database',
+            return_value=(self.tenant, ALIAS_A),
+        ):
+            alta = client.post('/api/v1/maestros/productos/', {
+                'sku': 'A09-FISICO', 'nombre': 'Producto fisico',
+                'precio_venta': '10.00', 'categoria': categoria.pk,
+            }, format='json')
+            self.assertEqual(alta.status_code, 201, alta.data)
+            cambio = client.patch(
+                f"/api/v1/maestros/productos/{alta.data['id']}/",
+                {'precio_venta': '12.50'}, format='json',
+            )
+        self.assertEqual(cambio.status_code, 200, cambio.data)
+
+        eventos = list(Auditoria.objects.using(ALIAS_A).filter(
+            accion__startswith='productos.producto.', object_id=alta.data['id'],
+        ).order_by('id'))
+        self.assertEqual([evento.accion for evento in eventos], [
+            'productos.producto.creado', 'productos.producto.precio_modificado',
+        ])
+        self.assertTrue(all(
+            evento.tenant_key == self.tenant.tenant_key for evento in eventos
+        ), [evento.tenant_key for evento in eventos])
+        self.assertFalse(Auditoria.objects.using('default').filter(
+            accion__startswith='productos.producto.',
+        ).exists())
 
     def test_baja_revoca_membership_en_control_plane_desde_usuario_tenant(self):
         client = APIClient()

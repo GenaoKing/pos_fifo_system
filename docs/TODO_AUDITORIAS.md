@@ -327,9 +327,9 @@ parcial. CFG-016
 **Pendientes de `apps/productos`** (PRO-002/003/004/019 acreditados localmente;
 PRO-018 cerrado):
 PRO-009 (HTML y modelo omiten validaciones que la API sí aplica),
-**PRO-010 (cambios de precio sin auditoría de dominio — conviene pronto:
-un precio es una decisión financiera y hoy no queda registro de que
-ocurrió)**, PRO-011, PRO-012 (ciclo de vida de imágenes no atómico),
+**PRO-010 (parcial: la API portal ya audita altas, ediciones, bajas y cambios
+de precio en la BD tenant; falta cubrir las demás rutas de mutación del
+catálogo)**, PRO-011, PRO-012 (ciclo de vida de imágenes no atómico),
 PRO-013, PRO-014 (carreras en los generadores de SKU y código de barras),
 PRO-015, PRO-016 (el chequeo cloud ocurre antes de autenticar), PRO-017
 (impresión sin permiso propio ni cuota), PRO-020 a PRO-022.

@@ -1,6 +1,6 @@
 # apps/productos — mapa para agentes
 
-<!-- Última revisión: 2026-09-17 -->
+<!-- Última revisión: 2026-09-25 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -80,6 +80,9 @@ remite la decisión humana al portal.
 
 - Editar en el portal actualiza `fecha_modificacion` (`auto_now`) → eso es lo que
   el pull incremental de la sucursal usa como cursor. No pisar ese campo a mano.
+- Las altas, ediciones y bajas lógicas de producto/categoría desde la API portal
+  registran CT-01 en la BD tenant dentro de la transacción de la mutación.
+  Los cambios de precio tienen acción `productos.producto.precio_modificado`.
 - `Producto.origen_cloud_id` admite solo la adopción `NULL → id`; luego es
   inmutable. Una colisión de identidad/SKU se difiere explícitamente en sync.
 - `Categoria "Sin clasificar"` tiene manejo especial (ver `test_categoria_sin_clasificar`).
