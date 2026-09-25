@@ -63,6 +63,9 @@ tiene modelos propios (`models.py` vacío).
   defecto y `rbac.sync.v2` solo con `X-RBAC-Schema: rbac.sync.v2`.
 - Las mutaciones RBAC llaman `apps.permisos.services`; `X-RBAC-Revision` es el
   precondition opt-in y un valor obsoleto responde `409 rbac_revision_conflict`.
+- `vincular_sucursal_token` registra el DRF Token del tenant y su hash en
+  `tenancy.SyncToken` del control plane. Bajo DB-per-tenant se ejecuta dentro
+  de `with_tenant`; sin ambas filas la sucursal recibe 401 en todos los pulls.
 - `administracion/usuarios` y `administracion/sucursales` requieren
   `permisos.administrar` **global**; configuración requiere
   `configuracion.administrar` global. No convertir una asignación acotada a una
