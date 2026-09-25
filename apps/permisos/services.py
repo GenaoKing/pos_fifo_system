@@ -25,6 +25,17 @@ def _db_de(obj):
     return getattr(getattr(obj, '_state', None), 'db', None)
 
 
+def _tenant_auditoria(negocio, using):
+    """Prefer the technical tenant identity over the business slug in cloud."""
+    from apps.tenancy.context import get_current_tenant_key
+
+    tenant_key = get_current_tenant_key()
+    if using.startswith('tnt_'):
+        # A tenant database without an active context must fail in CT-01.
+        return tenant_key
+    return tenant_key or negocio.slug
+
+
 def _snapshot_rol(rol):
     return {
         'cloud_id': str(rol.cloud_id),
@@ -108,7 +119,8 @@ def crear_rol(
             accion='permisos.rol.creado', actor=actor, entidad=rol,
             antes={}, despues=_snapshot_rol(rol),
             resultado=Auditoria.Resultado.SUCCEEDED, canal=canal,
-            tenant=negocio.slug, correlacion_id=correlacion_id, using=using,
+            tenant=_tenant_auditoria(negocio, using),
+            correlacion_id=correlacion_id, using=using,
         )
     return rol
 
@@ -182,7 +194,8 @@ def actualizar_rol(
                     'asignaciones_revocadas': asignaciones_revocadas,
                 },
                 resultado=Auditoria.Resultado.SUCCEEDED, canal=canal,
-                tenant=rol.negocio.slug, correlacion_id=correlacion_id,
+                tenant=_tenant_auditoria(rol.negocio, using),
+                correlacion_id=correlacion_id,
                 using=using,
             )
     return rol
@@ -252,7 +265,7 @@ def crear_o_reactivar_asignacion(
                 accion=accion, actor=actor, entidad=asignacion,
                 antes=antes, despues=_snapshot_asignacion(asignacion),
                 resultado=Auditoria.Resultado.SUCCEEDED, canal=canal,
-                tenant=rol.negocio.slug, sucursal=sucursal,
+                tenant=_tenant_auditoria(rol.negocio, using), sucursal=sucursal,
                 correlacion_id=correlacion_id, using=using,
             )
     return asignacion, creada
@@ -330,7 +343,8 @@ def actualizar_asignacion(
                     'reemplazada_por': _snapshot_asignacion(destino),
                 },
                 resultado=Auditoria.Resultado.SUCCEEDED, canal=canal,
-                tenant=anterior.rol.negocio.slug, sucursal=anterior.sucursal,
+                tenant=_tenant_auditoria(anterior.rol.negocio, using),
+                sucursal=anterior.sucursal,
                 correlacion_id=correlacion_id, using=using,
             )
             return destino
@@ -350,7 +364,8 @@ def actualizar_asignacion(
                 accion=accion, actor=actor, entidad=anterior,
                 antes=antes, despues=_snapshot_asignacion(anterior),
                 resultado=Auditoria.Resultado.SUCCEEDED, canal=canal,
-                tenant=anterior.rol.negocio.slug, sucursal=anterior.sucursal,
+                tenant=_tenant_auditoria(anterior.rol.negocio, using),
+                sucursal=anterior.sucursal,
                 correlacion_id=correlacion_id, using=using,
             )
         return anterior

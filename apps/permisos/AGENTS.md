@@ -1,6 +1,6 @@
 # apps/permisos — mapa para agentes
 
-<!-- Última revisión: 2026-09-23 -->
+<!-- Última revisión: 2026-09-25 (tenant técnico en auditoría RBAC) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -47,6 +47,8 @@ capacidades), `AutorizacionOverride`
   un rol no reactiva sus asignaciones.
 - Las mutaciones soportadas pasan por `services.py`; el Django Admin de
   Permiso/Rol/AsignacionRol es deliberadamente de solo lectura.
+- En cloud, la auditoría CT-01 de roles y asignaciones usa el `tenant_key`
+  técnico del contexto, que puede diferir del slug comercial del negocio.
 - `sembrar_catalogo` serializa upserts concurrentes con un advisory lock
   transaccional por BD PostgreSQL; no lo saques del bloque `atomic`.
 - `RBAC_LEGACY_ADMIN_BYPASS` queda `True` hasta que el preflight dé cero
