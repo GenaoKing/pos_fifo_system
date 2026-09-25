@@ -18,15 +18,29 @@ Idempotente.
 from django.db import migrations
 
 PERMISOS = ['productos.ver', 'productos.fotografiar']
+CATALOGO_0008 = [
+    ('productos.ver', 'Ver productos', 'productos',
+     'Listar y consultar productos.'),
+    ('productos.fotografiar', 'Subir foto de producto', 'productos',
+     'Subir o cambiar la foto de un producto, sin poder tocar precio, '
+     'categoria ni el resto de sus datos. Separado de `productos.editar` '
+     'para que la cajera pueda fotografiar desde el celular sin ganar '
+     'permiso de editar el catalogo.'),
+]
 
 
 def aplicar(apps, schema_editor):
     Permiso = apps.get_model('permisos', 'Permiso')
     Rol = apps.get_model('permisos', 'Rol')
 
-    from apps.permisos.catalogo import sembrar_catalogo
-
-    sembrar_catalogo(Permiso)
+    for codigo, nombre, modulo, descripcion in CATALOGO_0008:
+        Permiso.objects.update_or_create(
+            codigo=codigo,
+            defaults={
+                'nombre': nombre, 'modulo': modulo,
+                'descripcion': descripcion,
+            },
+        )
 
     permisos = list(Permiso.objects.filter(codigo__in=PERMISOS))
     if not permisos:

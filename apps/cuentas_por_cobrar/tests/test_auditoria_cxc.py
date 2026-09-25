@@ -17,6 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cuentas_por_cobrar.models import (
     CuentaPorCobrar,
     CuotaCxC,
@@ -55,6 +56,10 @@ class CxCTestCase(TestCase):
             password='pass', rol='CAJERA', activo=True,
         )
         permisos_testing.habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
 
         self.categoria = Categoria.objects.create(nombre='CxC Auditoria')
         self.producto = Producto.objects.create(

@@ -1,3 +1,19 @@
+<!-- ROADMAP-ARCHIVADO-BANNER -->
+> 📦 **Roadmap ARCHIVADO el 2026-09-08 — la Fase Inicial se implemento, no es trabajo pendiente.**
+> La integracion MSeller/PSFE esta implementada y operativa: modelos, interfaz
+> neutral `EmisorECFInterface`, payload mapper, cola de emision, procesador y
+> el command `ecf_procesar_pendientes`.
+>
+> Los 6 checkboxes sin marcar que quedaban **no eran tareas**: son campos en
+> blanco (`___________`) de una plantilla para registrar decisiones de una
+> "Fase 2" (libreria nativa + certificacion DGII completa) que **hoy no existe
+> como proyecto con alcance ni fecha**. Si esa fase arranca, esas decisiones se
+> registran en `docs/handoffs/HANDOFF_ECF.md`.
+>
+> Se conserva por trazabilidad de las decisiones de arquitectura (por que PSFE
+> primero y libreria nativa despues). El mapa vivo de la app es
+> `apps/facturacion_electronica/AGENTS.md`.
+
 # POS FIFO System — e-CF Fase Inicial
 ## Integración MSeller (cumplimiento) + Kickoff librería nativa (proyecto paralelo)
 

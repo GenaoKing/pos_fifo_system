@@ -9,6 +9,7 @@ produce (o una carrera que la UI no puede evitar) no debe poder crear una venta
 que descuadre inventario, caja o el documento fiscal.
 """
 from decimal import Decimal
+import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -22,6 +23,8 @@ from apps.inventario.models import Compra, DetalleCompra, Lote, MovimientoLote
 from apps.permisos.testing import habilitar_cajero
 from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
+from apps.auditoria.models import Auditoria
+from apps.sync.models import EventoSync, MutacionMaestro
 from apps.ventas.models import Venta
 from apps.ventas.services import (
     CotizacionInvalidaError,
@@ -34,6 +37,7 @@ from apps.ventas.services import (
     SucursalNoResueltaError,
     TipoECFInvalidoError,
     TotalInconsistenteError,
+    anular_venta_service,
     procesar_venta_service,
 )
 
@@ -63,6 +67,10 @@ class VentaServiceTestCase(TestCase):
             activo=True,
         )
         habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config()/load() la
+        # resuelve sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
 
         self.categoria = Categoria.objects.create(nombre='Ventas Service Test')
         self.producto = self._crear_producto('VSVC-001', Decimal('100.00'))
@@ -491,6 +499,58 @@ class PrecondicionFiscalTests(VentaServiceTestCase):
         self.assertIsNone(venta.cliente_id)
 
 
+@override_settings(SUCURSAL_CODIGO='A052-VENTAS')
+class ConflictoMaestroEnVentaTests(VentaServiceTestCase):
+    """A05.2a: conflicto bloquea ventas nuevas, no altera una venta historica."""
+
+    def setUp(self):
+        super().setUp()
+        self.sucursal = Sucursal.objects.create(
+            negocio=self.cajera.negocio,
+            codigo=settings.SUCURSAL_CODIGO,
+            nombre='Sucursal A05.2a ventas',
+        )
+        ConfiguracionNegocio.objects.create(sucursal=self.sucursal)
+        cache.clear()
+
+    def test_pendiente_se_vende_y_conflicto_bloquea_sin_reescribir_historia(self):
+        mutacion = MutacionMaestro.objects.create(
+            mutacion_id=uuid.uuid4(),
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=self.producto.id,
+            operacion=MutacionMaestro.Operacion.ACTUALIZAR,
+            actor=self.cajera,
+            actor_username=self.cajera.username,
+            sucursal=self.sucursal,
+            sucursal_codigo=self.sucursal.codigo,
+            tenant_key=self.cajera.negocio.slug,
+        )
+
+        venta_historica = self._vender()
+        lote_despues_venta = Lote.objects.get(producto=self.producto)
+        stock_despues_venta = lote_despues_venta.cantidad_actual
+        movimientos_despues_venta = MovimientoLote.objects.count()
+        eventos_despues_venta = EventoSync.objects.count()
+
+        mutacion.marcar_conflicto('CAS_REVISION_MISMATCH')
+        with self.assertRaisesRegex(
+            ProductoInexistenteError,
+            'conflicto de maestro pendiente de resolver',
+        ):
+            self._vender()
+
+        self.assertEqual(Venta.objects.count(), 1)
+        self.assertTrue(Venta.objects.filter(pk=venta_historica.pk).exists())
+        self.assertEqual(
+            Lote.objects.get(producto=self.producto).cantidad_actual,
+            stock_despues_venta,
+        )
+        self.assertEqual(MovimientoLote.objects.count(), movimientos_despues_venta)
+        self.assertEqual(EventoSync.objects.count(), eventos_despues_venta)
+        mutacion.refresh_from_db()
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.CONFLICTO)
+
+
 class IdentidadDeSucursalTests(VentaServiceTestCase):
     """VENTAS-001: la venta local conserva su identidad multi-sucursal."""
 
@@ -499,6 +559,10 @@ class IdentidadDeSucursalTests(VentaServiceTestCase):
             codigo=settings.SUCURSAL_CODIGO,
             nombre='Sucursal de prueba',
         )
+        # `SUCURSAL_CODIGO` ahora resuelve a ESTA sucursal, y `get_config()`
+        # busca su config propia (no la legacy de `setUp`): sin esto,
+        # `ConfiguracionNegocio.load(sucursal=sucursal)` fallaria (CFG-012).
+        ConfiguracionNegocio.objects.create(sucursal=sucursal)
         cache.clear()
 
         venta = self._vender()
@@ -549,3 +613,62 @@ class NumeracionTests(VentaServiceTestCase):
         self.assertTrue(tercera.numero_venta.endswith('-0003'))
         self.assertNotEqual(tercera.numero_venta, numero_borrado)
         self.assertNotEqual(tercera.numero_venta, segunda.numero_venta)
+
+
+class AuditoriaCT01VentaTests(VentaServiceTestCase):
+    """C05 p6 — el productor de auditoría de la venta usa el contrato CT-01
+    (`registrar_mutacion`), no el adaptador legacy `Auditoria.registrar_venta`."""
+
+    def test_venta_creada_emite_evento_ct01_en_la_transaccion(self):
+        venta = self._vender()
+
+        evento = Auditoria.objects.get(
+            accion='ventas.venta.creada',
+            object_id=venta.id,
+        )
+        # Contrato CT-01: versión de esquema estable, canal e identidad.
+        self.assertEqual(evento.schema_version, 'audit.event.v1')
+        self.assertEqual(evento.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(evento.resultado, Auditoria.Resultado.SUCCEEDED)
+        self.assertEqual(evento.entity_type, Venta._meta.label)
+        self.assertEqual(evento.actor_username, self.cajera.username)
+        # `despues` describe el estado del hecho financiero; `antes` vacío
+        # porque la venta nace en este evento.
+        self.assertEqual(evento.datos_anteriores, {})
+        self.assertEqual(evento.datos_nuevos['numero_venta'], venta.numero_venta)
+        self.assertEqual(evento.datos_nuevos['total'], str(venta.total))
+        self.assertEqual(evento.datos_nuevos['cantidad_items'], venta.detalles.count())
+
+    def test_no_quedan_productores_legacy_de_venta_creada(self):
+        # El adaptador legacy usaba TipoAccion.VENTA_CREADA (mayúsculas). Tras
+        # la migración no debe emitirse más ese código para una venta nueva.
+        self._vender()
+        self.assertFalse(
+            Auditoria.objects.filter(accion=Auditoria.TipoAccion.VENTA_CREADA).exists(),
+        )
+
+    def test_venta_anulada_emite_evento_ct01_en_la_transaccion(self):
+        venta = self._vender()
+        estado_previo = venta.estado
+
+        # El admin anula (RBAC le concede `ventas.anular`); la cajera del
+        # fixture solo tiene los permisos de venta.
+        anular_venta_service(
+            usuario=self.admin, venta_id=venta.id,
+            motivo='Anulacion de prueba CT-01',
+        )
+
+        evento = Auditoria.objects.get(
+            accion='ventas.venta.anulada',
+            object_id=venta.id,
+        )
+        self.assertEqual(evento.schema_version, 'audit.event.v1')
+        self.assertEqual(evento.canal, Auditoria.Canal.POS_LOCAL)
+        self.assertEqual(evento.resultado, Auditoria.Resultado.SUCCEEDED)
+        self.assertEqual(evento.entity_type, Venta._meta.label)
+        self.assertEqual(evento.datos_anteriores['estado'], estado_previo)
+        self.assertEqual(evento.datos_nuevos['estado'], 'ANULADA')
+        # Ya no se emite el código legacy VENTA_ANULADA para una anulación.
+        self.assertFalse(
+            Auditoria.objects.filter(accion=Auditoria.TipoAccion.VENTA_ANULADA).exists(),
+        )

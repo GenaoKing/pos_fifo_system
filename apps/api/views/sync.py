@@ -45,9 +45,14 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.response import Response
 
 from apps.sync.constants import TIPOS_EVENTO_CODIGOS
-from apps.tenancy.context import get_current_tenant_alias
+from apps.sync.models import ResolucionConflictoMaestro
+from apps.tenancy.context import get_current_tenant_alias, get_current_tenant_key
 from ..permissions import EsSucursalAutenticada
-from ..serializers.sync import EventoBatchSerializer
+from ..serializers.sync import (
+    EventoBatchSerializer,
+    MutacionMaestroBatchSerializer,
+    SondaEventoBatchSerializer,
+)
 
 logger = logging.getLogger('pos_system')
 
@@ -55,6 +60,20 @@ logger = logging.getLogger('pos_system')
 def _database_alias():
     """Base del tenant activo; ``default`` conserva el modo POS/local."""
     return get_current_tenant_alias() or 'default'
+
+
+def _payload_en_ambito(sucursal, payload):
+    """Un payload no puede declarar otra sucursal que la del token."""
+    codigo = payload.get('sucursal_codigo') if isinstance(payload, dict) else None
+    return not codigo or (sucursal is not None and codigo == sucursal.codigo)
+
+
+def _evento_equivalente(evento, *, tipo_evento, payload, hash_payload):
+    return (
+        evento.tipo_evento == tipo_evento
+        and evento.hash_payload == hash_payload
+        and evento.payload == payload
+    )
 
 
 # ============================================================================
@@ -87,26 +106,61 @@ def recibir_eventos(request):
     database_alias = _database_alias()
 
     for evento_data in eventos:
+        event_id = evento_data.get('event_id')
         hash_payload = evento_data['hash_payload']
         tipo_evento = evento_data['tipo_evento']
         payload = evento_data['payload']
+
+        detalle_base = {'hash': hash_payload}
+        if event_id is not None:
+            detalle_base['event_id'] = str(event_id)
+
+        if not _payload_en_ambito(sucursal, payload):
+            errores += 1
+            resultados.append({
+                **detalle_base,
+                'estado': 'ERROR',
+                'codigo': 'EVENT_SCOPE_MISMATCH',
+                'error': 'El payload no pertenece a la sucursal autenticada.',
+            })
+            continue
 
         # Idempotencia, primer filtro: barato y cubre el caso normal (reenvio
         # posterior). NO es suficiente por si solo — dos requests concurrentes
         # pasan los dos por aca. El respaldo real es la constraint unica sobre
         # `hash_payload`, que se ejerce en el INSERT de mas abajo.
-        if EventoSync.objects.using(database_alias).filter(
-            hash_payload=hash_payload,
-        ).exists():
-            duplicados += 1
-            resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+        eventos_scope = EventoSync.objects.using(database_alias).filter(
+            sucursal=sucursal,
+        )
+        existente = None
+        if event_id is not None:
+            existente = eventos_scope.filter(event_id=event_id).first()
+        if existente is None:
+            existente = eventos_scope.filter(hash_payload=hash_payload).first()
+        if existente is not None:
+            if _evento_equivalente(
+                existente,
+                tipo_evento=tipo_evento,
+                payload=payload,
+                hash_payload=hash_payload,
+            ):
+                duplicados += 1
+                resultados.append({**detalle_base, 'estado': 'DUPLICADO'})
+            else:
+                errores += 1
+                resultados.append({
+                    **detalle_base,
+                    'estado': 'ERROR',
+                    'codigo': 'EVENT_IDENTITY_CONFLICT',
+                    'error': 'La identidad/hash ya existe con otro contenido.',
+                })
             continue
 
         handler = HANDLERS.get(tipo_evento)
         if handler is None:
             errores += 1
             resultados.append({
-                'hash': hash_payload,
+                **detalle_base,
                 'estado': 'ERROR',
                 'error': f'Tipo desconocido: {tipo_evento}',
             })
@@ -120,6 +174,9 @@ def recibir_eventos(request):
                 # request concurrente ya reservo el hash, falla aca y revierte
                 # tambien el efecto del handler. Sin esto, dos daemons
                 # solapados duplicaban pagos CxC y movimientos de caja.
+                campos_evento = {}
+                if event_id is not None:
+                    campos_evento['event_id'] = event_id
                 EventoSync.objects.using(database_alias).create(
                     sucursal=sucursal,
                     tipo_evento=tipo_evento,
@@ -129,9 +186,10 @@ def recibir_eventos(request):
                     estado='CONFIRMADO',
                     sent_at=timezone.now(),
                     confirmed_at=timezone.now(),
+                    **campos_evento,
                 )
             recibidos += 1
-            resultados.append({'hash': hash_payload, 'estado': 'CONFIRMADO'})
+            resultados.append({**detalle_base, 'estado': 'CONFIRMADO'})
             logger.info(
                 '[SYNC] %s %s aplicado (hash=%s)',
                 tipo_evento,
@@ -144,12 +202,24 @@ def recibir_eventos(request):
             # realmente existe. El handler tambien puede fallar por integridad
             # de sus propios datos; confirmarlo como DUPLICADO perderia el hecho
             # en la sucursal sin haberlo aplicado en cloud.
-            aplicado_por_otro = EventoSync.objects.using(database_alias).filter(
+            candidatos = EventoSync.objects.using(database_alias).filter(
+                sucursal=sucursal,
+            )
+            aplicado_por_otro = None
+            if event_id is not None:
+                aplicado_por_otro = candidatos.filter(event_id=event_id).first()
+            if aplicado_por_otro is None:
+                aplicado_por_otro = candidatos.filter(
+                    hash_payload=hash_payload,
+                ).first()
+            if aplicado_por_otro is not None and _evento_equivalente(
+                aplicado_por_otro,
+                tipo_evento=tipo_evento,
+                payload=payload,
                 hash_payload=hash_payload,
-            ).exists()
-            if aplicado_por_otro:
+            ):
                 duplicados += 1
-                resultados.append({'hash': hash_payload, 'estado': 'DUPLICADO'})
+                resultados.append({**detalle_base, 'estado': 'DUPLICADO'})
                 logger.info(
                     '[SYNC] %s hash=%s aplicado por otra request concurrente',
                     tipo_evento, hash_payload[:12],
@@ -157,8 +227,9 @@ def recibir_eventos(request):
             else:
                 errores += 1
                 resultados.append({
-                    'hash': hash_payload,
+                    **detalle_base,
                     'estado': 'ERROR',
+                    'codigo': 'INTEGRITY_ERROR',
                     'error': 'Error de integridad al aplicar el evento.',
                 })
                 logger.error(
@@ -168,7 +239,7 @@ def recibir_eventos(request):
         except Exception as exc:
             errores += 1
             resultados.append({
-                'hash': hash_payload,
+                **detalle_base,
                 'estado': 'ERROR',
                 'error': str(exc)[:500],
             })
@@ -191,6 +262,166 @@ def recibir_eventos(request):
         'detalle': resultados,
         'timestamp': timezone.now(),
     }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# POST /api/v1/sync/mutaciones-maestro/
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def recibir_mutaciones_maestro(request):
+    """Recibe propuestas offline de catálogo, fuera de ``EventoSync``.
+
+    El token prueba la sucursal. Cada propuesta además nombra al actor local,
+    que el receptor resuelve en la base cloud y autoriza nuevamente contra el
+    RBAC vigente antes de hacer CAS. Un conflicto o rechazo es un resultado
+    durable por propuesta; una caída técnica queda ``ERROR`` para reintento.
+    """
+    serializer = MutacionMaestroBatchSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Datos inválidos', 'detalle': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    database_alias = _database_alias()
+    detalle = []
+    confirmadas = duplicadas = conflictos = rechazadas = errores = 0
+
+    from apps.sync.master_mutations import recibir_mutacion_maestro
+
+    for propuesta in serializer.validated_data['mutaciones']:
+        try:
+            resultado = recibir_mutacion_maestro(
+                propuesta=propuesta,
+                sucursal=sucursal,
+                using=database_alias,
+            )
+            item = resultado.serializar(propuesta['mutacion_id'])
+            detalle.append(item)
+            if resultado.estado == 'CONFIRMADA':
+                confirmadas += 1
+            elif resultado.estado == 'DUPLICADA':
+                duplicadas += 1
+            elif resultado.estado == 'CONFLICTO':
+                conflictos += 1
+            else:
+                rechazadas += 1
+        except Exception as exc:
+            logger.exception(
+                '[SYNC] Error recibiendo mutación maestra %s: %s',
+                propuesta['mutacion_id'], type(exc).__name__,
+            )
+            errores += 1
+            detalle.append({
+                'mutacion_id': str(propuesta['mutacion_id']),
+                'estado': 'ERROR',
+                'codigo': 'MASTER_RECEIVER_ERROR',
+                'error': 'No se pudo procesar la propuesta; se puede reintentar.',
+            })
+
+    return Response({
+        'schema_version': 'master.mutation.v1',
+        'confirmadas': confirmadas,
+        'duplicadas': duplicadas,
+        'conflictos': conflictos,
+        'rechazadas': rechazadas,
+        'errores': errores,
+        'detalle': detalle,
+        'timestamp': timezone.now(),
+    }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# GET /api/v1/sync/mutaciones-maestro/resoluciones/
+# ============================================================================
+
+SCHEMA_RESOLUCION_SYNC = 'master.conflict-resolution-sync.v1'
+
+
+def _pagina_resoluciones(request):
+    try:
+        page_size = int(request.query_params.get('page_size', '100'))
+    except (TypeError, ValueError):
+        raise ValueError('page_size inválido')
+    if not 1 <= page_size <= 100:
+        raise ValueError('page_size debe estar entre 1 y 100')
+
+    desde = request.query_params.get('desde')
+    if not desde:
+        return page_size, None, 0
+    fecha = parse_datetime(desde)
+    if fecha is None:
+        raise ValueError('desde inválido')
+    try:
+        desde_id = int(request.query_params.get('desde_id', '0'))
+    except (TypeError, ValueError):
+        raise ValueError('desde_id inválido')
+    if desde_id < 0:
+        raise ValueError('desde_id inválido')
+    return page_size, fecha, desde_id
+
+
+def _serializar_resolucion_conflicto_sync(resolucion):
+    return {
+        'schema_version': SCHEMA_RESOLUCION_SYNC,
+        'id': resolucion.pk,
+        # El motor genérico usa este par para su cursor keyset. La decisión es
+        # inmutable: resuelto_at es por tanto su versión transportable.
+        'fecha_modificacion': resolucion.resuelto_at.isoformat(),
+        'mutacion_id': str(resolucion.mutacion.mutacion_id),
+        'accion': resolucion.accion,
+        'motivo': resolucion.motivo,
+        'actor_username': resolucion.actor_username,
+        'cloud_revision_observada': resolucion.cloud_revision_observada,
+        'cloud_revision_resultante': resolucion.cloud_revision_resultante,
+        'cloud_entidad_id': resolucion.cloud_entidad_id,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def resoluciones_mutaciones_maestro(request):
+    """Entrega al POS decisiones humanas ya hechas en el portal.
+
+    El listado CT-04 es para el portal y se autoriza por usuario. Este pull es
+    distinto: el token solo puede recibir resoluciones pertenecientes a su
+    propia sucursal y el POS las usa para liberar explícitamente su bloqueo
+    local después de haber aplicado el maestro autoritativo.
+    """
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response({'detail': 'Token sin sucursal asociada'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        page_size, desde, desde_id = _pagina_resoluciones(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    alias = _database_alias()
+    queryset = (
+        ResolucionConflictoMaestro.objects.using(alias)
+        .filter(mutacion__sucursal=sucursal)
+        .select_related('mutacion')
+        .order_by('resuelto_at', 'id')
+    )
+    if desde is not None:
+        queryset = queryset.filter(
+            Q(resuelto_at__gt=desde) | Q(resuelto_at=desde, id__gt=desde_id)
+        )
+    filas = list(queryset[:page_size + 1])
+    hay_mas = len(filas) > page_size
+    filas = filas[:page_size]
+    return Response({
+        'schema_version': SCHEMA_RESOLUCION_SYNC,
+        'results': [_serializar_resolucion_conflicto_sync(fila) for fila in filas],
+        # SyncEngine usa la frontera keyset, no esta URL offset; se conserva la
+        # forma paginada estándar para que cualquier cliente detecte más datos.
+        'next': 'keyset' if hay_mas else None,
+    })
 
 
 # ============================================================================
@@ -224,6 +455,54 @@ def sync_status(request):
             vm.tabla: vm.ultima_version
             for vm in VersionMaestro.objects.all()
         },
+    })
+
+
+# ============================================================================
+# POST /api/v1/sync/reconciliacion-eventos/
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([EsSucursalAutenticada])
+@throttle_classes([])
+def reconciliar_eventos(request):
+    """Clasifica ACK locales historicos sin escribir en el cloud.
+
+    Es la sonda read-only de BUG-K. El resultado distingue recepcion real,
+    identidad ocupada con otro contenido, hecho sin ledger y falso ACK.
+    """
+    serializer = SondaEventoBatchSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Datos invalidos', 'detalle': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
+    if sucursal is None:
+        return Response(
+            {'error': 'Token sin sucursal asociada'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    alias = _database_alias()
+    resultados = [
+        _clasificar_sonda_evento(sucursal, evento, alias)
+        for evento in serializer.validated_data['eventos']
+    ]
+    tenant_key = get_current_tenant_key()
+    if not tenant_key:
+        tenant_key = getattr(getattr(sucursal, 'negocio', None), 'slug', '')
+
+    return Response({
+        'schema_version': 'sync.reconciliation.v1',
+        'scope': {
+            'tenant_key': tenant_key or '',
+            'branch_code': sucursal.codigo,
+            'branch_ref': str(sucursal.pk),
+        },
+        'resultados': resultados,
+        'timestamp': timezone.now(),
     })
 
 
@@ -289,6 +568,22 @@ def _filtrar_keyset_sync(qs, request):
     )
 
 
+RBAC_SYNC_V2 = 'rbac.sync.v2'
+
+
+def _rbac_v2_solicitado(request):
+    return request.headers.get('X-RBAC-Schema') == RBAC_SYNC_V2
+
+
+def _tenant_key_rbac(request, negocio):
+    tenant = getattr(request, 'tenant', None)
+    return (
+        getattr(tenant, 'tenant_key', None)
+        or getattr(request, 'tenant_key', None)
+        or negocio.slug
+    )
+
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def roles_para_sucursal(request):
@@ -297,8 +592,8 @@ def roles_para_sucursal(request):
     autenticada, para que la sucursal las sincronice localmente. Solo lectura,
     scoped al negocio del token. Filtro incremental ?desde=<ISO>.
 
-    La asignacion usuario->rol NO se sincroniza (es local). Esto propaga solo
-    "que puede cada rol" configurado en el portal.
+    Este endpoint propaga "que puede cada rol"; las asignaciones usuario->rol
+    viajan por ``asignaciones_para_sucursal`` despues en el mismo ciclo.
     """
     from django.utils.dateparse import parse_datetime
     from apps.permisos.models import Rol
@@ -308,11 +603,18 @@ def roles_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
+    negocio = sucursal.negocio
+    snapshot_complete = (
+        _rbac_v2_solicitado(request)
+        and request.query_params.get('snapshot') == 'full'
+    )
     qs = (Rol.objects.filter(negocio_id=negocio_id)
           .prefetch_related('permisos')
           .order_by('fecha_modificacion', 'id'))
-    qs = _filtrar_keyset_sync(qs, request)
+    if not snapshot_complete:
+        qs = _filtrar_keyset_sync(qs, request)
 
+    roles = list(qs)
     data = [
         {
             'slug': r.slug,
@@ -324,9 +626,35 @@ def roles_para_sucursal(request):
             # es su `slug`; esto solo desempata el cursor.
             'cursor_id': r.id,
         }
-        for r in qs
+        for r in roles
     ]
-    return Response(data)
+    if not _rbac_v2_solicitado(request):
+        return Response(data)
+
+    from apps.permisos.revisions import leer_revisiones_rbac
+
+    _, assignments_revision = leer_revisiones_rbac(
+        negocio, using=negocio._state.db,
+    )
+    return Response({
+        'schema_version': RBAC_SYNC_V2,
+        'snapshot_complete': snapshot_complete,
+        'tenant_key': _tenant_key_rbac(request, negocio),
+        'revision': assignments_revision,
+        'roles': [
+            {
+                **legacy,
+                'cloud_id': str(rol.cloud_id),
+                'revision': rol.revision,
+                'active': rol.activo,
+                'permission_codes': legacy['permisos'],
+                'deleted_at': (
+                    rol.deleted_at.isoformat() if rol.deleted_at else None
+                ),
+            }
+            for rol, legacy in zip(roles, data)
+        ],
+    })
 
 
 # ============================================================================
@@ -353,6 +681,11 @@ def asignaciones_para_sucursal(request):
     if not negocio_id:
         return Response([])
 
+    negocio = sucursal.negocio
+    snapshot_complete = (
+        _rbac_v2_solicitado(request)
+        and request.query_params.get('snapshot') == 'full'
+    )
     qs = (
         AsignacionRol.objects
         .filter(rol__negocio_id=negocio_id)
@@ -360,8 +693,10 @@ def asignaciones_para_sucursal(request):
         .select_related('usuario', 'rol', 'sucursal')
         .order_by('fecha_modificacion', 'id')
     )
-    qs = _filtrar_keyset_sync(qs, request)
+    if not snapshot_complete:
+        qs = _filtrar_keyset_sync(qs, request)
 
+    asignaciones = list(qs)
     data = [
         {
             'usuario_username': a.usuario.username,
@@ -374,9 +709,51 @@ def asignaciones_para_sucursal(request):
             # sucursal_codigo); esto solo desempata el cursor.
             'cursor_id': a.id,
         }
-        for a in qs
+        for a in asignaciones
     ]
-    return Response(data)
+    if not _rbac_v2_solicitado(request):
+        return Response(data)
+
+    from apps.auditoria.services import referencia_modelo
+    from apps.permisos.revisions import leer_revisiones_rbac
+
+    tenant_key = _tenant_key_rbac(request, negocio)
+    _, assignments_revision = leer_revisiones_rbac(
+        negocio, using=negocio._state.db,
+    )
+    return Response({
+        'schema_version': RBAC_SYNC_V2,
+        'snapshot_complete': snapshot_complete,
+        'tenant_key': tenant_key,
+        'scope': {
+            'branch_ref': str(referencia_modelo(sucursal, tenant_key=tenant_key)),
+            'branch_code': sucursal.codigo,
+        },
+        'revision': assignments_revision,
+        'assignments': [
+            {
+                **legacy,
+                'cloud_id': str(asignacion.cloud_id),
+                'revision': asignacion.revision,
+                'user_ref': str(referencia_modelo(
+                    asignacion.usuario, tenant_key=tenant_key,
+                )),
+                'role_cloud_id': str(asignacion.rol.cloud_id),
+                'branch_ref': (
+                    str(referencia_modelo(
+                        asignacion.sucursal, tenant_key=tenant_key,
+                    ))
+                    if asignacion.sucursal_id else None
+                ),
+                'active': asignacion.activo,
+                'deleted_at': (
+                    asignacion.deleted_at.isoformat()
+                    if asignacion.deleted_at else None
+                ),
+            }
+            for asignacion, legacy in zip(asignaciones, data)
+        ],
+    })
 
 
 # ============================================================================
@@ -426,25 +803,105 @@ def metodos_credito_para_sucursal(request):
 # GET /api/v1/sync/configuracion/
 # ============================================================================
 
+_ACCIONES_CAPACIDADES_CT03 = (
+    'suscripciones.suscripcion.actualizado',
+    'suscripciones.override_negocio.creado',
+    'suscripciones.override_negocio.actualizado',
+    'suscripciones.override_negocio.eliminado',
+)
+
+
+def _fecha_configuracion_efectiva(config, sucursal):
+    """Marca de agua del payload, incluida la autoridad comercial CT-03.
+
+    ``ConfiguracionNegocio.fecha_modificacion`` no cambia al seleccionar un
+    plan o editar un override. Las mutaciones oficiales de suscripciones dejan
+    CT-01 dentro de la misma transaccion; esa marca inmutable permite que el
+    cursor existente vuelva a entregar el singleton sin negociar un schema o
+    evento de sync nuevo.
+    """
+    fechas = [config.fecha_modificacion]
+    negocio_id = getattr(sucursal, 'negocio_id', None)
+    if not negocio_id:
+        return config.fecha_modificacion
+
+    from apps.auditoria.models import Auditoria
+    from apps.suscripciones.models import (
+        NegocioModulo,
+        SucursalModuloOverride,
+        SuscripcionNegocio,
+    )
+
+    using = config._state.db or _database_alias()
+    negocio = sucursal.negocio
+    suscripcion = (
+        SuscripcionNegocio.objects.using(using)
+        .select_related('plan')
+        .filter(negocio_id=negocio_id)
+        .first()
+    )
+    if suscripcion is not None:
+        fechas.append(suscripcion.fecha_modificacion)
+        if suscripcion.plan_id:
+            fechas.append(suscripcion.plan.fecha_modificacion)
+
+    for queryset in (
+        NegocioModulo.objects.using(using).filter(negocio_id=negocio_id),
+        SucursalModuloOverride.objects.using(using).filter(sucursal_id=sucursal.pk),
+    ):
+        fecha = queryset.order_by('-fecha_creacion').values_list(
+            'fecha_creacion', flat=True,
+        ).first()
+        if fecha is not None:
+            fechas.append(fecha)
+
+    ultima_mutacion = (
+        Auditoria.objects.using(using)
+        .filter(
+            tenant_key=negocio.slug,
+            accion__in=_ACCIONES_CAPACIDADES_CT03,
+            resultado=Auditoria.Resultado.SUCCEEDED,
+        )
+        .order_by('-registrado_en')
+        .values_list('registrado_en', flat=True)
+        .first()
+    )
+    if ultima_mutacion is not None:
+        fechas.append(ultima_mutacion)
+    return max(fecha for fecha in fechas if fecha is not None)
+
 @api_view(['GET'])
 @permission_classes([EsSucursalAutenticada])
 def configuracion_para_sucursal(request):
     """Devuelve solo configuracion cloud-safe; excluye hardware/local."""
-    from apps.configuracion.models import ConfiguracionNegocio
+    from apps.configuracion.models import (
+        ConfiguracionNegocio,
+        ConfiguracionNoInicializada,
+    )
 
     sucursal = getattr(request.auth, 'sucursal', None) if request.auth else None
     if sucursal is None:
         return Response([])
 
-    config = ConfiguracionNegocio.load(sucursal=sucursal)
+    # El cloud es fuente de lectura: la ausencia de configuración no autoriza
+    # inventar una fila. Para el contrato de pull equivale a no tener cambios.
+    try:
+        config = ConfiguracionNegocio.load(sucursal=sucursal)
+    except ConfiguracionNoInicializada:
+        return Response([])
+
+    from apps.sync.configuracion import flags_legacy_efectivos
+
+    fecha_efectiva = _fecha_configuracion_efectiva(config, sucursal)
 
     # Sync incremental: si la sucursal ya tiene una version igual o mas
     # reciente, no devolvemos nada (evita reescribir la config local en cada
-    # ciclo). Mismo contrato ?desde= que el resto de endpoints de sync.
+    # ciclo). La marca incluye cambios CT-03 de plan/override, no solo la fila
+    # de ConfiguracionNegocio.
     desde = request.query_params.get('desde')
     if desde:
         ts = parse_datetime(desde)
-        if ts and config.fecha_modificacion and config.fecha_modificacion <= ts:
+        if ts and fecha_efectiva <= ts:
             return Response([])
 
     data = {
@@ -472,8 +929,11 @@ def configuracion_para_sucursal(request):
         'itbis_incluido_en_precio': config.itbis_incluido_en_precio,
         'itbis_porcentaje_global': str(config.itbis_porcentaje_global),
         'modo_contingencia': config.modo_contingencia,
-        'fecha_modificacion': config.fecha_modificacion.isoformat(),
+        'fecha_modificacion': fecha_efectiva.isoformat(),
     }
+    # Forma legacy, valor efectivo: el POS instalado sigue consumiendo los
+    # mismos campos modulo_* mientras el cloud deja de exponer flags crudos.
+    data.update(flags_legacy_efectivos(config, sucursal))
     return Response([data])
 
 
@@ -558,9 +1018,239 @@ def _extraer_referencia(tipo_evento, payload):
         return payload.get('numero_cotizacion', '')
     if tipo_evento in ('CXC_CREADA', 'CXC_ANULADA'):
         return payload.get('numero_venta', '')
-    if tipo_evento == 'CXC_PAGO_REGISTRADO':
-        return f"{payload.get('numero_venta', '')}-P{payload.get('pago_id_local', '?')}"
+    if tipo_evento in ('CXC_PAGO_REGISTRADO', 'CXC_PAGO_ANULADO'):
+        sufijo = '-ANUL' if tipo_evento == 'CXC_PAGO_ANULADO' else ''
+        return (
+            f"{payload.get('numero_venta', '')}"
+            f"-P{payload.get('pago_id_local', '?')}{sufijo}"
+        )
     return ''
+
+
+def _resultado_sonda(evento_data, referencia, clasificacion, accion):
+    resultado = {
+        'event_id': str(evento_data['event_id']) if evento_data.get('event_id') else None,
+        'hash': evento_data['hash_payload'],
+        'tipo_evento': evento_data['tipo_evento'],
+        'objeto_referencia': referencia,
+        'clasificacion': clasificacion,
+        'accion': accion,
+    }
+    return resultado
+
+
+def _clasificar_sonda_evento(sucursal, evento_data, alias):
+    """Clasificacion read-only y scopeada de una sonda BUG-K."""
+    from apps.sync.models import EventoSync
+
+    tipo = evento_data['tipo_evento']
+    payload = evento_data['payload']
+    hash_payload = evento_data['hash_payload']
+    referencia = (
+        evento_data.get('objeto_referencia')
+        or _extraer_referencia(tipo, payload)
+    )
+
+    if not _payload_en_ambito(sucursal, payload):
+        return _resultado_sonda(
+            evento_data, referencia, 'AMBITO_INVALIDO', 'BLOQUEAR',
+        )
+
+    qs = EventoSync.objects.using(alias).filter(sucursal=sucursal)
+    ledger = None
+    if evento_data.get('event_id'):
+        ledger = qs.filter(event_id=evento_data['event_id']).first()
+    if ledger is None:
+        ledger = qs.filter(hash_payload=hash_payload).first()
+
+    if ledger is not None:
+        if _evento_equivalente(
+            ledger,
+            tipo_evento=tipo,
+            payload=payload,
+            hash_payload=hash_payload,
+        ):
+            return _resultado_sonda(
+                evento_data, referencia, 'DUPLICADO_REAL', 'NINGUNA',
+            )
+        return _resultado_sonda(
+            evento_data, referencia, 'DIVERGENCIA_CONTENIDO', 'REVISION_MANUAL',
+        )
+
+    if referencia:
+        misma_identidad = qs.filter(
+            tipo_evento=tipo,
+            objeto_referencia=referencia,
+        ).first()
+        if misma_identidad is not None:
+            if misma_identidad.payload == payload:
+                return _resultado_sonda(
+                    evento_data, referencia, 'DUPLICADO_REAL', 'NINGUNA',
+                )
+            return _resultado_sonda(
+                evento_data,
+                referencia,
+                'DIVERGENCIA_CONTENIDO',
+                'REVISION_MANUAL',
+            )
+
+    existe = _hecho_existe_en_cloud(sucursal, tipo, payload, alias)
+    if existe is True:
+        return _resultado_sonda(
+            evento_data,
+            referencia,
+            'HECHO_SIN_EVENTO_CLOUD',
+            'REENVIAR_DIRIGIDO',
+        )
+    if existe is False:
+        return _resultado_sonda(
+            evento_data, referencia, 'FALSO_ACK', 'REENVIAR_DIRIGIDO',
+        )
+    return _resultado_sonda(
+        evento_data, referencia, 'NO_VERIFICABLE', 'REVISION_MANUAL',
+    )
+
+
+def _caja_de_payload(sucursal, payload, alias):
+    from apps.caja.models import Caja
+
+    qs = Caja.objects.using(alias).filter(sucursal=sucursal)
+    origen_id = payload.get('caja_origen_id')
+    if origen_id:
+        try:
+            caja = qs.filter(origen_id=origen_id).first()
+        except (TypeError, ValueError):
+            caja = None
+        if caja is not None:
+            return caja
+    return qs.filter(nombre=payload.get('caja_nombre', 'Caja Principal')).first()
+
+
+def _venta_de_sucursal(sucursal, numero_venta, alias):
+    from apps.ventas.models import Venta
+
+    if not numero_venta:
+        return None
+    return Venta.objects.using(alias).filter(
+        sucursal=sucursal,
+        numero_venta=numero_venta,
+    ).first()
+
+
+def _hecho_existe_en_cloud(sucursal, tipo, payload, alias):
+    """True/False si el hecho se puede probar por identidad; None si no."""
+    if tipo in ('VENTA_CREADA', 'VENTA_ANULADA'):
+        venta = _venta_de_sucursal(
+            sucursal, payload.get('numero_venta'), alias,
+        )
+        if tipo == 'VENTA_ANULADA':
+            return venta is not None and venta.estado == 'ANULADA'
+        return venta is not None
+
+    if tipo in ('APERTURA_CAJA', 'CIERRE_CAJA'):
+        from apps.caja.models import TurnoCaja
+
+        caja = _caja_de_payload(sucursal, payload, alias)
+        fecha = parse_datetime(payload.get('fecha_apertura') or '')
+        if caja is None or fecha is None:
+            return False
+        qs = TurnoCaja.objects.using(alias).filter(
+            caja=caja, fecha_apertura=fecha,
+        )
+        if tipo == 'CIERRE_CAJA':
+            qs = qs.filter(estado='CERRADO')
+        return qs.exists()
+
+    if tipo == 'MOVIMIENTO_CAJA':
+        from apps.caja.models import MovimientoCaja
+
+        caja = _caja_de_payload(sucursal, payload, alias)
+        fecha_turno = parse_datetime(payload.get('turno_fecha_apertura') or '')
+        fecha = parse_datetime(payload.get('fecha') or '')
+        if caja is None or fecha_turno is None or fecha is None:
+            return False
+        return MovimientoCaja.objects.using(alias).filter(
+            turno__caja=caja,
+            turno__fecha_apertura=fecha_turno,
+            fecha=fecha,
+            tipo=payload.get('tipo'),
+            monto=Decimal(str(payload.get('monto') or '0')),
+        ).exists()
+
+    if tipo in ('AJUSTE_INVENTARIO', 'INVENTARIO_MOVIMIENTO_REGISTRADO'):
+        from apps.sync.models import InventarioMovimientoSync
+
+        local_id = (
+            payload.get('ajuste_id_local')
+            if tipo == 'AJUSTE_INVENTARIO'
+            else payload.get('movimiento_id_local')
+        )
+        if not local_id:
+            return False
+        return InventarioMovimientoSync.objects.using(alias).filter(
+            sucursal=sucursal,
+            movimiento_id_local=local_id,
+        ).exists()
+
+    if tipo == 'INVENTARIO_SNAPSHOT':
+        from apps.sync.models import InventarioSucursalSnapshot
+
+        fecha = parse_datetime(payload.get('timestamp') or '')
+        if fecha is None:
+            return False
+        return InventarioSucursalSnapshot.objects.using(alias).filter(
+            sucursal=sucursal,
+            timestamp__gte=fecha,
+        ).exists()
+
+    if tipo in ('COTIZACION_CREADA', 'COTIZACION_CONVERTIDA'):
+        from apps.cotizaciones.models import Cotizacion
+
+        qs = Cotizacion.objects.using(alias).filter(
+            sucursal=sucursal,
+            numero_cotizacion=payload.get('numero_cotizacion'),
+        )
+        if tipo == 'COTIZACION_CONVERTIDA':
+            qs = qs.filter(estado='CONVERTIDA')
+        return qs.exists()
+
+    if tipo in ('CXC_CREADA', 'CXC_ANULADA'):
+        from apps.cuentas_por_cobrar.models import CuentaPorCobrar
+
+        venta = _venta_de_sucursal(
+            sucursal, payload.get('numero_venta'), alias,
+        )
+        if venta is None:
+            return False
+        qs = CuentaPorCobrar.objects.using(alias).filter(
+            venta=venta, sucursal=sucursal,
+        )
+        if tipo == 'CXC_ANULADA':
+            qs = qs.filter(estado='ANULADA')
+        return qs.exists()
+
+    if tipo in ('CXC_PAGO_REGISTRADO', 'CXC_PAGO_ANULADO'):
+        from apps.cuentas_por_cobrar.models import PagoCxC
+
+        venta = _venta_de_sucursal(
+            sucursal, payload.get('numero_venta'), alias,
+        )
+        fecha = parse_datetime(payload.get('fecha_pago') or '')
+        if venta is None or fecha is None:
+            return False
+        qs = PagoCxC.objects.using(alias).filter(
+            cuenta__venta=venta,
+            cuenta__sucursal=sucursal,
+            fecha_pago=fecha,
+            monto=Decimal(str(payload.get('monto') or '0')),
+        )
+        if tipo == 'CXC_PAGO_ANULADO':
+            qs = qs.filter(estado='ANULADO')
+        return qs.exists()
+
+    # COMPRA_REGISTRADA no crea un hecho propio en el cloud; su autoridad son
+    # los eventos INVENTARIO_MOVIMIENTO_REGISTRADO posteriores.
+    return None
 
 
 def _buscar_turno_abierto(sucursal, caja_nombre, fecha_apertura, origen_id=None):
@@ -742,7 +1432,7 @@ def _handler_venta_creada(sucursal, payload):
     if not numero_venta:
         raise ValueError('Payload sin numero_venta')
 
-    existente = Venta.objects.filter(numero_venta=numero_venta).first()
+    existente = _venta_de_sucursal(sucursal, numero_venta, _database_alias())
     if existente:
         # Reenvio CORRECTIVO, no un no-op. Una venta replicada antes pudo quedar
         # sin cliente (el payload no traia forma de identificarlo) o con lineas
@@ -940,7 +1630,7 @@ def _handler_venta_anulada(sucursal, payload):
         raise ValueError('Payload sin numero_venta')
 
     try:
-        venta = Venta.objects.get(numero_venta=numero)
+        venta = Venta.objects.get(sucursal=sucursal, numero_venta=numero)
     except Venta.DoesNotExist:
         raise ValueError(f'Venta {numero} no existe en cloud (posiblemente llegara pronto)')
 
@@ -1398,7 +2088,7 @@ def _handler_cotizacion_convertida(sucursal, payload):
     venta_numero = payload.get('venta_numero')
     venta = None
     if venta_numero:
-        venta = Venta.objects.filter(numero_venta=venta_numero).first()
+        venta = _venta_de_sucursal(sucursal, venta_numero, _database_alias())
         if venta is None:
             raise ValueError(f'Venta {venta_numero} no existe en cloud todavia')
 
@@ -1419,7 +2109,7 @@ def _handler_cxc_creada(sucursal, payload):
     if not numero_venta:
         raise ValueError('Payload CxC sin numero_venta')
 
-    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    venta = _venta_de_sucursal(sucursal, numero_venta, _database_alias())
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
 
@@ -1524,7 +2214,7 @@ def _handler_cxc_pago(sucursal, payload):
     from apps.ventas.models import Venta
 
     numero_venta = payload.get('numero_venta')
-    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    venta = _venta_de_sucursal(sucursal, numero_venta, _database_alias())
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
 
@@ -1615,7 +2305,7 @@ def _handler_cxc_pago_anulado(sucursal, payload):
     from apps.ventas.models import Venta
 
     numero_venta = payload.get('numero_venta')
-    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    venta = _venta_de_sucursal(sucursal, numero_venta, _database_alias())
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
 
@@ -1666,7 +2356,7 @@ def _handler_cxc_anulada(sucursal, payload):
     from apps.ventas.models import Venta
 
     numero_venta = payload.get('numero_venta')
-    venta = Venta.objects.filter(numero_venta=numero_venta).first()
+    venta = _venta_de_sucursal(sucursal, numero_venta, _database_alias())
     if not venta:
         raise ValueError(f'Venta {numero_venta} no existe en cloud todavia')
     cuenta = CuentaPorCobrar.objects.filter(venta=venta).first()

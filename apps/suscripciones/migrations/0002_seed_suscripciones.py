@@ -11,6 +11,10 @@ from django.db import migrations
 def seed_suscripciones(apps, schema_editor):
     from apps.suscripciones import seed
 
+    # Alias explicito: la BD que esta migrando `schema_editor`, no el tenant
+    # que pueda haber en contexto ambiente (MERGE-C03-ALIAS-ATOMIC). Asegura
+    # que la siembra y su transaccion corran sobre la misma BD que el resto
+    # de esta migracion.
     seed.bootstrap(
         ModuloModel=apps.get_model('suscripciones', 'Modulo'),
         PlanModel=apps.get_model('suscripciones', 'Plan'),
@@ -18,6 +22,7 @@ def seed_suscripciones(apps, schema_editor):
         NegocioModuloModel=apps.get_model('suscripciones', 'NegocioModulo'),
         SuscripcionModel=apps.get_model('suscripciones', 'SuscripcionNegocio'),
         ConfiguracionModel=apps.get_model('configuracion', 'ConfiguracionNegocio'),
+        using=schema_editor.connection.alias,
     )
 
 

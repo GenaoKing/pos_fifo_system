@@ -119,6 +119,17 @@ class Compra(models.Model):
             models.Index(fields=['numero_compra']),
             models.Index(fields=['fecha_compra']),
         ]
+        # DB-CONSTRAINTS: el total de una compra alimenta el costo FIFO; un
+        # importe NEGATIVO lo corrompe. Se usa `>= 0` (no `>= 0.01`) porque la
+        # cabecera se crea con total 0 y se completa tras insertar los detalles
+        # (ver `views.compra_crear`): un CHECK de 0.01 rechazaria ese INSERT
+        # intermedio. El piso de negocio (0.01) lo sostiene el validator del campo.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total__gte=Decimal('0.00')),
+                name='compra_total_no_negativo',
+            ),
+        ]
     
     def __str__(self):
         return f"Compra {self.numero_compra} - {self.proveedor}"
@@ -174,7 +185,19 @@ class DetalleCompra(models.Model):
     class Meta:
         verbose_name = 'Detalle de Compra'
         verbose_name_plural = 'Detalles de Compra'
-    
+        # DB-CONSTRAINTS: cada linea de compra crea un Lote FIFO; cantidad o
+        # costo <= 0 generaria un lote imposible.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gte=1),
+                name='detallecompra_cantidad_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(costo_unitario__gte=Decimal('0.01')),
+                name='detallecompra_costo_positivo',
+            ),
+        ]
+
     def __str__(self):
         return f"{self.producto.nombre} - {self.cantidad} unidades"
     
@@ -316,6 +339,20 @@ class Lote(models.Model):
             models.Index(fields=['producto', 'fecha_compra']),
             models.Index(fields=['cantidad_actual']),
             models.Index(fields=['sucursal', 'producto']),
+        ]
+        # DB-CONSTRAINTS: `cantidad_actual` NO se restringe — el inventario
+        # negativo es una politica valida (ver ConfiguracionNegocio.
+        # permitir_inventario_negativo). La cantidad INICIAL y el costo si son
+        # inmutables y positivos por definicion.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad_inicial__gte=1),
+                name='lote_cantidad_inicial_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(costo_unitario__gte=Decimal('0.01')),
+                name='lote_costo_positivo',
+            ),
         ]
     
     def __str__(self):

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, MetodoPlazoCredito
 from apps.cuentas_por_cobrar.services import (
     registrar_pago_cxc_service,
@@ -37,6 +38,11 @@ class CreditoServicesTests(TestCase):
         )
         # La venta exige `ventas.crear` server-side (RBAC del catalogo).
         habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Credito Test')
         self.producto = Producto.objects.create(
             sku='CXC-PROD-001',

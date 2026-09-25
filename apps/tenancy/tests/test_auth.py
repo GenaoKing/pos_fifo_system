@@ -1,10 +1,13 @@
 from types import SimpleNamespace
+import time
 from unittest.mock import patch
 
 from django.conf import settings
 from django.test import TestCase, override_settings
 from rest_framework.request import Request
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient, APIRequestFactory
+from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.api.authentication import SucursalTokenAuthentication
 from apps.api.permissions import TienePermiso
@@ -62,6 +65,24 @@ class TenantIdentityLoginTests(TestCase):
         self.assertTrue(user.is_global_identity)
         self.assertEqual(user.email, 'root@example.com')
         self.assertTrue(token['is_global'])
+
+    def test_access_expira_al_maximo_absoluto_aunque_su_exp_siga_vigente(self):
+        self._identity(is_global=True, nombre='Root')
+        login = self.client.post(
+            self.url,
+            {'email': 'root@example.com', 'password': 'x'},
+            format='json',
+        )
+        token = AccessToken(login.data['access'])
+        inicio = int(time.time()) - settings.SESSION_ABSOLUTE_MAX_AGE - 1
+        token['session_started_at'] = inicio
+        token['session_expires_at'] = inicio + settings.SESSION_ABSOLUTE_MAX_AGE
+        request = APIRequestFactory().get(
+            '/api/v1/auth/me/', HTTP_AUTHORIZATION=f'Bearer {str(token)}',
+        )
+
+        with self.assertRaisesMessage(AuthenticationFailed, 'maximo absoluto'):
+            TenantJWTAuthentication().authenticate(request)
 
     def test_invalid_password_is_rejected(self):
         self._identity(is_global=True)

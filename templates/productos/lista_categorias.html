@@ -242,6 +242,15 @@
                                 Categoría activa
                             </label>
                         </div>
+                        <div x-show="modalMode !== 'create' && !formData.activa" class="form-group">
+                            <label class="form-label">Motivo de inactivación</label>
+                            <textarea x-model="formData.motivo_inactivacion"
+                                      :required="!formData.activa" rows="2" class="form-textarea"
+                                      placeholder="Explique por qué esta categoría se retira de la operación"></textarea>
+                            <p class="text-xs text-warning-700 mt-1">
+                                Los productos conservan su flag individual, pero dejan de ser vendibles mientras la categoría esté inactiva.
+                            </p>
+                        </div>
                     </div>
                     
                     <div class="card-footer flex justify-end space-x-3">
@@ -373,10 +382,12 @@ function categoriasManager() {
         ),
         filteredCategorias: [],
         searchQuery: '',
-        filterEstado: '',
+        filterEstado: 'activa',
         showModal: false,
         showProductosModal: false,
         modalMode: 'create',
+        mutacionMaestroId: null,
+        mutacionesEstado: {},
         selectedCategoria: null,
         formData: {
             id: null,
@@ -405,13 +416,15 @@ function categoriasManager() {
         
         openModal(mode, categoria = null) {
             this.modalMode = mode;
+            this.mutacionMaestroId = null;
             
             if (mode === 'create') {
                 this.formData = {
                     id: null,
                     nombre: '',
                     descripcion: '',
-                    activa: true
+                    activa: true,
+                    motivo_inactivacion: ''
                 };
             } else if (categoria) {
                 this.formData = { ...categoria };
@@ -431,22 +444,23 @@ function categoriasManager() {
         
         async saveCategoria() {
             try {
+                if (!this.mutacionMaestroId) {
+                    this.mutacionMaestroId = crearUuidMutacionMaestro();
+                }
                 const url = this.modalMode === 'create' 
                     ? '{% url "productos:crear_categoria" %}'
                     : `{% url "productos:categorias" %}${this.formData.id}/editar/`;
                 
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
+                    headers: headersMutacionMaestro(this.mutacionMaestroId),
                     body: JSON.stringify(this.formData)
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
+                    this.mutacionMaestroId = null;
                     window.location.reload();
                 } else {
                     showToast('error', 'Error: ' + (data.message || 'No se pudo guardar la categoría'));
@@ -466,19 +480,34 @@ function categoriasManager() {
             );
             if (!ok) return;
 
+            let motivo = '';
+            if (categoria.activa) {
+                motivo = window.prompt('Indica el motivo de la inactivación (máximo 500 caracteres):', '') || '';
+                if (!motivo.trim()) {
+                    showToast('warning', 'El motivo de inactivación es obligatorio');
+                    return;
+                }
+            }
+
             try {
+                const claveReintento = `categoria:${categoria.id}:estado`;
+                if (!this.mutacionesEstado[claveReintento]) {
+                    this.mutacionesEstado[claveReintento] = crearUuidMutacionMaestro();
+                }
                 const response = await fetch(`{% url "productos:categorias" %}${categoria.id}/toggle-estado/`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    }
+                    headers: headersMutacionMaestro(this.mutacionesEstado[claveReintento]),
+                    body: JSON.stringify({
+                        activa: !categoria.activa,
+                        motivo_inactivacion: motivo
+                    })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    categoria.activa = !categoria.activa;
+                    delete this.mutacionesEstado[claveReintento];
+                    categoria.activa = data.activa;
                 }
             } catch (error) {
                 console.error('Error:', error);

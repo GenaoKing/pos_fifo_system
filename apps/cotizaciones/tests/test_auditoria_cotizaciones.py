@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cotizaciones.models import Cotizacion, DetalleCotizacion
 from apps.inventario.models import Compra, DetalleCompra
 from apps.permisos import testing as permisos_testing
@@ -38,6 +39,12 @@ class CotizacionesTestCase(TestCase):
         self.suc_b = Sucursal.objects.create(
             codigo='COT-B', nombre='Tienda B', activa=True, negocio=self.negocio,
         )
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer). Ninguna de
+        # las dos sucursales de este fixture tiene la propia por defecto.
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Cotizables', activa=True)
         self.producto = Producto.objects.create(
             sku='COT-001', codigo_barras='COT-001', nombre='Tuberia',
@@ -65,7 +72,12 @@ class CotizacionesTestCase(TestCase):
             username=username, email=f'{username}@test.local',
             password='Prueba123', rol=rol, activo=True,
         )
-        permisos_testing.habilitar_cajero(user, permisos=list(permisos))
+        # El operador pertenece al MISMO negocio que las sucursales del fixture:
+        # es la realidad del POS local (un solo negocio) y lo que exige el
+        # contrato CT-01, que no deja auditar un hecho de un negocio ajeno.
+        permisos_testing.habilitar_cajero(
+            user, negocio=self.negocio, permisos=list(permisos),
+        )
         return user
 
     def _stock(self, cantidad=50):
@@ -266,6 +278,10 @@ class AlcanceDeLaConversionTests(CotizacionesTestCase):
 
         with self.settings(SUCURSAL_CODIGO='COT-A'):
             cache.clear()
+            # Con SUCURSAL_CODIGO='COT-A', get_config() resuelve suc_a de
+            # verdad y ya no cae al legacy del setUp -- necesita su propia
+            # ConfiguracionNegocio (CFG-012).
+            ConfiguracionNegocio.objects.create(sucursal=self.suc_a)
             with self.assertRaises(CotizacionInvalidaError) as ctx:
                 self._vender(cotizacion)
 
@@ -462,8 +478,19 @@ class EventoAtrasadoTests(CotizacionesTestCase):
             'detalles': [],
         }
 
+        # COT-015: una cotizacion CONVERTIDA exige el vinculo a su venta (la
+        # constraint `cotizacion_convertida_exige_venta` lo garantiza a nivel de
+        # BD). Se crea la venta que la consumio para reflejar el estado real.
+        from apps.ventas.models import Venta
+
+        venta = Venta.objects.create(
+            usuario=cotizacion.usuario, cliente=self.cliente, sucursal=self.suc_a,
+            subtotal=Decimal('50.00'), total=Decimal('50.00'),
+            estado='COMPLETADA', condicion_pago='CONTADO',
+        )
         cotizacion.estado = 'CONVERTIDA'
-        cotizacion.save(update_fields=['estado'])
+        cotizacion.venta = venta
+        cotizacion.save(update_fields=['estado', 'venta'])
 
         _handler_cotizacion_creada(self.suc_a, payload)
 

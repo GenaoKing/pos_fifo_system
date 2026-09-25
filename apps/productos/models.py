@@ -1,8 +1,25 @@
 from django.db import models
+from django.db.models import Exists, OuterRef
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.contrib.postgres.indexes import GinIndex
 
 from apps.tenancy.media import producto_image_upload_to, producto_thumb_upload_to
+
+
+MAX_MOTIVO_INACTIVACION = 500
+
+
+def validar_motivo_inactivacion(motivo):
+    """Normaliza el motivo obligatorio de una baja lógica nueva."""
+    valor = str(motivo or '').strip()
+    if not valor:
+        raise ValidationError('Indique el motivo de la inactivación.')
+    if len(valor) > MAX_MOTIVO_INACTIVACION:
+        raise ValidationError(
+            f'El motivo de la inactivación no puede superar {MAX_MOTIVO_INACTIVACION} caracteres.'
+        )
+    return valor
 
 
 class Categoria(models.Model):
@@ -22,6 +39,14 @@ class Categoria(models.Model):
         'Activa',
         default=True,
         help_text='Indica si la categoría está activa',
+    )
+    motivo_inactivacion = models.TextField(
+        'Motivo de inactivación', blank=True, default='',
+        help_text='Motivo trazable de la última baja lógica.',
+    )
+    inactivado_at = models.DateTimeField(
+        'Inactivada el', null=True, blank=True,
+        help_text='Instante de la última baja lógica.',
     )
 
     # ← AGREGAR ESTOS DOS CAMPOS NUEVOS:
@@ -66,6 +91,17 @@ class Categoria(models.Model):
         verbose_name='ID en cloud',
         help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
     )
+    # Versión autoritativa recibida del cloud. ``fecha_modificacion`` es el
+    # timestamp de ESTA copia local y cambia cada vez que el pull la guarda;
+    # por eso no puede usarse como precondición CAS al volver a proponer una
+    # mutación offline.
+    revision_cloud = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        editable=False,
+        help_text='Revision ISO autoritativa del cloud para CAS de maestros.',
+    )
 
     class Meta:
         verbose_name = 'Categoría'
@@ -79,6 +115,19 @@ class Categoria(models.Model):
     
     def __str__(self):
         return self.nombre
+
+    def establecer_estado_operativo(self, activa, *, motivo=None):
+        """Aplica baja/reactivación sin tocar el flag individual de productos."""
+        activa = bool(activa)
+        if activa:
+            self.activa = True
+            self.motivo_inactivacion = ''
+            self.inactivado_at = None
+            return
+        if self.activa:
+            self.motivo_inactivacion = validar_motivo_inactivacion(motivo)
+            self.inactivado_at = timezone.now()
+        self.activa = False
 
     @property
     def total_productos(self):
@@ -122,12 +171,82 @@ def productos_vendibles(queryset=None):
     La baja administrativa tiene que ser una garantia del backend, no una
     convencion de la UI.
     """
+    from apps.sync.models import MutacionMaestro
+
     base = Producto.objects.all() if queryset is None else queryset
-    return base.filter(activo=True, categoria__activa=True)
+    conflictos_producto = MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.PRODUCTO,
+        entidad_id=OuterRef('pk'),
+        estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
+    )
+    conflictos_categoria = MutacionMaestro.objects.filter(
+        entidad=MutacionMaestro.Entidad.CATEGORIA,
+        entidad_id=OuterRef('categoria_id'),
+        estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
+    )
+    return (
+        base.filter(activo=True, categoria__activa=True)
+        .annotate(
+            _conflicto_maestro_producto=Exists(conflictos_producto),
+            _conflicto_maestro_categoria=Exists(conflictos_categoria),
+        )
+        .filter(
+            _conflicto_maestro_producto=False,
+            _conflicto_maestro_categoria=False,
+        )
+    )
+
+
+def tiene_conflicto_maestro(producto):
+    """Indica si una propuesta A05.2a bloquea una venta nueva de este producto."""
+    from apps.sync.models import MutacionMaestro
+
+    return MutacionMaestro.objects.filter(
+        estado=MutacionMaestro.Estado.CONFLICTO,
+        resolucion_conflicto__isnull=True,
+    ).filter(
+        models.Q(
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=producto.pk,
+        ) | models.Q(
+            entidad=MutacionMaestro.Entidad.CATEGORIA,
+            entidad_id=producto.categoria_id,
+        )
+    ).exists()
+
+
+class ProductoQuerySet(models.QuerySet):
+    """Mantiene identidad aun en mutaciones masivas del ORM."""
+
+    CAMPOS_INMUTABLES = {'sku', 'origen_cloud_id'}
+
+    @classmethod
+    def _validar_campos_mutables(cls, campos):
+        bloqueados = cls.CAMPOS_INMUTABLES.intersection(campos)
+        if bloqueados:
+            raise ValidationError(
+                'Campos inmutables de Producto: ' + ', '.join(sorted(bloqueados))
+            )
+
+    def update(self, **kwargs):
+        self._validar_campos_mutables(kwargs)
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        self._validar_campos_mutables(fields)
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
+class ProductoManager(models.Manager.from_queryset(ProductoQuerySet)):
+    pass
 
 
 class Producto(models.Model):
     """Productos del inventario"""
+
+    objects = ProductoManager()
     
     # Identificadores
     sku = models.CharField(
@@ -136,6 +255,29 @@ class Producto(models.Model):
         unique=True,
         blank=True,
         help_text='Código interno único del producto',
+    )
+    # Identidad estable de la replica cloud. El SKU sigue siendo la clave
+    # natural de adopcion inicial, pero deja de decidir la identidad una vez
+    # que este campo queda sellado. No confundir con `origen_sucursal`: ese FK
+    # conserva la procedencia historica de los stubs BUG-H y no identifica la
+    # fila autoritativa del catalogo.
+    origen_cloud_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        editable=False,
+        verbose_name='ID en cloud',
+        help_text='PK de esta fila en la BD cloud. Identidad de sync; no se edita a mano.',
+    )
+    # Ver comentario equivalente en ``Categoria.revision_cloud``. La revisión
+    # del cloud se conserva aparte del ``auto_now`` de la réplica local.
+    revision_cloud = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        editable=False,
+        help_text='Revision ISO autoritativa del cloud para CAS de maestros.',
     )
     codigo_barras = models.CharField(
         'Código de barras',
@@ -201,6 +343,14 @@ class Producto(models.Model):
         'Activo',
         default=True,
         help_text='Indica si el producto está disponible para venta',
+    )
+    motivo_inactivacion = models.TextField(
+        'Motivo de inactivación', blank=True, default='',
+        help_text='Motivo trazable de la última baja lógica.',
+    )
+    inactivado_at = models.DateTimeField(
+        'Inactivado el', null=True, blank=True,
+        help_text='Instante de la última baja lógica.',
     )
     
     # Imagen (opcional)
@@ -298,7 +448,25 @@ class Producto(models.Model):
     @property
     def es_vendible(self):
         """Misma regla que `productos_vendibles()`, por instancia."""
-        return bool(self.activo and self.categoria and self.categoria.activa)
+        return bool(
+            self.activo
+            and self.categoria
+            and self.categoria.activa
+            and not tiene_conflicto_maestro(self)
+        )
+
+    def establecer_estado_operativo(self, activo, *, motivo=None):
+        """Aplica una baja/reactivación lógica con motivo en la transición."""
+        activo = bool(activo)
+        if activo:
+            self.activo = True
+            self.motivo_inactivacion = ''
+            self.inactivado_at = None
+            return
+        if self.activo:
+            self.motivo_inactivacion = validar_motivo_inactivacion(motivo)
+            self.inactivado_at = timezone.now()
+        self.activo = False
 
     def __str__(self):
         return f"{self.sku} - {self.nombre}"
@@ -317,9 +485,43 @@ class Producto(models.Model):
         # y prefiere generarla el mismo pasando `fuente` — hoy, la migracion de
         # media a Blob.
         sincronizar = kwargs.pop('sincronizar_miniatura', True)
+        self._validar_identidad_inmutable()
         super().save(*args, **kwargs)
         if sincronizar:
             self.sincronizar_miniatura()
+
+    def _validar_identidad_inmutable(self):
+        """Impide partir una identidad ya creada cambiando SKU o cloud ID.
+
+        Las superficies publicas omiten `sku` al actualizar para conservar
+        compatibilidad con clientes que todavia lo reenvian. Esta guarda es la
+        ultima frontera para Admin, scripts y servicios que guardan el modelo
+        directamente. La adopcion `NULL -> cloud_id` si esta permitida.
+        """
+        if self._state.adding or self.pk is None:
+            return
+
+        queryset = type(self).objects
+        if self._state.db:
+            queryset = queryset.using(self._state.db)
+        anterior = queryset.filter(pk=self.pk).values(
+            'sku', 'origen_cloud_id',
+        ).first()
+        if anterior is None:
+            return
+
+        errores = {}
+        if self.sku != anterior['sku']:
+            errores['sku'] = 'El SKU es inmutable despues de crear el producto.'
+        if (
+            anterior['origen_cloud_id'] is not None
+            and self.origen_cloud_id != anterior['origen_cloud_id']
+        ):
+            errores['origen_cloud_id'] = (
+                'La identidad cloud es inmutable una vez adoptada.'
+            )
+        if errores:
+            raise ValidationError(errores)
 
     def sincronizar_miniatura(self, forzar=False, fuente=None):
         """

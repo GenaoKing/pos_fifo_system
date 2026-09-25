@@ -104,6 +104,7 @@ class VentaAdmin(admin.ModelAdmin):
         'fecha_anulacion',
         'anulada_por',
         'motivo_anulacion',
+        'clave_idempotencia',
     )
     inlines = [DetalleVentaInline, PagoInline]
 

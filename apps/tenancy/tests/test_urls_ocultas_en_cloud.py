@@ -41,14 +41,14 @@ class RutasLocalesOcultasBajoTenancyTests(TestCase):
                     f'{ruta} deberia no existir bajo DB-per-tenant (evita el 500 de BUG-E)',
                 )
 
-    def test_api_y_admin_y_health_siguen_disponibles_bajo_tenancy(self):
+    def test_api_y_health_siguen_disponibles_pero_admin_no(self):
         _recargar_urls(True)
 
         resp = self.client.get('/api/v1/health/')
         self.assertEqual(resp.status_code, 200)
 
         resp_admin = self.client.get('/admin/login/')
-        self.assertNotEqual(resp_admin.status_code, 404)
+        self.assertEqual(resp_admin.status_code, 404)
 
     def test_media_sigue_disponible_bajo_tenancy(self):
         """

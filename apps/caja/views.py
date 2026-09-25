@@ -7,6 +7,7 @@ import json
 import logging
 from decimal import Decimal, InvalidOperation
 
+from django.core.paginator import Paginator
 from django.http import Http404, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -715,12 +716,23 @@ def api_registrar_movimiento(request):
 
             return JsonResponse({
                 'success': True,
+                # Mismo shape que `api_estado_turno`: el JS hace un `unshift`
+                # de este objeto directo a la lista, que colorea/icona por el
+                # codigo crudo (`tipo`) y muestra el label via `tipo_display`.
+                # Antes `tipo` viajaba ya "displayado" ("Retiro de Efectivo"),
+                # asi que nunca matcheaba RETIRO/GASTO/INGRESO y el item nuevo
+                # quedaba con el icono/color generico hasta el refresh manual.
                 'movimiento': {
                     'id': movimiento.id,
-                    'tipo': movimiento.get_tipo_display(),
+                    'tipo': movimiento.tipo,
+                    'tipo_display': movimiento.get_tipo_display(),
                     'monto': str(movimiento.monto),
                     'descripcion': movimiento.descripcion,
                     'fecha': movimiento.fecha.strftime('%d/%m/%Y %H:%M'),
+                    'registrado_por': (
+                        movimiento.registrado_por.get_short_name()
+                        or movimiento.registrado_por.username
+                    ),
                     'autorizado_por': autorizado_por.get_short_name() if autorizado_por else None,
                 },
                 'desglose': desglose,
@@ -810,12 +822,21 @@ def historial_turnos(request):
         from django.shortcuts import redirect
         return redirect('caja:index')
 
-    turnos = turnos_en_alcance(request).filter(
+    # PAG-CXC-CAJA: el corte a 50 era silencioso — un turno mas viejo quedaba
+    # invisible sin ningun aviso. Ahora se pagina (50 por pagina) y el operador
+    # puede recorrer todo el historial. `page_obj` es iterable, asi que el
+    # template que recorria `turnos` sigue funcionando.
+    turnos_qs = turnos_en_alcance(request).filter(
         estado='CERRADO'
-    ).select_related('caja', 'usuario', 'cerrado_por').order_by('-fecha_cierre')[:50]
+    ).select_related('caja', 'usuario', 'cerrado_por').order_by('-fecha_cierre')
+
+    paginator = Paginator(turnos_qs, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
 
     context = {
-        'turnos': turnos,
+        'turnos': page_obj,
+        'page_obj': page_obj,
+        'paginator': paginator,
     }
 
     return render(request, 'caja/historial.html', context)

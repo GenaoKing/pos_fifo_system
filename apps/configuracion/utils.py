@@ -112,6 +112,14 @@ def get_config():
     - Con `SUCURSAL_CODIGO`: la configuracion de ESA sucursal, o error si el
       codigo no resuelve.
     - Sin `SUCURSAL_CODIGO`: modo legacy, la unica configuracion de la base.
+
+    CFG-012: lectura pura. Si la fila todavia no existe, propaga
+    `ConfiguracionNoInicializada` (nunca la crea, nunca cachea el fallo).
+    Es la funcion correcta quien toma una DECISION de negocio con la config
+    (medios de pago, e-CF, descuentos): ahi "no hay config" debe ser un
+    error, no un valor inventado. Para renders que solo MUESTRAN datos del
+    negocio sin bloquear la pagina si todavia no existen, usar
+    `config_o_none()`.
     """
     codigo_sucursal = getattr(settings, 'SUCURSAL_CODIGO', None)
     clave = cache_key_config(codigo_sucursal)
@@ -231,6 +239,54 @@ def invalidar_config(codigo_sucursal=None):
     cache.delete(cache_key_config(codigo_sucursal))
 
 
+def _errores_config_no_disponible():
+    """
+    Las tres excepciones que significan "no hay nada que mostrar todavia",
+    no un bug: sin fila (CFG-012), `SUCURSAL_CODIGO` que no resuelve
+    (CFG-002) o sin tenant activo en contexto (BUG-E). Centralizado para que
+    `config_o_none()` / `modulos_efectivos_o_vacio()` y el context processor
+    atrapen exactamente el mismo conjunto.
+    """
+    from apps.tenancy.context import TenantContextError
+
+    from .models import ConfiguracionNoInicializada
+
+    return (ConfiguracionNoInicializada, ConfiguracionNoResuelta, TenantContextError)
+
+
+def config_o_none():
+    """
+    Config para RENDER (mostrar nombre/logo/telefono...), NUNCA para decidir
+    algo. CFG-012 hizo que `get_config()` falle fuerte sin fila -- correcto
+    para una decision de negocio, pero una pagina que solo EXHIBE datos del
+    negocio (login, navegacion, una pagina de error) no deberia devolver 500
+    por eso mientras la instalacion termina de aprovisionarse.
+
+    Devuelve `None` si la configuracion no existe todavia, el codigo de
+    sucursal no resuelve, o no hay tenant activo en contexto. El llamador
+    debe tratar `None` como "todavia no hay nada que mostrar", no rellenarlo
+    con un valor inventado.
+    """
+    try:
+        return get_config()
+    except _errores_config_no_disponible():
+        return None
+
+
+def modulos_efectivos_o_vacio():
+    """
+    Variante render-safe de `modulos_efectivos()`, misma justificacion que
+    `config_o_none()`: un menu que no puede resolver el entitlement todavia
+    (instalacion sin config/tenant) no debe tumbar la pagina -- simplemente
+    no ofrece nada extra, que es la direccion segura (oculta funciones, no
+    inventa que estan disponibles).
+    """
+    try:
+        return modulos_efectivos()
+    except _errores_config_no_disponible():
+        return set()
+
+
 # Nombres legacy (sufijo del flag de ConfiguracionNegocio) que difieren de la
 # key del registro de modulos. Solo 'financiacion_coop' -> 'financiacion'.
 _ALIAS_LEGACY = {'financiacion_coop': 'financiacion'}
@@ -259,6 +315,31 @@ def modulo_activo(nombre_modulo):
         return _modulo_activo_tenant(key, negocio=negocio, sucursal=sucursal)
 
     return _modulo_default_legacy(key)
+
+
+def modulos_efectivos():
+    """
+    Set de keys de modulos activos para la sucursal actual — la MISMA verdad que
+    gatea el backend: el entitlement del engine si hay negocio resuelto, o los
+    flags legacy de ConfiguracionNegocio si no.
+
+    Existe para cerrar CFG-009 / SUS-007: templates y menus leian
+    `config.modulo_*` (el flag crudo) mientras servicios y decoradores leian el
+    entitlement efectivo. Con dos fuentes, la navegacion podia ofrecer un enlace
+    que termina en 404 (modulo comprado pero flag apagado) o esconder un modulo
+    que el backend igual ejecuta. Consumido por el context processor, es la unica
+    fuente para la UI.
+    """
+    from apps.suscripciones import registry
+
+    sucursal = _sucursal_actual()
+    negocio = getattr(sucursal, 'negocio', None) if sucursal is not None else None
+    if negocio is not None:
+        from apps.suscripciones.engine import modulos_activos
+        return set(modulos_activos(negocio, sucursal))
+
+    # Sin negocio resuelto: misma conducta legacy que `modulo_activo`, key por key.
+    return {key for key in registry.keys() if _modulo_default_legacy(key)}
 
 
 def _sucursal_actual():

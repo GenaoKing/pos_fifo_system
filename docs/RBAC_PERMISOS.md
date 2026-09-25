@@ -40,8 +40,9 @@ Usuario.rol      (enum legacy, informativo — ver §10)
 |---|---|---|
 | `Negocio` | `apps/negocios/models.py` | Tenant lógico actual. Agrupa N sucursales. En DB-per-tenant evoluciona hacia registro del control plane con `tenant_key` estable. |
 | `Permiso` | `apps/permisos/models.py` | Catálogo **global** de acciones (`codigo`, ej. `clientes.crear`). Lo que *se puede* controlar. |
-| `Rol` | `apps/permisos/models.py` | Rol **por negocio** (`unique_together (negocio, slug)`). `es_sistema` protege los default. M2M `permisos`. |
-| `AsignacionRol` | `apps/permisos/models.py` | Une `usuario`→`rol`, opcional `sucursal` (null = todas las del negocio). `activo` permite **soft-delete** y `fecha_modificacion` (`auto_now`) es el cursor del sync de asignaciones (§7.1, §10). |
+| `Rol` | `apps/permisos/models.py` | Rol **por negocio**; identidad `cloud_id` inmutable, `revision` monotónica, `deleted_at`, propiedad `origen_cloud` y M2M `permisos`. |
+| `AsignacionRol` | `apps/permisos/models.py` | Une `usuario`→`rol`, opcional `sucursal`; misma identidad/revisión/tombstone. La terna no se edita: moverla revoca la anterior y crea/reactiva otra. |
+| `EstadoRBAC` | `apps/permisos/models.py` | Revisiones del catálogo y de asignaciones que viajan en `rbac.capabilities.v1`. |
 
 `Sucursal.negocio` y `Usuario.negocio` son FKs añadidas (migraciones `sucursales/0003`,
 `usuarios/0003`). `Permiso` es global (no tiene FK a negocio): lo que varía por tenant es
@@ -56,36 +57,34 @@ API pública:
 - `permisos_de_usuario(usuario, sucursal=None) -> set[str]` — set de códigos efectivos.
   Para acceso total devuelve **todos** los códigos del catálogo (para el payload/`can()`).
 - `tiene_permiso(usuario, codigo, sucursal=None) -> bool` — chequeo. **Corto-circuita** el
-  acceso total (no depende del catálogo, así un admin nunca queda bloqueado).
+  acceso total solo después de validar que el código exista y no sea capacidad
+  exclusiva del operador SaaS.
+- `asignaciones_efectivas(...)` — queryset canónico compartido por el motor y
+  notificaciones para no divergir en tenant/scope/estados.
 - `invalidar_cache()` — la llaman las signals.
 
 `Usuario.tiene_permiso(codigo, sucursal=None)` delega aquí.
 
-**Acceso total (`es_acceso_total`):** superusuario de Django, o `rol` legacy `ADMIN`/`SYSADMIN`.
-Es **transitorio** para ADMIN (ver §10).
+**Acceso total (`es_acceso_total`):** superusuario de Django y `SYSADMIN`.
+`ADMIN` conserva temporalmente el bypass solo mientras
+`RBAC_LEGACY_ADMIN_BYPASS=True`; el preflight para retirarlo está en §10.
 
 **Resolución (no acceso total):** unión de permisos de las `AsignacionRol` activas (rol
 activo). Si se pasa `sucursal`, aplican las globales (sucursal NULL) + las de esa sucursal.
 
 **Caché:** por `(usuario, sucursal)` con una **versión global**. Cualquier cambio en
 `Rol`/`Rol.permisos`/`AsignacionRol`/`Permiso` bumpea la versión vía signals
-(`apps/permisos/signals.py`), invalidando todo de forma portable. **Asume cache compartido
-de un solo worker** (LocMemCache en dev y Azure single-worker). Si se escala a múltiples
-workers/réplicas, usar Redis/memcached compartido (ver comentario en `engine.py`).
+(`apps/permisos/signals.py`), invalidando todo de forma portable. Con
+`LocMemCache` no cachea entre requests; con Redis/memcached compartido recupera
+ese cache de forma segura entre workers.
 
 ---
 
 ## 4. Catálogo de permisos (`apps/permisos/catalogo.py`)
 
-Lista declarativa `CATALOGO` (fuente de verdad del dev). Códigos actuales por módulo:
-
-```
-clientes.{ver,crear,editar,eliminar}      productos.{ver,crear,editar,eliminar}
-categorias.{ver,crear,editar,eliminar}    compras.{ver,registrar}
-inventario.{ver,ajustar}                  ventas.{crear,anular,aplicar_descuento,reimprimir}
-cuentas_por_cobrar.ver                    reportes.{ver,consolidado.ver}
-sucursales.ver                            permisos.administrar   (meta: administrar RBAC)
-```
+Lista declarativa `CATALOGO` (fuente de verdad del dev). No se duplica aquí el
+inventario completo: la lista vigente vive en `apps/permisos/catalogo.py` y las
+migraciones históricas conservan snapshots propios, no importan ese módulo vivo.
 
 **Agregar un permiso:** añadir una línea a `CATALOGO` y correr `manage.py sync_permisos`
 (idempotente). Luego aplicarlo en la vista/endpoint correspondiente (§6).
@@ -94,8 +93,10 @@ sucursales.ver                            permisos.administrar   (meta: administ
 
 ## 5. Seed y bootstrap
 
-- **`manage.py sync_permisos`** — upsert del catálogo en la tabla `Permiso`.
-- **`manage.py bootstrap_negocio [--nombre "Royal Plast"]`** — para una instalación
+- **`manage.py sync_permisos [--tenant <key>]`** — upsert del catálogo. No
+  modifica roles existentes salvo que se pida explícitamente
+  `--aplicar-presets-sistema`.
+- **`manage.py bootstrap_negocio [--nombre "Royal Plast"] [--negocio-id N]`** — para una instalación
   existente: crea un Negocio (toma el nombre de `ConfiguracionNegocio` si no se pasa),
   enlaza sucursales/usuarios huérfanos, crea los roles de sistema y asigna rol según el
   `rol` legacy de cada usuario.
@@ -107,17 +108,18 @@ sucursales.ver                            permisos.administrar   (meta: administ
 - **Cajero**: `ventas.crear`, `ventas.aplicar_descuento`, `ventas.reimprimir`.
 
 Los permisos se fijan **solo al crear** el rol → re-ejecutar bootstrap **no pisa**
-personalizaciones del admin.
+personalizaciones del admin ni reactiva asignaciones revocadas. Todo el bootstrap
+es transaccional; con varios negocios se niega a elegir el primero y exige
+`--negocio-id`. Bajo DB-per-tenant ambos comandos exigen `--tenant`.
 
 ### Rol Cajero por defecto — por qué NO incluye `ventas.anular`
-El viejo `permisos_cajera` (código muerto) listaba `puede_anular_venta`, pero la regla
-**real** gatea anulaciones a ADMIN/SYSADMIN (`apps/ventas/services/anulaciones_service.py:
-_puede_anular`). El default se alineó con la conducta real. La finalización del set del
-Cajero (p. ej. si se quiere `reportes.ver` para su dashboard) se decide en el cutover local.
+El Cajero default no recibe `ventas.anular`. El contrato ya define la capacidad,
+pero el servicio de anulación todavía usa el rol legacy; C02/C05 debe cambiar el
+consumidor para reevaluar el permiso granular contra la sucursal de la venta.
+Hasta entonces no se acredita que un rol custom pueda completar esa acción.
 
-> Para multi-tenant en el cloud: `bootstrap_negocio` crea **un** negocio y enlaza a todos
-> los usuarios. Para varios negocios en una misma BD, crear los `Negocio` explícitamente y
-> asignar usuarios/sucursales en vez de confiar en el auto-bootstrap.
+> Para una base con varios negocios, el bootstrap nunca adopta huérfanos ni
+> elige un tenant por orden de PK. Resolver su pertenencia explícitamente.
 
 ---
 
@@ -166,8 +168,9 @@ def mi_vista(request): ...
 
 ## 7. Sesión y portal React (`C:\Proyectos\pos-cloud-dashboard`)
 
-`apps/api/auth_views.py`: `/auth/login/` y `/auth/me/` devuelven `permisos: string[]` y
-`negocio {id,slug,nombre}`; el JWT lleva `tenant_id = negocio.slug`.
+`apps/api/auth_views.py`: `/auth/login/` y `/auth/me/` conservan `permisos: string[]`,
+`modulos` y `negocio {id,slug,nombre}`, y añaden el envelope versionado
+`rbac.capabilities.v1`; el JWT lleva el tenant técnico cuando aplica.
 
 Portal:
 - `src/lib/auth.ts` — `User` con `permisos` y `negocio`.
@@ -179,7 +182,7 @@ Portal:
 - Pantalla **`/asignaciones`** (`lib/asignaciones.ts` + `hooks/useAsignaciones.ts` +
   `pages/Asignaciones.tsx`): master-detail usuario↔rol — *qué rol tiene cada persona*, con
   scope opcional de sucursal. Los usuarios ADMIN/SYSADMIN se marcan con un banner de "acceso
-  total" (sus asignaciones son inertes por `es_acceso_total`). Filtra `activo` en cliente para
+  total" (para ADMIN solo mientras `RBAC_LEGACY_ADMIN_BYPASS=True`). Filtra `activo` en cliente para
   no mostrar las asignaciones soft-deleted. Ambas pantallas gated por `permisos.administrar`.
 
 ### 7.1 Endpoints de administración RBAC (`apps/api/views/permisos.py`)
@@ -196,16 +199,17 @@ GET                    /api/v1/permisos/sucursales/    ← scope opcional (read-
 Los dos `GET` read-only enumeran los usuarios y sucursales **del negocio** para poblar los
 selectores de la pantalla de asignación (la gestión de usuarios vive fuera de RBAC).
 
-**Patrón soft-delete ↔ reactivate (load-bearing — mantener juntos):**
+**Ciclo de vida versionado (load-bearing):**
 
-- `AsignacionRolViewSet.perform_destroy` hace **soft-delete** (`activo=False`, bump de
-  `fecha_modificacion`), no borra la fila — así la baja se propaga por el sync incremental.
-- `AsignacionRolViewSet.create` es **reactivate-or-create**: si ya existe la terna
-  (`usuario`, `rol`, `sucursal`) la reactiva (200) en vez de fallar; si no, crea (201). El
-  `AsignacionRolSerializer` tiene el `UniqueTogetherValidator` automático **desactivado**
-  (`validators = []`) para permitirlo — sin esto, re-asignar un rol previamente quitado daría
-  400 por el `unique_together` (la fila inactiva persiste). Si alguien revierte el soft-delete
-  a un borrado físico, o reactiva el validador, este ciclo se rompe.
+- Los ViewSets delegan toda mutación a `apps/permisos/services.py`: transacción,
+  bloqueo, validación tenant/sucursal y exactamente un evento CT-01 por cambio.
+- Rol y asignación tienen `cloud_id` inmutable, `revision` monotónica,
+  `deleted_at` y `origen_cloud`. `DELETE` es baja lógica versionada.
+- Mover usuario/rol/sucursal revoca la asignación anterior y crea/reactiva otra
+  con identidad nueva en la misma transacción. Reactivar un rol no reactiva sus
+  asignaciones revocadas.
+- El cliente puede enviar `X-RBAC-Revision`; una revisión obsoleta responde
+  `409 rbac_revision_conflict` y no escribe.
 
 ---
 
@@ -250,51 +254,57 @@ es trabajo separado — ver `docs/ARQUITECTURA_MODULOS.md`.)
 
 - **Motor propio (no librería):** ninguna lib (guardian/rules/role-permissions) hace
   configuración rol→permiso **por tenant en runtime** de forma limpia.
-- **ADMIN/SYSADMIN con acceso total (`es_acceso_total`) — transitorio:** preserva la conducta
-  histórica y evita lockouts. El control granular aplica a roles operativos (cajeros, roles
-  custom). Cuando todos los admins estén en roles explícitos, quitar `'ADMIN'` de
-  `es_acceso_total` para poder restringirlos también. El campo `Usuario.rol` queda como
-  legacy/informativo; el enforcement vive en `AsignacionRol`.
+- **ADMIN con acceso total — transición controlada:** `SYSADMIN` y superusuario
+  siempre son principales globales. `ADMIN` solo conserva el bypass mientras
+  `RBAC_LEGACY_ADMIN_BYPASS=True`. Antes de desactivarlo en cada tenant se debe
+  ejecutar `manage.py preflight_rbac_admin_cutover --tenant <tenant_key>`; el
+  comando falla si algún ADMIN activo carece de una asignación explícita con
+  `permisos.administrar`.
 - **`Negocio` separado de `ConfiguracionNegocio`:** distinta cardinalidad —
   `ConfiguracionNegocio` es **OneToOne con Sucursal** (config por sucursal); `Negocio` es el
   tenant (1→N sucursales). Deuda menor futura: mover los campos de identidad
   (`nombre_negocio`, `rnc`, `logo`…) de `ConfiguracionNegocio` a `Negocio`.
-- **Caché por versión global:** simple y portable; correcto con un worker (config actual).
+- **Caché versionada por tenant:** las mutaciones de rol, asignación y M2M
+  incrementan revisión e invalidan la decisión efectiva después del commit.
 - **Cutover local (decisiones del cutover):**
   - 3 permisos nuevos: `caja.administrar`, `auditoria.ver`, `configuracion.administrar`.
-  - **`sync_permisos` re-otorga todo el catálogo al rol de sistema `administrador`** → ese rol
-    no queda desfasado al crecer el catálogo (resuelve la limitación "snapshot").
+  - **`sync_permisos` separa catálogo de política:** por defecto solo hace upsert
+    del catálogo. `--aplicar-presets-sistema` es una decisión explícita y no
+    revive asignaciones revocadas ni pisa roles personalizados.
   - **El sync cloud→local propaga DEFINICIONES de rol Y asignaciones usuario→rol.**
     - Definiciones (`Rol`→permisos): `GET /api/v1/sync/roles/` + `SyncEngine._pull_roles()`.
     - Asignaciones (`AsignacionRol`): `GET /api/v1/sync/asignaciones/` + `SyncEngine._pull_asignaciones()`
-      (corre después de `_pull_roles` en `pull_maestros`). Ambos: token de sucursal, scoped al
-      negocio, filtro incremental `?desde=<fecha_modificacion>`.
-    - **Identidad cross-DB v1 = claves naturales:** `usuario_username` + `rol_slug` +
-      `sucursal_codigo` (las PKs no son comparables entre las dos BD independientes). El endpoint
-      de asignaciones sirve las globales del negocio (`sucursal` NULL) + las de la sucursal del
-      token; el pull resuelve esas claves a filas locales.
+      (corre después de `_pull_roles` en `pull_maestros`). El POS solicita
+      `X-RBAC-Schema: rbac.sync.v2` y `snapshot=full`; clientes sin header siguen
+      recibiendo la lista legacy.
+    - **Identidad cross-DB v2 = `cloud_id` inmutable + `revision`:** las claves
+      naturales (`usuario_username`, `rol_slug`, `sucursal_codigo`) se conservan
+      por compatibilidad. El POS valida el `tenant_key` técnico activo y, para
+      asignaciones, `scope.branch_code` antes de aplicar o reconciliar ausencias.
     - **El pull NO crea usuarios:** si el `username` no existe localmente, omite la asignación
       (evita provisionar credenciales por sync). Por eso el alta de usuarios sigue siendo local
       (`bootstrap_negocio` por el `rol` legacy); el sync solo sincroniza *qué rol* tiene un usuario
       que **ya existe** en ambos lados.
-    - El soft-delete (`activo=False`) es lo que permite propagar **bajas** de asignación por el
-      cursor incremental (un borrado físico no dejaría rastro que sincronizar).
-  - **`anular` quedó admin-only correctamente:** el rol Cajero default **no** trae `ventas.anular`
-    (la auditoría lo quitó del set), alineado con `anulaciones_service._puede_anular`.
+    - `snapshot_complete=true` permite revocar ausentes solo para filas de
+      propiedad cloud; una respuesta parcial, fallida o con scope incorrecto no revoca.
+  - **Consumidores pendientes por ownership:** el contrato publica
+    `ventas.anular` y `ventas.reimprimir`, pero C02/C05 debe integrar el gate
+    final y el scope de la venta en `apps/ventas`, `utils/impresoras` y la
+    navegación global. A03 no escribe esas superficies.
 
 ---
 
 ## 11. Estado / cómo seguir
 
-**Hecho (fase madura):** motor + DRF (maestros/reportes/CxC/sucursales) + endpoints admin +
-payload + React (`can()`, `/roles`, **`/asignaciones`**) + **cutover del POS local** + **sync
-cloud→local de definiciones de rol Y de asignaciones usuario→rol** (identidad natural v1). El
-ciclo de vida completo —configurar rol→permisos, asignar rol→usuario, propagarlo a la sucursal y
-enforzarlo server-side en ambos lados— está cerrado de punta a punta.
+**A03/CT-02 integrado y validado localmente:** motor + DRF + endpoints admin +
+payload versionado + revocación cloud→local por identidad estable. Los gates
+finales de anulación/reimpresión pertenecen al handoff C y siguen pendientes.
+Desplegar y retirar el bypass ADMIN son gates operacionales separados, no
+ejecutados por esta tarea.
 
 ### Mini-handoff — qué desarrollar a futuro (ordenado por valor/esfuerzo)
 
-Esta sección es el punto de entrada para quien retome el RBAC. Ninguno bloquea producción hoy.
+Esta sección es el punto de entrada para quien retome el RBAC.
 
 1. **Aislamiento de datos por tenant** en maestros *(el más importante para escalar a multi-cliente
    en una sola BD cloud)* — el RBAC controla *acciones*, **no** *qué datos* ve cada tenant; hoy los
@@ -302,18 +312,15 @@ Esta sección es el punto de entrada para quien retome el RBAC. Ninguno bloquea 
    single-tenant. Lo resolverá DB-per-tenant con control plane global. Ver §8 y
    `docs/TENANCY_DB_PER_TENANT.md`. **Empezar aquí** antes de vender a un 3.º cliente
    en la BD compartida.
-2. **`es_acceso_total` incluye `ADMIN` (transitorio)** — migrar los admins reales a roles explícitos
-   y luego quitar `'ADMIN'` de `es_acceso_total`, para poder restringir también al admin por negocio.
-   Requiere antes asegurar que cada admin tenga un rol con los permisos que hoy obtiene gratis.
+2. **Cutover de ADMIN por tenant** — ejecutar el preflight, corregir únicamente
+   los ADMIN reportados y después configurar `RBAC_LEGACY_ADMIN_BYPASS=False`.
+   No cambiar la bandera antes de obtener un preflight verde por tenant.
 3. **Provisión de usuarios cross-DB** — hoy el sync de asignaciones **omite** usuarios que no existen
    localmente (no crea credenciales por sync, a propósito). Si se quiere dar de alta una cajera desde
    el portal y que aparezca en la sucursal, falta un flujo de provisión de usuarios (con política de
    password/credenciales) — es la pieza que cierra "administrar el personal de la sucursal 100% desde
    el cloud". Ver §10 y `SyncEngine._pull_asignaciones`.
-4. **Endurecer unicidad de `AsignacionRol` con `sucursal` NULL:** Postgres trata NULLs como distintos
-   → el `unique_together` no bloquea duplicados globales a nivel BD. Mitigado a nivel app
-   (reactivate-or-create, §7.1). Endurecible con `UniqueConstraint(nulls_distinct=False)` (PG ≥15).
-5. **Deuda menor:** mover identidad de negocio (`nombre_negocio`/`rnc`/`logo`) de
+4. **Deuda menor:** mover identidad de negocio (`nombre_negocio`/`rnc`/`logo`) de
    `ConfiguracionNegocio` (por sucursal) a `Negocio` (tenant).
 
 ### Mantenimiento — cómo agregar un gate nuevo
@@ -331,8 +338,11 @@ Esta sección es el punto de entrada para quien retome el RBAC. Ninguno bloquea 
 
 ```bash
 # Suite completa (especificar módulos; el discovery por app-label falla con el runner)
-python manage.py test <módulos> --settings=config.settings_development   # 180/180 OK
+python manage.py test <módulos> --settings=config.settings_development
 ```
+- **Combinación A03+C en `develop@b7147fb`:** 957 focales y suite Django
+  completa 1346 OK; e-CF separada 72 passed; imagen/check cloud Python 3.12.14
+  verdes. Ver el handoff A03 para comandos, aislamiento y tiempos exactos.
 - **Aceptación (el caso del usuario):** mismo rol "Cajero" con permisos distintos por negocio →
   en `/api/v1/maestros/clientes/`, el cajero con `clientes.crear` recibe **201** y el otro **403**
   (`apps/api/tests/test_clientes_permisos_negocio.py`).
@@ -341,12 +351,13 @@ python manage.py test <módulos> --settings=config.settings_development   # 180/
   `/auditoria/`, `/caja/historial/`, `/inventario/ajustes/`; admin `Santiago` → 200. Receta
   reutilizable en el skill local `.claude/skills/run-pos-local/`.
 - **Endpoints admin RBAC + asignaciones:** `apps/api/tests/test_rbac_admin.py` — gating,
-  scoping por negocio, selectores `usuarios`/`sucursales`, y el ciclo **soft-delete ↔
-  reactivate** (borrar deja `activo=False`; re-asignar reactiva con 200, no duplica ni da 400).
+  scoping por negocio, conflicto de revisión, movimiento versionado y auditoría CT-01.
 - **Sync de roles y asignaciones:** `apps/api/tests/test_sync_roles.py` (endpoints scoped por
-  negocio) + `apps/sync/tests/test_pull_roles.py` (el pull actualiza `Rol.permisos`/asignaciones,
-  resuelve claves naturales, omite usuarios inexistentes e invalida cache).
+  negocio) + `apps/sync/tests/test_pull_roles.py` (V2, tombstones, revisión,
+  snapshots completos/parciales, identidad técnica y compatibilidad legacy).
 - **Portal React:** `npm run test` + `npm run build` en `pos-cloud-dashboard` (incl. `/asignaciones`).
 
-Despliegue local: `migrate` → `sync_permisos` → `bootstrap_negocio` (→ `bootstrap_suscripciones`
-para módulos). El sync de roles corre con `manage.py sincronizar`.
+Despliegue local: backup/preflight del runbook → `migrate` →
+`sync_permisos --tenant <tenant_key>` → verificación. Aplicar presets o ejecutar
+`bootstrap_negocio` solo cuando el procedimiento lo pida explícitamente. El
+sync de roles corre con `manage.py sincronizar`.

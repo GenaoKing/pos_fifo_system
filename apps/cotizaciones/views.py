@@ -17,11 +17,14 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
+from apps.auditoria.models import Auditoria, get_client_ip
+from apps.auditoria.services import registrar_mutacion
 from apps.clientes.models import Cliente
 from apps.configuracion.decorators import requiere_modulo
 from apps.cotizaciones.pdf_generator import generar_pdf_cotizacion
@@ -37,12 +40,58 @@ from .models import Cotizacion, DetalleCotizacion
 
 logger = logging.getLogger('cotizaciones')
 
+# Techo defensivo por linea (COT-008): evita que un payload manipulado desborde
+# `DecimalField(max_digits=12)` o `IntegerField` y reviente con un 500 en vez de
+# un 400 legible. No es una regla de negocio.
+CANTIDAD_MAXIMA_LINEA = 1_000_000
+
+
+def _cantidad_valida(crudo, nombre_producto):
+    """Cantidad entera de una linea de cotizacion, saneada (COT-008)."""
+    try:
+        cantidad_decimal = Decimal(str(crudo))
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        raise ValueError(f'Cantidad invalida para "{nombre_producto}".')
+    if (
+        not cantidad_decimal.is_finite()
+        or cantidad_decimal != cantidad_decimal.to_integral_value()
+    ):
+        raise ValueError(
+            f'La cantidad de "{nombre_producto}" debe ser un numero entero.'
+        )
+    cantidad = int(cantidad_decimal)
+    if cantidad < 1:
+        raise ValueError(
+            f'La cantidad de "{nombre_producto}" debe ser mayor que cero.'
+        )
+    if cantidad > CANTIDAD_MAXIMA_LINEA:
+        raise ValueError(
+            f'La cantidad de "{nombre_producto}" excede el maximo permitido.'
+        )
+    return cantidad
+
+
+def _descuento_valido(crudo, subtotal_linea, nombre_producto):
+    """Descuento monetario de una linea, saneado (COT-008)."""
+    try:
+        descuento = Decimal(str(crudo if crudo not in (None, '') else 0))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(f'Descuento invalido para "{nombre_producto}".')
+    if not descuento.is_finite() or descuento < 0:
+        raise ValueError(f'Descuento invalido para "{nombre_producto}".')
+    if descuento > subtotal_linea:
+        raise ValueError(
+            f'El descuento de "{nombre_producto}" (${descuento}) supera el '
+            f'subtotal de la linea (${subtotal_linea}).'
+        )
+    return descuento
+
 
 @login_required
 @requiere_modulo('cotizaciones')
 @requiere_permiso_local('cotizaciones.ver')
 def lista_cotizaciones(request):
-    """Lista de cotizaciones"""
+    """Lista de cotizaciones (paginada, COT-017)."""
 
     cotizaciones = _cotizaciones_en_alcance(request)
 
@@ -50,8 +99,18 @@ def lista_cotizaciones(request):
     if estado:
         cotizaciones = cotizaciones.filter(estado=estado)
 
+    # COT-017: sin paginacion el listado materializaba TODAS las cotizaciones de
+    # la sucursal (con su cliente/usuario/venta por select_related). Una tienda
+    # con años de historia cargaba miles de filas por pantalla. `page_obj` es
+    # iterable, asi que el template que recorria `cotizaciones` sigue funcionando.
+    paginator = Paginator(cotizaciones, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
     context = {
-        'cotizaciones': cotizaciones,
+        'cotizaciones': page_obj,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'estado': estado or '',
     }
 
     return render(request, 'cotizaciones/lista_cotizaciones.html', context)
@@ -138,8 +197,10 @@ def _precio_autorizado(producto, item, *, puede_negociar):
     except (InvalidOperation, TypeError, ValueError):
         raise ValueError(f'Precio invalido para "{producto.nombre}".')
 
-    if pedido < Decimal('0'):
-        raise ValueError(f'El precio de "{producto.nombre}" no puede ser negativo.')
+    if not pedido.is_finite() or pedido < Decimal('0.01'):
+        raise ValueError(
+            f'El precio de "{producto.nombre}" debe ser al menos $0.01.'
+        )
 
     if pedido >= vigente or pedido == vigente:
         return pedido
@@ -191,6 +252,17 @@ def guardar_cotizacion(request):
             cliente_id = data.get('cliente_id')
             if cliente_id:
                 cliente = Cliente.objects.get(id=cliente_id)
+                # COT-009: no cotizar a un cliente dado de baja. La UI pudo
+                # cargar la lista antes de la desactivacion; se revalida en el
+                # servidor al guardar. El contado queda exento (fallback activo).
+                if not cliente.activo and not cliente.es_contado:
+                    return JsonResponse({
+                        'success': False,
+                        'error': (
+                            'El cliente seleccionado esta inactivo; no se puede '
+                            'emitir una cotizacion a su nombre.'
+                        ),
+                    }, status=400)
             else:
                 cliente = Cliente.get_cliente_contado()
 
@@ -215,11 +287,18 @@ def guardar_cotizacion(request):
                 producto = productos_vendibles(
                     Producto.objects.select_related('categoria')
                 ).get(id=item['producto_id'])
-                cantidad = int(item['cantidad'])
+                # COT-008: cantidad e importes saneados en el servicio, no solo
+                # confiados a la constraint de BD (que devolveria un 500). Se
+                # rechaza cantidad <= 0, no entera, desmedida, o un descuento no
+                # finito / negativo / mayor al subtotal de la linea.
+                cantidad = _cantidad_valida(item.get('cantidad'), producto.nombre)
                 precio_unitario = _precio_autorizado(
                     producto, item, puede_negociar=puede_negociar,
                 )
-                descuento_monto = Decimal(str(item.get('descuento', 0)))
+                descuento_monto = _descuento_valido(
+                    item.get('descuento', 0), precio_unitario * cantidad,
+                    producto.nombre,
+                )
 
                 detalle = DetalleCotizacion.objects.create(
                     cotizacion=cotizacion,
@@ -243,6 +322,28 @@ def guardar_cotizacion(request):
 
             sync_events.evento_cotizacion_creada(cotizacion)
 
+            # COT-012: auditoria de negocio DENTRO del atomic (CT-01
+            # transaccional). Antes la cotizacion solo emitia el evento de sync;
+            # su ciclo de vida no dejaba rastro en la auditoria local.
+            registrar_mutacion(
+                accion='cotizaciones.cotizacion.creada',
+                actor=request.user,
+                entidad=cotizacion,
+                antes=None,
+                despues={
+                    'numero_cotizacion': cotizacion.numero_cotizacion,
+                    'cliente': cotizacion.cliente.nombre,
+                    'total': str(cotizacion.total),
+                    'items': len(productos_data),
+                },
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.POS_LOCAL,
+                tenant=None,
+                sucursal=cotizacion.sucursal,
+                metadata={'ip_address': get_client_ip(request)},
+                using=cotizacion._state.db or 'default',
+            )
+
             return JsonResponse({
                 'success': True,
                 'message': 'Cotizacion creada exitosamente',
@@ -253,12 +354,16 @@ def guardar_cotizacion(request):
 
     except PermissionDenied as exc:
         return JsonResponse({'success': False, 'error': str(exc)}, status=403)
-    except Producto.DoesNotExist:
+    except (Producto.DoesNotExist, Cliente.DoesNotExist):
         return JsonResponse({
             'success': False,
-            'error': 'Uno de los productos no existe o no esta disponible para la venta'
+            'error': (
+                'El cliente o uno de los productos no existe o no esta '
+                'disponible para la venta'
+            ),
         }, status=400)
-    except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError) as exc:
+    except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError,
+            TypeError, OverflowError) as exc:
         return JsonResponse(
             {'success': False, 'error': f'Datos invalidos: {exc}'}, status=400,
         )
@@ -433,6 +538,26 @@ def marcar_convertida(request, cotizacion_id):
 
             sync_events.evento_cotizacion_convertida(cotizacion)
 
+            # COT-012: auditoria de la conversion, atomica con el vinculo.
+            registrar_mutacion(
+                accion='cotizaciones.cotizacion.convertida',
+                actor=request.user,
+                entidad=cotizacion,
+                antes={'estado': 'PENDIENTE'},
+                despues={'estado': cotizacion.estado, 'venta': venta.numero_venta},
+                resultado=Auditoria.Resultado.SUCCEEDED,
+                canal=Auditoria.Canal.POS_LOCAL,
+                tenant=None,
+                sucursal=cotizacion.sucursal,
+                metadata={
+                    'cotizacion': cotizacion.numero_cotizacion,
+                    'venta': venta.numero_venta,
+                    'total': str(cotizacion.total),
+                    'ip_address': get_client_ip(request),
+                },
+                using=cotizacion._state.db or 'default',
+            )
+
         return JsonResponse({
             'success': True,
             'message': 'Cotizacion marcada como convertida'
@@ -448,7 +573,7 @@ def marcar_convertida(request, cotizacion_id):
         logger.exception('Error marcando una cotizacion como convertida')
         return JsonResponse(
             {'success': False, 'error': 'No se pudo marcar la cotizacion.'},
-            status=400,
+            status=500,
         )
     
 
@@ -473,6 +598,13 @@ def descargar_pdf_cotizacion(request, cotizacion_id):
 
         return response
 
-    except Exception as e:
-        messages.error(request, f'Error al generar PDF: {str(e)}')
+    except Http404:
+        raise
+    except Exception:
+        # COT-014: el texto de la excepcion no va al usuario (podia filtrar rutas
+        # o internals). Se registra y se muestra un mensaje generico.
+        logger.exception(
+            'Error generando el PDF de la cotizacion %s', cotizacion_id
+        )
+        messages.error(request, 'No se pudo generar el PDF de la cotizacion.')
         return redirect('cotizaciones:detalle', cotizacion_id=cotizacion_id)

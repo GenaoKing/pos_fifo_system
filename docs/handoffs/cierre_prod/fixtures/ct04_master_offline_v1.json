@@ -1,0 +1,200 @@
+{
+  "schema_version": "master.offline.v1",
+  "revision": "CT-04",
+  "descripcion": "Contrato canónico de A05.4. El transporte de propuestas ya está implementado; el listado y las resoluciones tienen forma congelada para C04/C05, pero A06 es el único productor de sus rutas.",
+  "compatibilidad": {
+    "sin_fallback": true,
+    "regla": "Un consumidor debe rechazar una schema_version que no conozca; no puede degradar a last-write-wins ni inferir acciones por textos de error."
+  },
+  "catalogos": {
+    "entidades": ["PRODUCTO", "CATEGORIA"],
+    "operaciones": ["CREAR", "ACTUALIZAR", "ACTIVAR", "DESACTIVAR"],
+    "estados_locales": ["PENDIENTE", "ENVIANDO", "CONFIRMADA", "CONFLICTO", "RECHAZADA"]
+  },
+  "transporte_implementado": {
+    "schema_version": "master.mutation.v1",
+    "endpoint": "/api/v1/sync/mutaciones-maestro/",
+    "method": "POST",
+    "autenticacion": "Token de sucursal; el cloud vuelve a resolver actor, ámbito, CT-02 y CAS.",
+    "solicitud": {
+      "schema_version": "master.mutation.v1",
+      "mutaciones": [
+        {
+          "schema_version": "master.mutation.v1",
+          "mutacion_id": "550e8400-e29b-41d4-a716-446655440000",
+          "entidad": "PRODUCTO",
+          "entidad_local_id": 501,
+          "operacion": "CREAR",
+          "revision_base": "",
+          "actor_username": "ana",
+          "cloud_entidad_id": null,
+          "categoria_cloud_id": 12,
+          "delta": {
+            "id": {"before": null, "after": 501},
+            "sku": {"before": null, "after": "CT04-SKU-001"},
+            "nombre": {"before": null, "after": "Taladro demo"},
+            "descripcion": {"before": null, "after": ""},
+            "categoria_id": {"before": null, "after": 7},
+            "precio_venta": {"before": null, "after": "125.50"},
+            "stock_minimo": {"before": null, "after": 2},
+            "activo": {"before": null, "after": true},
+            "atributos": {"before": null, "after": {}},
+            "estado": {"before": null, "after": "nuevo"},
+            "marca": {"before": null, "after": ""}
+          }
+        }
+      ]
+    },
+    "respuesta": {
+      "schema_version": "master.mutation.v1",
+      "confirmadas": 1,
+      "duplicadas": 0,
+      "conflictos": 0,
+      "rechazadas": 0,
+      "errores": 0,
+      "detalle": [
+        {
+          "mutacion_id": "550e8400-e29b-41d4-a716-446655440000",
+          "estado": "CONFIRMADA",
+          "cloud_entidad_id": 91,
+          "cloud_revision": "2026-09-17T10:30:00+00:00"
+        }
+      ],
+      "timestamp": "2026-09-17T10:30:00+00:00"
+    },
+    "resultados_terminales": ["CONFIRMADA", "DUPLICADA", "CONFLICTO", "RECHAZADA"],
+    "resultado_reintentable": "ERROR"
+  },
+  "semantica_operativa_local": [
+    {
+      "estado": "PENDIENTE",
+      "bloquea_nuevas_ventas": false,
+      "nota": "La propuesta sigue vendible mientras espera el envío."
+    },
+    {
+      "estado": "ENVIANDO",
+      "bloquea_nuevas_ventas": false,
+      "nota": "El lease de transporte no altera la vendibilidad."
+    },
+    {
+      "estado": "CONFIRMADA",
+      "bloquea_nuevas_ventas": false,
+      "nota": "La identidad y revisión cloud fueron selladas localmente."
+    },
+    {
+      "estado": "CONFLICTO",
+      "bloquea_nuevas_ventas": true,
+      "nota": "Bloquea el producto afectado y los productos de una categoría en conflicto; no borra historia ni altera ventas ya hechas."
+    },
+    {
+      "estado": "RECHAZADA",
+      "bloquea_nuevas_ventas": false,
+      "nota": "La revocación o validación cloud queda durable y visible; A05 no la convierte en confirmación ni la reintenta automáticamente."
+    }
+  ],
+  "permisos_por_entidad": {
+    "PRODUCTO": {"ver": "productos.ver", "resolver": "productos.editar"},
+    "CATEGORIA": {"ver": "categorias.ver", "resolver": "categorias.editar"}
+  },
+  "listado_conflictos_reservado_a06": {
+    "estado_implementacion": "RESERVADA_A06",
+    "endpoint": "/api/v1/maestros/conflictos/",
+    "method": "GET",
+    "autenticacion": "JWT de portal tenant-aware; el servidor filtra por sucursal origen y permiso 'ver' de la entidad.",
+    "query": {
+      "estado": ["CONFLICTO", "RECHAZADA"],
+      "entidad": ["PRODUCTO", "CATEGORIA"],
+      "sucursal_codigo": "opcional",
+      "cursor": "opcional, opaco",
+      "page_size_max": 100
+    },
+    "respuesta": {
+      "schema_version": "master.conflict-list.v1",
+      "next_cursor": null,
+      "items": [
+        {
+          "schema_version": "master.conflict.v1",
+          "mutacion_id": "550e8400-e29b-41d4-a716-446655440001",
+          "estado": "CONFLICTO",
+          "codigo": "MASTER_REVISION_CONFLICT",
+          "detalle": "El maestro cambió en cloud antes de aplicar la propuesta.",
+          "entidad": {
+            "tipo": "PRODUCTO",
+            "local_id": 501,
+            "cloud_id": 91,
+            "display_snapshot": "CT04-SKU-001 — Taladro demo"
+          },
+          "sucursal": {"codigo": "01"},
+          "actor": {"username_snapshot": "ana"},
+          "operacion": "ACTUALIZAR",
+          "revision": {
+            "base": "2026-09-17T09:00:00+00:00",
+            "cloud_actual": "2026-09-17T10:30:00+00:00"
+          },
+          "delta": {"precio_venta": {"before": "120.00", "after": "125.50"}},
+          "creado_at": "2026-09-17T09:05:00+00:00",
+          "conflicto_at": "2026-09-17T10:31:00+00:00",
+          "bloquea_nuevas_ventas": true,
+          "acciones": ["CONSERVAR_CLOUD", "APLICAR_LOCAL"]
+        },
+        {
+          "schema_version": "master.conflict.v1",
+          "mutacion_id": "550e8400-e29b-41d4-a716-446655440002",
+          "estado": "RECHAZADA",
+          "codigo": "MASTER_PERMISSION_REVOKED",
+          "detalle": "El actor ya no conserva el permiso vigente para esta propuesta.",
+          "entidad": {
+            "tipo": "CATEGORIA",
+            "local_id": 7,
+            "cloud_id": 12,
+            "display_snapshot": "Herramientas"
+          },
+          "sucursal": {"codigo": "01"},
+          "actor": {"username_snapshot": "ana"},
+          "operacion": "ACTUALIZAR",
+          "revision": {
+            "base": "2026-09-17T09:00:00+00:00",
+            "cloud_actual": "2026-09-17T10:30:00+00:00"
+          },
+          "delta": {"nombre": {"before": "Herramientas", "after": "Herramientas eléctricas"}},
+          "creado_at": "2026-09-17T09:10:00+00:00",
+          "conflicto_at": null,
+          "bloquea_nuevas_ventas": false,
+          "acciones": ["CONSERVAR_CLOUD", "APLICAR_LOCAL"]
+        }
+      ]
+    },
+    "acciones": [
+      {
+        "codigo": "CONSERVAR_CLOUD",
+        "estado_implementacion": "RESERVADA_A06",
+        "descripcion": "Conserva el valor cloud actual y registra la decisión; nunca lo aplica silenciosamente.",
+        "motivo_obligatorio": true,
+        "motivo": {"min_length": 1, "max_length": 500}
+      },
+      {
+        "codigo": "APLICAR_LOCAL",
+        "estado_implementacion": "RESERVADA_A06",
+        "descripcion": "Reintenta la propuesta local contra la revisión cloud observada; si cambió otra vez, vuelve a conflicto.",
+        "motivo_obligatorio": true,
+        "motivo": {"min_length": 1, "max_length": 500}
+      }
+    ],
+    "resolucion_reservada": {
+      "schema_version": "master.conflict-resolution.v1",
+      "endpoint": "/api/v1/maestros/conflictos/{mutacion_id}/resolver/",
+      "method": "POST",
+      "request": {
+        "schema_version": "master.conflict-resolution.v1",
+        "accion": "CONSERVAR_CLOUD | APLICAR_LOCAL",
+        "motivo": "texto no vacío de hasta 500 caracteres",
+        "cloud_revision_observada": "precondición CAS obligatoria"
+      }
+    }
+  },
+  "limites_a05_4": [
+    "A05.4 no implementa GET ni POST de resolución reservados para A06.",
+    "C04 puede maquetar contra este fixture, pero no declarar integración backend ni reemplazar el fixture por un mock ad hoc.",
+    "C05 debe usar bloquea_nuevas_ventas y no inferir vendibilidad solo desde activo o desde textos de detalle."
+  ]
+}

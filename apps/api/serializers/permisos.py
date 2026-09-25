@@ -38,10 +38,12 @@ class RolSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rol
         fields = [
-            'id', 'negocio', 'nombre', 'slug', 'descripcion',
-            'es_sistema', 'activo', 'permisos',
+            'id', 'cloud_id', 'revision', 'negocio', 'nombre', 'slug',
+            'descripcion', 'es_sistema', 'activo', 'deleted_at', 'permisos',
         ]
-        read_only_fields = ['negocio', 'slug', 'es_sistema']
+        read_only_fields = [
+            'cloud_id', 'revision', 'negocio', 'slug', 'es_sistema', 'deleted_at',
+        ]
 
 
 class AsignacionRolSerializer(serializers.ModelSerializer):
@@ -54,10 +56,11 @@ class AsignacionRolSerializer(serializers.ModelSerializer):
     class Meta:
         model = AsignacionRol
         fields = [
-            'id', 'usuario', 'usuario_username', 'rol', 'rol_nombre',
-            'sucursal', 'sucursal_nombre', 'activo', 'fecha_modificacion',
+            'id', 'cloud_id', 'revision', 'usuario', 'usuario_username', 'rol',
+            'rol_nombre', 'sucursal', 'sucursal_nombre', 'activo', 'deleted_at',
+            'fecha_modificacion',
         ]
-        read_only_fields = ['fecha_modificacion']
+        read_only_fields = ['cloud_id', 'revision', 'deleted_at', 'fecha_modificacion']
         # Sin UniqueTogetherValidator automático: el viewset hace
         # reactivate-or-create sobre (usuario, rol, sucursal), conviviendo con el
         # soft-delete (filas inactivas que el validador rechazaría al re-asignar).

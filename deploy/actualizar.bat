@@ -65,9 +65,10 @@ if not exist "%DST_DIR%\manage.py" (
     pause
     exit /b 1
 )
-if not exist "%DST_DIR%\deploy\env_cliente.bat" (
-    echo [ERROR] Falta "%DST_DIR%\deploy\env_cliente.bat" - config del cliente.
-    echo         Si es una instalacion nueva use deploy\instalar.bat, no este script.
+if not exist "%DST_DIR%\deploy\env_cliente.bat" if not exist "%DST_DIR%\deploy\env_cliente.env" (
+    echo [ERROR] Falta la configuracion del cliente: no existe
+    echo         "%DST_DIR%\deploy\env_cliente.bat" ni "%DST_DIR%\deploy\env_cliente.env".
+    echo         Si es una instalacion nueva siga docs\runbooks\INSTALACION_CLIENTE_NUEVO.md.
     pause
     exit /b 1
 )
@@ -81,6 +82,11 @@ REM --- Cargar configuracion del cliente (DB, secret, sucursal, sync) ---
 set PGCLIENTENCODING=UTF8
 set PYTHONUTF8=1
 
+set "PYEXE=%DST_DIR%\venv\Scripts\python.exe"
+set "PREFLIGHT=%SRC_DIR%\deploy\preflight_actualizar.py"
+set "ENV_FILE=%DST_DIR%\deploy\env_cliente.env"
+set "USANDO_ENV=0"
+
 REM Cargar los valores para el resto de este script, del formato que ya
 REM exista (el .env si una corrida anterior ya convirtio, si no el .bat de
 REM siempre). La CONVERSION real de .bat a .env pasa mas abajo, DESPUES de la
@@ -91,10 +97,24 @@ REM Intentarlo aqui siempre fallaba con "Unknown command: 'migrar_env_cliente'"
 REM en la primera actualizacion de cualquier cliente en formato .bat --
 REM exactamente el caso de Royal Plast (reproducido 2026-08-24): la
 REM conversion prometida por el runbook nunca ocurria en la primera pasada.
-if exist "%DST_DIR%\deploy\env_cliente.env" (
-    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%DST_DIR%\deploy\env_cliente.env") do (
-        if not "%%A"=="" set "%%A=%%B"
-    )
+REM
+REM Para el formato .env NO se usa un `for /f ... delims==` propio: ese
+REM patron vuelve a hacer pasar el valor ya leido por el parser de `cmd`
+REM buscando pares `%NOMBRE%` para expandir -- el mismo defecto de bug #9
+REM (SECRET_KEY truncada por un `&`), aplicado esta vez a DB_PASSWORD ->
+REM PGPASSWORD del backup de la FASE 2, la red de seguridad de toda la
+REM actualizacion. `deploy\preflight_actualizar.py` lee con python-dotenv
+REM (ya presente en el venv VIEJO: la app no arranca sin el si ya usa .env) y
+REM entrega cada valor via `set /p`, que es una lectura literal de archivo,
+REM sin volver a interpretar `%`, `&`, `!` ni comillas. La contrasena de la
+REM BD nunca pasa por una variable de BAT: la usa el propio script de Python
+REM al invocar `pg_dump` (ver FASE 2, mas abajo).
+if exist "%ENV_FILE%" (
+    set "USANDO_ENV=1"
+    call :leer_campo DB_NAME DB_NAME
+    call :leer_campo DB_USER DB_USER
+    call :leer_campo SUCURSAL_CODIGO SUCURSAL_CODIGO
+    call :leer_campo NEGOCIO_NOMBRE NEGOCIO_NOMBRE
 ) else (
     call "%DST_DIR%\deploy\env_cliente.bat"
 )
@@ -149,8 +169,14 @@ REM depende del locale.
 for /f "usebackq tokens=*" %%T in (`powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"`) do set "STAMP=%%T"
 if not defined STAMP set "STAMP=%RANDOM%"
 set "BACKUP_FILE=%DST_DIR%\backups\%DB_NAME%_PRE_UPDATE_%STAMP%.dump"
-set "PGPASSWORD=%DB_PASSWORD%"
-pg_dump -U %DB_USER% -h %DB_HOST% -p %DB_PORT% -F c -b -f "%BACKUP_FILE%" %DB_NAME%
+if "%USANDO_ENV%"=="1" (
+    REM DB_PASSWORD nunca toca una variable de BAT: preflight_actualizar.py
+    REM la lee del .env y se la pasa a pg_dump por el entorno del subproceso.
+    "%PYEXE%" "%PREFLIGHT%" backup "%ENV_FILE%" "%BACKUP_FILE%"
+) else (
+    set "PGPASSWORD=%DB_PASSWORD%"
+    pg_dump -U %DB_USER% -h %DB_HOST% -p %DB_PORT% -F c -b -f "%BACKUP_FILE%" %DB_NAME%
+)
 if %errorlevel% neq 0 (
     echo   [ERROR] Fallo el backup. ABORTANDO antes de tocar nada.
     echo           Verifique credenciales/PostgreSQL e intente de nuevo.
@@ -170,8 +196,8 @@ robocopy "%SRC_DIR%\config"    "%DST_DIR%\config"    /e /xd __pycache__ /xf *.py
 robocopy "%SRC_DIR%\templates" "%DST_DIR%\templates" /e >nul
 robocopy "%SRC_DIR%\static"    "%DST_DIR%\static"    /e >nul
 if exist "%SRC_DIR%\utils" robocopy "%SRC_DIR%\utils" "%DST_DIR%\utils" /e /xd __pycache__ /xf *.pyc >nul
-REM deploy: copiar scripts nuevos PERO sin pisar el env_cliente.bat del cliente
-robocopy "%SRC_DIR%\deploy"    "%DST_DIR%\deploy"    /e /xf env_cliente.bat >nul
+REM deploy: copiar scripts nuevos sin pisar ninguna configuracion del cliente.
+robocopy "%SRC_DIR%\deploy"    "%DST_DIR%\deploy"    /e /xf env_cliente.bat env_cliente.env >nul
 for %%f in (manage.py server.py requirements.txt) do (
     if exist "%SRC_DIR%\%%f" copy /y "%SRC_DIR%\%%f" "%DST_DIR%\" >nul
 )
@@ -186,8 +212,18 @@ REM ============================================================================
 REM FASE 4: Dependencias
 REM ============================================================================
 echo [FASE 4/8] Actualizando dependencias de Python...
-python -m pip install --upgrade pip >nul 2>&1
-pip install -r "%DST_DIR%\requirements.txt"
+REM El paquete offline (C06.1/CT-05) trae wheelhouse\windows-py311 junto al
+REM .bat; si esta presente, instalar sin red y con verificacion de hashes en
+REM vez de salir a PyPI desde la PC del cliente. Sin esto, un paquete armado
+REM como "offline" igual dependia de internet en el momento de actualizar.
+if exist "%SRC_DIR%\wheelhouse\windows-py311" (
+    echo   Instalando sin red desde wheelhouse\windows-py311 -- paquete offline...
+    python -m pip install --no-index --find-links "%SRC_DIR%\wheelhouse\windows-py311" --require-hashes -r "%DST_DIR%\requirements.txt"
+) else (
+    echo   [AVISO] Este paquete no trae wheelhouse\windows-py311; instalando con red.
+    python -m pip install --upgrade pip >nul 2>&1
+    python -m pip install -r "%DST_DIR%\requirements.txt"
+)
 if %errorlevel% neq 0 (
     echo   [ERROR] Fallo pip install. Revise los errores arriba.
     echo           El codigo ya fue copiado pero la BD NO se ha migrado aun.
@@ -259,6 +295,26 @@ REM ============================================================================
 echo [FASE 7/8] Inicializando RBAC / modulos / sucursal (idempotente)...
 if "%NEGOCIO_NOMBRE%"=="" set "NEGOCIO_NOMBRE=Royal Plast"
 
+REM crear_sucursal/bootstrap_negocio reciben NEGOCIO_NOMBRE como argumento de
+REM linea de comandos (--nombre), y cmd no soporta comillas anidadas: un
+REM nombre real con `"`, `!` o un `%NOMBRE%` pareado puede llegarles alterado
+REM aunque la variable de BAT lo tenga intacto (confirmado en pruebas C01;
+REM ver el comentario de _RIESGOSO_COMO_ARGUMENTO en preflight_actualizar.py).
+REM Arreglo de fondo pendiente con Codex: que esos comandos puedan leer
+REM NEGOCIO_NOMBRE del propio .env en vez de por argv. Mientras tanto, avisar
+REM en vez de fallar en silencio.
+if "%USANDO_ENV%"=="1" (
+    "%PYEXE%" "%PREFLIGHT%" riesgoso-como-argumento NEGOCIO_NOMBRE "%ENV_FILE%" >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo   [AVISO] NEGOCIO_NOMBRE trae comillas, el signo de admiracion o una
+        echo           expansion de variable de Windows -- puede llegar alterado a
+        echo           crear_sucursal/bootstrap_negocio, que lo reciben por
+        echo           argumento de linea de comandos. Verifique el nombre de la
+        echo           sucursal/negocio despues de este paso contra
+        echo           deploy\env_cliente.env y corrijalo a mano si no coincide.
+    )
+)
+
 echo   - crear_sucursal (%SUCURSAL_CODIGO%)
 python manage.py crear_sucursal --codigo "%SUCURSAL_CODIGO%" --nombre "%NEGOCIO_NOMBRE%" --settings=config.settings_production
 echo   - bootstrap_negocio
@@ -315,11 +371,21 @@ if exist "%NSSM_PATH%" (
 )
 
 REM --- Sync: solo si ya esta configurado (token + SYNC_ENABLED=true) ---
-if /i "%SYNC_ENABLED%"=="true" (
-    if not "%CLOUD_API_TOKEN%"=="PEGAR-TOKEN-DE-vincular_sucursal_token" (
-        echo   - Sync configurado: registrando/levantando POSFifoSync...
-        call "%DST_DIR%\deploy\registrar_sync_servicio.bat"
-    )
+REM CLOUD_API_TOKEN nunca se vuelca a una variable de BAT en el formato .env:
+REM preflight_actualizar.py decide con el archivo y solo devuelve si/no por
+REM el codigo de salida (ver el comentario de la carga de configuracion, mas
+REM arriba). El formato .bat legado sigue leyendo sus propias variables de
+REM `cmd`, como siempre.
+set "SYNC_LISTO=0"
+if "%USANDO_ENV%"=="1" (
+    "%PYEXE%" "%PREFLIGHT%" sync-configurado "%ENV_FILE%" >nul 2>&1
+    if !errorlevel! equ 0 set "SYNC_LISTO=1"
+) else (
+    if /i "%SYNC_ENABLED%"=="true" if not "%CLOUD_API_TOKEN%"=="PEGAR-TOKEN-DE-vincular_sucursal_token" set "SYNC_LISTO=1"
+)
+if "%SYNC_LISTO%"=="1" (
+    echo   - Sync configurado: registrando/levantando POSFifoSync...
+    call "%DST_DIR%\deploy\registrar_sync_servicio.bat"
 )
 echo.
 
@@ -331,13 +397,31 @@ echo  Backup pre-update: %BACKUP_FILE%
 echo.
 echo  Verifique el POS en: http://localhost:%SERVER_PORT%
 echo.
-if /i not "%SYNC_ENABLED%"=="true" (
+if not "%SYNC_LISTO%"=="1" (
     echo  SYNC AUN NO ACTIVADO. Para encenderlo:
     echo    1. En el cloud: python manage.py vincular_sucursal_token --sucursal %SUCURSAL_CODIGO%
-    echo    2. Edite deploy\env_cliente.bat: SYNC_ENABLED=true, CLOUD_API_URL, CLOUD_API_TOKEN
+    echo    2. Edite deploy\env_cliente.env -- o el .bat legado --: SYNC_ENABLED=true, CLOUD_API_URL, CLOUD_API_TOKEN
     echo    3. Ejecute como admin: deploy\registrar_sync_servicio.bat
     echo    Ver: deploy\ACTUALIZACION_ROYAL_PLAST.md
 )
 echo.
 pause
 endlocal
+exit /b 0
+
+REM ============================================================================
+REM Subrutinas
+REM ============================================================================
+
+:leer_campo
+REM %1 = nombre de la variable en env_cliente.env ; %2 = variable de BAT destino.
+REM Lee con preflight_actualizar.py (python-dotenv) y vuelca el valor con
+REM `set /p`, que es una lectura literal de archivo: no reinterpreta `%`, `&`,
+REM `!` ni comillas. Ver el comentario junto a "Cargar configuracion del
+REM cliente" mas arriba para el porque de este mecanismo.
+set "_TMP_CAMPO=%TEMP%\pos_actualizar_campo_%RANDOM%.tmp"
+set "%2="
+"%PYEXE%" "%PREFLIGHT%" campo %1 "%ENV_FILE%" > "%_TMP_CAMPO%" 2>nul
+set /p "%2=" < "%_TMP_CAMPO%"
+del "%_TMP_CAMPO%" >nul 2>&1
+exit /b 0

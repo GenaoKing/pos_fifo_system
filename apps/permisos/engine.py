@@ -6,6 +6,7 @@ API publica:
     tiene_permiso(usuario, codigo, sucursal=None) -> bool
     permisos_de_usuario(usuario, sucursal=None)   -> set[str]
     sucursales_con_permiso(usuario, codigo)       -> None | set[int]
+    asignaciones_efectivas(...)                   -> QuerySet[AsignacionRol]
     invalidar_cache()                             -> fuerza recalculo
     TODAS                                          -> centinela de scope
 
@@ -190,7 +191,14 @@ def es_acceso_total(usuario):
         return False
     if getattr(usuario, 'is_superuser', False):
         return True
-    return getattr(usuario, 'rol', None) in ('ADMIN', 'SYSADMIN')
+    rol = getattr(usuario, 'rol', None)
+    if rol == 'SYSADMIN':
+        return True
+    if rol == 'ADMIN':
+        from django.conf import settings
+
+        return bool(getattr(settings, 'RBAC_LEGACY_ADMIN_BYPASS', True))
+    return False
 
 
 def es_operador_global(usuario):
@@ -275,9 +283,7 @@ def _resolver_permisos(usuario, sucursal):
     asignacion cruzada y el motor la convertia en privilegio efectivo
     (PER-004). Tampoco se miraba si el negocio o la sucursal seguian activos.
     """
-    from django.db.models import Q
-
-    from .models import AsignacionRol, Permiso
+    from .models import Permiso
 
     negocio_id = getattr(usuario, 'negocio_id', None)
     if not negocio_id:
@@ -286,24 +292,11 @@ def _resolver_permisos(usuario, sucursal):
         # de la escalada de PER-005.
         return set()
 
-    asignaciones = AsignacionRol.objects.filter(
+    asignaciones = asignaciones_efectivas(
+        negocio_id=negocio_id,
+        sucursal=sucursal,
         usuario=usuario,
-        activo=True,
-        rol__activo=True,
-        rol__negocio_id=negocio_id,
-        rol__negocio__activo=True,
     )
-
-    if sucursal is TODAS:
-        pass  # union deliberada del negocio completo
-    elif sucursal is None:
-        asignaciones = asignaciones.filter(sucursal__isnull=True)
-    else:
-        sucursal_id = getattr(sucursal, 'pk', sucursal)
-        asignaciones = asignaciones.filter(
-            Q(sucursal__isnull=True)
-            | Q(sucursal_id=sucursal_id, sucursal__activa=True)
-        )
 
     rol_ids = list(asignaciones.values_list('rol_id', flat=True).distinct())
     if not rol_ids:
@@ -313,6 +306,42 @@ def _resolver_permisos(usuario, sucursal):
         Permiso.objects.filter(roles__id__in=rol_ids)
         .values_list('codigo', flat=True)
         .distinct()
+    )
+
+
+def asignaciones_efectivas(*, negocio_id, sucursal=None, usuario=None):
+    """Query canonico de asignaciones RBAC activas dentro de un tenant/scope.
+
+    Es compartido por el motor de permisos y los consumidores de roles (como
+    notificaciones), para que una baja, un negocio inactivo o una sucursal
+    inactiva no produzcan decisiones distintas en cada modulo.
+    """
+    from django.db.models import Q
+
+    from .models import AsignacionRol
+
+    asignaciones = AsignacionRol.objects.filter(
+        activo=True,
+        deleted_at__isnull=True,
+        rol__activo=True,
+        rol__deleted_at__isnull=True,
+        rol__negocio_id=negocio_id,
+        rol__negocio__activo=True,
+        usuario__activo=True,
+        usuario__negocio_id=negocio_id,
+    )
+    if usuario is not None:
+        asignaciones = asignaciones.filter(usuario=usuario)
+
+    if sucursal is TODAS:
+        return asignaciones
+    if sucursal is None:
+        return asignaciones.filter(sucursal__isnull=True)
+
+    sucursal_id = getattr(sucursal, 'pk', sucursal)
+    return asignaciones.filter(
+        Q(sucursal__isnull=True)
+        | Q(sucursal_id=sucursal_id, sucursal__activa=True)
     )
 
 
@@ -375,14 +404,11 @@ def sucursales_con_permiso(usuario, codigo):
     if not negocio_id:
         return set()
 
-    from .models import AsignacionRol
-
-    asignaciones = AsignacionRol.objects.filter(
+    asignaciones = asignaciones_efectivas(
+        negocio_id=negocio_id,
+        sucursal=TODAS,
         usuario=usuario,
-        activo=True,
-        rol__activo=True,
-        rol__negocio_id=negocio_id,
-        rol__negocio__activo=True,
+    ).filter(
         rol__permisos__codigo=codigo,
     ).values_list('sucursal_id', flat=True).distinct()
 

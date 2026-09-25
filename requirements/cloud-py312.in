@@ -1,0 +1,25 @@
+# Dependencias directas de Azure Container Apps (Linux/Python 3.12).
+# Docker consume el lock generado ../../requirements_cloud.txt.
+
+Django==5.2.17
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.9.0
+django-extensions==4.1
+django-storages[azure]==1.14.6
+azure-identity==1.25.3
+python-dotenv==1.2.3
+
+psycopg[binary]==3.3.4
+gunicorn==22.0.0
+whitenoise==6.12.0
+
+Pillow==12.1.0
+reportlab==4.4.9
+python-barcode==0.16.1
+openpyxl==3.1.5
+PyYAML==6.0.3
+requests==2.33.1
+pywebpush==2.5.0
+qrcode==8.2
+pytz==2025.2

@@ -1,5 +1,8 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -7,15 +10,55 @@ class UsuarioManager(BaseUserManager):
     """Manager personalizado para el modelo Usuario"""
     
     def create_user(self, username, email, password=None, **extra_fields):
-        """Crea y guarda un usuario regular"""
+        """Compatibilidad ORM; valida identidad/modelo, no politica humana."""
         if not username:
             raise ValueError('El usuario debe tener un nombre de usuario')
         if not email:
             raise ValueError('El usuario debe tener un email')
         
-        email = self.normalize_email(email)
+        # Fixtures/scripts legacy a veces pedian el privilegio Django sin
+        # alinear el rol. Se canoniza a la unica combinacion valida en vez de
+        # persistir un superusuario que el resto del modelo interpreta distinto.
+        if extra_fields.get('is_superuser'):
+            extra_fields['rol'] = 'SYSADMIN'
+        username = str(username).strip().casefold()
+        email = self.normalize_email(email).strip().casefold()
         user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
+        user.full_clean()
+        user.save(using=self._db)
+        return user
+
+    def get_by_natural_key(self, username):
+        """El login aplica la misma identidad case-insensitive que la BD."""
+        return self.get(**{f'{self.model.USERNAME_FIELD}__iexact': username.strip()})
+
+    def create_human_user(self, username, email, password, **extra_fields):
+        """Alta humana soportada: exige tenant y validadores de password."""
+        if not password:
+            raise ValueError('Un usuario humano requiere password.')
+        rol = extra_fields.get('rol', 'CAJERA')
+        if rol != 'SYSADMIN' and extra_fields.get('negocio') is None:
+            raise ValueError('Un usuario humano no global requiere negocio.')
+
+        username = str(username or '').strip().casefold()
+        email = self.normalize_email(email or '').strip().casefold()
+        user = self.model(username=username, email=email, **extra_fields)
+        validate_password(password, user=user)
+        user.set_password(password)
+        user.full_clean()
+        user.save(using=self._db)
+        return user
+
+    def create_service_user(self, username, email, **extra_fields):
+        """Cuenta tecnica explicita: no tiene password humano reutilizable."""
+        user = self.model(
+            username=str(username or '').strip().casefold(),
+            email=self.normalize_email(email or '').strip().casefold(),
+            **extra_fields,
+        )
+        user.set_unusable_password()
+        user.full_clean()
         user.save(using=self._db)
         return user
     
@@ -23,8 +66,9 @@ class UsuarioManager(BaseUserManager):
         """Crea y guarda un superusuario"""
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('rol', 'ADMIN')
+        extra_fields.setdefault('rol', 'SYSADMIN')
         extra_fields.setdefault('activo', True)
+        extra_fields.setdefault('negocio', None)
         
         if extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser debe tener is_staff=True.')
@@ -117,6 +161,33 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         verbose_name_plural = 'Usuarios'
         ordering = ['-fecha_creacion']
         db_table = 'usuarios'
+        constraints = [
+            models.UniqueConstraint(
+                Lower('username'), name='uniq_usuario_username_lower',
+            ),
+            models.UniqueConstraint(
+                Lower('email'), name='uniq_usuario_email_lower',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rol__in=('SYSADMIN', 'ADMIN', 'CAJERA')),
+                name='usuario_rol_valido',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.username = (self.username or '').strip().casefold()
+        self.email = self.__class__.objects.normalize_email(
+            self.email or '',
+        ).strip().casefold()
+        if self.is_superuser and self.rol != 'SYSADMIN':
+            raise ValidationError({
+                'rol': 'Un superusuario Django debe ser SYSADMIN explicito.',
+            })
+        if self.rol == 'CAJERA' and self.is_superuser:
+            raise ValidationError({
+                'is_superuser': 'CAJERA no puede ser superusuario Django.',
+            })
     
     def __str__(self):
         return f"{self.username} ({self.get_rol_display()})"

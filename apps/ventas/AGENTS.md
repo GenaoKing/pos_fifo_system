@@ -1,0 +1,67 @@
+# apps/ventas — mapa para agentes
+
+<!-- Última revisión: 2026-09-16 -->
+
+> Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
+> en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
+> (y corregí este archivo en el mismo PR).
+
+## Qué hace
+
+El POS local: pantalla de punto de venta, procesamiento de la venta (consumo de
+stock **FIFO**), pagos, anulaciones, financiación cooperativa y PDFs.
+
+## Entrypoints (`app_name = 'pos'`, montado en `/pos/`)
+
+| Necesito… | Voy a… |
+| --- | --- |
+| Pantalla del POS | `apps/ventas/views.py` → `punto_venta` |
+| **Procesar una venta** (la lógica real) | `apps/ventas/services/ventas_service.py` → `procesar_venta_service` |
+| Anular una venta | `apps/ventas/services/anulaciones_service.py` → `anular_venta_service` (RBAC: `ventas.anular` en la sucursal de la PROPIA venta, PER-013) |
+| Reimprimir ticket térmico / listar reimpresión | `utils/impresoras/views.py` → `ReimprimirTicketView` / `ListaVentasReimprimirView` (permiso `ventas.reimprimir`, alcance `_ventas_en_alcance`) |
+| Consumir/devolver stock FIFO | delega en `apps/inventario/fifo_logic.py` → `procesar_venta_fifo` |
+| Errores de dominio | `apps/ventas/services/exceptions.py` |
+| Rutas / APIs del POS | `apps/ventas/urls.py` |
+| Comprobante de venta formal (PDF Carta, `pos:comprobante_pdf`) | `apps/ventas/views.py` → `comprobante_venta_pdf` (permiso `ventas.reimprimir`, alcance `_ventas_en_alcance`) → `pdf_comprobante.py` |
+| PDFs | `apps/ventas/pdf_comprobante.py`, `pdf_financiacion.py` (kit en `apps/common/pdf/standard.py`) |
+| Reimprimir ticket térmico | `utils/impresoras/` (`/impresion/reimprimir/<id>/`), no aquí |
+
+`views.procesar_venta` es una capa fina: valida request y llama al service. **La
+lógica de negocio vive en `services/`, no en las vistas.**
+
+## Modelos (`apps/ventas/models.py`)
+
+`Venta` → `DetalleVenta` (guarda `costo_fifo` consumido) · `Pago` ·
+`FinanciacionCooperativa`.
+
+## Flujo de `procesar_venta_service` (orden que importa)
+
+1. **Autorización de descuento se evalúa ANTES de la transacción** — no tocar
+   inventario/FIFO si la venta no procede.
+2. Dentro de la transacción: `_crear_venta` → `_crear_detalles_y_consumir_fifo`
+   (FIFO **bloquea los lotes candidatos**) → `_registrar_pagos` → `_verificar_pagos`.
+3. Hooks post-commit: impresión de ticket, encolado ECF (`_hook_encolar_ecf`).
+
+## Sync (cómo sale al cloud)
+
+Emite eventos vía `apps/sync/events.py`: `evento_venta_creada`,
+`evento_venta_anulada`. Registro en `apps/sync/registry.py` (`clave='ventas'`).
+No hagas push directo desde aquí — solo emití el evento al outbox.
+
+## Trampas
+
+- Todo lo que muta stock/pagos va dentro de la transacción del service; nada de
+  escribir inventario desde la vista.
+- **DB-CONSTRAINTS:** `Venta.total >= 0.01`, `DetalleVenta` con cantidad `>= 1`,
+  precio `>= 0.01`, descuento `>= 0` y `<= subtotal`, y `Pago.monto >= 0.01`.
+  Preflight de datos: `manage.py verificar_integridad_financiera`.
+- **Idempotencia:** el POS genera `datos['clave_idempotencia']` y la conserva
+  durante reintentos de red. El servicio valida/normaliza la clave, autoriza
+  antes de buscar un replay y lo limita al alcance de sucursal; la única parcial
+  `uniq_venta_clave_idempotencia` respalda un solo efecto financiero.
+- `condicion_pago` a crédito y `turno_caja` cambian validaciones de pago.
+- La carga final del carrito usa `productos_vendibles()`: una propuesta
+  `MutacionMaestro` en `PENDIENTE` no frena la venta, pero `CONFLICTO` bloquea
+  solo ventas nuevas y nunca reescribe ventas, FIFO o eventos ya persistidos.
+- Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md`) —
+  **snapshot histórico**, verificar contra código.

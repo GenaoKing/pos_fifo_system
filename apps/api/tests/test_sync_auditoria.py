@@ -22,7 +22,7 @@ from rest_framework.test import APIClient
 from apps.api.views.sync import _handler_inventario_snapshot, _handler_venta_creada
 from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
-from apps.sync.models import EventoSync, InventarioSucursalSnapshot
+from apps.sync.models import EventoSync, InventarioSucursalSnapshot, MutacionMaestro
 from apps.ventas.models import Venta
 
 User = get_user_model()
@@ -175,6 +175,33 @@ class VentaConStubsTests(_BaseCloud, TestCase):
         self.assertTrue(stub.activo)
         self.assertTrue(stub.pendiente_revision)
         self.assertEqual(stub.origen_sucursal_id, self.sucursal.id)
+
+    def test_venta_financiera_no_se_detiene_por_conflicto_de_maestro(self):
+        """A06: el conflicto protege catálogo, no bloquea el hecho de venta."""
+        producto = self._producto('CLOUD-EN-CONFLICTO')
+        MutacionMaestro.objects.create(
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=producto.pk,
+            operacion=MutacionMaestro.Operacion.ACTUALIZAR,
+            revision_base='2026-09-17T12:00:00+00:00',
+            delta={'nombre': {'before': producto.nombre, 'after': 'Nombre local'}},
+            estado=MutacionMaestro.Estado.CONFLICTO,
+            sucursal=self.sucursal,
+            sucursal_codigo=self.sucursal.codigo,
+            cloud_entidad_id=producto.pk,
+            cloud_revision='2026-09-17T12:05:00+00:00',
+        )
+
+        _handler_venta_creada(
+            self.sucursal,
+            _payload_venta('V-CLOUD-CONFLICTO-0001', ['CLOUD-EN-CONFLICTO']),
+        )
+
+        venta = Venta.objects.get(numero_venta='V-CLOUD-CONFLICTO-0001')
+        self.assertEqual(venta.detalles.count(), 1)
+        self.assertEqual(venta.detalles.get().producto_id, producto.pk)
+        producto.refresh_from_db()
+        self.assertEqual(producto.nombre, 'Producto CLOUD-EN-CONFLICTO')
 
     def test_el_endpoint_confirma_el_evento_con_stub(self):
         self._producto('CLOUD-A')

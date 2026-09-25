@@ -100,6 +100,7 @@ class SyncEnginePullProductosTests(TestCase):
         self.assertEqual(p.stock_minimo, 12)
         self.assertEqual(p.atributos, {'color': 'rojo', 'tamano': '16oz'})
         self.assertEqual(p.categoria.nombre, 'Vasos')
+        self.assertEqual(p.revision_cloud, '2026-05-24T10:00:00-04:00')
         self.assertFalse(p.imagen)
 
         p2 = Producto.objects.get(sku='TEST-002')
@@ -108,6 +109,7 @@ class SyncEnginePullProductosTests(TestCase):
         self.assertEqual(p2.stock_minimo, 3)
         self.assertEqual(p2.marca, 'Marca nueva')
         self.assertEqual(p2.atributos, {'material': 'plastico'})
+        self.assertEqual(p2.revision_cloud, '2026-05-24T10:01:00-04:00')
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +148,7 @@ class SyncEnginePullCategoriasTests(TestCase):
         self.assertEqual(cat.tipo_negocio, 'plasticos')
         self.assertEqual(cat.atributos_configurados, {'material': '', 'capacidad_ml': ''})
         self.assertTrue(cat.activa)
+        self.assertEqual(cat.revision_cloud, '2026-05-29T10:00:00-04:00')
 
     def test_pull_categorias_crea_categoria_nueva(self):
         payload = paginated([

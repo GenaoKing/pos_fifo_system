@@ -30,12 +30,17 @@
             <h1 class="text-3xl font-bold text-gray-900 mb-2">Productos</h1>
             <p class="text-gray-600">Gestiona el catálogo completo de productos</p>
         </div>
-        <button @click="openModal('create')" class="btn-primary">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-            </svg>
-            Nuevo Producto
-        </button>
+        <div class="flex gap-3">
+            <a href="{% url 'productos:conflictos' %}" class="btn-secondary">
+                Conflictos{% if conflictos_pendientes %} ({{ conflictos_pendientes }}){% endif %}
+            </a>
+            <button @click="openModal('create')" class="btn-primary">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                Nuevo Producto
+            </button>
+        </div>
     </div>
     
     <!-- Estadísticas rápidas -->
@@ -528,10 +533,18 @@
                                        :disabled="modalMode === 'view'"
                                        id="activo"
                                        class="form-checkbox">
-                                <label for="activo" class="ml-2 text-sm text-gray-900">
-                                    Producto activo
-                                </label>
-                            </div>
+                            <label for="activo" class="ml-2 text-sm text-gray-900">
+                                Producto activo
+                            </label>
+                        </div>
+                        <div x-show="modalMode !== 'create' && !formData.activo" class="form-group">
+                            <label class="form-label">Motivo de inactivación</label>
+                            <textarea x-model="formData.motivo_inactivacion"
+                                      :disabled="modalMode === 'view'"
+                                      :required="modalMode !== 'view' && !formData.activo"
+                                      rows="2" class="form-textarea"
+                                      placeholder="Explique por qué este producto se retira de la operación"></textarea>
+                        </div>
 
                             <!-- Después del campo de imagen, ANTES de los botones del modal -->
 
@@ -701,10 +714,12 @@ function productosManager() {
         productoImprimirEtiqueta: null,
         cantidadEtiquetas: 1,
         filterCategoria: '',
-        filterActivo: '',
+        filterActivo: 'activo',
         filterMarca: '',
         showModal: false,
         modalMode: 'create',
+        mutacionMaestroId: null,
+        mutacionesEstado: {},
         marcasDisponibles: [],
         filterMarca: '',
         formData: {
@@ -810,6 +825,7 @@ function productosManager() {
         
         openModal(mode, producto = null) {
             this.modalMode = mode;
+            this.mutacionMaestroId = null;
             
             // Limpiar preview de imagen
             this.imagenSeleccionada = null;
@@ -826,6 +842,7 @@ function productosManager() {
                     precio_venta: '',
                     stock_minimo: 5,
                     activo: true,
+                    motivo_inactivacion: '',
                     imagen: null,  // ← AGREGAR
                     estado: 'nuevo',
                     marca: ''
@@ -847,19 +864,23 @@ function productosManager() {
         
         async saveProduct() {
             try {
+                if (!this.mutacionMaestroId) {
+                    this.mutacionMaestroId = crearUuidMutacionMaestro();
+                }
                 const url = this.modalMode === 'create' 
                     ? '{% url "productos:crear" %}'
                     : `{% url "productos:lista" %}${this.formData.id}/editar/`;
                 
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: jsonHeaders(),
+                    headers: headersMutacionMaestro(this.mutacionMaestroId),
                     body: JSON.stringify(this.formData)
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
+                    this.mutacionMaestroId = null;
                     // Si hay imagen seleccionada, subirla
                     if (this.imagenSeleccionada) {
                         const productoId = this.modalMode === 'create' 
@@ -921,6 +942,7 @@ function productosManager() {
 
         closeModal() {
             this.showModal = false;
+            this.mutacionMaestroId = null;
             this.imagenSeleccionada = null;
             this.imagenPreview = null;
             /*this.formData = {
@@ -946,19 +968,34 @@ function productosManager() {
             );
             if (!ok) return;
 
+            let motivo = '';
+            if (producto.activo) {
+                motivo = window.prompt('Indica el motivo de la inactivación (máximo 500 caracteres):', '') || '';
+                if (!motivo.trim()) {
+                    showToast('warning', 'El motivo de inactivación es obligatorio');
+                    return;
+                }
+            }
+
             try {
+                const claveReintento = `producto:${producto.id}:estado`;
+                if (!this.mutacionesEstado[claveReintento]) {
+                    this.mutacionesEstado[claveReintento] = crearUuidMutacionMaestro();
+                }
                 const response = await fetch(`{% url "productos:lista" %}${producto.id}/toggle-estado/`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    }
+                    headers: headersMutacionMaestro(this.mutacionesEstado[claveReintento]),
+                    body: JSON.stringify({
+                        activo: !producto.activo,
+                        motivo_inactivacion: motivo
+                    })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    producto.activo = !producto.activo;
+                    delete this.mutacionesEstado[claveReintento];
+                    producto.activo = data.activo;
                     this.calculateStats();
                 }
             } catch (error) {

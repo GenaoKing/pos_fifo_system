@@ -16,6 +16,7 @@ from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from apps.configuracion.decorators import requiere_modulo, requiere_modulo_json
 from apps.cuentas_por_cobrar.models import PagoCxC
 from apps.inventario.models import Compra, Lote
 from apps.productos.models import Categoria, Producto
@@ -440,10 +441,14 @@ def es_admin(user):
 # ============================================================================
 
 @login_required
+@requiere_modulo('reportes_ondemand')
 def reportes_on_demand(request):
     """
     Pagina principal de reportes on-demand.
-    Solo ADMIN puede acceder.
+
+    Gate de MODULO (SUS-006): `reportes_ondemand` debe estar en el plan del
+    tenant, además del alcance RBAC que se valida abajo. Sin el módulo, la URL
+    responde 404 aunque el usuario tenga permiso — ocultar el menú no bastaba.
     """
     alcance = alcance_de(request.user)
     if not alcance.permitido:
@@ -521,6 +526,7 @@ def serializar_cierre(cierre):
 # ============================================================================
 
 @login_required
+@requiere_modulo_json('reportes_ondemand')
 def api_cierre_manual(request):
     """
     POST: Genera (o recalcula) el resumen diario de una fecha.
@@ -588,6 +594,7 @@ def api_cierre_manual(request):
 # ============================================================================
 
 @login_required
+@requiere_modulo_json('reportes_ondemand')
 def api_ventas_periodo(request):
     """
     POST: Consulta ventas filtradas por periodo y cajero opcional
@@ -683,6 +690,7 @@ def api_ventas_periodo(request):
 # ============================================================================
 
 @login_required
+@requiere_modulo_json('reportes_ondemand')
 def api_top_productos(request):
     """
     POST: Genera ranking de productos mas vendidos
@@ -752,6 +760,7 @@ def api_top_productos(request):
 # ============================================================================
 
 @login_required
+@requiere_modulo_json('reportes_ondemand')
 def api_inventario_valorizado(request):
     """
     POST: Inventario valorizado a una fecha de corte.
@@ -837,6 +846,7 @@ def api_inventario_valorizado(request):
 # ============================================================================
 
 @login_required
+@requiere_modulo_json('reportes_ondemand')
 def api_ventas_cajero(request):
     """
     POST: Comparativa de ventas entre cajeros

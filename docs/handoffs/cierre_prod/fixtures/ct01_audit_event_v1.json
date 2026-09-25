@@ -1,0 +1,34 @@
+{
+  "schema_version": "audit.event.v1",
+  "event_id": "018f5d5e-7b89-7ca2-9f61-bb1b703c7f57",
+  "occurred_at": "2026-09-10T10:15:30-04:00",
+  "recorded_at": "2026-09-10T10:15:30-04:00",
+  "actor": {
+    "ref": "tenant:demo:user:018f5d5e-1111-7000-8000-000000000001",
+    "kind": "USER",
+    "username_snapshot": "ana",
+    "display_snapshot": "Ana Operadora",
+    "impersonator_ref": null
+  },
+  "tenant": {"key": "demo"},
+  "branch": {
+    "ref": "tenant:demo:branch:018f5d5e-2222-7000-8000-000000000001",
+    "code_snapshot": "01"
+  },
+  "channel": "POS_LOCAL",
+  "action": "productos.precio.actualizado",
+  "entity": {
+    "type": "productos.Producto",
+    "ref": "tenant:demo:producto:018f5d5e-3333-7000-8000-000000000001",
+    "display_snapshot": "SKU-001 — Producto demo"
+  },
+  "before": {"precio_venta": "100.00"},
+  "after": {"precio_venta": "110.00"},
+  "result": "SUCCEEDED",
+  "correlation": {
+    "correlation_id": "018f5d5e-4444-7000-8000-000000000001",
+    "idempotency_key": "master-mutation-demo-001"
+  },
+  "metadata": {"reason": "Actualización de lista"},
+  "error": null
+}

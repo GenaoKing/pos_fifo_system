@@ -1,6 +1,12 @@
 # Estado de las auditorías de código — punto único de consulta
 
-Última actualización: **2026-09-08** · Rama: `develop`
+Última actualización: **2026-09-24** · Candidato consolidado con SUS-016,
+corrección `dec46a3` de permisos.0011, impresión y entregas C06.1/2/3.
+Frontend p6/p5.2/p5-admin/p5.3 integrado en `a9d960e`.
+Ver [integración total](handoffs/cierre_prod/INTEGRACION-TOTAL-2026-09-24.md).
+La corrección de 0011 y el ensayo C06.1 completo sobre `d69c73e` están
+acreditados localmente; los dumps históricos RP/SK también migraron, pero
+copias actuales por tienda y G1–G4 siguen pendientes.
 
 Este documento centraliza lo que salió de la ronda de auditorías: **qué hay que
 hacer al desplegar**, **qué decisiones te quedan pendientes a vos** y **qué
@@ -20,27 +26,115 @@ nada: no hubo falsos positivos ni hallazgos obsoletos.
 
 | Módulo | Hallazgos | Estado | Documento |
 |---|---:|---|---|
-| `apps/ventas` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_VENTAS.md](exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md) |
-| `apps/inventario` | 14 | Mitigado | [AUDITORIA_CODIGO_APPS_INVENTARIO.md](exploracion/AUDITORIA_CODIGO_APPS_INVENTARIO.md) |
+| `apps/ventas` | 14 | **Mitigado; constraints e idempotencia C05 acreditadas** | [AUDITORIA_CODIGO_APPS_VENTAS.md](exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md) |
+| `apps/inventario` | 14 | **Mitigado; constraints y scope RBAC C05 acreditados** | [AUDITORIA_CODIGO_APPS_INVENTARIO.md](exploracion/AUDITORIA_CODIGO_APPS_INVENTARIO.md) |
 | `apps/sync` | 12 | Mitigado | [AUDITORIA_CODIGO_APPS_SYNC.md](exploracion/AUDITORIA_CODIGO_APPS_SYNC.md) |
-| `apps/tenancy` | 18 | Mitigado (17 corregidos, 1 pospuesto) | [AUDITORIA_CODIGO_APPS_TENANCY.md](exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md) |
-| `apps/cuentas_por_cobrar` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
-| `apps/caja` | 13 | Mitigado | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
-| `apps/reportes` | 16 | Mitigado | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
-| `apps/permisos` | 21 | **P1 mitigado (10/10 + PER-011)**; P2/P3 abiertos | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
-| `apps/usuarios` | 19 | **P1 mitigado (6/6 + USR-008/009/018)**; resto abierto | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
-| `apps/auditoria` | 22 | **P1 mitigado (6/6 + 6 P2/P3)**; resto abierto | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
-| `apps/negocios` | 17 | **P1 mitigado (5/5 + NEG-010/015)**; resto abierto | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
-| `apps/clientes` | 21 | **P1 mitigado (7/7, CLI-004 contenido)**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
-| `apps/productos` | 22 | **P1 mitigado (6/8)**; PRO-002/003/004 abiertos | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
+| `apps/tenancy` | 18 | **Mitigado; TEN-016 cerrado en A02** | [AUDITORIA_CODIGO_APPS_TENANCY.md](exploracion/AUDITORIA_CODIGO_APPS_TENANCY.md) |
+| `apps/cuentas_por_cobrar` | 16 | **Mitigado; alias e idempotencia C05 acreditados** | [AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md](exploracion/AUDITORIA_CODIGO_APPS_CUENTAS_POR_COBRAR.md) |
+| `apps/caja` | 13 | **Mitigado; historial paginado y CAJA-002 revalidado** | [AUDITORIA_CODIGO_APPS_CAJA.md](exploracion/AUDITORIA_CODIGO_APPS_CAJA.md) |
+| `apps/reportes` | 16 | **Mitigado; cierre manual RPT-004/005 acreditado** | [AUDITORIA_CODIGO_APPS_REPORTES.md](exploracion/AUDITORIA_CODIGO_APPS_REPORTES.md) |
+| `apps/permisos` | 21 | **21/21 mitigados en código; cutover ADMIN operacional pendiente** | [AUDITORIA_CODIGO_APPS_PERMISOS.md](exploracion/AUDITORIA_CODIGO_APPS_PERMISOS.md) |
+| `apps/usuarios` | 19 | **A03 cierra invariantes RBAC de USR-012; USR-014 sigue A08** | [AUDITORIA_CODIGO_APPS_USUARIOS.md](exploracion/AUDITORIA_CODIGO_APPS_USUARIOS.md) |
+| `apps/auditoria` | 22 | **Pendientes A02 cerrados; AUD-002-ULTIMA es riesgo aceptado** | [AUDITORIA_CODIGO_APPS_AUDITORIA.md](exploracion/AUDITORIA_CODIGO_APPS_AUDITORIA.md) |
+| `apps/negocios` | 17 | **Pendientes de código A02 cerrados; preflights reales en A08** | [AUDITORIA_CODIGO_APPS_NEGOCIOS.md](exploracion/AUDITORIA_CODIGO_APPS_NEGOCIOS.md) |
+| `apps/clientes` | 21 | **P1 mitigado; CLI-004 diferido explícitamente con contención 409**; resto abierto | [AUDITORIA_CODIGO_APPS_CLIENTES.md](exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md) |
+| `apps/productos` | 22 | **PRO-002/003/004 y PRO-019 acreditados localmente**; resto abierto | [AUDITORIA_CODIGO_APPS_PRODUCTOS.md](exploracion/AUDITORIA_CODIGO_APPS_PRODUCTOS.md) |
 | `apps/configuracion` | 21 | **P1 mitigado (5/5)**; resto abierto | [AUDITORIA_CODIGO_APPS_CONFIGURACION.md](exploracion/AUDITORIA_CODIGO_APPS_CONFIGURACION.md) |
-| `apps/suscripciones` | 19 | **P1 mitigado (5/10)**; SUS-006..010 abiertos | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
-| `apps/cotizaciones` | 18 | **P1 mitigado (7/7)**; resto abierto | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
+| `apps/suscripciones` | 19 | **SUS-007/CFG-007, SUS-014 y SUS-016 integrados en candidato local**; checkpoint de solo lectura, sin reparación operativa | [AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md](exploracion/AUDITORIA_CODIGO_APPS_SUSCRIPCIONES.md) |
+| `apps/cotizaciones` | 18 | **COT-008/010/011/012/014/015 acreditados**; CT-04 y deuda residual abiertos | [AUDITORIA_CODIGO_APPS_COTIZACIONES.md](exploracion/AUDITORIA_CODIGO_APPS_COTIZACIONES.md) |
 | `apps/common` | 15 | **P1 mitigado (1/1) + 5 P2**; resto abierto | [AUDITORIA_CODIGO_APPS_COMMON.md](exploracion/AUDITORIA_CODIGO_APPS_COMMON.md) |
 | `apps/api` | 8 | Mitigado en jun-2026; **re-verificado** (decisión de scope superada por NEG-001) | [AUDITORIA_CODIGO_APPS_API.md](exploracion/AUDITORIA_CODIGO_APPS_API.md) |
 
-**Suite completa, serial: 1160 tests, OK** (base de pruebas recreada el
-2026-09-07; 1008 s).
+**Suite integrada A04+C05 parte 1, serial: 1.386 tests, OK**, con `default`, una
+tenant de atomicidad y dos tenants TEN-016 creadas/destruidas el 2026-09-11;
+focal conjunta: **237 OK**; e-CF: **72 passed**.
+
+### Actualización A02 — 2026-09-10
+
+CT-01 quedó implementado en `cd8a3b4` y auditoría/identidad/negocios/tenancy se
+cerraron en `583863f` + `f0a255c` + `bb7f774`. Hay servicios transaccionales y autorizados para
+usuario/negocio, credenciales local/portal separadas, sesión absoluta de 12 h,
+provisioning por checkpoints sin fingir atomicidad distribuida, `/admin/`
+cerrado en cloud y gate TEN-016 con dos PostgreSQL físicos. No se aplicaron las
+migraciones A02 ni se consultaron/modificaron filas de producción o staging.
+
+### Actualización A03 / CT-02 — 2026-09-11
+
+El candidato local, basado exactamente en `develop@e3635de`, implementa
+`rbac.capabilities.v1` y `rbac.sync.v2`: identidad UUID, revisiones, tombstones,
+snapshots completos seguros, servicios RBAC transaccionales/auditados, seeds y
+comandos tenant-aware, y guard canónico para notificaciones. Los gates finales
+de anulación/reimpresión se entregaron entonces a C02/C05 por ownership. A03 no
+integró la rama Claude ni ejecutó migraciones o preflights contra datos
+operativos. Claude cerró los tres bloqueadores, llevó C01-C03 a `develop` y
+reconcilió A03 mediante `b7147fb`; Codex repitió la matriz combinada sobre ese
+merge y la dejó verde. C05 completó después PER-013; el cutover ADMIN sigue
+siendo operacional.
+
+### Actualización A04 + C05 parte 1 — 2026-09-11
+
+La integración local `9ff61c2` combina A04 (`be15ea0`) con C05 (`60c6dbc`)
+desde la misma base `develop@0b4fb7c`. A04 agrega transporte durable y una
+reparación BUG-K dirigida/dry-run; C05 consume CT-02 en anulación y
+reimpresión, y aplica SUS-006 a las entradas HTML/API de CxC y reportes
+on-demand. Pasaron 237 focales, 1.386 Django y 72 e-CF. No se ejecutaron sondas,
+reparaciones, migraciones ni despliegues sobre entornos operativos.
+
+### Actualización C05 parte 2 — 2026-09-11
+
+La entrega Claude (`b6e898a..fc0aafd`) se revisó sobre la base A04+C05 ya
+integrada. El cierre de revisión `18e0898` agregó el uso efectivo de la clave de
+idempotencia desde el POS, autorización previa al replay, manejo de la carrera
+de unicidad, validación Decimal/HTTP segura, unicidad de numeración legacy,
+consistencia bidireccional estado/venta y reconciliación de totales de
+cotización. También agregó cobertura al preflight financiero.
+
+Quedan declaradamente fuera: **CT-04** y sus selectores comerciales de maestros
+operativamente activos/pendiente/conflicto; **C04** no se inició. COT-013,
+COT-018 y el tramo de stock/presupuesto de queries de COT-017 siguen abiertos.
+No se ejecutaron migraciones, preflights ni despliegues sobre datos operativos.
+
+### Actualización A06 + C04 + C05 p6 — 2026-09-18
+
+El párrafo anterior describe el corte C05 de 2026-09-11; sus pendientes CT-04
+no son el estado vigente. El candidato local
+`integration/cierre-prod-A06-C04-C05@2df0749` integra A06, los selectores C05
+CT-04, los doce productores de dominio C05 p6 bajo `audit.event.v1` y CT-03.
+La matriz backend combinada terminó con **398 pruebas OK**; no hubo migración,
+publicación ni operación sobre datos reales.
+
+C04 p6 permanece en su repositorio propio, integrado en `f0e6c2d`, con build,
+lint y 120 pruebas verdes. Su evidencia HTTP autenticada contra A06 reportó
+**24/24** a 201 filas (schema real, cursor, 403 y CAS 409); no ejerció minteo
+JWT tenant-aware. El responsable aceptó ambas puntas. SUS-014 quedó cableado
+read-only a `divergencias_identidad` con 43 pruebas focales y 89 de
+`apps.suscripciones` verdes (2 skips esperados); no reconcilia datos.
+
+### Actualización A07 — 2026-09-18
+
+Las ocho familias backend de A07 pasaron **605 pruebas** en bases descartables,
+incluidas dos bases físicas tenant. Se conciliaron estados antiguos del ledger:
+PRO-002/003/004/019 quedan acreditados localmente; CLI-004 queda diferido de
+forma explícita y los demás CLI/PRO conservan su criterio de cierre. Se reparó
+un fixture de pruebas cloud de clientes sin abrir escritura de API en POS real.
+La evidencia y los límites operativos están en
+`handoffs/cierre_prod/A07-INVENTARIO-2026-09-18.md`.
+
+### Actualización C04 p5.2 backend y frontend — 2026-09-23
+
+El candidato `codex/cierre-prod-C04-p5-backend-admin@5790ec2` agrega escritura
+tenant-scoped para usuarios, sucursales y configuración del negocio, con CT-01,
+RBAC global y baja lógica. En cloud la baja de usuario revoca Membership y el
+gate con dos PostgreSQL/JWT tenant-aware lo comprobó.
+
+El consumidor React se fusionó sin conflicto como
+`integration/cierre-prod-C04-admin@26e9bac`, desde C04+p6 `2df99c2` y
+`claude/cierre-prod-C04-p5.2@e8b0a17`. Esta integración conserva únicamente
+p5.2, no la rama alternativa p5-admin. Se revalidaron lint, build y **132**
+tests. Su smoke de contrato real documentado es 20/20 con sesión+CSRF; no hubo
+un E2E de navegador ni prueba frontend JWT tenant-aware. No hay migración ni
+operación de datos reales. El detalle vive en
+`handoffs/cierre_prod/INTEGRACION-C04P52-ADMIN-2026-09-23.md`.
 
 ### Auditorías escritas pero todavía sin procesar
 
@@ -56,6 +150,12 @@ La auditoría operativa de la promoción completa `staging..develop`, sus
 preflights y respaldos vive en
 [`docs/handoffs/STAGING_NOTIFICACIONES_2026-09-07.md`](handoffs/STAGING_NOTIFICACIONES_2026-09-07.md).
 
+La fase de validación staging de notificaciones se cerró por decisión del
+responsable del producto el 2026-09-09. El mismo handoff distingue los casos
+físicos aprobados de los diferidos; producción continúa fuera de alcance. El
+procedimiento para configurar reglas e incorporar eventos nuevos vive en
+[`docs/runbooks/EXTENDER_NOTIFICACIONES.md`](runbooks/EXTENDER_NOTIFICACIONES.md).
+
 Las 13 migraciones que estaban pendientes para esta promoción se aplicaron el
 2026-09-08 tanto al control plane de staging como a `staging_royalplast`. La
 tabla siguiente sigue siendo obligatoria antes de producción, que permanece
@@ -63,8 +163,9 @@ fuera de este despliegue.
 
 ### 2.1 Migraciones
 
-**19 migraciones** en total (14 de la ronda de auditorías + 5 del gate de descuentos, §2.6). Ninguna es destructiva; las tres marcadas con ⚠️
-transforman datos y merecen leerse antes de correrlas en producción.
+La tabla siguiente conserva el inventario acumulado de migraciones de auditoría
+y features. Ninguna es destructiva; las marcadas con ⚠️ transforman datos y
+merecen leerse antes de correrlas en producción.
 
 | Migración | Qué hace | Riesgo |
 |---|---|---|
@@ -94,9 +195,22 @@ transforman datos y merecen leerse antes de correrlas en producción.
 | `permisos.0009_asignacion_unicidad_efectiva` | ⚠️ Indices unicos parciales sobre `AsignacionRol` | **Deduplica** antes del ALTER, y **gana la revocacion**: si un grupo duplicado tiene alguna fila inactiva, la superviviente queda inactiva |
 | `permisos.0008_permisos_productos_portal_cajera` | Data migration: agrega `productos.ver` + `productos.fotografiar` (nuevo) al rol Cajero de sistema | Ninguno; idempotente |
 | `permisos.0010_notificaciones_administrar` | Agrega el permiso al rol Administrador de sistema | No modifica roles personalizados |
+| `permisos.0011_ct02_identidad_revisiones` | UUID/revisión/tombstone/origen cloud para roles y asignaciones; estado de revisiones por negocio | Aditiva; el cutover de ADMIN es posterior y requiere preflight por tenant |
 | `notificaciones.0001_initial` | Tablas de reglas, eventos, bandeja, dispositivos, entregas y marcador durable | Ninguno; el motor nace apagado |
 | `notificaciones.0002_reglas_default` | Apertura/cierre activos para Administrador | Idempotente; movimientos quedan apagados |
 | `notificaciones.0003_proyeccion_reintentos` | Estado/intentos/próximo-intento en el marcador de proyección (dead-letter acotado) | Ninguno; default `PROCESADO` para las filas existentes |
+| `auditoria.0007_alter_auditoria_accion` | Nueva opción `COMPROBANTE_PDF` en `TipoAccion` (feature: comprobante de venta formal en PDF, `apps/ventas/pdf_comprobante.py`) | Ninguno: solo cambia `choices` |
+| `ventas.0009_detalleventa_detalleventa_cantidad_positiva_and_more` | ⚠️ Preflight y `CheckConstraint` financieros para venta, detalle y pago | **Aborta con las PK infractoras** antes de crear constraints; correr `verificar_integridad_financiera` primero |
+| `ventas.0010_venta_clave_idempotencia_and_more` | Clave de idempotencia de venta + índice único parcial | Aditiva; los `NULL` legacy no colisionan |
+| `inventario.0007_compra_compra_total_positivo_and_more` | ⚠️ Preflight y constraints de compra, detalle y lote | Aborta ante datos imposibles; `cantidad_actual` negativa sigue permitida por política |
+| `cotizaciones.0003_alter_cotizacion_venta_and_more` | ⚠️ `PROTECT`, constraints financieros, número legacy único y consistencia estado/venta | Aborta ante filas legacy incompatibles o números duplicados; no corrige datos automáticamente |
+
+Antes de aplicar estas cuatro migraciones en una copia o tenant, ejecutar:
+
+```powershell
+python manage.py verificar_integridad_financiera
+python manage.py verificar_integridad_financiera --tenant <tenant_key>
+```
 
 **Por qué `reportes.0003` deduplica y `sync.0008` aborta.** No es inconsistencia:
 un `EventoSync` es un **hecho** —perder uno es perder información—, mientras que
@@ -104,6 +218,11 @@ un snapshot de reportes es **dato derivado y regenerable**. Cuando se puede
 reconstruir, se limpia; cuando no, se detiene y te pide decidir.
 
 ### 2.2 Configuración nueva
+
+**`RBAC_LEGACY_ADMIN_BYPASS`** (default `True`). Mantenerla activa hasta que
+`preflight_rbac_admin_cutover --tenant <tenant_key>` termine verde para cada
+tenant. Solo entonces cambiarla a `False` y repetir smoke de administración
+RBAC. A03 aporta el mecanismo, pero no inspecciona ni modifica filas reales.
 
 **`REPORTES_PRIVATE_ROOT`** (opcional). Directorio donde se escriben los PDFs de
 cierre. Por defecto `BASE_DIR/private/reportes`.
@@ -123,9 +242,11 @@ consulta por request y usuario. Con Redis configurado recupera el cache y la
 invalidacion por version alcanza a los tres workers a la vez.
 
 **`AUDITORIA_CONFIAR_EN_PROXY`** (opcional, default `False`). Ponerlo en
-`True` **solo** si hay un proxy delante que reescribe `X-Forwarded-For` y
-descarta la cabecera del cliente. Es una afirmacion sobre el despliegue: sin
-el, la IP de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
+`True` **solo** si el extremo derecho de `X-Forwarded-For` es aportado por un
+proxy confiable. Azure Container Apps conserva valores de cliente pero agrega
+el suyo a la derecha; las entradas anteriores no se usan. La configuracion real
+y prueba adversarial siguen pendientes en USR-014/A08. Sin ese preflight, la IP
+de auditoria sale de `REMOTE_ADDR`, que el cliente no controla.
 
 ### 2.3 Permisos nuevos en el catálogo RBAC
 
@@ -356,22 +477,22 @@ ese corte quede marcado.
 
 ---
 
-## 3. Decisiones que te tocan a vos
+## 3. Decisiones financieras y operativas
 
-Ninguna de estas está tomada. Todas son de negocio, no de código.
+CAJA-002, CXC-006, RPT-004 y RPT-005 ya tienen política fijada y cobertura
+revalidada en C05. Los backfills históricos siguen requiriendo decisión por
+instalación y revisión previa de datos reales.
 
 ### 3.1 ¿Una tienda sin caja abierta puede cobrar en efectivo?
 
 **Contexto (CAJA-002).** La auditoría pedía "rechazar efectivo cuando no exista
-un turno operable". **No lo implementé**, porque frenaría las ventas de una
-tienda que no abrió caja.
+un turno operable". La política vigente mantiene la venta habilitada.
 
 **Estado actual:** cada pago en efectivo nace con su `turno_caja` cuando hay un
 turno abierto. Si no lo hay, la venta procede y el pago queda sin turno —
 distinguible de los que sí lo tienen. La atribución del arqueo ya es exacta.
 
-**Si querés el rechazo:** es un `if` en `_resolver_turno_caja`
-(`apps/ventas/services/ventas_service.py`).
+La matriz C05 revalidó el caso sin turno y su atribución contable.
 
 ### 3.2 ¿Qué pasa al anular una venta con abonos ya aplicados?
 
@@ -379,12 +500,9 @@ distinguible de los que sí lo tienen. La atribución del arqueo ya es exacta.
 automáticamente en LIFO con egreso de caja, o convertir el saldo en crédito a
 favor.
 
-**Elegí bloquear** (devuelve 409), porque es la única que no inventa un asiento
+**La política vigente es bloquear** (devuelve 409), porque no inventa un asiento
 contable. El operador revierte los abonos con `anular_pago_cxc_service` —que ya
 existía, es LIFO, exige motivo y deja auditoría— y después anula la venta.
-
-**Si preferís reversa automática o saldo a favor:** es un cambio en
-`anular_cuenta_por_venta` más el asiento correspondiente.
 
 ### 3.3 ¿Cuándo queda cerrado contablemente un día?
 
@@ -392,23 +510,18 @@ existía, es LIFO, exige motivo y deja auditoría— y después anula la venta.
 siempre: ventas tardías, anulaciones y reversas nunca lo tocaban, y reintentar
 el comando parecía idempotente sirviendo datos obsoletos.
 
-**Elegí BORRADOR por defecto**, con `--finalizar` explícito. Congelar
+**La política vigente usa BORRADOR por defecto**, con `--finalizar` explícito. Congelar
 automáticamente *era* el bug; no congelar nunca dejaría el cierre sin punto
 fijo. Ahora cerrar el día es un acto deliberado.
 
-**Falta decidir:** a qué hora corre el cierre y si debe finalizar solo cuando
-todos los turnos estén cerrados. El resumen ya reporta `turnos_abiertos`.
+### 3.4 Cierre diario manual
 
-### 3.4 Hora y zona del cierre automático
-
-**`instalar_cierre.ps1` está roto y lo dejé así a propósito.** Apunta a
-`scripts/ejecutar_servicio_cierre.bat`, que **no está en el repositorio**;
-configura un servicio de autoarranque (NSSM) para una tarea one-shot; y su
-descripción dice **7 PM** mientras el modelo documenta **10 PM**.
-
-El comando ya es correcto, reintentable y recorre tenants. Versionar un launcher
-real y pasarlo a Task Scheduler es trabajo de despliegue, y necesita que digas
-la hora y la zona.
+**RPT-005 quedó resuelto sin cierre automático.** `instalar_cierre.ps1` fue
+retirado porque apuntaba a un `.bat` ausente y usaba NSSM para una tarea
+one-shot. El procedimiento soportado está en
+`docs/runbooks/CIERRE_DIARIO_MANUAL.md`; el comando es reintentable, recorre
+tenants y solo finaliza con `--finalizar`. Si una instalación pide automatizarlo,
+se configura Task Scheduler con hora/zona explícitas como decisión local.
 
 ### 3.5 ¿Backfill de datos históricos?
 
@@ -431,43 +544,46 @@ Ninguno bloquea el despliegue.
 
 ### Seguridad y aislamiento
 
-- **Claim durable del push de sync** (`IN_FLIGHT` + lease). El claim local
-  todavía no es durable ante un crash a mitad de envío.
-- **Matriz PostgreSQL multi-DB en CI** (TEN-016). Requiere levantar dos bases en
-  el pipeline; es el único hallazgo de tenancy sin corregir.
+- **Claim durable del push de sync: resuelto en A04 (`be15ea0`).** Estado
+  `EN_VUELO`, lease de cinco minutos, recuperación de vencidos y transición
+  condicionada por propiedad; cubierto con dos procesos y ACK tardío.
 - **Drill de restauración.** `backup_tenant` produce y verifica un artefacto,
   pero nadie probó restaurarlo end-to-end.
-- **Auditoría de mutaciones API bajo tenancy.** `SesionImpersonacion` registra
-  el acceso, no cada mutación hecha durante la sesión.
+- **Cobertura de productores CT-01.** A02 conserva actor operativo e identidad
+  impersonadora. C05 p6 ya integra doce acciones de ventas, inventario, CxC y
+  cotizaciones; edición de venta/compra y conversión por venta siguen fuera de
+  ese alcance. Cada bloque futuro debe declarar y probar sus productores.
 
 ### Robustez
 
-- **`CheckConstraint` de respaldo** en ventas e inventario. Las invariantes de
-  importes y cantidades se validan en la aplicación; falta el cinturón en la BD.
-- **Cola durable de diferidos** en sync. Hoy un ítem diferido congela la marca
-  de agua.
+- **`CheckConstraint` de respaldo: resuelto en C05** (`b6e898a`, `18e0898`).
+  Ventas, inventario y cotizaciones rechazan importes/cantidades imposibles en
+  BD y las migraciones hacen preflight antes del `ADD CONSTRAINT`.
+- **Cola durable de diferidos: resuelta en A04 (`be15ea0`).** El cursor avanza
+  si el ítem aplicó o quedó almacenado, el reintento es transaccional y un
+  pendiente mantiene el ciclo `PARCIAL`.
 - **`_pull_legacy` sigue existiendo** como fallback para clouds pre-Fase 2.
-- **Idempotencia concurrente del cobro CxC.** La constraint garantiza un solo
-  pago por clave; falta el test de N reintentos concurrentes.
+- **Idempotencia del cobro CxC: acreditada en C05** (`b066636`). Seis reintentos
+  con la misma clave producen un solo pago y la constraint cubre inserción directa.
 
 ### Deuda de contrato
 
-- **`_puede_anular` usa el rol legacy** (`ADMIN`/`SYSADMIN`) en vez de RBAC.
-- **Scope por sucursal en los gates de inventario.** `tiene_permiso` se llama
-  sin sucursal en varios puntos de esa app.
-- **Identidad compuesta en el cloud** para `_handler_venta_creada`.
-- **Guards RBAC duplicados en notificaciones.**
-  `notificaciones.services._asignaciones_en_alcance` replica a mano los filtros
-  `activo` de `permisos.engine._resolver_permisos` (rol, negocio y sucursal).
-  Hoy están sincronizados y con comentario cruzado en ambos lados; extraer un
-  único helper compartido evitaría que puedan divergir. Surgió del code review
-  de notificaciones (2026-09-05); no bloquea el despliegue.
+- **Cutover de ADMIN.** El bypass queda deliberadamente activo hasta completar
+  el preflight y las asignaciones explícitas por tenant.
+- **PER-013 consumidor: resuelto en C05 (`60c6dbc`).** Anulación y reimpresión
+  usan los permisos CT-02 contra la sucursal de la venta y filtran el alcance;
+  la matriz integrada cubre roles custom y acceso cruzado.
+- **Scope por sucursal en inventario: resuelto en C05** (`95dddb3`). El servicio
+  reautoriza contra la sucursal del lote bloqueado, además del gate de la vista.
+- **Identidad compuesta del receptor/handler: resuelta en A04 (`be15ea0`).**
+  `event_id` y hash se acotan por sucursal; ventas y CxC no adoptan una venta
+  homónima de otra sucursal. Una colisión de dominio real se reporta `ERROR`.
 
 ### Presentación y rendimiento
 
-- **Paginación real** en tres listados: cartera CxC (corta a 300), historial de
-  turnos (corta a 50, sin avisar) e inventario valorizado (corta a 500). Los dos
-  primeros son los que faltan; el de inventario ya declara `productos_ocultos`.
+- **Historial de turnos paginado en C05** (`eb72f69`). La cartera CxC conserva
+  su tope de 300 pero lo declara con `cuentas_ocultas`/`tope_lista`; inventario
+  valorizado ya declara `productos_ocultos`.
 - **Chart.js viene de CDN** sin integridad ni fallback local
   (`templates/reportes/on_demand.html`). En un POS sin Internet estable los
   gráficos fallan aunque los datos estén.
@@ -487,8 +603,9 @@ errores aparecieron en casi todos.
    `select_for_update`. Aparece en crédito, FIFO, ajustes y cierre de turno.
 3. **`count()` como generador de correlativos.** Un borrado deja huecos y el
    siguiente número colisiona. Reemplazado por MAX + reintento.
-4. **`tiene_permiso(codigo)` sin sucursal.** El motor sin sucursal mira *todas*
-   las asignaciones: un rol de la sucursal A abría la puerta en B.
+4. **`tiene_permiso(codigo)` sin sucursal.** Ya significa solo asignaciones
+   globales; toda mutación concreta debe pasar la sucursal real para no denegar
+   de más un permiso correctamente acotado.
 5. **Django Admin editando hechos financieros** sin auditoría ni evento de sync.
 6. **Degradación silenciosa.** `except Exception: pass` sobre operaciones que
    sí importan, y respuestas `success: true` sobre trabajo que nunca ocurrió.

@@ -16,13 +16,27 @@ from django.http import JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.utils.decorators import method_decorator
 from datetime import datetime, timedelta
 
 from apps.ventas.models import Venta
 from apps.auditoria.models import Auditoria
+from apps.permisos.decorators import requiere_permiso_json, requiere_permiso_local
 from utils.impresoras.manager import print_manager
 
 logger = logging.getLogger(__name__)
+
+
+def _ventas_en_alcance(request):
+    """Ventas visibles para este operador, acotadas a su(s) sucursal(es).
+
+    Reusa el criterio canónico de `apps.ventas.views._ventas_en_alcance` para
+    que la reimpresión térmica y el comprobante PDF respondan por el mismo
+    universo de ventas. Import diferido para evitar un ciclo con
+    `apps.ventas.views`, que importa el print_manager de este paquete.
+    """
+    from apps.ventas.views import _ventas_en_alcance as _alcance
+    return _alcance(request)
 
 
 # ============================================================================
@@ -49,25 +63,27 @@ class ImprimirTicketAutomaticoView(LoginRequiredMixin, View):
         Returns:
             JsonResponse: Resultado de la impresión
         """
+        # Fuera del try/except: acotado al alcance operativo (sin el filtro, un
+        # POST con el id de otra sucursal imprimiría su ticket) y un id fuera de
+        # alcance debe dar 404, no quedar enmascarado como 500 por el except.
+        venta = get_object_or_404(_ventas_en_alcance(request), id=venta_id)
         try:
-            venta = get_object_or_404(Venta, id=venta_id)
-            
             # Verificar que la venta no esté anulada
             if venta.estado == 'ANULADA':
                 return JsonResponse({
                     'success': False,
                     'mensaje': 'No se puede imprimir una venta anulada'
                 }, status=400)
-            
+
             # Imprimir ticket
             resultado = print_manager.print_ticket_venta(
                 venta=venta,
                 usuario=request.user,
                 reimpresion=False
             )
-            
+
             return JsonResponse(resultado)
-            
+
         except Exception as e:
             logger.error(f"Error en impresión automática: {str(e)}")
             return JsonResponse({
@@ -80,37 +96,40 @@ class ImprimirTicketAutomaticoView(LoginRequiredMixin, View):
 class ReimprimirTicketView(LoginRequiredMixin, View):
     """
     Vista para reimpresión de tickets históricos
-    
-    Requiere permiso especial para evitar reimpresiones no autorizadas.
-    Registra la reimpresión en auditoría.
-    
+
+    Reimprimir vuelve a emitir el documento de una venta ya registrada, así que
+    exige el permiso `ventas.reimprimir` (PER-013 / CT-02) y resuelve la venta
+    dentro del alcance operativo del usuario: sin ambos, un id de otra sucursal
+    reimprimía su ticket. Registra la reimpresión en auditoría.
+
     URL: POST /ventas/reimprimir-ticket/<venta_id>/
-    Permiso requerido: ventas.reimprimir_ticket
+    Permiso requerido: ventas.reimprimir
     """
-    
-    
+
+    @method_decorator(requiere_permiso_json('ventas.reimprimir'))
     def post(self, request, venta_id):
         """
         Reimprime un ticket de venta anterior
-        
+
         Args:
             venta_id: ID de la venta a reimprimir
-            
+
         Returns:
             JsonResponse: Resultado de la reimpresión
         """
+        # Fuera del try/except: un id fuera del alcance operativo debe responder
+        # 404, no quedar enmascarado como 500 por el except de abajo.
+        venta = get_object_or_404(_ventas_en_alcance(request), id=venta_id)
         try:
-            venta = get_object_or_404(Venta, id=venta_id)
-            
             # Imprimir con flag de reimpresión
             resultado = print_manager.print_ticket_venta(
                 venta=venta,
                 usuario=request.user,
                 reimpresion=True
             )
-            
+
             return JsonResponse(resultado)
-            
+
         except Exception as e:
             logger.error(f"Error en reimpresión: {str(e)}")
             return JsonResponse({
@@ -254,30 +273,35 @@ class HistorialImpresionesView(LoginRequiredMixin, TemplateView):
         return context
 
 
+@method_decorator(requiere_permiso_local('ventas.reimprimir'), name='dispatch')
 class ListaVentasReimprimirView(LoginRequiredMixin,  TemplateView):
     """
     Vista para listar ventas y permitir reimpresión
-    
+
     Muestra las ventas recientes con opción de reimprimir el ticket.
     Útil para cuando el cliente pierde el ticket o la impresora falló.
-    
+
+    Exige `ventas.reimprimir` (PER-013 / CT-02) y acota el listado al alcance
+    operativo del usuario, para no ofrecer la reimpresión de ventas de otra
+    sucursal.
+
     URL: GET /ventas/reimprimir/
     Template: ventas/lista_reimprimir.html
-    Permiso requerido: ventas.reimprimir_ticket
+    Permiso requerido: ventas.reimprimir
     """
-    
+
     template_name = 'pos/lista_reimprimir.html'
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        
+
         # Obtener parámetros de búsqueda
         busqueda = self.request.GET.get('q', '')
         fecha_desde = self.request.GET.get('fecha_desde')
         fecha_hasta = self.request.GET.get('fecha_hasta')
-        
-        # Construir query
-        ventas = Venta.objects.filter(
+
+        # Construir query, acotada al alcance operativo del usuario.
+        ventas = _ventas_en_alcance(self.request).filter(
             estado='COMPLETADA'
         ).select_related('usuario')
         

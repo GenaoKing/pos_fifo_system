@@ -25,6 +25,22 @@
 
 ## Pendientes
 
+### SEC-001 — Credenciales de prueba en un archivo versionado
+
+- Fecha de hallazgo: 2026-09-23, durante el empaquetado aislado C06.1.
+- Severidad: alta si la identidad de prueba se reutilizó en algún entorno.
+- Estado: **saneado en el tip actual; rotación/revocación e historial pendientes de decisión autorizada.**
+- Hallazgo: un script ad-hoc trackeado para smoke del portal contenía tokens
+  JWT y credenciales de prueba en texto plano. El paquete C06.1 lo excluye y
+  el archivo actual es un stub no ejecutable, sin material autenticado.
+- Acción necesaria fuera del repositorio: el operador debe confirmar si esa
+  identidad se reutilizó y, de ser así, rotarla/revocar sesiones en el entorno
+  correspondiente. No se accedió a entornos reales, no se rotó ninguna
+  credencial y no se reescribió el historial Git durante esta corrección.
+- Prevención: los smokes autorizados usan entornos locales no versionados y
+  credenciales efímeras; nunca se agregan tokens o contraseñas a scripts
+  trackeados.
+
 ### BUG-A — Perdida SILENCIOSA de eventos de sync cuando el servicio del POS no tiene `SYNC_ENABLED`
 
 - Fecha de hallazgo: 2026-08-19.
@@ -645,8 +661,8 @@ lo que no existe") -- ahora aplica igual a productos.
 - Severidad: **baja / UX**. No altera el monto enviado ni la apertura, pero
   confunde al operador y puede superponer sugerencias sensibles sobre un campo
   monetario.
-- **Estado: CORREGIDO EN CODIGO (2026-09-07); pendiente de confirmacion visual
-  final en Chrome.** `fondo_apertura`, `monto_movimiento` y
+- **Estado: CORREGIDO EN CODIGO (2026-09-07); cierre staging aceptado con la
+  confirmación visual final diferida (2026-09-09).** `fondo_apertura`, `monto_movimiento` y
   `efectivo_contado` tienen nombre semantico y `autocomplete="off"`; el conteo
   por denominacion usa `cantidad_denominacion` con el mismo bloqueo.
 - Reproduccion: en Chrome para Windows, abrir el modal de caja y enfocar
@@ -654,14 +670,17 @@ lo que no existe") -- ahora aplica igual a productos.
 - Evidencia automatica: prueba de plantilla en
   `apps/caja/tests/test_auditoria_caja.py`. Como `autocomplete="off"` es una
   indicacion y Chrome conserva heuristicas propias, el gate final sigue siendo
-  repetir el caso con credenciales guardadas en la laptop.
+  repetir el caso con credenciales guardadas en la laptop. La matriz de cierre
+  no registra esa comprobación como aprobada. C05 parte 2 revalidó la regresión
+  automatizada; no sustituye el gate visual de C06.
 
 ### BUG-J — Comentario Django multilínea se muestra junto a Cerrar Sesion
 
 - Fecha de hallazgo: 2026-09-06, durante el smoke local de Web Push.
 - Severidad: **baja / presentacion**. Expone una nota interna de implementacion
   en el sidebar, sin comprometer el POST ni la proteccion CSRF del logout.
-- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07).**
+- **Estado: CORREGIDO EN CODIGO Y CUBIERTO (2026-09-07); reverificación visual
+  diferida al cerrar staging (2026-09-09).**
 - Reproduccion: abrir cualquier pantalla autenticada con sidebar y observar el
   texto `{# POST, no enlace: ... #}` encima de `Cerrar Sesion`.
 - Causa confirmada: `templates/base.html` usa `{# ... #}` a traves de varias
@@ -670,6 +689,10 @@ lo que no existe") -- ahora aplica igual a productos.
 - Correccion: bloque `{% comment %}...{% endcomment %}`. La regresion renderiza
   una pantalla autenticada, comprueba que la nota no salga y conserva el
   formulario de logout como POST con token CSRF.
+- La matriz física de staging validó Web Push en Windows, pero no volvió a
+  inspeccionar visualmente este comentario; queda registrado como diferido y
+  no como aprobado. C05 parte 2 revalidó la regresión automatizada y conserva
+  explícitamente esa inspección visual para C06.
 
 ### BUG-L — El portal mostraba HTML crudo de un 500 y declaraba push suscrito sin backend
 
@@ -689,6 +712,27 @@ lo que no existe") -- ahora aplica igual a productos.
   `suscrito` exige el mismo endpoint activo en navegador y backend. Si el POST
   previo fallo, el boton reutiliza la suscripcion local y reintenta el alta
   idempotente, sin pedir permiso ni crear otra suscripcion.
+
+### BUG-M — Safari en iPhone mostraba incompatibilidad y un error de `pushManager`
+
+- Fecha de hallazgo: 2026-09-08, durante el smoke físico de Web Push en iPhone.
+- Severidad: **media / onboarding**. La bandeja seguía disponible, pero el
+  usuario no recibía la guía de instalación requerida por iOS y veía el error
+  técnico `undefined is not an object` al entrar desde una pestaña de Safari.
+- **Estado: CORREGIDO, CUBIERTO Y DESPLEGADO EN DEV/STAGING (2026-09-08);
+  pendiente de confirmación física desde el icono instalado.**
+- Reproducción: abrir directamente `/notificaciones` en Safari sin añadir el
+  portal a Inicio. Safari expone `serviceWorker`, pero no las APIs Push en esa
+  ventana; el portal la rotulaba incompatible y luego intentaba evaluar
+  `registration.pushManager.getSubscription()`.
+- Causa: `currentPushCapability()` trataba de registrar el service worker antes
+  de resolver el estado especial `ios-no-instalada`, y
+  `currentPushSubscription()` no protegía la ausencia de `PushManager`.
+- Corrección frontend (`e0a2302`): detectar primero iPhone/iPad fuera de modo
+  standalone, no tocar el service worker en estados incompatibles, proteger
+  `registration.pushManager` y mostrar el flujo Safari → Compartir → Añadir a
+  Inicio → abrir el icono → activar. La guía aclara que instalar Chrome no evita
+  el requisito de ejecutar la PWA desde Inicio.
 
 ### BUG-K — El receptor sync confirmaba fallos de integridad como duplicados
 
@@ -710,3 +754,8 @@ lo que no existe") -- ahora aplica igual a productos.
   realmente existe. Si no existe, responder `ERROR` sin detalles internos para
   que el POS lo reintente. La prueba de concurrencia existente sigue exigiendo
   exactamente un `CONFIRMADO` y un `DUPLICADO` para una colisión real.
+- A04 (`be15ea0`, 2026-09-11) agrega identidad estable y scopeada, lease
+  durable, sonda read-only `sync.reconciliation.v1` y el comando
+  `reparar_bug_k`, dry-run por defecto. El código/herramienta quedaron integrados
+  y validados localmente en `9ff61c2`; **no** se consultaron clientes ni se ejecutó una reparación
+  real y producción/historia continúan como pendiente operativo de A09.

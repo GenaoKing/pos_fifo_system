@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.caja.models import Caja, TurnoCaja
 from apps.clientes.models import Cliente
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, CuotaCxC, MetodoPlazoCredito, PagoCxC
 from apps.cuentas_por_cobrar.services import anular_pago_cxc_service, registrar_pago_cxc_service
 from apps.inventario.models import Compra, DetalleCompra
@@ -36,6 +37,11 @@ class AnulacionPagoCxCTestsBase(TestCase):
         )
         # La venta exige `ventas.crear` server-side (RBAC del catalogo).
         habilitar_cajero(self.cajera)
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer).
+        ConfiguracionNegocio.objects.create()
+
         self.categoria = Categoria.objects.create(nombre='Anulacion Test')
         self.producto = Producto.objects.create(
             sku='ANUL-PROD-001',

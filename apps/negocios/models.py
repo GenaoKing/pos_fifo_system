@@ -8,9 +8,13 @@ corre como instalaciones independientes (una Sucursal por instalacion via
 settings.SUCURSAL_CODIGO); este modelo introduce la capa de negocio para que
 cada tenant configure sus propios roles.
 
-Forward-compatible con una futura migracion a django-tenants: `slug` puede
-mapearse al nombre del schema por tenant.
+En cloud, `apps.tenancy.Tenant.tenant_key` y su `db_name` son la identidad
+fisica. Esta fila es la identidad/logica operativa DENTRO de esa base. Su
+`slug` es estable por compatibilidad, pero nunca decide routing ni schema.
 """
+import re
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -37,6 +41,15 @@ class Negocio(models.Model):
         blank=True,
         help_text='Registro Nacional del Contribuyente',
     )
+    rnc_canonico = models.CharField(
+        'RNC canonico',
+        max_length=9,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text='Solo digitos; null cuando el negocio no tiene RNC.',
+    )
     activo = models.BooleanField('Activo', default=True)
 
     fecha_creacion = models.DateTimeField('Fecha de creacion', default=timezone.now)
@@ -47,14 +60,58 @@ class Negocio(models.Model):
         verbose_name_plural = 'Negocios'
         ordering = ['nombre']
         db_table = 'negocios'
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(nombre=''), name='negocio_nombre_no_vacio',
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(slug=''), name='negocio_slug_no_vacio',
+            ),
+        ]
 
     def __str__(self):
         return self.nombre
 
     def save(self, *args, **kwargs):
+        using = kwargs.get('using') or self._state.db or 'default'
+        if self.pk and not self._state.adding:
+            anterior = type(self).objects.using(using).only('slug').get(pk=self.pk)
+            if anterior.slug != self.slug:
+                raise ValidationError({
+                    'slug': 'El slug es identidad estable; use una migracion explicita.',
+                })
+
         if not self.slug:
             self.slug = self._slug_unico(self.nombre)
+            update_fields = kwargs.get('update_fields')
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | {'slug'}
+
+        self.full_clean()
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'rnc' in update_fields:
+            kwargs['update_fields'] = set(update_fields) | {'rnc_canonico'}
         super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        self.nombre = (self.nombre or '').strip()
+        if not self.nombre:
+            raise ValidationError({'nombre': 'El nombre no puede estar vacio.'})
+        self.slug = (self.slug or '').strip().lower()
+        if not self.slug:
+            raise ValidationError({'slug': 'El slug no puede estar vacio.'})
+
+        raw_rnc = (self.rnc or '').strip()
+        if not raw_rnc:
+            self.rnc = ''
+            self.rnc_canonico = None
+            return
+        canon = re.sub(r'\D', '', raw_rnc)
+        if len(canon) != 9:
+            raise ValidationError({'rnc': 'El RNC dominicano debe tener 9 digitos.'})
+        self.rnc = canon
+        self.rnc_canonico = canon
 
     @classmethod
     def self_row(cls):

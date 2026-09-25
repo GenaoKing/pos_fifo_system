@@ -7,7 +7,7 @@ descripcion/marca), pisaria los datos reales que esa sucursal ya tiene para
 el mismo SKU.
 """
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -17,6 +17,7 @@ from apps.sucursales.models import Sucursal
 User = get_user_model()
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class ProductoStubAntiClobberTests(TestCase):
     productos_url = '/api/v1/maestros/productos/'
 
@@ -103,7 +104,12 @@ class ProductoStubAntiClobberTests(TestCase):
         datos genericos todavia puestos.
         """
         response = self.api(user=self.admin).patch(
-            f'{self.productos_url}{self.stub.id}/', {'activo': False}, format='json',
+            f'{self.productos_url}{self.stub.id}/',
+            {
+                'activo': False,
+                'motivo_inactivacion': 'El stub espera una revisión humana.',
+            },
+            format='json',
         )
         self.assertEqual(response.status_code, 200)
 

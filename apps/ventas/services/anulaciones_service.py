@@ -38,6 +38,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.auditoria.models import Auditoria
+from apps.auditoria.services import registrar_mutacion
 from apps.configuracion.utils import get_config, modulo_activo
 from apps.sync import events as sync_events
 
@@ -66,6 +67,7 @@ def anular_venta_service(
     venta_id: int,
     motivo: str,
     ip_address: str | None = None,
+    sucursal=None,
 ) -> Venta:
     """
     Anula una venta existente. Devuelve stock FIFO, marca la venta
@@ -73,30 +75,27 @@ def anular_venta_service(
     corresponde.
 
     Args:
-        usuario: usuario que solicita la anulación. Debe ser ADMIN/SYSADMIN.
+        usuario: usuario que solicita la anulación. Se re-autoriza
+            `ventas.anular` contra la sucursal de la PROPIA venta (PER-013 /
+            CT-02), no contra el rol legacy.
         venta_id: ID de la Venta a anular.
         motivo: texto del motivo (mínimo 10 caracteres no-blancos).
         ip_address: IP del cliente, para auditoría.
+        sucursal: sucursal operativa del solicitante. Solo se usa como scope de
+            respaldo para ventas legacy sin sucursal propia (ver `_puede_anular`).
 
     Returns:
         Instancia Venta actualizada (estado='ANULADA').
 
     Raises:
-        PermisoDenegadoError: rol del usuario no autorizado.
+        PermisoDenegadoError: el usuario no tiene `ventas.anular` en la sucursal
+            de la venta.
         MotivoAnulacionInvalidoError: motivo vacío o muy corto.
         VentaNoEncontradaError: no existe una venta con ese id (404).
         AnulacionNoPermitidaError: venta ya anulada o fuera de plazo.
         FIFORollbackError: la devolución FIFO falló (rollback automático).
         Cualquier otra excepción propaga.
     """
-    # Validación de permisos. Decoradores de Django no alcanzan acá:
-    # services no tienen acceso al request, validamos por atributo del User.
-    if not _puede_anular(usuario):
-        raise PermisoDenegadoError(
-            'No tienes permisos para anular ventas. '
-            'Requiere rol ADMIN o SYSADMIN.'
-        )
-
     motivo = (motivo or '').strip()
     if not motivo:
         raise MotivoAnulacionInvalidoError(
@@ -113,10 +112,25 @@ def anular_venta_service(
         # commiteara, y las dos generaban reversa de stock, evento, auditoría
         # y nota de crédito.
         try:
+            # Sin select_related('sucursal'): es FK nullable y PostgreSQL rechaza
+            # `SELECT ... FOR UPDATE` sobre el lado nullable de un outer join. La
+            # sucursal se carga perezosa al autorizar (una consulta extra en una
+            # operación poco frecuente).
             venta = Venta.objects.select_for_update().get(id=venta_id)
         except (Venta.DoesNotExist, ValueError, TypeError):
             raise VentaNoEncontradaError(
                 f'No existe una venta con id={venta_id}.'
+            )
+
+        # PER-013 / CT-02: se re-autoriza `ventas.anular` contra la sucursal de
+        # la PROPIA venta ya bloqueada — no el rol legacy ni un scope del
+        # cliente. Un rol acotado a la sucursal A no puede anular una venta de B
+        # con solo cambiar el id. Se comprueba bajo el lock: `venta.sucursal` es
+        # la identidad definitiva de la venta.
+        if not _puede_anular(usuario, venta=venta, sucursal_operador=sucursal):
+            raise PermisoDenegadoError(
+                'No tienes permiso para anular ventas en la sucursal de esta '
+                'venta.'
             )
 
         # Bajo el lock, el estado leído ya es el definitivo: la segunda
@@ -132,6 +146,7 @@ def anular_venta_service(
 
         _devolver_stock_fifo(venta=venta, usuario=usuario)
 
+        estado_anterior = venta.estado
         venta.estado = 'ANULADA'
         venta.motivo_anulacion = motivo
         venta.anulada_por = usuario
@@ -147,12 +162,27 @@ def anular_venta_service(
                 ip_address=ip_address,
             )
 
-        # Auditoría dentro del atomic
-        Auditoria.registrar_anulacion_venta(
-            venta=venta,
-            usuario=usuario,
-            motivo=motivo,
-            ip_address=ip_address,
+        # Auditoría CT-01 dentro del atomic (atómica con la anulación): mismo
+        # `using` que la venta, identidad = la sucursal de la PROPIA venta (no
+        # la del operador). Un fallo de auditoría revierte la anulación
+        # (invariante CT-01). Ver docs/handoffs/cierre_prod/C05-p6-auditoria-ct01.md.
+        registrar_mutacion(
+            accion='ventas.venta.anulada',
+            actor=usuario,
+            entidad=venta,
+            antes={'estado': estado_anterior},
+            despues={
+                'estado': venta.estado,
+                'motivo_anulacion': motivo,
+                'anulada_por': getattr(usuario, 'username', '') or '',
+                'total': str(venta.total),
+            },
+            resultado=Auditoria.Resultado.SUCCEEDED,
+            canal=Auditoria.Canal.POS_LOCAL,
+            tenant=None,
+            sucursal=venta.sucursal,
+            metadata={'ip_address': ip_address} if ip_address else None,
+            using=venta._state.db or 'default',
         )
 
         # Outbox transaccional: atomico con la anulacion.
@@ -182,14 +212,27 @@ def anular_venta_service(
 # Helpers internos
 # =============================================================================
 
-def _puede_anular(usuario: 'AbstractUser') -> bool:
+def _puede_anular(usuario: 'AbstractUser', *, venta: Venta, sucursal_operador=None) -> bool:
     """
-    Centraliza la regla de quién puede anular. Hoy: ADMIN o SYSADMIN.
-    Si en el futuro hay un sistema de permisos más granular, este
-    es el único punto a cambiar.
+    Regla de quién puede anular (PER-013 / CT-02).
+
+    Se resuelve con el motor RBAC: `ventas.anular` en la sucursal de la venta.
+    El rol legacy ya no decide por sí mismo — ADMIN/SYSADMIN siguen pasando
+    porque el motor les concede acceso total, no por un chequeo de rol aquí.
+
+    Scope:
+      - Con sucursal en la venta -> se autoriza contra ESA sucursal. Es lo que
+        impide anular cross-branch.
+      - Venta legacy sin sucursal (anterior a la Fase 2) -> cae al scope
+        operativo del solicitante (`sucursal_operador`), igual que
+        `_ventas_en_alcance` mantiene esas ventas visibles para el operador.
     """
-    rol = getattr(usuario, 'rol', None)
-    return rol in ('ADMIN', 'SYSADMIN')
+    comprobar = getattr(usuario, 'tiene_permiso', None)
+    if comprobar is None:
+        # Usuario sin el modelo propio (AnonymousUser o doble de test).
+        return False
+    scope = venta.sucursal or sucursal_operador
+    return bool(comprobar('ventas.anular', sucursal=scope))
 
 
 def _devolver_stock_fifo(*, venta: Venta, usuario: 'AbstractUser') -> None:

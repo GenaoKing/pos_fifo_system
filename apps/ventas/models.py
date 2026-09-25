@@ -149,7 +149,19 @@ class Venta(models.Model):
         null=True,
         verbose_name='Motivo de Anulación'
     )
-    
+
+    # Idempotencia: un reintento (doble click, reintento de red tras timeout)
+    # con la misma clave devuelve la venta ORIGINAL en vez de cobrar y consumir
+    # inventario otra vez. Null para ventas historicas y replicadas por sync.
+    clave_idempotencia = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        verbose_name='Clave de idempotencia',
+        help_text='UUID de la operacion de venta. Un reintento con la misma '
+                  'clave devuelve la venta original en vez de crear otra.',
+    )
+
     class Meta:
         verbose_name = 'Venta'
         verbose_name_plural = 'Ventas'
@@ -158,6 +170,32 @@ class Venta(models.Model):
             models.Index(fields=['numero_venta']),
             models.Index(fields=['fecha_venta']),
             models.Index(fields=['estado']),
+        ]
+        # DB-CONSTRAINTS: los importes se validaban solo en la app (validators de
+        # campo, que `objects.create()` ni siquiera ejecuta). Una escritura
+        # directa —script, shell, replicacion mal formada— podia dejar una venta
+        # con total negativo. La restriccion vive ahora en la BD.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total__gte=Decimal('0.01')),
+                name='venta_total_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(subtotal__gte=Decimal('0.00')),
+                name='venta_subtotal_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_total__gte=Decimal('0.00')),
+                name='venta_descuento_no_negativo',
+            ),
+            # Idempotencia: unicidad PARCIAL, solo sobre las claves presentes.
+            # Las ventas historicas y las replicadas por sync no tienen clave y
+            # conviven. Es el respaldo real del chequeo previo del service.
+            models.UniqueConstraint(
+                fields=['clave_idempotencia'],
+                condition=models.Q(clave_idempotencia__isnull=False),
+                name='uniq_venta_clave_idempotencia',
+            ),
         ]
     
     def __str__(self):
@@ -338,7 +376,31 @@ class DetalleVenta(models.Model):
     class Meta:
         verbose_name = 'Detalle de Venta'
         verbose_name_plural = 'Detalles de Venta'
-    
+        # DB-CONSTRAINTS: cantidades e importes imposibles no deben poder
+        # persistirse ni por una escritura directa que salte `save()`.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gte=1),
+                name='detalleventa_cantidad_positiva',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(precio_unitario__gte=Decimal('0.01')),
+                name='detalleventa_precio_positivo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__gte=Decimal('0.00')),
+                name='detalleventa_descuento_no_negativo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(descuento_monto__lte=models.F('subtotal')),
+                name='detalleventa_descuento_no_supera_subtotal',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_linea__gte=Decimal('0.00')),
+                name='detalleventa_total_no_negativo',
+            ),
+        ]
+
     def __str__(self):
         return f"{self.producto.nombre} × {self.cantidad}"
     
@@ -438,6 +500,13 @@ class Pago(models.Model):
         verbose_name = 'Pago'
         verbose_name_plural = 'Pagos'
         ordering = ['fecha_pago']
+        # DB-CONSTRAINTS: un pago con monto <= 0 no cuadra el cierre de caja.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(monto__gte=Decimal('0.01')),
+                name='pago_monto_positivo',
+            ),
+        ]
     
     def __str__(self):
         return f"{self.get_metodo_display()} - ${self.monto}"

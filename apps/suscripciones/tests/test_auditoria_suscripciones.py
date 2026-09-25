@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 from rest_framework.test import APIClient
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.negocios.models import Negocio
 from apps.suscripciones import registry, seed
 from apps.suscripciones.engine import (
@@ -19,6 +20,7 @@ from apps.suscripciones.engine import (
     _cache_key,
     estado_suscripcion,
     modulo_activo,
+    modulos_activos,
     modulos_negocio,
 )
 from apps.suscripciones.models import (
@@ -387,3 +389,287 @@ class GuardDeDegradacionTests(SuscripcionesTestCase):
 
         cache.clear()
         self.assertIn('cuentas_por_cobrar', modulos_negocio(self.negocio))
+
+
+class HooksDeDatosBloqueantesTests(SuscripcionesTestCase):
+    """SUS-010: un error al comprobar datos en vuelo NO autoriza la baja."""
+
+    def setUp(self):
+        super().setUp()
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.empresarial, activa=True,
+        )
+        cache.clear()
+
+    def test_una_excepcion_del_hook_bloquea_la_baja(self):
+        """
+        La reproduccion: un hook que lanzo `ZeroDivisionError` producia
+        `(True, '')` y autorizaba la baja. Un fallo de infra (tabla
+        indisponible, error de esquema) se leia como "no hay datos pendientes".
+        """
+        from unittest.mock import patch
+
+        from apps.suscripciones import engine
+
+        def revienta(_negocio):
+            raise ZeroDivisionError('tabla indisponible')
+
+        with patch.dict(engine._HOOKS_DATOS, {'cuentas_por_cobrar': revienta}):
+            with self.assertLogs('suscripciones', level='ERROR'):
+                ok, motivo = engine.puede_desactivarse(
+                    self.negocio, 'cuentas_por_cobrar',
+                )
+
+        self.assertFalse(ok)
+        self.assertIn('no se pudo verificar', motivo)
+
+    def test_sin_datos_ni_error_la_baja_procede(self):
+        """Sin CxC abiertas y sin fallo, el modulo si se puede apagar."""
+        from apps.suscripciones import engine
+
+        ok, _ = engine.puede_desactivarse(self.negocio, 'cuentas_por_cobrar')
+        self.assertTrue(ok)
+
+
+class KeyDesconocidaTests(SuscripcionesTestCase):
+    """SUS-018: una key fuera del catalogo deniega, aun en el camino fail-open."""
+
+    def test_key_desconocida_sin_negocio_deniega_y_avisa(self):
+        """
+        La reproduccion: `modulo_con_typo` no existia en el registro y aun asi
+        devolvia True sin negocio, sin ningun log que revelara el error.
+        """
+        with self.assertLogs('suscripciones', level='WARNING'):
+            self.assertFalse(modulo_activo('modulo_con_typo', negocio=None))
+
+    def test_key_real_sin_negocio_sigue_fail_open(self):
+        """El fail-open comercial se conserva para keys reales del catalogo."""
+        self.assertTrue(modulo_activo('ecf', negocio=None))
+
+
+class DriftDeCatalogoTests(SuscripcionesTestCase):
+    """SUS-012: el registro en codigo y el espejo DB no pueden divergir callados."""
+
+    def test_registro_real_es_valido(self):
+        from apps.suscripciones.checks import registro_de_modulos_es_valido
+
+        self.assertEqual(registro_de_modulos_es_valido(None), [])
+
+    def test_espejo_sembrado_no_reporta_nada(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        self.assertEqual(espejo_db_coincide_con_registro(None), [])
+
+    def test_modulo_fantasma_en_db_es_error(self):
+        """
+        La reproduccion: un modulo agregado solo en la DB se asignaba a un plan
+        y el resolutor lo descartaba en silencio.
+        """
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        Modulo.objects.create(key='fantasma', nombre='Fantasma')
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.E004', ids)
+
+    def test_modulo_faltante_en_db_es_warning(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        Modulo.objects.filter(key='ecf').delete()
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.W001', ids)
+
+    def test_core_divergente_es_warning(self):
+        from apps.suscripciones.checks import espejo_db_coincide_con_registro
+
+        # 'ecf' es vendible en el registro; marcarlo core en la DB es drift.
+        Modulo.objects.filter(key='ecf').update(core=True)
+
+        ids = {p.id for p in espejo_db_coincide_con_registro(None)}
+        self.assertIn('suscripciones.W002', ids)
+
+
+class BootstrapTestCase(SuscripcionesTestCase):
+    """Base para las pruebas de onboarding: llama al bootstrap con modelos reales."""
+
+    def _bootstrap(self):
+        return seed.bootstrap(
+            ModuloModel=Modulo,
+            PlanModel=Plan,
+            NegocioModel=Negocio,
+            NegocioModuloModel=NegocioModulo,
+            SuscripcionModel=SuscripcionNegocio,
+            ConfiguracionModel=ConfiguracionNegocio,
+        )
+
+    def _config(self, sucursal, **flags):
+        return ConfiguracionNegocio.objects.create(
+            sucursal=sucursal, nombre_negocio=getattr(sucursal, 'nombre', 'X'),
+            **flags,
+        )
+
+
+class BootstrapPreservaPorSucursalTests(BootstrapTestCase):
+    """SUS-008: la union del bootstrap no enciende un modulo en una sucursal que
+    lo tenia apagado."""
+
+    def test_flags_divergentes_se_conservan_bit_por_bit(self):
+        """
+        La reproduccion: sucursal A con e-CF=True y B con e-CF=False producia
+        e-CF activo tambien para B, sin ningun override de compensacion.
+        """
+        suc_a = self.sucursal  # SUS-A (setUp)
+        suc_b = Sucursal.objects.create(
+            codigo='SUS-B', nombre='Tienda B', activa=True, negocio=self.negocio,
+        )
+        self._config(suc_a, modulo_ecf=True)
+        self._config(suc_b, modulo_ecf=False)
+
+        self._bootstrap()
+        cache.clear()
+
+        # A nivel negocio, e-CF esta en el set (union de A y B).
+        self.assertIn('ecf', modulos_negocio(self.negocio))
+        # Pero se conserva bit por bit: A encendido, B apagado.
+        self.assertIn('ecf', modulos_activos(self.negocio, sucursal=suc_a))
+        self.assertNotIn('ecf', modulos_activos(self.negocio, sucursal=suc_b))
+
+    def test_todas_apagadas_no_crea_override_ni_enciende(self):
+        """Si ninguna sucursal tenia el flag, no hay nada que compensar."""
+        suc_a = self.sucursal
+        self._config(suc_a, modulo_ecf=False)
+
+        resumen = self._bootstrap()
+        cache.clear()
+
+        self.assertNotIn('ecf', modulos_negocio(self.negocio))
+        self.assertEqual(resumen['overrides_sucursal'], 0)
+
+
+class BootstrapLegacySinSucursalTests(BootstrapTestCase):
+    """SUS-009: la configuracion legacy `sucursal=NULL` no se ignora en silencio."""
+
+    def test_una_config_legacy_con_un_solo_negocio_se_adopta(self):
+        self._config_legacy(modulo_ecf=True)
+
+        resumen = self._bootstrap()
+        cache.clear()
+
+        self.assertEqual(resumen['legacy_adoptadas'], 1)
+        self.assertIn('ecf', modulos_negocio(self.negocio))
+
+    def test_config_legacy_con_varios_negocios_aborta_sin_escribir(self):
+        """
+        La reproduccion: la derivacion filtraba `sucursal__negocio` y la fila
+        legacy se perdia. Ahora, si no es atribuible sin ambiguedad, aborta.
+        """
+        Negocio.objects.create(nombre='Otro', slug='otro')  # ya son 2 negocios
+        self._config_legacy(modulo_ecf=True)
+        antes = SuscripcionNegocio.objects.count()
+
+        with self.assertRaises(seed.BootstrapAmbiguo):
+            self._bootstrap()
+
+        self.assertEqual(SuscripcionNegocio.objects.count(), antes)
+
+    def _config_legacy(self, **flags):
+        return ConfiguracionNegocio.objects.create(
+            sucursal=None, nombre_negocio='Legacy', **flags,
+        )
+
+
+class BootstrapDryRunTests(BootstrapTestCase):
+    """SUS-016: `--dry-run` reporta sin escribir, y el bootstrap es atomico."""
+
+    def test_dry_run_no_escribe(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        self._config(self.sucursal, modulo_ecf=True)
+        antes = SuscripcionNegocio.objects.count()
+
+        salida = StringIO()
+        call_command('bootstrap_suscripciones', '--dry-run', stdout=salida)
+
+        self.assertEqual(SuscripcionNegocio.objects.count(), antes)
+        self.assertIn('DRY-RUN', salida.getvalue())
+
+
+class SemanticaDePlanYOverrideTests(SuscripcionesTestCase):
+    """SUS-013: `Plan.activo` bloquea nuevas altas (no suspende); core no se
+    excluye ni se apaga por sucursal."""
+
+    def setUp(self):
+        super().setUp()
+        self.operador = self._usuario('op_sus13')
+        cache.clear()
+
+    def test_asignar_un_plan_inactivo_a_una_nueva_alta_se_rechaza(self):
+        """La reproduccion: el serializer aceptaba cualquier plan, incluido inactivo."""
+        self.basico.activo = False
+        self.basico.save()
+        suscripcion = SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=None, activa=True,
+        )
+        cache.clear()
+
+        respuesta = self._api(self.operador).patch(
+            f'/api/v1/suscripciones/negocios/{suscripcion.id}/',
+            {'plan': self.basico.slug}, format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_reguardar_a_un_suscriptor_ya_en_el_plan_inactivo_no_se_bloquea(self):
+        """`activo=False` no suspende clientes existentes: mantenerlos es valido."""
+        suscripcion = SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.basico, activa=True,
+        )
+        self.basico.activo = False
+        self.basico.save()
+        cache.clear()
+
+        respuesta = self._api(self.operador).patch(
+            f'/api/v1/suscripciones/negocios/{suscripcion.id}/',
+            {'plan': self.basico.slug}, format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 200, respuesta.content)
+
+    def test_excluir_un_modulo_core_via_override_se_rechaza(self):
+        SuscripcionNegocio.objects.create(
+            negocio=self.negocio, plan=self.empresarial, activa=True,
+        )
+        cache.clear()
+
+        respuesta = self._api(self.operador).post(
+            '/api/v1/suscripciones/overrides/',
+            {'negocio': self.negocio.id, 'modulo': 'ventas', 'incluido': False},
+            format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_override_de_sucursal_activo_true_se_rechaza(self):
+        from django.core.exceptions import ValidationError
+
+        override = SucursalModuloOverride(
+            sucursal=self.sucursal, modulo=Modulo.objects.get(key='ecf'),
+            activo=True,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            override.full_clean()
+        self.assertIn('activo', ctx.exception.message_dict)
+
+    def test_apagar_un_core_por_sucursal_se_rechaza(self):
+        from django.core.exceptions import ValidationError
+
+        override = SucursalModuloOverride(
+            sucursal=self.sucursal, modulo=Modulo.objects.get(key='ventas'),
+            activo=False,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            override.full_clean()
+        self.assertIn('modulo', ctx.exception.message_dict)

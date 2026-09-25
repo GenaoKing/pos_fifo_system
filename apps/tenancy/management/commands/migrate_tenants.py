@@ -5,6 +5,7 @@ from django.db import connections
 from django.utils import timezone
 
 from apps.tenancy.context import force_tenancy, tenant_context
+from apps.tenancy.migration_repair import inspeccionar_sucursales
 from apps.tenancy.models import Tenant
 from apps.tenancy.registry import configure_tenant_database
 from apps.tenancy.router import CONTROL_PLANE_APPS, DEFAULT_ONLY_APPS
@@ -96,6 +97,12 @@ class Command(BaseCommand):
                         tenant,
                         permitir_inactivo=options.get('incluir_inactivos', False),
                     ):
+                        estado_sucursales = inspeccionar_sucursales(alias)
+                        if estado_sucursales.reparacion_requerida:
+                            raise CommandError(estado_sucursales.mensaje_reparacion(
+                                'python manage.py reparar_sucursales_dual_home '
+                                f'--tenant {tenant.tenant_key} --dry-run',
+                            ))
                         call_command(
                             'migrate',
                             database=alias,
@@ -113,9 +120,10 @@ class Command(BaseCommand):
                             f'faltan {len(faltantes)} tablas: '
                             f'{", ".join(faltantes[:8])}'
                             f'{" ..." if len(faltantes) > 8 else ""}. '
-                            f'Reparacion: borrar de django_migrations de '
-                            f'{tenant.db_name} las filas de la app afectada y '
-                            f'volver a correr migrate_tenants.'
+                            f'No borre filas manualmente de django_migrations. '
+                            f'Para sucursales use reparar_sucursales_dual_home '
+                            f'con --tenant {tenant.tenant_key} --dry-run; para '
+                            f'otra app, prepare una reparacion dirigida y auditable.'
                         )
                 except Exception as exc:
                     resultados.append({

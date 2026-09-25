@@ -80,6 +80,19 @@ class SyncExtendedEndpointTests(TestCase):
         self.assertNotIn('nombre_impresora_termica', row)
         self.assertNotIn('nombre_impresora_zebra', row)
 
+    def test_configuracion_sin_fila_devuelve_lista_vacia_sin_crearla(self):
+        self.assertFalse(
+            ConfiguracionNegocio.objects.filter(sucursal=self.sucursal).exists()
+        )
+
+        res = self._api().get('/api/v1/sync/configuracion/')
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data, [])
+        self.assertFalse(
+            ConfiguracionNegocio.objects.filter(sucursal=self.sucursal).exists()
+        )
+
 
 class SyncExtendedHandlersTests(TestCase):
     def setUp(self):

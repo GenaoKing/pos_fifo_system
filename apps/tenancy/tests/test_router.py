@@ -5,6 +5,7 @@ from rest_framework.request import Request
 
 from apps.auditoria.middleware import AuditoriaMiddleware
 from apps.productos.models import Producto
+from apps.sucursales.models import Sucursal
 from apps.tenancy.context import (
     TenantContextError,
     bind_tenant_context_to_request,
@@ -31,6 +32,7 @@ class TenantDatabaseRouterTests(SimpleTestCase):
     def test_dual_home_models_route_to_default_without_context(self):
         self.assertEqual(self.router.db_for_read(Usuario), 'default')
         self.assertEqual(self.router.db_for_write(ContentType), 'default')
+        self.assertEqual(self.router.db_for_read(Sucursal), 'default')
 
     def test_tenant_model_without_context_fails_fast(self):
         with self.assertRaises(TenantContextError):
@@ -43,6 +45,7 @@ class TenantDatabaseRouterTests(SimpleTestCase):
             self.assertEqual(self.router.db_for_write(Producto), 'tnt_demo')
             self.assertEqual(self.router.db_for_read(Usuario), 'tnt_demo')
             self.assertEqual(self.router.db_for_write(ContentType), 'tnt_demo')
+            self.assertEqual(self.router.db_for_write(Sucursal), 'tnt_demo')
         finally:
             reset_current_tenant(tokens)
 
@@ -55,6 +58,8 @@ class TenantDatabaseRouterTests(SimpleTestCase):
         self.assertTrue(self.router.allow_migrate('tnt_demo', 'usuarios'))
         self.assertTrue(self.router.allow_migrate('default', 'contenttypes'))
         self.assertTrue(self.router.allow_migrate('tnt_demo', 'contenttypes'))
+        self.assertTrue(self.router.allow_migrate('default', 'sucursales'))
+        self.assertTrue(self.router.allow_migrate('tnt_demo', 'sucursales'))
         self.assertTrue(self.router.allow_migrate('default', 'admin'))
         self.assertFalse(self.router.allow_migrate('tnt_demo', 'admin'))
 

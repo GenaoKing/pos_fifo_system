@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
+from apps.configuracion.models import ConfiguracionNegocio
 from apps.permisos import testing as permisos_testing
 from apps.permisos import throttling
 from apps.permisos.models import AutorizacionOverride, CredencialFisica
@@ -110,6 +111,12 @@ class EndpointCredencialTests(CredencialFisicaTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Una unica ConfiguracionNegocio legacy -> get_config() la resuelve
+        # sin ambiguedad (CFG-012: ya no se crea sola al leer). El endpoint
+        # caja:api_validar_admin la consulta para decidir la autorizacion.
+        ConfiguracionNegocio.objects.create()
+
         User = get_user_model()
         self.cajera = User.objects.create_user(
             username='cajera_carnet',

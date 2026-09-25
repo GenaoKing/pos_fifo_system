@@ -6,6 +6,8 @@ FASE 2: Ya no es singleton (pk=1).
 Ahora es una config POR SUCURSAL via FK.
 Backward compatible: si no hay sucursal configurada, carga la primera config existente.
 """
+import logging
+import re
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -13,6 +15,67 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 from apps.tenancy.media import config_logo_upload_to
+
+logger = logging.getLogger('configuracion.models')
+
+# CFG-020 — gramatica que el generador de codigos internos realmente consume:
+# `generar_codigo_barra_interno()` toma el prefijo ANTES del primer '-' y siempre
+# produce 6 digitos (`PREFIJO-000001`). Un formato con otra forma (sin '-', con
+# distinta cantidad de 'X', minusculas, o mas de un '-') prometeria algo que el
+# generador no cumple. El prefijo se acota a 13 porque el campo mide 20 y
+# '-XXXXXX' ocupa 7.
+_FORMATO_CODIGO_BARRAS = re.compile(r'[A-Z0-9]{1,13}-XXXXXX')
+
+
+class ConfiguracionProtegidaError(RuntimeError):
+    """
+    CFG-011 — la configuracion del negocio no se borra: es control plane
+    (identidad fiscal, medios de pago, modulos). El `delete()` del modelo antes
+    era un `pass` silencioso —un caller creia haber borrado y seguia con estado
+    falso— mientras que `QuerySet.delete()` no pasaba por ahi y SI borraba de
+    verdad, dejando workers sirviendo una copia que ya no existe. Ahora ambas
+    rutas fallan de forma uniforme y observable.
+    """
+
+
+class ConfiguracionNoInicializada(RuntimeError):
+    """
+    CFG-012 — leer la configuracion no puede crearla. `load()` hacia
+    `get_or_create()`, y el context processor lo llama en CADA render
+    (login, error, admin incluidos): abrir cualquier pagina en una
+    instalacion a la que todavia no le corrieron `crear_config_inicial`
+    creaba en silencio una fila "Mi Negocio", con conteos y timestamps que
+    no reflejan ninguna decision real de nadie.
+
+    Ahora una lectura sin fila levanta esta excepcion con la accion
+    correcta. Crear la fila es un acto explicito: `crear_config_inicial`
+    (instalacion real) o `ConfiguracionNegocio.bootstrap(...)` (fixtures de
+    test / un futuro primer-pull de sync que necesite materializarla).
+    """
+
+
+class ConfiguracionAmbigua(RuntimeError):
+    """
+    `ConfiguracionNegocio.bootstrap(sucursal=None)` con mas de una fila
+    legacy candidata en la base. Elegir `.first()` seria el mismo hallazgo
+    que CFG-002 (`_config_sin_sucursal`) pero al escribir en vez de leer:
+    la instalacion terminaria operando -o creando una tercera fila- sobre
+    una identidad fiscal arbitraria. Se resuelve a mano, ligando cada fila
+    a su sucursal.
+    """
+
+
+class _ConfiguracionQuerySet(models.QuerySet):
+    def delete(self):
+        raise ConfiguracionProtegidaError(
+            'No se permite borrar configuraciones por QuerySet.delete(). '
+            'La configuracion del negocio es control plane; retirarla exige una '
+            'transicion versionada y explicita, no un borrado masivo.'
+        )
+
+
+class _ConfiguracionManager(models.Manager.from_queryset(_ConfiguracionQuerySet)):
+    pass
 
 
 class ConfiguracionNegocio(models.Model):
@@ -301,6 +364,8 @@ class ConfiguracionNegocio(models.Model):
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
+    objects = _ConfiguracionManager()
+
     class Meta:
         verbose_name = 'Configuracion del Negocio'
         verbose_name_plural = 'Configuraciones del Negocio'
@@ -310,12 +375,81 @@ class ConfiguracionNegocio(models.Model):
             return f'Configuracion: {self.nombre_negocio} ({self.sucursal.codigo})'
         return f'Configuracion: {self.nombre_negocio}'
 
+    def clean(self):
+        """
+        CFG-006 — reglas cruzadas. El modelo no tenia `clean()` y `full_clean()`
+        aceptaba combinaciones que rompen la operacion o la fiscalidad:
+        cero medios de pago (el POS no puede cobrar), e-CF activo sin emisor
+        (una venta entra a un flujo fiscal sin con que firmar) e ITBIS fuera de
+        rango (el campo no tiene min/max, aceptaba -5 o 200).
+
+        Se valida a nivel aplicacion (Admin/formularios/`full_clean`). Los
+        constraints de base quedan para un preflight coordinado: una instalacion
+        existente podria violar hoy alguna de estas reglas y una migracion con
+        `CheckConstraint` fallaria en el `migrate`.
+        """
+        errors = {}
+
+        if not (self.pago_efectivo or self.pago_transferencia or self.pago_tarjeta):
+            errors['pago_efectivo'] = (
+                'Debe haber al menos un medio de pago habilitado; sin ninguno el '
+                'POS no puede cobrar.'
+            )
+
+        if self.modulo_ecf and self.emisor_activo_id is None:
+            errors['emisor_activo'] = (
+                'Con Facturacion Electronica (e-CF) activa hay que definir el '
+                'emisor que firma los comprobantes.'
+            )
+
+        itbis = self.itbis_porcentaje_global
+        if itbis is not None and not (Decimal('0') <= itbis <= Decimal('100')):
+            errors['itbis_porcentaje_global'] = (
+                'El ITBIS % global debe estar entre 0 y 100.'
+            )
+
+        # CFG-020 — el formato no debe prometer mas de lo que el generador honra.
+        formato = self.formato_codigo_barras
+        if formato and not _FORMATO_CODIGO_BARRAS.fullmatch(formato):
+            errors['formato_codigo_barras'] = (
+                "Formato invalido. Debe ser PREFIJO-XXXXXX (prefijo en "
+                "mayusculas/digitos de 1 a 13 caracteres y exactamente seis 'X'), "
+                "porque el generador usa solo el prefijo antes del '-' y siempre "
+                "produce 6 digitos. Ej: RP-XXXXXX."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         # -----------------------------------------------------------
         # FASE 2: Ya NO forzamos self.pk = 1
         # Cada sucursal tiene su propia config.
         # -----------------------------------------------------------
+        # CFG-018 — al reemplazar el logo se borra el archivo anterior. El config
+        # NO se borra (CFG-011), asi que el reemplazo es el unico camino a
+        # archivos huerfanos. Se captura el nombre viejo ANTES de guardar y se
+        # borra DESPUES, solo si de verdad cambio.
+        logo_anterior = None
+        if self.pk:
+            previo = (
+                type(self).objects.filter(pk=self.pk)
+                .values_list('logo', flat=True).first()
+            )
+            actual = self.logo.name if self.logo else ''
+            if previo and previo != actual:
+                logo_anterior = previo
+
         super().save(*args, **kwargs)
+
+        if logo_anterior:
+            try:
+                self.logo.storage.delete(logo_anterior)
+            except Exception as exc:
+                logger.warning(
+                    'No se pudo borrar el logo anterior %s (CFG-018): %s: %s',
+                    logo_anterior, type(exc).__name__, exc,
+                )
 
         # Invalidar cache al guardar. La clave la construye
         # `cache_key_config()`, que incluye el tenant activo (CFG-001): armarla
@@ -333,38 +467,92 @@ class ConfiguracionNegocio(models.Model):
 
     def delete(self, *args, **kwargs):
         """
-        No se borra la configuracion. (CFG-011 senala que esta proteccion es
-        ilusoria: `QuerySet.delete()` no pasa por aca. Queda anotado.)
+        CFG-011 — no se borra la configuracion. Antes era un `pass` silencioso;
+        ahora falla en voz alta (y `QuerySet.delete()` tambien, via
+        `_ConfiguracionManager`), de forma uniforme por cualquier ruta.
         """
-        pass
+        raise ConfiguracionProtegidaError(
+            'La configuracion del negocio no se borra (es control plane). '
+            'Si de verdad hay que retirarla, hacelo por una transicion '
+            'versionada y explicita, no por delete().'
+        )
 
     @classmethod
     def load(cls, sucursal=None):
         """
-        Carga la configuracion para una sucursal.
+        CFG-012 — lectura PURA. Nunca crea: si no hay fila, levanta
+        `ConfiguracionNoInicializada` con la accion correcta en el mensaje.
 
         Args:
             sucursal: instancia de Sucursal, o None para legacy/fallback
 
-        Si se pasa sucursal, busca por FK.
-        Si no hay sucursal, intenta cargar pk=1 (backward compatible).
+        Si se pasa sucursal, busca por FK. Si no hay sucursal, la unica
+        configuracion de la base (legacy, backward compatible).
+
+        Para crear explicitamente, usar `crear_config_inicial` (instalacion
+        real) o `ConfiguracionNegocio.bootstrap(...)` (get-or-create
+        explicito, para fixtures/tests o un bootstrap programatico).
         """
         if sucursal:
-            obj, _ = cls.objects.get_or_create(
-                sucursal=sucursal,
-                defaults={'nombre_negocio': sucursal.nombre}
-            )
-            return obj
+            try:
+                return cls.objects.get(sucursal=sucursal)
+            except cls.DoesNotExist:
+                raise ConfiguracionNoInicializada(
+                    f'No hay ConfiguracionNegocio para la sucursal '
+                    f'"{sucursal.codigo}". Ejecutar: manage.py '
+                    f'crear_config_inicial --sucursal {sucursal.codigo}'
+                )
         else:
-            # Backward compatible: cargar la primera config o crear una con pk=1.
-            # El leer-y-crear tiene carrera: en una instalacion recien montada,
-            # dos requests simultaneos veian None los dos y el segundo moria con
-            # IntegrityError sobre la pk. `get_or_create` reintenta la lectura
-            # dentro de su propio savepoint.
             obj = cls.objects.first()
             if obj is None:
-                obj, _ = cls.objects.get_or_create(pk=1)
+                raise ConfiguracionNoInicializada(
+                    'No hay ninguna ConfiguracionNegocio en esta base. '
+                    'Ejecutar: manage.py crear_config_inicial'
+                )
             return obj
+
+    @classmethod
+    def bootstrap(cls, sucursal=None, **defaults):
+        """
+        Unico punto de creacion IMPLICITA permitido (get-or-create), fuera
+        de `crear_config_inicial`. Es la misma semantica que tenia `load()`
+        antes de CFG-012 — se conserva a proposito, con otro nombre, para
+        quien de verdad necesite "crear si no existe": fixtures de test, o
+        un futuro primer-pull de sync que deba materializar la fila local.
+        Ningun call site de produccion la necesita hoy: la instalacion real
+        corre `crear_config_inicial` antes de aceptar trafico (ver runbook).
+
+        Con `sucursal`: una sola sentencia `get_or_create()` (Django la
+        corre en su propio savepoint, atomica por la unicidad real de la
+        FK) — idempotente, correrla dos veces no duplica ni pisa la fila.
+
+        Sin `sucursal` (legacy): NO hay unicidad de FK que proteja "una
+        sola fila sin sucursal", asi que `get_or_create(pk=1)` era un
+        atajo enganoso — ignoraba cualquier fila legacy real con un PK
+        distinto (una base importada, o una secuencia ya avanzada) y podia
+        terminar con dos filas "unicas". Ahora replica la misma regla que
+        `_config_sin_sucursal` (CFG-002) usa para LEER, aplicada a
+        escribir: cero filas -> crea una sola, sin forzar el PK; exactamente
+        una, sea cual sea su PK -> es esa, no se crea otra; mas de una ->
+        `ConfiguracionAmbigua` — elegir `.first()` seria el mismo hallazgo
+        que CFG-002 pero al escribir.
+        """
+        if sucursal:
+            defaults.setdefault('nombre_negocio', sucursal.nombre)
+            obj, _ = cls.objects.get_or_create(sucursal=sucursal, defaults=defaults)
+            return obj
+
+        candidatas = list(cls.objects.all()[:2])
+        if not candidatas:
+            return cls.objects.create(**defaults)
+        if len(candidatas) == 1:
+            return candidatas[0]
+        raise ConfiguracionAmbigua(
+            'Hay mas de una ConfiguracionNegocio legacy en esta base: '
+            'bootstrap() sin sucursal no puede elegir una arbitrariamente. '
+            'Ligar cada fila a su sucursal (crear_config_inicial --sucursal '
+            '<codigo>) antes de volver a llamar a bootstrap() sin sucursal.'
+        )
 
     def get_metodos_pago_activos(self):
         """Retorna lista de metodos de pago habilitados"""
@@ -456,6 +644,24 @@ class AccesoRapidoPOS(models.Model):
         ('gris', 'Gris'),
     )
 
+    # CFG-010 pata 2 — ambito por sucursal. Antes el modelo no tenia sucursal y
+    # el POS listaba TODOS los accesos activos: un boton creado en la sucursal A
+    # aparecia en la B, con catalogos/prioridades distintos. Ahora cada acceso es
+    # de una sucursal. `null=True` es deliberado: las filas creadas antes de este
+    # campo quedan en NULL y se tratan como "legacy global" (visibles en toda
+    # sucursal) hasta que un operador las reasigne, para no romper instalaciones
+    # existentes en el `migrate`.
+    sucursal = models.ForeignKey(
+        'sucursales.Sucursal',
+        on_delete=models.CASCADE,
+        related_name='accesos_rapidos_pos',
+        blank=True,
+        null=True,
+        verbose_name='Sucursal',
+        help_text='Sucursal dueña de este acceso. Vacio = acceso legacy global '
+                  '(visible en todas las sucursales); asignalo para acotarlo.',
+    )
+
     etiqueta = models.CharField(
         'Etiqueta',
         max_length=80,
@@ -532,3 +738,16 @@ class AccesoRapidoPOS(models.Model):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        # CFG-010 — `clean()` exige exactamente producto XOR categoria segun
+        # `tipo`, pero `save()` no lo invocaba: `objects.create(tipo='producto')`
+        # (sin producto), un `save()` directo o un import persistian una fila
+        # invalida que el POS despues no sabe resolver. Se valida aca para cerrar
+        # la via ORM/import, a nivel aplicacion — mismo criterio que CFG-006. El
+        # `CheckConstraint` de base queda para un preflight coordinado: una
+        # instalacion existente podria tener filas invalidas y el `migrate`
+        # fallaria. El ámbito por sucursal se implementa de forma aditiva:
+        # las filas legacy NULL permanecen globales hasta un backfill explícito.
+        self.full_clean()
+        super().save(*args, **kwargs)

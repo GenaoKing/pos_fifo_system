@@ -114,7 +114,25 @@ python manage.py verificar_sync --settings=config.settings_demo_branch
 ```
 
 La sección `CURSORES DE PULL` marca en rojo cualquier cursor **BLOQUEADO**, o sea
-un registro del portal que falla al aplicarse y está frenando la marca de agua.
+un registro que no pudo aplicarse **ni** guardarse durablemente. Desde A04, un
+fallo de dependencia que sí quedó en `DiferidoSync` permite avanzar el cursor,
+pero mantiene el ciclo `PARCIAL` hasta resolverse; revisar también esa cola.
+
+**Lease y crash (A04).** Ejecutar dos procesos del rig contra su misma BD local
+de prueba. Solo uno debe reclamar cada `EventoSync`; el otro lo ve `EN_VUELO`.
+Terminar el dueño antes del ACK, vencer el lease en la BD desechable y repetir:
+debe viajar el mismo `event_id`, y `DUPLICADO` debe terminarlo sin duplicar el
+hecho cloud.
+
+**BUG-K (A04).** La primera pasada es siempre read-only/dry-run:
+
+```bash
+python manage.py reparar_bug_k --dias 90 --json --settings=config.settings_demo_branch
+```
+
+Guardar el plan con `--guardar-plan` solo en un entorno autorizado. No usar
+`--ejecutar` sobre un cliente durante una prueba: requiere lista revisada,
+digest explícito, evidencia antes/después y la autorización operativa de A09.
 
 ---
 

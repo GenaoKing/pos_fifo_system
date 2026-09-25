@@ -3,6 +3,7 @@ Pull local de definiciones de rol: aplicar el payload del cloud actualiza
 Rol.permisos e invalida el cache del motor (un cajero gana el permiso).
 """
 from unittest.mock import patch
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -13,7 +14,8 @@ from apps.permisos.catalogo import sembrar_catalogo
 from apps.permisos.models import AsignacionRol, Permiso
 from apps.sucursales.models import Sucursal
 from apps.sync.engine import SyncEngine
-from apps.sync.models import VersionMaestro
+from apps.sync.models import DiferidoSync, VersionMaestro
+from apps.tenancy.context import reset_current_tenant, set_current_tenant
 
 User = get_user_model()
 
@@ -75,6 +77,118 @@ class PullRolesTests(TestCase):
         self.assertEqual(engine._pull_roles()['count'], 0)
         mock_get.assert_not_called()
 
+    @patch('apps.sync.engine.requests.get')
+    def test_v2_aplica_baja_antes_de_permiso_desconocido(self, mock_get):
+        remoto = uuid.uuid4()
+        payload = {
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': self.negocio.slug,
+            'roles': [{
+                'cloud_id': str(remoto),
+                'revision': 7,
+                'slug': self.rol.slug,
+                'nombre': self.rol.nombre,
+                'active': False,
+                'permission_codes': ['permiso.nuevo.que.el.pos.no.conoce'],
+                'deleted_at': timezone.now().isoformat(),
+                'fecha_modificacion': timezone.now().isoformat(),
+            }],
+        }
+        mock_get.return_value = _Resp(payload)
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_roles()
+
+        self.rol.refresh_from_db()
+        self.assertTrue(resultado['ok'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertFalse(self.rol.activo)
+        self.assertEqual(self.rol.cloud_id, remoto)
+        self.assertEqual(self.rol.revision, 7)
+        self.assertEqual(
+            mock_get.call_args.kwargs['headers']['X-RBAC-Schema'],
+            'rbac.sync.v2',
+        )
+
+    @patch('apps.sync.engine.requests.get')
+    def test_snapshot_completo_revoca_solo_filas_de_propiedad_cloud(self, mock_get):
+        self.rol.origen_cloud = True
+        self.rol.save(update_fields=['origen_cloud', 'fecha_modificacion'])
+        local = testing.crear_rol(self.negocio, 'Solo local', ['clientes.ver'])
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': self.negocio.slug,
+            'roles': [],
+        })
+
+        SyncEngine(cloud_url='https://cloud.example', token='t')._pull_roles()
+
+        self.rol.refresh_from_db()
+        local.refresh_from_db()
+        self.assertFalse(self.rol.activo)
+        self.assertTrue(local.activo)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_snapshot_parcial_no_revoca_ausentes(self, mock_get):
+        self.rol.origen_cloud = True
+        self.rol.save(update_fields=['origen_cloud', 'fecha_modificacion'])
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': False,
+            'tenant_key': self.negocio.slug,
+            'roles': [],
+        })
+
+        SyncEngine(cloud_url='https://cloud.example', token='t')._pull_roles()
+
+        self.rol.refresh_from_db()
+        self.assertTrue(self.rol.activo)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_snapshot_de_otro_tenant_no_se_aplica_ni_revoca(self, mock_get):
+        self.rol.origen_cloud = True
+        self.rol.save(update_fields=['origen_cloud', 'fecha_modificacion'])
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': 'otro-negocio',
+            'roles': [],
+        })
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_roles()
+
+        self.rol.refresh_from_db()
+        self.assertTrue(self.rol.activo)
+        self.assertIn('envelope invalido', resultado['bloqueo'])
+
+    @patch('apps.sync.engine.requests.get')
+    def test_envelope_usa_tenant_key_tecnico_del_contexto(self, mock_get):
+        self.rol.origen_cloud = True
+        self.rol.save(update_fields=['origen_cloud', 'fecha_modificacion'])
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': 'tenant_tecnico',
+            'roles': [],
+        })
+
+        tokens = set_current_tenant('tenant_tecnico', 'tnt_tenant_tecnico')
+        try:
+            resultado = SyncEngine(
+                cloud_url='https://cloud.example', token='t',
+            )._pull_roles()
+        finally:
+            reset_current_tenant(tokens)
+
+        self.rol.refresh_from_db()
+        self.assertTrue(resultado['ok'])
+        self.assertFalse(self.rol.activo)
+
 
 @override_settings(SUCURSAL_CODIGO='SD-001')
 class PullAsignacionesTests(TestCase):
@@ -133,11 +247,16 @@ class PullAsignacionesTests(TestCase):
 
         self.assertEqual(resultado['count'], 0)
         self.assertEqual(AsignacionRol.objects.count(), 0)
-        self.assertIsNotNone(resultado['bloqueo'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertEqual(resultado['diferidos_pendientes'], 1)
 
         cursor = VersionMaestro.objects.get(tabla='asignaciones')
-        self.assertIsNone(cursor.ultima_version)
-        self.assertIsNotNone(cursor.bloqueado_desde)
+        self.assertIsNotNone(cursor.ultima_version)
+        self.assertIsNone(cursor.bloqueado_desde)
+        self.assertEqual(
+            DiferidoSync.objects.get(tabla='asignaciones').estado,
+            'PENDIENTE',
+        )
 
     @patch('apps.sync.engine.requests.get')
     def test_asignacion_diferida_se_aplica_cuando_llega_la_dependencia(self, mock_get):
@@ -169,12 +288,109 @@ class PullAsignacionesTests(TestCase):
         usuario.negocio = self.negocio
         usuario.save(update_fields=['negocio'])
 
-        # Ciclo 2: el cursor no avanzo, asi que la fila vuelve a bajar.
-        mock_get.return_value = _Resp(payload)
-        self.assertEqual(engine._pull_asignaciones()['count'], 1)
+        # Ciclo 2: la fila no vuelve a bajar; se recupera desde la cola durable.
+        mock_get.return_value = _Resp([])
+        resultado = engine._pull_asignaciones()
+        self.assertEqual(resultado['count'], 1)
+        self.assertEqual(resultado['diferidos_resueltos'], 1)
         self.assertTrue(
             AsignacionRol.objects.filter(usuario=usuario, rol=self.rol).exists()
         )
+        self.assertEqual(DiferidoSync.objects.get().estado, 'RESUELTO')
 
         cursor = VersionMaestro.objects.get(tabla='asignaciones')
         self.assertIsNone(cursor.bloqueado_desde)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_baja_v2_no_depende_de_usuario_rol_o_permiso_conocido(self, mock_get):
+        asignacion = testing.asignar(self.cajero, self.rol, set_negocio=False)
+        asignacion.origen_cloud = True
+        asignacion.revision = 3
+        asignacion.save(
+            update_fields=['origen_cloud', 'revision', 'fecha_modificacion'],
+            _preserve_rbac_revision=True,
+        )
+        payload = {
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': self.negocio.slug,
+            'scope': {'branch_code': self.sucursal.codigo},
+            'assignments': [{
+                'cloud_id': str(asignacion.cloud_id),
+                'revision': 4,
+                'usuario_username': 'usuario_ya_borrado',
+                'rol_slug': 'rol-que-este-pos-no-conoce',
+                'sucursal_codigo': None,
+                'active': False,
+                'deleted_at': timezone.now().isoformat(),
+                'fecha_modificacion': timezone.now().isoformat(),
+            }],
+        }
+        mock_get.return_value = _Resp(payload)
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_asignaciones()
+
+        asignacion.refresh_from_db()
+        self.assertTrue(resultado['ok'])
+        self.assertIsNone(resultado['bloqueo'])
+        self.assertFalse(asignacion.activo)
+        self.assertEqual(asignacion.revision, 4)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_snapshot_completo_no_revoca_asignacion_local(self, mock_get):
+        cloud = testing.asignar(self.cajero, self.rol, set_negocio=False)
+        cloud.origen_cloud = True
+        cloud.save(update_fields=['origen_cloud', 'fecha_modificacion'])
+        otro_rol = testing.crear_rol(self.negocio, 'Local', ['clientes.ver'])
+        local = testing.asignar(self.cajero, otro_rol, set_negocio=False)
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': self.negocio.slug,
+            'scope': {'branch_code': self.sucursal.codigo},
+            'assignments': [],
+        })
+
+        SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_asignaciones()
+
+        cloud.refresh_from_db()
+        local.refresh_from_db()
+        self.assertFalse(cloud.activo)
+        self.assertTrue(local.activo)
+
+    @patch('apps.sync.engine.requests.get')
+    def test_revision_menor_se_ignora_y_no_revoca(self, mock_get):
+        asignacion = testing.asignar(self.cajero, self.rol, set_negocio=False)
+        asignacion.origen_cloud = True
+        asignacion.revision = 9
+        asignacion.save(
+            update_fields=['origen_cloud', 'revision', 'fecha_modificacion'],
+            _preserve_rbac_revision=True,
+        )
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': False,
+            'tenant_key': self.negocio.slug,
+            'scope': {'branch_code': self.sucursal.codigo},
+            'assignments': [{
+                'cloud_id': str(asignacion.cloud_id),
+                'revision': 8,
+                'usuario_username': self.cajero.username,
+                'rol_slug': self.rol.slug,
+                'sucursal_codigo': None,
+                'active': False,
+                'fecha_modificacion': timezone.now().isoformat(),
+            }],
+        })
+
+        SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_asignaciones()
+
+        asignacion.refresh_from_db()
+        self.assertTrue(asignacion.activo)
+        self.assertEqual(asignacion.revision, 9)

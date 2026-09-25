@@ -8,6 +8,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from .context import bind_tenant_context_to_request, set_current_tenant, tenancy_enabled
 from .models import Identity, Membership
 from .registry import configure_tenant_database
+from .session_policy import SesionAbsolutaExpirada, validar_limite_absoluto
 
 
 @dataclass
@@ -65,7 +66,20 @@ class TenantJWTAuthentication(JWTAuthentication):
         user = self.get_user_for_token(validated_token, request)
         return user, validated_token
 
+    def get_user(self, validated_token):
+        """Aplica el mismo maximo cuando tenancy esta deshabilitado."""
+        self._validar_sesion(validated_token)
+        return super().get_user(validated_token)
+
+    @staticmethod
+    def _validar_sesion(validated_token):
+        try:
+            validar_limite_absoluto(validated_token)
+        except SesionAbsolutaExpirada as exc:
+            raise AuthenticationFailed(str(exc), code='session_expired') from exc
+
     def get_user_for_token(self, validated_token, request):
+        self._validar_sesion(validated_token)
         identity_id = validated_token.get('identity_id')
         tenant_key = validated_token.get('tenant_key') or validated_token.get('tenant_id')
 

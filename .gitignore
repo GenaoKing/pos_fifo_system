@@ -63,9 +63,12 @@ deploy/env_cliente.env
 deploy/*.env
 !deploy/*.env.template
 
-# Logs de debug cloud
+# Logs de debug cloud (incluye archivos rotados: *.log ya cubre el activo,
+# pero no cloud_debug.log.1/.2/... -- ver hallazgo C06.1, cloud_debug.log.1
+# quedo commiteado por este hueco)
 cloud_debug.log
 cloud_debug_sql.log
+cloud_debug.log.*
 
 # Resultados de latencia (contienen hostnames)
 docs/latency_results_*.json
@@ -84,3 +87,10 @@ docs/latency_results_*.json
 # tokens/credenciales). NUNCA commitear.
 docs/dumps/
 docs/sk/
+
+# Wheelhouse y paquete offline de C06.1: se construyen fuera de Git en un
+# laboratorio aislado (ver docs/handoffs/cierre_prod/C06.1-*). Si alguna vez
+# se generan dentro del worktree, no deben commitearse.
+wheelhouse/
+/paquete/
+/paquete_staging/

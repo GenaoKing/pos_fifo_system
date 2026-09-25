@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -7,6 +7,7 @@ from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
 
 
+@override_settings(API_MAESTROS_PERMITE_ESCRITURA_LOCAL_TEST=True)
 class CategoriaViewSetPermissionTests(TestCase):
     categorias_url = '/api/v1/maestros/categorias/'
 
@@ -157,7 +158,10 @@ class CategoriaViewSetPermissionTests(TestCase):
     def test_admin_puede_desactivar_categoria(self):
         response = self.api(user=self.admin).patch(
             f'{self.categorias_url}{self.categoria.id}/',
-            {'activa': False},
+            {
+                'activa': False,
+                'motivo_inactivacion': 'Catálogo temporalmente fuera de operación.',
+            },
             format='json',
         )
 
@@ -167,11 +171,15 @@ class CategoriaViewSetPermissionTests(TestCase):
     def test_admin_puede_borrar_categoria(self):
         nueva = Categoria.objects.create(nombre='Para borrar')
         response = self.api(user=self.admin).delete(
-            f'{self.categorias_url}{nueva.id}/'
+            f'{self.categorias_url}{nueva.id}/',
+            {'motivo_inactivacion': 'La categoría se retiró del catálogo.'},
+            format='json',
         )
 
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Categoria.objects.filter(id=nueva.id).exists())
+        self.assertEqual(response.status_code, 200)
+        nueva.refresh_from_db()
+        self.assertFalse(nueva.activa)
+        self.assertEqual(nueva.motivo_inactivacion, 'La categoría se retiró del catálogo.')
 
     # --- Validaciones del serializer de escritura ---
 

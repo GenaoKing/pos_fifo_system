@@ -7,7 +7,7 @@
 > Este documento mira *por encima* de los roadmaps técnicos existentes
 > ([ROADMAP_CLOUD](ROADMAP_CLOUD.md), [ROADMAP_PORTAL](ROADMAP_PORTAL.md),
 > [ROADMAP_DEPLOY_AZURE](ROADMAP_DEPLOY_AZURE.md),
-> [ROADMAP_ECF_FASE_INICIAL](ROADMAP_ECF_FASE_INICIAL.md)). Esos dicen *cómo*
+> [ROADMAP_ECF_FASE_INICIAL](historico/ROADMAP_ECF_FASE_INICIAL.md)). Esos dicen *cómo*
 > construir lo ya decidido. Este pregunta *qué deberíamos construir después* y
 > *por qué*, anclado a lo que el negocio del cliente realmente necesita en
 > República Dominicana.
@@ -278,7 +278,7 @@ el e-CF completo (§4.3).
 
 ### 4.3 e-CF completo — *el reloj que ya está corriendo* ⏰
 
-No es una idea nueva (ya tiene su [roadmap](ROADMAP_ECF_FASE_INICIAL.md)), pero
+No es una idea nueva (ya tiene su [roadmap](historico/ROADMAP_ECF_FASE_INICIAL.md)), pero
 el calendario legal **reordena la prioridad de todo lo demás**:
 
 - Grandes contribuyentes: obligatorio desde mayo 2024.

@@ -11,6 +11,15 @@ class PermisoAdmin(admin.ModelAdmin):
     search_fields = ('codigo', 'nombre')
     ordering = ('modulo', 'codigo')
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Rol)
 class RolAdmin(admin.ModelAdmin):
@@ -18,7 +27,19 @@ class RolAdmin(admin.ModelAdmin):
     list_filter = ('negocio', 'es_sistema', 'activo')
     search_fields = ('nombre', 'slug')
     filter_horizontal = ('permisos',)
-    readonly_fields = ('fecha_creacion', 'fecha_modificacion')
+    readonly_fields = (
+        'cloud_id', 'revision', 'deleted_at',
+        'fecha_creacion', 'fecha_modificacion',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AsignacionRol)
@@ -27,7 +48,16 @@ class AsignacionRolAdmin(admin.ModelAdmin):
     list_filter = ('activo', 'rol__negocio')
     search_fields = ('usuario__username', 'rol__nombre')
     autocomplete_fields = ()
-    readonly_fields = ('fecha_creacion',)
+    readonly_fields = ('cloud_id', 'revision', 'deleted_at', 'fecha_creacion')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class CredencialFisicaForm(forms.ModelForm):

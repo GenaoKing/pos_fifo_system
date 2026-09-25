@@ -9,6 +9,7 @@ API publica:
     modulo_activo(key, negocio=None, sucursal=None) -> bool
     puede_desactivarse(negocio, key) -> (bool, motivo)
     invalidar_cache()
+    divergencias_plan_operativo(tenant_plan_slug, negocio) -> list[dict]
 
 Fail-open ante tenant indeterminado: si `negocio` es None, `modulo_activo` es
 True (sin restriccion). Los entitlements son comerciales, no de seguridad; es
@@ -27,10 +28,14 @@ exista una suscripcion con plan, o UNA fila de `NegocioModulo` (aunque sea
 solo una exclusion), deja de aplicar: ya hay una decision explicita que
 respetar.
 """
+import logging
+
 from django.conf import settings
 from django.core.cache import cache
 
 from . import registry
+
+logger = logging.getLogger('suscripciones')
 
 CACHE_PREFIX = 'modulos_negocio'
 
@@ -163,6 +168,49 @@ def estado_suscripcion(negocio, overrides=None):
     return CON_PLAN if suscripcion.plan_id else CUSTOM
 
 
+def divergencias_plan_operativo(tenant_plan_slug, negocio):
+    """
+    Compara el plan anunciado en el control plane (``Tenant.plan_slug``)
+    contra la suscripcion operativa real del negocio en la BD tenant.
+
+    SUS-014 tiene dos mitades: ``seed.validar_plan_slug`` (C03) impide que un
+    ``bootstrap_tenant`` NUEVO deje ambas bases inconsistentes -- ya cableada
+    por Codex. Esta funcion es la otra mitad: un chequeo de postcondicion de
+    solo lectura para detectar un plan YA divergente por cualquier otra via
+    (edicion manual, una fila tocada a mano, un bootstrap corrido antes del
+    fix). No previene nada; solo lo hace visible.
+
+    Uso esperado (Codex): extender la lista de ``divergencias_identidad`` con
+    ``divergencias_plan_operativo(tenant.plan_slug, negocio)`` dentro del mismo
+    ``tenant_context`` donde ya se resuelve ``negocio`` -- mismo formato de
+    fila (code/field/expected/actual), para concatenar sin transformar. Si
+    ``negocio`` es None, ``divergencias_identidad`` ya reporta NEGOCIO_MISSING;
+    aca se omite para no duplicarlo.
+
+    ``tenant_plan_slug=''`` sin plan operativo (custom, ``plan=None`` o sin
+    fila de ``SuscripcionNegocio``) NO es divergencia: es "sin plan explicito"
+    en ambos lados.
+    """
+    if negocio is None:
+        return []
+
+    suscripcion = getattr(negocio, 'suscripcion', None)
+    plan_operativo = (
+        suscripcion.plan.slug if (suscripcion and suscripcion.plan_id) else ''
+    )
+    esperado = tenant_plan_slug or ''
+
+    if esperado == plan_operativo:
+        return []
+
+    return [{
+        'code': 'PLAN_DRIFT',
+        'field': 'plan_slug',
+        'expected': esperado,
+        'actual': plan_operativo,
+    }]
+
+
 def _resolver_negocio(negocio):
     from .models import NegocioModulo
 
@@ -229,6 +277,18 @@ def modulo_activo(key, negocio=None, sucursal=None):
         negocio = getattr(sucursal, 'negocio', None)
 
     if negocio is None:
+        # Fail-open comercial, PERO solo para keys REALES del catalogo. Una key
+        # desconocida —un typo en un gate nuevo— jamas debe autorizarse: en un
+        # contexto sin negocio se colaba invisible, devolviendo True sin dejar
+        # rastro (SUS-018). El registro es la fuente de verdad; lo que no esta en
+        # el se deniega y se registra para que el gate mal escrito se note.
+        if registry.modulo(key) is None:
+            logger.warning(
+                "modulo_activo('%s'): key fuera del catalogo de modulos; se "
+                "deniega (SUS-018). Revisar el gate/consumidor que la declara.",
+                key,
+            )
+            return False
         return True  # fail-open (ver docstring del modulo)
     return key in modulos_activos(negocio, sucursal)
 
@@ -265,8 +325,7 @@ def _hay_ecf_en_proceso(negocio):
 
 
 # Hooks de "datos bloqueantes" por modulo: impiden apagar un modulo que aun tiene
-# datos en vuelo. Cada hook -> str (motivo) o None. Se llaman defensivamente
-# (cualquier excepcion = None = no bloquea).
+# datos en vuelo. Cada hook -> str (motivo) o None.
 _HOOKS_DATOS = {
     'cuentas_por_cobrar': _hay_cxc_abiertas,
     'ecf': _hay_ecf_en_proceso,
@@ -274,13 +333,30 @@ _HOOKS_DATOS = {
 
 
 def _datos_bloqueantes(negocio, key):
+    """
+    Motivo (str) por el que NO se puede apagar `key`, o None si esta libre.
+
+    SUS-010 — fail-closed. Antes cualquier excepcion del hook se tragaba y
+    devolvia None ("no hay datos pendientes"): una tabla indisponible, un error
+    de import o de esquema se interpretaba como autorizacion para apagar, que es
+    justo lo contrario de lo prudente. El hook existe para *demostrar* que no hay
+    trabajo en vuelo; si no puede demostrarlo, no se apaga. El error se registra
+    —no se silencia— para que la causa (infra, no permiso) sea diagnosticable.
+    """
     hook = _HOOKS_DATOS.get(key)
     if hook is None:
         return None
     try:
         return hook(negocio)
     except Exception:
-        return None
+        logger.exception(
+            "No se pudo comprobar si '%s' tiene datos en vuelo; se bloquea la "
+            "baja por precaucion (SUS-010).", key,
+        )
+        return (
+            f"no se pudo verificar si hay datos en vuelo de '{key}'; no se "
+            f"apaga sin poder demostrar que es seguro"
+        )
 
 
 def puede_desactivarse(negocio, key):
