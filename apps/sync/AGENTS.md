@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (CT-03: SUS-007 y CFG-007) -->
+<!-- Última revisión: 2026-09-25 (A09 identidad de usuario en pull RBAC) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -86,6 +86,9 @@ cerrado y no libera el maestro; un replay debe coincidir con el ledger local.
 - Roles/asignaciones negocian `rbac.sync.v2` pero aceptan la lista legacy. Solo
   un envelope completo, sin error/bloqueo y del mismo tenant/sucursal puede
   revocar por ausencia; además solo revoca filas `origen_cloud=True`.
+- El username de las asignaciones se resuelve sin distinguir mayúsculas, como
+  el login y la restricción única `Lower(username)`; una cuenta técnica remota
+  `STG-01` puede existir localmente como `stg-01`.
 - Una baja `active=false` se aplica antes de resolver códigos/usuarios/roles
   nuevos. Una revisión menor se ignora; `cloud_id` no puede cambiar de terna.
 - Producto, Categoría y Cliente se buscan primero por `origen_cloud_id`; la

@@ -4,6 +4,7 @@ Rol.permisos e invalida el cache del motor (un cajero gana el permiso).
 """
 from unittest.mock import patch
 import uuid
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -224,6 +225,37 @@ class PullAsignacionesTests(TestCase):
             AsignacionRol.objects.filter(usuario=self.cajero, rol=self.rol).exists()
         )
         self.assertTrue(self.cajero.tiene_permiso('compras.registrar'))
+
+    @patch('apps.sync.engine.requests.get')
+    def test_username_cloud_con_mayusculas_usa_identidad_local_canonica(self, mock_get):
+        """La cuenta de servicio STG-01 se crea localmente en minusculas."""
+        servicio = User.objects.create_service_user(
+            'sucursal_service_STG-01', 'servicio@a09.local',
+            rol='CAJERA', negocio=self.negocio, activo=True,
+        )
+        self.assertEqual(servicio.username, 'sucursal_service_stg-01')
+        marca = timezone.now()
+        payload = {
+            'usuario_username': 'sucursal_service_STG-01',
+            'rol_slug': 'compras',
+            'sucursal_codigo': None,
+            'activo': True,
+            'fecha_modificacion': marca.isoformat(),
+        }
+        mock_get.return_value = _Resp([payload])
+        engine = SyncEngine(cloud_url='https://cloud.example', token='t')
+        resultado = engine._pull_asignaciones()
+        self.assertEqual(resultado['count'], 1)
+        self.assertEqual(resultado['diferidos_pendientes'], 0)
+        asignacion = AsignacionRol.objects.get(usuario=servicio, rol=self.rol)
+        self.assertTrue(asignacion.activo)
+
+        payload['activo'] = False
+        payload['fecha_modificacion'] = (marca + timedelta(seconds=1)).isoformat()
+        mock_get.return_value = _Resp([payload])
+        baja = engine._pull_asignaciones()
+        asignacion.refresh_from_db()
+        self.assertFalse(asignacion.activo, baja)
 
     @patch('apps.sync.engine.requests.get')
     def test_pull_difiere_usuario_inexistente_sin_darlo_por_aplicado(self, mock_get):
