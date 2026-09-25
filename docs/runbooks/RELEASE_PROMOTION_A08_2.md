@@ -1,6 +1,10 @@
 # A08.2 - promocion backend por digest y gate de migraciones
 
-Estado: **control de CI preparado; no ejecutado contra Azure ni una base real**.
+Estado al 2026-09-25: control de CI **ejecutado en Azure dev/staging** con
+migraciones y artefactos OCI por digest verificados. Ver
+[acta A09](../handoffs/cierre_prod/A09-staging-2026-09-25.md) y
+[run staging 36087732831](https://github.com/GenaoKing/pos_fifo_system/actions/runs/36087732831).
+Producción sigue sin autorización ni ensayo sobre copias actuales de RP/SK.
 Este runbook describe la politica implementada en
 `.github/workflows/backend-ci.yml`; no autoriza un deploy, Terraform, un
 backup, un restore ni la ejecucion de comandos operativos.
