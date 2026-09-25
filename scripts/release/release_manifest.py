@@ -47,11 +47,13 @@ class ManifestError(ValueError):
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    """Hash del texto fuente independiente del checkout LF/CRLF.
+
+    Todos los inputs del manifiesto son texto. Git puede entregar los mismos
+    archivos con CRLF en Windows y LF en el runner Linux; sin normalizar, un
+    manifiesto de CI no se puede verificar desde el checkout Windows.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def relative_hashes(root: Path, paths: tuple[str, ...]) -> dict[str, str]:

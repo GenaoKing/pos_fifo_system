@@ -2305,11 +2305,11 @@ class SyncEngine:
             if not activo:
                 objetivos = AsignacionRol.objects.filter(rol__negocio=negocio)
                 filtro_natural = Q(
-                    usuario__username=username,
+                    usuario__username__iexact=username,
                     rol__slug=rol_slug,
                     sucursal__codigo=sucursal_codigo,
                 ) if sucursal_codigo else Q(
-                    usuario__username=username,
+                    usuario__username__iexact=username,
                     rol__slug=rol_slug,
                     sucursal__isnull=True,
                 )
@@ -2339,7 +2339,10 @@ class SyncEngine:
                     cantidad += 1
                 return
 
-            usuario = User.objects.filter(username=username).first()
+            # El alta local canoniza a casefold, mientras un tenant cloud
+            # antiguo puede conservar el codigo de sucursal en mayusculas.
+            # La unicidad Lower(username) hace este lookup no ambiguo.
+            usuario = User.objects.filter(username__iexact=username).first()
             if usuario is None:
                 # Diferido, no omitido: el usuario puede aparecer en un ciclo
                 # posterior y la asignacion tiene que seguir pendiente hasta

@@ -82,6 +82,32 @@ class ReleaseManifestTests(unittest.TestCase):
             errors = release_manifest.verify_manifest(root, target, self.source_sha, False)
             self.assertTrue(any("no coincide exactamente" in error for error in errors))
 
+    def test_verify_accepts_crlf_checkout_of_same_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.build_root(root)
+            target = root / "manifest.json"
+            release_manifest.write_manifest(
+                target,
+                release_manifest.build_manifest(root, self.source_sha),
+            )
+
+            source_paths = (
+                *release_manifest.LOCK_PATHS,
+                *release_manifest.INPUT_PATHS,
+                *release_manifest.BUILD_PATHS,
+                "apps/sample/migrations/0001_initial.py",
+            )
+            for relative in source_paths:
+                path = root / relative
+                canonical = path.read_bytes().replace(b"\r\n", b"\n")
+                path.write_bytes(canonical.replace(b"\n", b"\r\n"))
+
+            self.assertEqual(
+                [],
+                release_manifest.verify_manifest(root, target, self.source_sha, False),
+            )
+
     def test_promotable_requires_registry_digest_not_local_image_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

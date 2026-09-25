@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-24 (gate CAS A06 con revisión posterior explícita) -->
+<!-- Última revisión: 2026-09-25 (auditoría CT-01 de maestros portal) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -78,6 +78,13 @@ tiene modelos propios (`models.py` vacío).
   local responden `403`, para no saltar maestro + auditoría CT-01 +
   `MutacionMaestro`. El flag de compatibilidad de sus tests exige además una
   base `test_*`; no habilita ninguna instalación productiva local.
+- Producto y categoría registran sus altas, ediciones y bajas lógicas del portal
+  con `apps.auditoria.services.registrar_mutacion` en la misma transacción de la
+  BD tenant. Un cambio de precio usa `productos.producto.precio_modificado`;
+  una falla de auditoría revierte la mutación.
+- El mismo contrato cubre altas, ediciones y bajas lógicas de clientes desde el
+  portal. Un cambio de límite usa `clientes.cliente.limite_modificado` y se
+  revierte si falla CT-01; el `tenant_key` técnico identifica la BD operativa.
 - `POST /api/v1/sync/mutaciones-maestro/` no es `EventoSync`: el token prueba
   la sucursal y el receptor vuelve a resolver al actor, CT-02 y la revisión CAS
   en cloud. Un UUID exacto responde el resultado durable sin duplicar; un UUID
