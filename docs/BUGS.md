@@ -47,6 +47,7 @@ Windows que copia `preparar_paquete.bat`.
 | A09-DEP-011 | HTTP de prueba térmica exitoso sin comprobación visual del papel. | `POS-80C` elegida; prueba física pendiente. |
 | A09-DEP-012 | POS QA sigue en SHA local anterior al cloud y ZIP nuevo. | Compatibilidad observada; actualización exacta pendiente para G2. |
 | A09-DEP-013 | Runbook copiaba `dist\` en vez de `dist\pos_fifo_system\` y mandaba instalar dependencias con red. | Corregido documentalmente el 2026-09-26; instalación física con ese paso aún no reensayada. |
+| A09-DEP-014 | Django Admin local aceptaba cualquier usuario activo con `is_staff`, incluso rol `ADMIN`. | Gate de código restringido a `SYSADMIN`; QA local promovido y login comprobado. Reinicio del servicio web QA pendiente por privilegio Windows. |
 
 Los tres defectos previos del procedimiento `.bat` y el fix de
 `permisos.0011` también están inventariados en ese registro, con enlace a sus

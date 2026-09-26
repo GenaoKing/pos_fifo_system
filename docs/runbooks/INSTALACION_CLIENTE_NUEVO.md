@@ -226,6 +226,11 @@ Salida esperada: un JSON con `"status":"ok"`.
 
 Este es el flujo normal de mantenimiento:
 
+`/admin/` del POS local exige una cuenta activa con `is_staff` y rol
+`SYSADMIN`. El rol `ADMIN` del negocio, incluso con `is_staff`, no abre
+Django Admin. En cloud la ruta no se monta. Conservar separadas las credenciales
+del POS y la identidad del portal.
+
 ```bat
 notepad deploy\env_cliente.env
 deploy\nssm.exe restart POSFifoSystem

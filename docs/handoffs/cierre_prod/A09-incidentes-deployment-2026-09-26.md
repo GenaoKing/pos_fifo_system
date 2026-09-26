@@ -122,6 +122,19 @@ anterior `pip install -r requirements.txt` habría consultado internet.
 | A09-DEP-011 | `POS-80C` en USB002 figuraba `Normal`; `2connect pos` en CP003 figuraba `Error`. El POST real a `/impresion/test/` del servicio Windows devolvió éxito para `POS-80C`. | **Papel aún sin confirmación visual.** El usuario eligió `POS-80C`; comprobar salida física, cola y cuenta del servicio. Un HTTP 200 no prueba ticket impreso. La Zebra quedó fuera de este objetivo. |
 | A09-DEP-012 | La PC QA sigue con código `5f3e89b` mientras cloud y ZIP nuevo son `8213ba5`. | **Compatibilidad observada, actualización local no acreditada.** No sobrescribir código bajo servicios de QA activos sin una ventana y respaldo fresco. Antes de cerrar G2 probar la actualización de esa instalación, mismo SHA/paquete, reinicio/offline y flujos comerciales completos. |
 
+### A09-DEP-014 — Django Admin local sin gate de rol SYSADMIN
+
+El Admin del POS local solo exigía cuenta activa e `is_staff`; un `ADMIN` de
+negocio marcado `staff` podía entrar a la configuración técnica. El gate
+`PosAdminSite.has_permission` ahora exige también `rol=SYSADMIN`, con pruebas
+para `ADMIN`/`staff` y para revocación del rol durante una sesión abierta. En
+cloud `/admin/` permanece sin montar. Para acceder a la instalación QA se
+promovió únicamente `qa_santiago` en `pos_stage_qa` a `SYSADMIN`, `staff` y
+superusuario, usando `UsuarioAdmin.save_model` para conservar auditoría CT-01.
+El acceso HTTP real dio 200 y solo queda ese usuario `staff` activo. El código
+corregido está copiado al POS, pero el proceso NSSM todavía requiere reinicio
+como Administrador para cargar el gate nuevo; ver [handoff QA](A09-qa-pc-staging-2026-09-25.md).
+
 ## Hallazgos anteriores del mismo cierre que no deben perderse
 
 | Tema | Resultado y referencia |
