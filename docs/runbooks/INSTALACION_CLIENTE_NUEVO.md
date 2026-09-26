@@ -39,10 +39,12 @@ Datos a tener a mano **antes de empezar**:
 ## 1. Copiar el paquete
 
 El paquete se genera en la PC de desarrollo con `deploy\preparar_paquete.bat`,
-que produce la carpeta `dist\`.
+que produce la carpeta `dist\pos_fifo_system\`. Copiar **el contenido de esa
+carpeta**, no `dist\` completo: de lo contrario `manage.py` queda anidado en
+`C:\pos_fifo_system\pos_fifo_system\` y los pasos siguientes fallan.
 
 ```bat
-xcopy /E /I dist C:\pos_fifo_system
+xcopy /E /I dist\pos_fifo_system C:\pos_fifo_system
 cd /d C:\pos_fifo_system
 ```
 
@@ -99,8 +101,14 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 ```bat
 python -m venv venv
 call venv\Scripts\activate.bat
-pip install -r requirements.txt
+python -m pip install --no-index --find-links wheelhouse\windows-py311 --require-hashes -r requirements.txt
 ```
+
+El paquete Windows C06.1 trae `wheelhouse\windows-py311`; este paso no debe
+consultar PyPI. Si se recibió deliberadamente un paquete antiguo **sin**
+wheelhouse, registrar esa diferencia y usar `python -m pip install
+--require-hashes -r requirements.txt` con red antes de continuar. No presentar
+esa ruta como ensayo offline.
 
 **Verificar:**
 
@@ -282,6 +290,14 @@ alertas.
 | El nombre de la impresora "no se encuentra" | El valor quedó con comillas pegadas | Quitar las comillas en el `.env`; en este formato no se usan |
 | `manage.py migrate` falla por dependencia faltante | El paquete se instaló sin `requirements.txt` completo | `pip install -r requirements.txt` dentro del venv |
 | El servicio no arranca y `service_stderr.log` menciona configuración | Falta una variable crítica | El log da el **nombre exacto**; completarla en el `.env` |
+| `manage.py` no aparece en `C:\pos_fifo_system` después de copiar | Se copió `dist\` completo, pero el BAT entrega `dist\pos_fifo_system\` (A09-DEP-013) | Copiar la carpeta interna al destino, comprobar `manage.py` antes de crear el venv |
+| El primer pull da **401** aunque el token DRF existe en el tenant cloud | En DB-per-tenant falta o difiere el hash del token en control plane (A09-DEP-001) | Confirmar tenant y sucursal; usar el comando corregido del paso 10 dentro de `with_tenant`, o `--regenerar` para rotar ambos registros y actualizar el `.env`. No publicar el token en logs ni tickets |
+| `registrar_sync_servicio.bat` dice que `SYNC_ENABLED`/token faltan aunque estén en `.env` | BAT anterior al PR #32 todavía lee variables heredadas (A09-DEP-003) | Verificar SHA del paquete y ejecutar `venv\Scripts\python.exe deploy\check_sync_env.py deploy\env_cliente.env`; actualizar el BAT, sin volcar el `.env` |
+| Portal inicia sesión, pero productos/reportes dan **403** | La cuenta solo tiene asignación RBAC de sucursal y la vista exige permiso global (A09-DEP-005) | Revisar el alcance de la asignación y la política del negocio; conceder global solo si está autorizado. No confundir con error de token del daemon |
+| Crear/asignar un rol por API devuelve **500 `AUDIT_CONTEXT_INVALID`** | Backend anterior al PR #31 usa el slug comercial en auditoría tenant (A09-DEP-002) | Verificar SHA de backend y contexto `tenant_key`; promocionar la corrección. No desactivar auditoría ni repetir a ciegas |
+| Pull RBAC deja asignaciones en `DiferidoSync` para usuarios inexistentes | El motor no provisiona usuarios locales desde sync (A09-DEP-006) | Revisar identidades y política de onboarding; no crear cuentas activas de relleno. El placeholder inactivo de la PC QA fue solo laboratorio |
+| Pull de configuración exige `emisor_activo` | e-CF está habilitado en la configuración efectiva sin emisor local (A09-DEP-007) | Aprovisionar el emisor real; el override que deshabilitó e-CF fue solo de `QA-PC-01` en staging |
+| La prueba HTTP de impresión devuelve éxito, pero no sale papel | El HTTP no verifica el trabajo físico (A09-DEP-011) | Comprobar nombre, puerto, estado/cola de Windows, cuenta NSSM y ticket físico; no cerrar el gate visual con un 200 |
 
 ---
 
@@ -293,3 +309,4 @@ alertas.
 - Diagnóstico de sincronización: `python manage.py verificar_sync`
 - Probar cambios de sync sin desplegar: `docs/runbooks/PRUEBAS_SYNC_LOCAL.md`
 - Detalle de los bugs citados: `docs/BUGS.md`
+- Incidentes reales del alta staging + PC QA: `docs/handoffs/cierre_prod/A09-incidentes-deployment-2026-09-26.md`

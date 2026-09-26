@@ -23,6 +23,36 @@
 - Impacto: la API de metricas para cajeras podia fallar con `FieldError`; el filtro por cajero en reportes on-demand no aplicaba contra el campo real; el template admin intentaba leer `venta.cajero`.
 - Correccion: usar `usuario`, `usuario_id` y `venta.usuario` en reportes.
 
+## Incidentes del despliegue A09 (2026-09-25/26)
+
+El [registro reproducible del despliegue](handoffs/cierre_prod/A09-incidentes-deployment-2026-09-26.md)
+incluye síntomas, causa o límite comprobado, corrección, SHAs, respaldo y forma
+de diagnosticar una recurrencia. Los estados de abajo corresponden al corte de
+ese documento, no son una aprobación de G1–G4. El handoff completo vive en el
+repositorio; esta tabla y el runbook de instalación sí acompañan el paquete
+Windows que copia `preparar_paquete.bat`.
+
+| ID | Hallazgo | Estado |
+| --- | --- | --- |
+| A09-DEP-001 | Token DRF creado en tenant sin hash de control plane: primer pull 401. | Corregido en PR #32; staging `8213ba5`. |
+| A09-DEP-002 | Alta RBAC 500 por usar `Negocio.slug` en auditoría CT-01 de `tnt_*`. | Corregido en PR #31; asignación QA y portal comprobados tras PR #33. |
+| A09-DEP-003 | `registrar_sync_servicio.bat` leía variables BAT antiguas en vez del `.env`. | Corregido en PR #32 con preflight sin revelar token. |
+| A09-DEP-004 | Preflight de release importaba `dotenv` antes de instalar dependencias. | Detectado por CI y corregido en el mismo PR #32. |
+| A09-DEP-005 | Rol limitado a sucursal permite login portal, pero vistas globales dan 403. | Alcance esperado; rol global dado solo a QA de `staging_demo`. |
+| A09-DEP-006 | Asignaciones globales heredadas quedaron diferidas en POS recién instalado por usuarios ausentes. | Mitigación solo en BD QA; onboarding real pendiente de diseño. |
+| A09-DEP-007 | Configuración e-CF sin `emisor_activo` bloqueó el primer pull. | Override solo en `QA-PC-01`; provisión fiscal real pendiente donde aplique. |
+| A09-DEP-008 | Monitor de salud desde PC tuvo errores de conexión y hueco temporal. | Causa no determinada; 24 h/G2 no acreditados. |
+| A09-DEP-009 | Acceso PostgreSQL desde PC intermitente y host inicialmente supuesto equivocado. | Diagnóstico documentado; usar `DB_HOST` real por ambiente. |
+| A09-DEP-010 | Azure limpió réplica/log detallado del job de migración. | Job PASS y ledger 155/155/155 por consulta directa; capturar logs en futuros cortes. |
+| A09-DEP-011 | HTTP de prueba térmica exitoso sin comprobación visual del papel. | `POS-80C` elegida; prueba física pendiente. |
+| A09-DEP-012 | POS QA sigue en SHA local anterior al cloud y ZIP nuevo. | Compatibilidad observada; actualización exacta pendiente para G2. |
+| A09-DEP-013 | Runbook copiaba `dist\` en vez de `dist\pos_fifo_system\` y mandaba instalar dependencias con red. | Corregido documentalmente el 2026-09-26; instalación física con ese paso aún no reensayada. |
+
+Los tres defectos previos del procedimiento `.bat` y el fix de
+`permisos.0011` también están inventariados en ese registro, con enlace a sus
+handoffs originales. [SEC-001](#sec-001--credenciales-de-prueba-en-un-archivo-versionado)
+mantiene pendiente la decisión sobre historial y rotación/revocación.
+
 ## Pendientes
 
 ### SEC-001 — Credenciales de prueba en un archivo versionado
