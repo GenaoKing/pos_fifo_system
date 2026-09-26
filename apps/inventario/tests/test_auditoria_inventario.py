@@ -451,9 +451,7 @@ class AdminInventarioTests(InventarioTestCase):
             username='staff_inv_aud', email='staff_inv_aud@test.local',
             password='pass',
         )
-        self.staff.rol = 'ADMIN'
-        self.staff.is_staff = True
-        self.staff.save(update_fields=['rol', 'is_staff'])
+        # El Admin local solo admite SYSADMIN; create_superuser ya lo prepara.
         self.client.force_login(self.staff)
 
         # Los ModelAdmin consultan `request.user` (p.ej. para decidir si
