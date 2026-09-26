@@ -1,5 +1,11 @@
 # A09: PC de QA contra staging — 2026-09-25
 
+**Actualización 2026-09-26:** el 403/500 y el token 401 descritos abajo
+corresponden al estado **anterior** a la promoción. PR #31/#32 pasaron a
+`staging@8213ba5` por PR #33; la asignación QA y las pantallas del portal se
+verificaron. El estado posterior, los hallazgos abiertos y las instrucciones de
+recurrencia están en [incidentes del despliegue](A09-incidentes-deployment-2026-09-26.md).
+
 Instalación aislada en `C:\Proyectos\pos_fifo_staging_qa\pos_fifo_system`,
 extraída del paquete Windows construido desde `5f3e89b1fcb2`. Base PostgreSQL
 local nueva `pos_stage_qa`; no se usó una base de Royal Plast, SK Performance ni

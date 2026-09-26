@@ -1,5 +1,18 @@
 # Estado maestro del proyecto
 
+**Corte A09 del 2026-09-26:** backend `develop@47ec784` integrado y promovido a
+`staging@8213ba5` por el [PR #33](https://github.com/GenaoKing/pos_fifo_system/pull/33),
+con [workflow](https://github.com/GenaoKing/pos_fifo_system/actions/runs/36161811256)
+verde, manifiesto OCI verificado por digest, tres bases de staging respaldadas
+y restauradas en laboratorio, y 155 migraciones registradas en control y en
+cada uno de los dos tenants activos. La PC QA aislada `QA-PC-01` sincroniza y
+el portal abre productos/clientes con su cuenta, pero el POS local aún usa el
+SHA `5f3e89b` y faltan los recorridos manuales de venta/crédito/abono, papel y
+la observación continua de 24 h. Los errores/huecos del monitor **no** cierran
+G2. El [registro de incidentes](handoffs/cierre_prod/A09-incidentes-deployment-2026-09-26.md)
+recoge cada causa, corrección y límite; producción y tiendas no se tocaron.
+Las notas de cortes anteriores que siguen abajo son históricas.
+
 Actualización A09 del 2026-09-25: el backend de `develop@c7bc435` ya integra
 el trabajo de cierre y la corrección de auditoría portal/RBAC del
 [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27). El portal ya
