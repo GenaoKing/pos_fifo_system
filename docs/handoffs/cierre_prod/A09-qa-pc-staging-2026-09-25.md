@@ -1,5 +1,27 @@
 # A09: PC de QA contra staging — 2026-09-25
 
+**Acceso Django Admin local — 2026-09-26:** a pedido del responsable,
+`qa_santiago` fue promovido **solo en la BD local** `pos_stage_qa` de `ADMIN`
+a `SYSADMIN`, `is_staff=True`, `is_superuser=True`. Se usó el guardado auditado
+de `UsuarioAdmin` y quedó un evento `usuarios.usuario.actualizado`; no se
+alteró la Identity del portal ni la BD cloud. Antes se hizo un dump custom
+validado con `pg_restore --list` en
+`C:\Proyectos\pos_fifo_staging_qa\before_sysadmin_20260926.dump`, SHA-256
+`CE17BFCAC6BF51894BFAA7580483AABAE16023E8C7B48473749DE4E384A039D7`,
+con ACL restringida. El login HTTP real de QA devolvió 302 y `/admin/` 200.
+El único `staff` activo de la instalación es `qa_santiago`.
+
+El gate en `apps/usuarios/admin_site.py` exige ahora rol `SYSADMIN` además de
+cuenta activa e `is_staff`. El archivo corregido se copió al POS QA y pasó
+`manage.py check`, pero la sesión no tenía privilegio Windows para reiniciar
+`POSFifoStagingQA` (corre como LocalSystem). **Para que el proceso web cargue
+el gate nuevo**, ejecutar en PowerShell como Administrador
+`Restart-Service POSFifoStagingQA`; no hace falta reiniciar el sync. Hasta ese
+reinicio el proceso conserva el gate anterior en memoria, aunque hoy no hay
+otro usuario `staff` activo. Esta instalación mantiene la base de código
+`5f3e89b` con este archivo corregido puntualmente; no equiparar el conjunto
+con un paquete íntegro posterior.
+
 **Actualización 2026-09-26:** el 403/500 y el token 401 descritos abajo
 corresponden al estado **anterior** a la promoción. PR #31/#32 pasaron a
 `staging@8213ba5` por PR #33; la asignación QA y las pantallas del portal se
