@@ -11,8 +11,8 @@ al aparecer pendientes y termine después de procesar un lote. Azure Container
 Apps admite jobs de tipo `Event` gobernados por KEDA. El escalador observa una
 fuente externa; no necesita iniciar Django para cada comprobación.
 
-Para la escala actual conviene **probar primero el escalador PostgreSQL** sobre
-un tenant de staging: aprovecha la cola durable que ya existe y evita añadir un
+Si se decide adoptar activación por demanda, conviene **probar primero el
+escalador PostgreSQL** sobre un tenant de staging: aprovecha la cola durable que ya existe y evita añadir un
 publicador entre la base y un broker. Su compatibilidad efectiva, autenticación,
 red y coste de consulta deben demostrarse en nuestro runtime, no darse por
 probados porque KEDA documente ese escalador.
@@ -113,6 +113,69 @@ reconciliar eventos perdidos durante desconexiones. No reemplaza la cola durable
 
 ## Economía y controles
 
+### Comparación económica con cron reducido
+
+El Excel aportado acumula USD 50,415435; los dos jobs representan USD 26,207438
+y sus dos alertas USD 3,884005. Es un corte de septiembre generado el día 28,
+sin granularidad temporal; no representa un mes completo ni permite confirmar
+por sí solo el incremento intermensual del 327%.
+
+Modelo proporcional sobre el coste de los jobs del mismo corte, suponiendo
+igual duración media y recursos por ejecución. Los arranques son teóricos por
+día; las horas son ventanas diarias, todavía sin elegir horario real:
+
+| Configuración | Arranques/día, total | Reducción de arranques frente a ambos cada minuto | Coste equivalente de jobs, USD |
+| --- | ---: | ---: | ---: |
+| Ambos, cada minuto, 24 horas | 2.880 | 0% | 26,21 |
+| Ambos, cada 10 minutos, 24 horas | 288 | 90% | 2,62 |
+| Ambos, cada 10 minutos, 12 horas | 144 | 95% | 1,31 |
+| Ambos, cada 10 minutos, 8 horas | 96 | 96,67% | 0,87 |
+| Solo staging, cada 10 minutos, 8 horas; dev sin ejecuciones | 48 | 98,33% | 0,44 |
+
+No son una cotización mensual ni una garantía de factura: la franquicia de
+CPU/memoria se comparte con otras aplicaciones, los lotes pueden durar más y
+los periodos activos de cada recurso no son idénticos. El gasto tiene un
+componente de arranque/comprobación y otro de trabajo útil. Espaciar el cron
+reduce especialmente el primero; no elimina el trabajo acumulado. La muestra
+de 24 horas sin procesamiento útil respalda priorizar esta reducción en pruebas.
+
+El cron de 10 minutos añade una espera de 0 a casi 10 minutos para trabajo
+que acaba de quedar listo dentro de la ventana (media de unos 5 minutos si
+las llegadas son uniformes), además de sync, arranque y entrega. Los reintentos
+también esperan al siguiente tick. Fuera de horario, los pendientes esperan
+a la siguiente apertura; hay que contemplar cierres y sincronizaciones tardías.
+
+Azure factura recursos durante las ejecuciones: programar menos arranques
+evita iniciar Django para comprobar que no hay pendientes. El job ya termina
+entre ciclos; no es necesario mantenerlo dormido dentro del contenedor.
+
+Con 10 minutos y 8 horas son 48 ciclos diarios por ambiente. A igual duración,
+un esquema por eventos solo reduce ese componente si necesita menos de 48
+ejecuciones diarias, antes de contar detección, mantenimiento y publicación.
+Es una comparación de lotes, no de número de notificaciones: iniciar un job
+por mensaje puede gastar más que agruparlos cada diez minutos.
+
+KEDA con PostgreSQL añade consultas por base y trabajo de integración, aunque
+evita un broker. Queue Storage añade operaciones y almacenamiento de mensajes,
+además del publicador fiable y su recuperación. No se asigna un precio exacto
+a esas alternativas sin medir frecuencia, número de tenants y ejecuciones.
+Si ambos cron optimizados equivalieran a USD 0,87 en este corte, ese sería el
+máximo gasto de ejecución adicional a eliminar, antes de costes nuevos.
+
+Las alertas son independientes del cron. La IaC actual vuelve a habilitarlas
+al seleccionar Schedule si enable_notifications_alerts sigue activo: revisar
+la frecuencia, ventana y condiciones antes de reactivar programación. Reglas
+por ausencia de ejecución no deben dispararse durante pausas previstas; sus
+USD 3,88 históricos podrían superar al gasto del cron reducido. Las reglas
+deshabilitadas no cobran evaluación según la documentación de Azure Monitor.
+
+Recomendación económica actual: mantener dev manual y, cuando exista QA regular,
+usar staging cada diez minutos dentro de su ventana de pruebas si esa demora
+es aceptable. Elegir horas y política de alertas antes de reactivarlo. Reservar
+el piloto por demanda para una necesidad de menor latencia, tráfico irregular
+fuera de horario o crecimiento que justifique su implementación. Esta evaluación
+no cambia Azure ni decide la política de producción.
+
 Ejemplo ilustrativo por ambiente: 50 lotes diarios frente a 1.440 ejecuciones
 diarias de cron representan **96,5% menos arranques**, suponiendo duración similar
 por lote. No es una predicción del ahorro de nuestro tráfico. Con trabajo cada
@@ -165,6 +228,8 @@ productivo. No ofrecer inmediatez basándose solo en el término "por eventos".
 
 ## Fuentes primarias
 
+- [Container Apps: precios y franquicia compartida](https://azure.microsoft.com/en-us/pricing/details/container-apps/).
+- [Azure Monitor: facturación de reglas de alerta](https://azure.microsoft.com/en-us/pricing/details/monitor/).
 - [Azure: jobs por eventos](https://learn.microsoft.com/en-us/azure/container-apps/jobs).
 - [Azure: ejemplo con Queue Storage](https://learn.microsoft.com/en-us/azure/container-apps/tutorial-event-driven-jobs).
 - [Azure: reglas KEDA](https://learn.microsoft.com/en-us/azure/container-apps/scale-app).
