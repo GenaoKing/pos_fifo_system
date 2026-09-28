@@ -38,3 +38,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "notifications_job_scheduled" {
+  description = "La alerta de ausencia de ejecucion solo se habilita si el job tiene cron. Manual conserva la regla deshabilitada."
+  type        = bool
+  default     = true
+}

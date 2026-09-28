@@ -30,6 +30,7 @@ module "container_apps" {
   api_name                    = local.api_container_app_name
   migrate_job_name            = local.migrate_job_name
   notifications_job_name      = local.notifications_job_name
+  notifications_trigger_type  = var.notifications_trigger_type
   notifications_schedule_cron = var.notifications_schedule_cron
 
   django_secret_key    = var.django_secret_key

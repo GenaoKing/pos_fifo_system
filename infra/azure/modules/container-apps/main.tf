@@ -536,10 +536,21 @@ resource "azurerm_container_app_job" "notifications" {
     identity            = azurerm_user_assigned_identity.notifications[0].id
   }
 
-  schedule_trigger_config {
-    cron_expression          = var.notifications_schedule_cron
-    parallelism              = 1
-    replica_completion_count = 1
+  dynamic "manual_trigger_config" {
+    for_each = var.notifications_trigger_type == "Manual" ? [1] : []
+    content {
+      parallelism              = 1
+      replica_completion_count = 1
+    }
+  }
+
+  dynamic "schedule_trigger_config" {
+    for_each = var.notifications_trigger_type == "Schedule" ? [1] : []
+    content {
+      cron_expression          = var.notifications_schedule_cron
+      parallelism              = 1
+      replica_completion_count = 1
+    }
   }
 
   template {

@@ -13,7 +13,7 @@ data "azurerm_log_analytics_workspace" "notifications_runtime" {
 }
 
 locals {
-  notifications_monitor_workspace_id = var.existing_container_apps_environment_id == null ? module.observability.log_analytics_workspace_id : data.azurerm_log_analytics_workspace.notifications_runtime[0].id
+  notifications_monitor_workspace_id = !var.enable_notifications_alerts ? null : (var.existing_container_apps_environment_id == null ? module.observability.log_analytics_workspace_id : data.azurerm_log_analytics_workspace.notifications_runtime[0].id)
 }
 
 module "notifications_monitoring" {
@@ -21,14 +21,15 @@ module "notifications_monitoring" {
 
   source = "../../modules/notifications-monitoring"
 
-  name_prefix                = local.prefix
-  resource_group_name        = azurerm_resource_group.main.name
-  location                   = local.observability_location
-  log_analytics_workspace_id = local.notifications_monitor_workspace_id
-  notifications_job_name     = local.notifications_job_name
-  notifications_job_enabled  = var.enable_notifications_job
-  alert_email                = var.notifications_alert_email
-  tags                       = local.common_tags
+  name_prefix                 = local.prefix
+  resource_group_name         = azurerm_resource_group.main.name
+  location                    = local.observability_location
+  log_analytics_workspace_id  = local.notifications_monitor_workspace_id
+  notifications_job_name      = local.notifications_job_name
+  notifications_job_enabled   = var.enable_notifications_job
+  notifications_job_scheduled = var.notifications_trigger_type == "Schedule"
+  alert_email                 = var.notifications_alert_email
+  tags                        = local.common_tags
 
   depends_on = [module.container_apps]
 }
