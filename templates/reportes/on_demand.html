@@ -6,15 +6,21 @@
 {% block extra_head %}
 <script src="{% static 'js/chart.min.js' %}"></script>
 
-{# Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
+{% comment %}
+Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
    nombre de usuario con `</script>` viaja como texto y no cierra el bloque.
    Antes se interpolaba con `|safe` dentro de <script>, y un username guardado
    con `</script><script>...` ejecutaba JavaScript en la sesion de cualquier
-   administrador que abriera esta pagina. #}
+   administrador que abriera esta pagina.
+{% endcomment %}
 {{ cajeros|json_script:"reportes-cajeros" }}
 
 <script>
 function reportesApp() {
+    // Chart.js conserva la identidad de cada instancia en su animador. No
+    // envolverlas en los proxies reactivos de Alpine: destroy() no retiraría
+    // la instancia original y la animación intentaría usar un canvas nulo.
+    let chartInstances = {};
     return {
         tipo: null,
         resultado: null,
@@ -26,7 +32,6 @@ function reportesApp() {
         ),
         alcanceGlobal: {{ alcance_global|yesno:"true,false" }},
         lotesAbiertos: [],
-        chartInstances: {},
 
         form: {
             fecha: '',
@@ -49,26 +54,26 @@ function reportesApp() {
 
         seleccionar(t) {
             if (this.tipo === t) return;
+            this.destroyCharts();
             this.tipo = t;
             this.resultado = null;
             this.error = null;
             this.lotesAbiertos = [];
-            this.destroyCharts();
         },
 
         limpiar() {
+            this.destroyCharts();
             this.tipo = null;
             this.resultado = null;
             this.error = null;
             this.lotesAbiertos = [];
-            this.destroyCharts();
         },
 
         limpiarResultado() {
+            this.destroyCharts();
             this.resultado = null;
             this.error = null;
             this.lotesAbiertos = [];
-            this.destroyCharts();
         },
 
         tituloReporte() {
@@ -83,11 +88,11 @@ function reportesApp() {
         },
 
         async generar() {
+            this.destroyCharts();
             this.cargando = true;
             this.error = null;
             this.resultado = null;
             this.lotesAbiertos = [];
-            this.destroyCharts();
 
             const endpoints = {
                 'cierre': '{% url "reportes:api_cierre_manual" %}',
@@ -155,15 +160,19 @@ function reportesApp() {
         // ---- Graficos Chart.js ----
 
         destroyCharts() {
-            Object.values(this.chartInstances).forEach(c => c.destroy());
-            this.chartInstances = {};
+            Object.values(chartInstances).forEach(c => c.destroy());
+            chartInstances = {};
+        },
+
+        destroy() {
+            this.destroyCharts();
         },
 
         renderChartVentasDia(datos) {
             const ctx = document.getElementById('chartVentasDia');
             if (!ctx) return;
 
-            this.chartInstances.ventasDia = new Chart(ctx, {
+            chartInstances.ventasDia = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: datos.map(d => {
@@ -207,7 +216,7 @@ function reportesApp() {
                 'rgba(251, 191, 36, 0.7)', 'rgba(248, 113, 113, 0.7)',
             ];
 
-            this.chartInstances.topProductos = new Chart(ctx, {
+            chartInstances.topProductos = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: productos.map(p => p.nombre.length > 20 ? p.nombre.substring(0, 20) + '...' : p.nombre),
@@ -235,7 +244,7 @@ function reportesApp() {
             const ctx = document.getElementById('chartCajeros');
             if (!ctx) return;
 
-            this.chartInstances.cajeros = new Chart(ctx, {
+            chartInstances.cajeros = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: cajeros.map(c => c.nombre),
@@ -537,10 +546,12 @@ function reportesApp() {
                     </div>
                 </div>
 
-                {# Los mismos componentes que el PDF: la pantalla omitia
+                {% comment %}
+                Los mismos componentes que el PDF: la pantalla omitia
                    tarjeta, cobros de cartera, descuentos y anulaciones, asi que
                    un dia dominado por tarjeta parecia incompleto aqui aunque el
-                   documento tuviera la cifra. #}
+                   documento tuviera la cifra.
+                {% endcomment %}
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
                     <div class="bg-gray-50 rounded-lg p-4 text-center">
                         <p class="text-xs text-gray-500 uppercase tracking-wider">Ventas facturadas</p>
@@ -580,9 +591,11 @@ function reportesApp() {
                     </div>
                 </div>
 
-                {# Arqueo fisico: viene de apps/caja y se muestra APARTE de la
+                {% comment %}
+                Arqueo fisico: viene de apps/caja y se muestra APARTE de la
                    facturacion, para que no se lea como una conciliacion de
-                   efectivo que este resumen no hace. #}
+                   efectivo que este resumen no hace.
+                {% endcomment %}
                 <div class="border border-gray-200 rounded-lg p-4 mb-6">
                     <div class="flex items-center justify-between mb-3">
                         <h4 class="text-sm font-semibold text-gray-700">Arqueo de caja del dia</h4>

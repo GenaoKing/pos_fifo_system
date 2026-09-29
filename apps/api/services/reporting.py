@@ -316,11 +316,19 @@ def build_ventas_hoy(params, codigo_sucursal=None, resolucion=None):
     sucursales_payload = []
     total_cantidad = 0
     total_ventas = MONEY_ZERO
+    total_cobros_ventas = MONEY_ZERO
+    total_cobros_cxc = MONEY_ZERO
     for sucursal in sucursales:
         metrics = metrics_by_sucursal[sucursal.codigo]
         payment_metrics = pagos[sucursal.codigo]
         total_cantidad += metrics['cantidad_ventas']
         total_ventas += _decimal(metrics['ventas_facturadas'])
+        # Los pagos CREDITO representan deuda, no dinero recibido. La inicial
+        # ya vive en Pago y no se vuelve a sumar desde CuentaPorCobrar.
+        cobros_ventas = sum(payment_metrics.values(), MONEY_ZERO)
+        cobros_cxc = _decimal(metrics['cobros_cxc'])
+        total_cobros_ventas += cobros_ventas
+        total_cobros_cxc += cobros_cxc
         sucursales_payload.append({
             'sucursal_codigo': sucursal.codigo,
             'sucursal_nombre': sucursal.nombre,
@@ -329,6 +337,8 @@ def build_ventas_hoy(params, codigo_sucursal=None, resolucion=None):
             'ventas_facturadas': _money(metrics['ventas_facturadas']),
             'credito_facturado': _money(metrics['credito_facturado']),
             'cobros_cxc': _money(metrics['cobros_cxc']),
+            'cobros_ventas': _money(cobros_ventas),
+            'ingresos_totales': _money(cobros_ventas + cobros_cxc),
             'ticket_promedio': _metrics_payload(metrics)['ticket_promedio'],
             'total_descuentos': _money(descuentos.get(sucursal.codigo)),
             'total_efectivo': _money(payment_metrics['total_efectivo']),
@@ -346,6 +356,9 @@ def build_ventas_hoy(params, codigo_sucursal=None, resolucion=None):
             'cantidad_ventas': total_cantidad,
             'total_ventas': _money(total_ventas),
             'ventas_facturadas': _money(total_ventas),
+            'cobros_ventas': _money(total_cobros_ventas),
+            'cobros_cxc': _money(total_cobros_cxc),
+            'ingresos_totales': _money(total_cobros_ventas + total_cobros_cxc),
         },
         'metadata': {
             'legacy_ventas_omitidas': _legacy_ventas_omitidas(periodo, estados=['COMPLETADA']),

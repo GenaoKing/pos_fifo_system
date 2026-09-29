@@ -1,6 +1,6 @@
 # apps/caja — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 -->
+<!-- Última revisión: 2026-09-29 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -46,5 +46,7 @@ notificaciones push del cloud se derivan de **estos** eventos
   (`_oculta_efectivo_por_conteo_ciego`).
 - No reconstruir pertenencia de pagos por rango de fechas: usar `turno_caja`.
 - `api_validar_admin` tiene freno de intentos (`apps/permisos/throttling.py`).
+- `templates/caja/index.html` separa apertura y autorización en formularios;
+  el modal de credenciales se monta con `x-if` para evitar autofill en importes.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CAJA.md`) —
   **snapshot histórico**, verificar contra código.

@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-25 (auditoría CT-01 de maestros portal) -->
+<!-- Última revisión: 2026-09-29 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -37,6 +37,10 @@ tiene modelos propios (`models.py` vacío).
 
 ## Invariantes / trampas
 
+- `ventas-hoy` agrega `cobros_ventas`, `cobros_cxc` e `ingresos_totales`
+  por sucursal y consolidados. Ingresos = pagos de ventas completadas del día
+  sin método CREDITO + abonos CxC APLICADOS por fecha local de pago. No sumar
+  otra vez la inicial ni incluir fondos de apertura/reposiciones de caja.
 - `views/sync.py` **valida al importarse** que todo tipo de evento tenga handler:
   si falta uno, Django no arranca. Idempotencia por `event_id`/hash dentro del
   scope autenticado: solo contenido equivalente responde `DUPLICADO`; conflicto

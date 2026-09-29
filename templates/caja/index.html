@@ -35,7 +35,7 @@
                 <div class="card-header">
                     <h3 class="font-semibold text-gray-900">Abrir Turno de Caja</h3>
                 </div>
-                <div class="card-body space-y-4">
+                <form id="apertura-caja" class="card-body space-y-4" autocomplete="off" @submit.prevent="abrirTurno()">
                     <div class="form-group">
                         <label class="form-label">Caja</label>
                         <select x-model="formApertura.caja_id" class="form-input w-full">
@@ -47,10 +47,10 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Fondo de Apertura (efectivo inicial)</label>
+                        <label for="fondo-apertura" class="form-label">Fondo de Apertura (efectivo inicial)</label>
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                            <input type="number" x-model="formApertura.fondo" min="0" step="0.01"
+                            <input id="fondo-apertura" type="number" inputmode="decimal" x-model="formApertura.fondo" min="0" step="0.01"
                                    name="fondo_apertura" autocomplete="off"
                                    class="form-input w-full pl-7" placeholder="0.00">
                         </div>
@@ -61,7 +61,7 @@
                         <textarea x-model="formApertura.notas" class="form-input w-full" rows="2" placeholder="Observaciones de apertura..."></textarea>
                     </div>
 
-                    <button @click="abrirTurno()" :disabled="!formApertura.caja_id || cargando"
+                    <button type="submit" :disabled="!formApertura.caja_id || cargando"
                             class="btn-primary w-full">
                         <template x-if="cargando">
                             <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
@@ -74,7 +74,7 @@
                         </svg>
                         Abrir Turno
                     </button>
-                </div>
+                </form>
             </div>
 
             {# Historial reciente del usuario #}
@@ -455,7 +455,8 @@
     </template>
 
     {# ====== MODAL SOFT-LOGIN ADMIN ====== #}
-    <div x-show="mostrarModalAdmin"
+    <template x-if="mostrarModalAdmin">
+    <div
          style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0"
@@ -487,29 +488,31 @@
                 </div>
 
                 {# Formulario #}
-                <div class="space-y-4">
+                <form id="autorizacion-caja" class="space-y-4" autocomplete="off" @submit.prevent="validarAdmin()">
                     <div class="form-group">
                         <label class="form-label">Usuario</label>
                         <input type="text" x-model="adminLogin.username" class="form-input w-full"
-                               placeholder="Usuario admin" @keydown.enter="$refs.adminPass.focus()">
+                               name="admin_username" autocomplete="section-autorizacion username"
+                               placeholder="Usuario admin" @keydown.enter.prevent="$refs.adminPass.focus()">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Contrasena</label>
                         <input type="password" x-model="adminLogin.password" class="form-input w-full"
-                               placeholder="Contrasena" x-ref="adminPass" @keydown.enter="$refs.adminMotivo.focus()">
+                               name="admin_password" autocomplete="section-autorizacion current-password"
+                               placeholder="Contrasena" x-ref="adminPass" @keydown.enter.prevent="$refs.adminMotivo.focus()">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Motivo <span class="text-red-500">*</span></label>
                         <input type="text" x-model="adminLogin.motivo" class="form-input w-full"
                                placeholder="Por que se autoriza" x-ref="adminMotivo"
-                               maxlength="200" @keydown.enter="validarAdmin()">
+                               maxlength="200" @keydown.enter.prevent="validarAdmin()">
                         <p class="text-xs text-gray-500 mt-1">
                             Queda en el historial del movimiento.
                         </p>
                     </div>
 
                     <p x-show="adminLogin.error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2" x-text="adminLogin.error"></p>
-                </div>
+                </form>
 
                 {# Separador + Botones #}
                 <div class="border-t border-gray-200 mt-6 pt-5 flex space-x-3">
@@ -530,6 +533,7 @@
             </div>
         </div>
     </div>
+    </template>
 
     {# ====== MODAL CERRAR TURNO ====== #}
     <div x-show="mostrarCerrarTurno"

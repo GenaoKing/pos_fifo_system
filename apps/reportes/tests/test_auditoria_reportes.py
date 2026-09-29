@@ -616,6 +616,28 @@ class SerializacionSeguraTests(ReportesTestCase):
     """RPT-010: la lista de cajeros no puede ejecutar JavaScript."""
 
     def test_un_username_hostil_no_cierra_el_bloque_script(self):
+        from html.parser import HTMLParser
+
+        class Scripts(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.cajeros = None
+                self.en_cajeros = False
+
+            def handle_starttag(self, tag, attrs):
+                if tag == 'script':
+                    self.en_cajeros = dict(attrs).get('id') == 'reportes-cajeros'
+                    if self.en_cajeros:
+                        self.cajeros = ''
+
+            def handle_data(self, data):
+                if self.en_cajeros:
+                    self.cajeros += data
+
+            def handle_endtag(self, tag):
+                if tag == 'script':
+                    self.en_cajeros = False
+
         User.objects.create_user(
             username='</script><script>window.__audit_xss=1</script>',
             email='xss@test.local', password='pass', rol='CAJERA', activo=True,
@@ -625,8 +647,15 @@ class SerializacionSeguraTests(ReportesTestCase):
         html = self.client.get(reverse('reportes:on_demand')).content.decode()
 
         self.assertNotIn('<script>window.__audit_xss=1</script>', html)
-        self.assertIn('json_script', 'json_script')  # documenta el mecanismo
-        self.assertIn('id="reportes-cajeros"', html)
+        # El nodo debe existir para el parser HTML, no solo como texto dentro
+        # de otro script accidental abierto por un comentario mal delimitado.
+        scripts = Scripts()
+        scripts.feed(html)
+        self.assertIsNotNone(scripts.cajeros)
+        cajeros = json.loads(scripts.cajeros)
+        self.assertIn('</script><script>window.__audit_xss=1</script>',
+                      {c['username'] for c in cajeros})
+        self.assertNotIn('{#', html)
 
     def test_la_plantilla_ya_no_usa_safe_para_los_cajeros(self):
         import pathlib
