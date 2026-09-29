@@ -37,6 +37,8 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 - `on_demand.html` entrega cajeros por `json_script`. Los comentarios de varias
   líneas deben usar `{% comment %}`: `{# ... #}` solo admite una línea y puede
   dejar etiquetas script literales que rompen el arranque de Alpine.
+- Las instancias Chart.js de reportes viven en el cierre de `reportesApp`,
+  fuera del estado reactivo; destruir un proxy dejaba activo el animador.
 - Encabeza con `config_para_documento(cierre.sucursal)` — ver `apps/common`.
 - `verificar_integridad_financiera` no corrige filas: detecta importes/cantidades,
   estados de cotización y números legacy incompatibles antes de las constraints.
