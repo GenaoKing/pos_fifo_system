@@ -1,5 +1,12 @@
 # Estado de las auditorías de código — punto único de consulta
 
+Revisión operativa del **2026-09-29**: aceptadas las validaciones de staging
+como premisa del responsable, persiste un bloqueo concreto del procedimiento
+de producción: las nuevas columnas obligatorias rompen las escrituras de la
+API legacy durante migración/rollback y pueden producir ACK falsos de sync.
+También se verificó HTTP 500 en `health/live` por un import ausente. Detalle y
+condiciones de pase en la [revisión actual](handoffs/REVISION_PRODUCCION_Y_LIMPIEZA_2026-09-29.md).
+
 Actualización A09 del 2026-09-25: el [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27)
 ya integra auditoría CT-01 atómica en las mutaciones de catálogo y clientes
 del **portal**; `PRO-010` y `CLI-011` continúan parciales porque el camino

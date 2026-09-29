@@ -1,5 +1,13 @@
 # A08.2 - promocion backend por digest y gate de migraciones
 
+**Advertencia verificada 2026-09-29 para producción `bcb8621`:** el workflow
+descrito abajo no bloquea escrituras antes de migrar y su rollback de imagen
+no garantiza compatibilidad con las columnas nuevas NOT NULL. El receptor
+legacy puede responder `DUPLICADO` ante ese fallo y confirmar un evento no
+guardado. Antes de usar este procedimiento se requiere mantenimiento/drain
+que preserve los reintentos de POS y recuperación compatible; no basta health
+200. Ver [dictamen y evidencia](../handoffs/REVISION_PRODUCCION_Y_LIMPIEZA_2026-09-29.md).
+
 Estado al 2026-09-25: control de CI **ejecutado en Azure dev/staging** con
 migraciones y artefactos OCI por digest verificados. Ver
 [acta A09](../handoffs/cierre_prod/A09-staging-2026-09-25.md) y

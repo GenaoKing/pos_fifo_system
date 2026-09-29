@@ -1,5 +1,13 @@
 # Estado maestro del proyecto
 
+Revisión del **2026-09-29**: backend staging `d24f24e`, portal `cbd0478`.
+Se dan por satisfactorias las validaciones por indicación del responsable,
+pero el pase requiere resolver la ventana de migración/rollback con API legacy
+(riesgo de ACK falso) y el error HTTP de `health/live`. POS antiguos y API nueva
+son compatibles para actualizar clientes al día siguiente. Dictamen, evidencia,
+pendientes de notificaciones y limpieza de worktrees en la
+[revisión de producción](handoffs/REVISION_PRODUCCION_Y_LIMPIEZA_2026-09-29.md).
+
 Actualización A09 del 2026-09-25: el backend de `develop@c7bc435` ya integra
 el trabajo de cierre y la corrección de auditoría portal/RBAC del
 [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27). El portal ya
