@@ -65,3 +65,37 @@ siendo el paquete `5f3e89b` con patches explícitos, no un paquete completo nuev
 
 No requiere migraciones. Publicar backend antes del portal. Los cambios
 preexistentes de productos, `.codex/` y análisis de costes quedan fuera.
+
+## Despliegue verificado — 2026-09-29 16:01 UTC
+
+- Backend: PR [#37](https://github.com/GenaoKing/pos_fifo_system/pull/37),
+  staging `d24f24e897e06cbcfb850ebbd5c1dc7cf99a84ee`.
+  [CI/CD 36592002904](https://github.com/GenaoKing/pos_fifo_system/actions/runs/36592002904)
+  SUCCESS: gate físico 5 pruebas, suite Django 1666 y e-CF 72; health y ciclo
+  manual de notificaciones aprobados. Las corridas duplicadas del PR se
+  cancelaron; no se saltó el gate completo del workflow de despliegue.
+- Imagen activa: `pos-fifo-backend@sha256:bc4cb4f7f1aa760e35d882aebeda0febaac22c007e2683af4a4f65eeca1e52a4`;
+  revisión `posfifo-staging-api--0000021`. Imagen anterior para rollback:
+  `sha256:83803cb6350c4b6d55fba3b7b7fd40919394f3a40067c010a383bb40dafa9ce1`.
+  El job de notificaciones conserva trigger `Manual` y comparte la imagen nueva.
+- Portal: PR [#10](https://github.com/GenaoKing/pos-cloud-dashboard/pull/10),
+  staging `cbd04787d6bbc47815e9f963452102d296f8cbdc`.
+  [deploy 36594308088](https://github.com/GenaoKing/pos-cloud-dashboard/actions/runs/36594308088)
+  y [CI 36594308060](https://github.com/GenaoKing/pos-cloud-dashboard/actions/runs/36594308060)
+  SUCCESS; suite frontend 146 pruebas.
+- Chromium real contra el portal staging: login QA, cuatro tarjetas con
+  importes de la API, recarga de `/dashboard` y cero errores JavaScript.
+  Se reconciliaron `QA-PC-01` local/cloud: ventas y cobros de ventas `1140.00`,
+  CxC `0.00`, ingresos `1140.00`. No se crearon ventas ni abonos para el smoke.
+- QA local: 8 consultas/generaciones HTTP 200/success, cierre diario con PDF
+  completo (no cierra un turno ni crea ventas), cambios rápidos entre gráficas,
+  cero errores JavaScript y cero gráficas tras limpiar. `verificar_instalacion`:
+  sana, sin migraciones pendientes. `verificar_sync --dias=7`: sin pérdida,
+  ocho eventos confirmados. Web y sync Running.
+- Evidencia protegida local: `patch_20260929_caja_reportes/smoke_local.json`,
+  `smoke_cloud.json`, `smoke_cloud.png`, `local_totals.json` y `manifest.json`.
+  El aviso del portal corresponde a la sucursal de laboratorio `01`, sin sync
+  desde hace cuatro días; `QA-PC-01` aparece En línea.
+
+Producción y tiendas no se modificaron. No se promovió `develop` ni se declara
+cerrado el gate operativo de producción por estas pruebas de staging.
