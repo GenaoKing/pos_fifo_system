@@ -359,6 +359,48 @@ class ReportesCloudTests(TestCase):
         self.assertEqual(sd['credito_facturado'], '500.00')
         self.assertEqual(sd['cobros_cxc'], '120.00')
 
+    def test_ingresos_hoy_suma_cobros_sin_duplicar_inicial_ni_credito(self):
+        response = self._api(self.admin).get('/api/v1/reportes/ventas-hoy/')
+        self.assertEqual(response.status_code, 200)
+        totales = response.data['totales']
+        self.assertEqual(totales['total_ventas'], '1500.00')
+        self.assertEqual(totales['cobros_ventas'], '1100.00')
+        self.assertEqual(totales['cobros_cxc'], '120.00')
+        self.assertEqual(totales['ingresos_totales'], '1220.00')
+        sucursales = {s['sucursal_codigo']: s for s in response.data['sucursales']}
+        self.assertEqual(sucursales['SD-001']['ingresos_totales'], '1220.00')
+        self.assertEqual(sucursales['STI-001']['ingresos_totales'], '0.00')
+
+    def test_ingresos_cxc_usa_dia_local_del_abono_aunque_venta_sea_anterior(self):
+        Venta.objects.filter(pk=self.venta_credito.pk).update(
+            fecha_venta=self.now_local - timedelta(days=30),
+        )
+        inicio = timezone.make_aware(datetime.combine(self.today, time.min))
+        PagoCxC.objects.filter(cuenta=self.cuenta).update(fecha_pago=inicio)
+        for fecha, estado in (
+            (inicio - timedelta(seconds=1), PagoCxC.ESTADO_APLICADO),
+            (inicio + timedelta(days=1), PagoCxC.ESTADO_APLICADO),
+            (inicio, PagoCxC.ESTADO_ANULADO),
+        ):
+            PagoCxC.objects.create(
+                cuenta=self.cuenta, metodo=PagoCxC.METODO_EFECTIVO,
+                monto=Decimal('90.00'), registrado_por=self.cajera,
+                fecha_pago=fecha, estado=estado,
+            )
+        response = self._api(self.admin).get('/api/v1/reportes/ventas-hoy/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['totales']['cobros_cxc'], '120.00')
+        self.assertEqual(response.data['totales']['cobros_ventas'], '1000.00')
+        self.assertEqual(response.data['totales']['ingresos_totales'], '1120.00')
+
+    def test_ingresos_excluye_ventas_anuladas_y_respeta_sucursal(self):
+        Venta.objects.filter(pk=self.venta_contado.pk).update(estado='ANULADA')
+        response = self._api(self.admin).get('/api/v1/reportes/ventas-hoy/SD-001/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['totales']['ingresos_totales'], '220.00')
+        vacia = self._api(self.admin).get('/api/v1/reportes/ventas-hoy/STI-001/')
+        self.assertEqual(vacia.data['totales']['ingresos_totales'], '0.00')
+
     def test_inventario_consolidado_mantiene_stock_por_sucursal(self):
         response = self._api(self.admin).get('/api/v1/reportes/inventario-consolidado/')
 

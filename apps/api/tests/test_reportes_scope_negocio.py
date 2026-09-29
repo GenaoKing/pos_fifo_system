@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 
 from apps.permisos import testing
 from apps.sucursales.models import Sucursal
-from apps.ventas.models import Venta
+from apps.ventas.models import Pago, Venta
 
 User = get_user_model()
 
@@ -80,10 +80,13 @@ class ReportesScopeNegocioTests(TestCase):
         return f'desde={self.hoy}&hasta={self.hoy}'
 
     def test_ventas_hoy_scoped_por_negocio(self):
+        for venta in Venta.objects.all():
+            Pago.objects.create(venta=venta, metodo='EFECTIVO', monto=venta.total)
         r = self._api(self.user_a).get('/api/v1/reportes/ventas-hoy/')
         self.assertEqual(r.status_code, 200)
         codigos = {s['sucursal_codigo'] for s in r.data['sucursales']}
         self.assertEqual(codigos, {'A-001'})
+        self.assertEqual(r.data['totales']['ingresos_totales'], '100.00')
 
     def test_comparativo_scoped_por_negocio(self):
         r = self._api(self.user_a).get(f'/api/v1/reportes/comparativo/?{self._rango_hoy()}')
