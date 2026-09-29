@@ -263,10 +263,11 @@ class EncabezadoPorSucursalTests(TestCase):
         from apps.cotizaciones import pdf_generator as cot
         from apps.cuentas_por_cobrar import pdf_generator as cxc
         from apps.reportes import pdf_generator as rep
+        from apps.reportes import conciliacion
         from apps.ventas import pdf_comprobante as comp
         from apps.ventas import pdf_financiacion as fin
 
-        for modulo in (cot, cxc, rep, fin, comp):
+        for modulo in (cot, cxc, rep, fin, comp, conciliacion):
             with self.subTest(modulo=modulo.__name__):
                 fuente = inspect.getsource(modulo)
                 self.assertNotIn('get_config()', fuente)

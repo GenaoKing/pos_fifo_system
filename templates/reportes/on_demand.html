@@ -307,6 +307,7 @@ function reportesApp() {
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Reportes On-Demand</h1>
             <p class="text-sm text-gray-500 mt-1">Genera reportes manuales con filtros personalizados</p>
+            <a href="{% url 'reportes:conciliacion' %}" class="btn-primary mt-3">Cuadre semanal, quincenal o mensual / PDF</a>
         </div>
         <a href="{% url 'reportes:dashboard' %}" class="inline-flex items-center text-sm text-gray-600 hover:text-blue-600 transition-colors">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

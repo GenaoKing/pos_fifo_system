@@ -31,6 +31,9 @@ de cuadre imprimible. Todo en `apps/caja/models.py` y `views.py`.
 - `TurnoCaja.calcular_esperado()` **prefiere `Pago.turno_caja`**; la heurística
   por fecha/usuario queda solo para pagos históricos sin vínculo.
 - `TurnoCaja.resumen_operativo()` → desglose por método (base del cuadre).
+- `ingresos.ingresos_del_dia(turno)` → ventas cobradas + CxC del día local,
+  del cajero y sucursal, en todos los medios; no suma crédito ni fondos.
+  `_desglose_serializable` no lo entrega durante conteo ciego.
 
 ## Sync / notificaciones
 
@@ -48,5 +51,7 @@ notificaciones push del cloud se derivan de **estos** eventos
 - `api_validar_admin` tiene freno de intentos (`apps/permisos/throttling.py`).
 - `templates/caja/index.html` separa apertura y autorización en formularios;
   el modal de credenciales se monta con `x-if` para evitar autofill en importes.
+- Cierre refresca el estado antes de abrir, limita alto al viewport y permite
+  scroll; denominaciones en grilla compacta plegable con scroll propio.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CAJA.md`) —
   **snapshot histórico**, verificar contra código.

@@ -67,6 +67,13 @@ class ReportesOnDemandModuloGateTests(TestCase):
         resp = self.client.get(reverse('reportes:on_demand'))
         self.assertEqual(resp.status_code, 404)
 
+    def test_modulo_apagado_denega_conciliacion_y_pdf(self):
+        self._apagar_modulo()
+        self.client.force_login(self.user)
+        for formato in ('html', 'pdf'):
+            resp = self.client.get(reverse('reportes:conciliacion'), {'formato': formato})
+            self.assertEqual(resp.status_code, 404)
+
     def test_modulo_apagado_denega_api(self):
         self._apagar_modulo()
         self.client.force_login(self.user)

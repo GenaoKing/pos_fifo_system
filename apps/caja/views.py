@@ -65,7 +65,7 @@ def turnos_en_alcance(request):
     return TurnoCaja.objects.filter(caja__in=cajas_en_alcance(request))
 
 
-def _desglose_serializable(resumen, ocultar_efectivo=False):
+def _desglose_serializable(resumen, ocultar_efectivo=False, turno=None):
     """Convierte el snapshot de `TurnoCaja.resumen_operativo()` a JSON.
 
     Reune el flujo de efectivo (lo que ya consumia el panel) con el desglose por
@@ -93,6 +93,10 @@ def _desglose_serializable(resumen, ocultar_efectivo=False):
         'cobros_cxc_por_metodo': cobros,
         'ocultar_efectivo': bool(ocultar_efectivo),
     }
+    # El total diario también revelaría el efectivo en un conteo ciego.
+    if turno is not None and not ocultar_efectivo:
+        from .ingresos import ingresos_del_dia
+        data['ingresos_dia'] = ingresos_del_dia(turno)
     if ocultar_efectivo:
         for clave in (
             'fondo_apertura', 'efectivo_ventas', 'efectivo_cxc',
@@ -302,7 +306,8 @@ def caja_index(request):
     movimientos = []
     if turno_activo:
         desglose = _desglose_serializable(
-            turno_activo.resumen_operativo(), ocultar_efectivo=oculta_efectivo
+            turno_activo.resumen_operativo(), ocultar_efectivo=oculta_efectivo,
+            turno=turno_activo,
         )
         movimientos = turno_activo.movimientos.all().select_related(
             'registrado_por', 'autorizado_por'
@@ -709,6 +714,7 @@ def api_registrar_movimiento(request):
             # ventas por metodo + cobros CxC).
             desglose = _desglose_serializable(
                 turno.resumen_operativo(),
+                turno=turno,
                 ocultar_efectivo=_oculta_efectivo_por_conteo_ciego(request),
             )
             # Outbox transaccional: atomico con el movimiento.
@@ -780,6 +786,7 @@ def api_estado_turno(request):
 
     desglose = _desglose_serializable(
         turno.resumen_operativo(),
+        turno=turno,
         ocultar_efectivo=_oculta_efectivo_por_conteo_ciego(request),
     )
     movimientos = turno.movimientos.select_related(

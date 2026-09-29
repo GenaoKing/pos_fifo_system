@@ -1,6 +1,6 @@
 # apps/common — mapa para agentes
 
-<!-- Última revisión: 2026-09-10 -->
+<!-- Última revisión: 2026-09-29 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -25,7 +25,8 @@ Librería transversal, **no** es una app Django (sin modelos, no está en
 ## Quién lo usa
 
 `apps/cotizaciones/pdf_generator.py`, `apps/cuentas_por_cobrar/pdf_generator.py`,
-`apps/reportes/pdf_generator.py`, `apps/ventas/pdf_financiacion.py`,
+`apps/reportes/pdf_generator.py`, `apps/reportes/conciliacion.py`,
+`apps/ventas/pdf_financiacion.py`,
 `apps/ventas/pdf_comprobante.py`. **Todos** encabezan con
 `config_para_documento(sucursal)` — nunca `get_config()` (COM-001). Lo vigila
 `test_los_generadores_ya_no_resuelven_por_settings`

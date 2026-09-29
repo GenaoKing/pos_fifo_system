@@ -4,10 +4,12 @@ URLs del modulo de reportes: dashboard + reportes on-demand
 """
 from django.urls import path
 from . import views
+from .views_conciliacion import conciliacion
 
 app_name = 'reportes'
 
 urlpatterns = [
+    path('conciliacion/', conciliacion, name='conciliacion'),
     # Dashboard (ya existente)
     path('', views.dashboard, name='dashboard'),
     path('api/metricas-hoy/', views.api_metricas_hoy, name='api_metricas_hoy'),

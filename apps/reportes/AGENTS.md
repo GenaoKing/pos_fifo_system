@@ -23,6 +23,7 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 | Cierre diario **manual** (RPT-005: no hay servicio automático) | `manage.py generar_cierre_diario` (`--tenant` / `--todos-los-tenants` / `--finalizar`) — ver `docs/runbooks/CIERRE_DIARIO_MANUAL.md` |
 | Preflight financiero read-only antes de migrar | `manage.py verificar_integridad_financiera` (`--tenant` / `--todos-los-tenants`) |
 | PDF del cierre | `pdf_generator.PDFGenerator.generar_cierre_caja` → `views.descargar_pdf_cierre` |
+| Cuadre por período / PDF | `views_conciliacion.conciliacion` (`/conciliacion/`, GET; `formato=pdf`), `conciliacion.generar_conciliacion` / `generar_pdf`; mismos permisos y módulo on-demand |
 | Dónde se guardan los PDFs | `almacenamiento.py` → `ruta_cierre` (`REPORTES_PRIVATE_ROOT`, **fuera** de `MEDIA_ROOT`) |
 | Alcance | `scope.alcance_de` (`reportes.sucursal.ver` / `reportes.consolidado.ver`), `puede_ver_reportes`; `reportes.ver` para el dashboard |
 
@@ -34,6 +35,10 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 - Los PDFs financieros **nunca** en `MEDIA_ROOT` (se sirve sin login, RPT-001);
   `config/urls.py` además bloquea `media/reportes/`.
 - Todo queryset se filtra con el **mismo** `Alcance` que declara RBAC (RPT-003).
+- Cuadre por período: fechas locales inclusivas, máximo 366 días; cobros de
+  ventas sin CREDITO + CxC APLICADO, movimientos y arqueos guardados por fecha
+  de cierre. PDF en memoria, sin caché. Selección explícita de sucursal excluye
+  filas legacy sin sucursal; «todas las permitidas» conserva la regla de Alcance.
 - `on_demand.html` entrega cajeros por `json_script`. Los comentarios de varias
   líneas deben usar `{% comment %}`: `{# ... #}` solo admite una línea y puede
   dejar etiquetas script literales que rompen el arranque de Alpine.

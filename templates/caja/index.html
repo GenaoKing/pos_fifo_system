@@ -117,6 +117,15 @@
             {# --- Columna izquierda: Desglose + Movimientos --- #}
             <div class="lg:col-span-2 space-y-6">
 
+                <template x-if="!desglose.ocultar_efectivo && desglose.ingresos_dia">
+                    <div class="card p-4 bg-green-50">
+                        <p class="text-sm font-semibold">Ingresos del día · <span x-text="desglose.ingresos_dia.fecha"></span></p>
+                        <p class="text-2xl font-bold text-green-700">$<span x-text="fmt(desglose.ingresos_dia.total)"></span></p>
+                        <p class="text-sm">Ventas cobradas $<span x-text="fmt(desglose.ingresos_dia.ventas)"></span> + cobros CxC $<span x-text="fmt(desglose.ingresos_dia.cxc)"></span></p>
+                        <p class="text-xs text-gray-500 mt-1">Tus cobros de hoy en esta sucursal, en todos los medios de pago. No incluye crédito pendiente ni fondos de caja.</p>
+                    </div>
+                </template>
+
                 {# KPIs de efectivo del turno (ocultos con conteo ciego para no-admin) #}
                 <template x-if="!desglose.ocultar_efectivo">
                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
@@ -140,7 +149,7 @@
                     </div>
                     <div class="card">
                         <div class="card-body text-center py-4">
-                            <p class="text-xs text-blue-600 uppercase tracking-wider">Ingresos</p>
+                            <p class="text-xs text-blue-600 uppercase tracking-wider">Reposiciones</p>
                             <p class="text-lg font-bold text-blue-700 mt-1">$<span x-text="fmt(desglose.ingresos)"></span></p>
                         </div>
                     </div>
@@ -271,7 +280,7 @@
                                 <p class="text-xs text-gray-500">Abierto desde <span x-text="turnoActivo.apertura"></span></p>
                             </div>
                         </div>
-                        <button @click="mostrarCerrarTurno = true"
+                        <button @click="prepararCierre()"
                                 class="w-full py-2.5 px-4 bg-red-50 text-red-700 text-sm font-medium rounded-lg border border-red-200 hover:bg-red-100 transition-colors inline-flex items-center justify-center">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
@@ -537,6 +546,7 @@
 
     {# ====== MODAL CERRAR TURNO ====== #}
     <div x-show="mostrarCerrarTurno"
+         x-cloak @keydown.escape.window="mostrarCerrarTurno = false"
          style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0"
@@ -547,8 +557,9 @@
 
         <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" @click="mostrarCerrarTurno = false"></div>
 
-        <div style="position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:1.5rem;">
-            <div style="background:#fff;border-radius:1rem;width:100%;max-width:440px;padding:2rem;box-shadow:0 25px 60px rgba(0,0,0,0.35);border:1px solid #e5e7eb;"
+        <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:.75rem;">
+            <div role="dialog" aria-modal="true" aria-labelledby="titulo-cierre"
+                 style="background:#fff;border-radius:1rem;width:100%;max-width:480px;padding:1.25rem;max-height:calc(100dvh - 1.5rem);overflow-y:auto;overscroll-behavior:contain;box-shadow:0 25px 60px rgba(0,0,0,0.35);border:1px solid #e5e7eb;"
                  @click.stop
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="opacity-0 transform scale-95"
@@ -563,7 +574,7 @@
                             </svg>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-900">Cerrar Turno</h3>
+                            <h3 id="titulo-cierre" class="text-lg font-semibold text-gray-900">Cerrar Turno</h3>
                             <p class="text-sm text-gray-500" x-text="turnoActivo ? turnoActivo.caja : ''"></p>
                         </div>
                     </div>
@@ -573,6 +584,14 @@
                         </svg>
                     </button>
                 </div>
+
+                <template x-if="!desglose.ocultar_efectivo && desglose.ingresos_dia">
+                    <div class="bg-green-50 rounded-xl p-3 mb-3 text-sm">
+                        <p class="font-semibold">Ingresos del día: $<span x-text="fmt(desglose.ingresos_dia.total)"></span></p>
+                        <p class="text-xs">Ventas $<span x-text="fmt(desglose.ingresos_dia.ventas)"></span> + CxC $<span x-text="fmt(desglose.ingresos_dia.cxc)"></span></p>
+                        <p class="text-xs text-gray-500">Tus cobros de hoy en esta sucursal, todos los medios.</p>
+                    </div>
+                </template>
 
                 {# Resumen desglose (oculto con conteo ciego: se revela al cerrar) #}
                 <template x-if="!desglose.ocultar_efectivo">
@@ -590,7 +609,7 @@
                         <span class="text-emerald-600 font-medium">$<span x-text="fmt(desglose.efectivo_cxc || 0)"></span></span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-500">+ Ingresos</span>
+                        <span class="text-gray-500">+ Reposiciones</span>
                         <span class="text-blue-600 font-medium">$<span x-text="fmt(desglose.ingresos)"></span></span>
                     </div>
                     <div class="flex justify-between">
@@ -630,20 +649,22 @@
                     {# Ayudante de denominacion (opcional): suma billetes/monedas al contado #}
                     <div class="border border-gray-200 rounded-xl">
                         <button type="button" @click="mostrarDenominacion = !mostrarDenominacion"
+                                :aria-expanded="mostrarDenominacion" aria-controls="conteo-denominaciones"
                                 class="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700">
                             <span>Contar por denominación</span>
                             <svg class="w-4 h-4 transition-transform" :class="mostrarDenominacion ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                         </button>
-                        <div x-show="mostrarDenominacion" class="px-4 pb-3 pt-1 border-t border-gray-100">
-                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                        <div id="conteo-denominaciones" x-show="mostrarDenominacion" class="px-3 pb-2 pt-1 border-t border-gray-100">
+                            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.25rem .75rem;max-height:180px;overflow-y:auto;">
                                 <template x-for="den in denominaciones" :key="den">
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-gray-500 w-12 text-right" x-text="'$' + den"></span>
                                         <span class="text-gray-300">×</span>
                                         <input type="number" min="0" step="1" inputmode="numeric"
+                                               :aria-label="'Cantidad de denominación ' + den"
                                                name="cantidad_denominacion" autocomplete="off"
                                                x-model.number="conteoDenominacion[den]" @input="aplicarDenominacion()"
-                                               class="form-input w-full py-1 text-sm" placeholder="0">
+                                               class="form-input w-full text-sm" style="min-width:0;padding:.2rem .4rem;height:30px;" placeholder="0">
                                     </div>
                                 </template>
                             </div>
@@ -784,6 +805,20 @@ function cajaApp() {
 
             if (this.cajasDisponibles.length === 1) {
                 this.formApertura.caja_id = this.cajasDisponibles[0]?.id || '';
+            }
+        },
+
+        async prepararCierre() {
+            this.error = null;
+            try {
+                const res = await fetch('{% url "caja:api_estado" %}', {cache: 'no-store'});
+                if (!res.ok) throw new Error('No se pudo actualizar el cierre.');
+                const data = await res.json();
+                if (!data.tiene_turno) { location.reload(); return; }
+                this.desglose = data.desglose;
+                this.mostrarCerrarTurno = true;
+            } catch (e) {
+                this.error = 'No se pudo actualizar el cierre. Intenta nuevamente.';
             }
         },
 

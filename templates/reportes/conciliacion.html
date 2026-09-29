@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Cuadre por período - Sistema POS{% endblock %}
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-wrap justify-between gap-3">
+        <div><h1 class="text-2xl font-bold">Cuadre por período</h1>
+        <p class="text-sm text-gray-500">Ventas, cobros y movimientos para la conciliación del dueño.</p></div>
+        <a href="{% url 'reportes:on_demand' %}" class="btn-secondary">Volver a reportes</a>
+    </div>
+    <form method="get" class="card p-4 space-y-4" x-data="{
+        periodo(tipo) {
+            const hoy = '{{ hoy }}';
+            const fecha = new Date(hoy + 'T12:00:00');
+            if (tipo === 'semana') fecha.setDate(fecha.getDate() - (fecha.getDay() + 6) % 7);
+            if (tipo === 'quincena') fecha.setDate(fecha.getDate() <= 15 ? 1 : 16);
+            if (tipo === 'mes') fecha.setDate(1);
+            const local = fecha.getFullYear() + '-' + String(fecha.getMonth()+1).padStart(2, '0') + '-' + String(fecha.getDate()).padStart(2, '0');
+            this.$root.elements.inicio.value = local;
+            this.$root.elements.fin.value = hoy;
+        }
+    }">
+        <div class="flex flex-wrap gap-2">
+            <button type="submit" @click="periodo('semana')" class="btn-secondary">Esta semana</button>
+            <button type="submit" @click="periodo('quincena')" class="btn-secondary">Esta quincena</button>
+            <button type="submit" @click="periodo('mes')" class="btn-secondary">Este mes</button>
+        </div>
+        <p class="text-xs text-gray-500">Semana desde el lunes; quincenas del 1 al 15 y del 16 al fin de mes. Accesos rápidos hasta hoy; ajusta las fechas para consultar períodos anteriores.</p>
+        <div class="flex flex-wrap items-end gap-4">
+            {% for field in form %}<div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}<div class="text-red-600 text-sm">{{ field.errors }}</div></div>{% endfor %}
+            <button type="submit" class="btn-primary">Consultar rango</button>
+        </div>
+        <div role="alert" class="text-red-600">{{ form.non_field_errors }}</div>
+    </form>
+    {% if reporte %}
+    <div class="flex flex-wrap justify-between items-center gap-3">
+        <p>{{ reporte.inicio|date:'d/m/Y' }} al {{ reporte.fin|date:'d/m/Y' }} · {{ ambito }}</p>
+        <a href="?{{ pdf_query }}" target="_blank" rel="noopener" class="btn-primary">Abrir PDF / Imprimir</a>
+    </div>
+    <div class="card p-4 bg-green-50">
+        <p class="text-sm">Ingresos recibidos</p><p class="text-2xl font-bold">RD$ {{ reporte.totales.ingresos|floatformat:2 }}</p>
+        <p class="text-sm">Cobros de ventas RD$ {{ reporte.totales.cobros_ventas|floatformat:2 }} + cobros CxC RD$ {{ reporte.totales.cobros_cxc|floatformat:2 }}.</p>
+        <p class="text-xs mt-2">Incluye la inicial una sola vez. El crédito pendiente no es ingreso. Importes vigentes al generar; excluye anulados.</p>
+    </div>
+    <section class="card p-4"><h2 class="font-semibold mb-3">Ventas y cobros por día</h2><div class="overflow-x-auto">
+        <table class="w-full text-sm text-right"><thead><tr><th class="p-2 text-left">Fecha</th><th>Ventas facturadas</th><th>Crédito generado</th><th>Cobros ventas</th><th>Cobros CxC</th><th>Ingresos</th></tr></thead>
+        <tbody>{% for d in reporte.dias %}<tr class="border-t"><td class="p-2 text-left whitespace-nowrap">{{ d.fecha|date:'d/m/Y' }}</td><td>{{ d.ventas|floatformat:2 }}</td><td>{{ d.credito|floatformat:2 }}</td><td>{{ d.cobros_ventas|floatformat:2 }}</td><td>{{ d.cobros_cxc|floatformat:2 }}</td><td class="font-semibold">{{ d.ingresos|floatformat:2 }}</td></tr>{% endfor %}</tbody>
+        <tfoot class="font-bold border-t"><tr><td class="p-2 text-left">TOTAL RD$</td><td>{{ reporte.totales.ventas|floatformat:2 }}</td><td>{{ reporte.totales.credito|floatformat:2 }}</td><td>{{ reporte.totales.cobros_ventas|floatformat:2 }}</td><td>{{ reporte.totales.cobros_cxc|floatformat:2 }}</td><td>{{ reporte.totales.ingresos|floatformat:2 }}</td></tr></tfoot></table>
+    </div></section>
+    <section class="card p-4"><h2 class="font-semibold mb-3">Movimientos y flujo neto</h2><div class="overflow-x-auto">
+        <table class="w-full text-sm text-right"><thead><tr><th class="p-2 text-left">Fecha</th><th>Ingresos</th><th>Reposiciones</th><th>Gastos</th><th>Retiros</th><th>Flujo neto</th></tr></thead>
+        <tbody>{% for d in reporte.dias %}<tr class="border-t"><td class="p-2 text-left whitespace-nowrap">{{ d.fecha|date:'d/m/Y' }}</td><td>{{ d.ingresos|floatformat:2 }}</td><td>{{ d.reposiciones|floatformat:2 }}</td><td>{{ d.gastos|floatformat:2 }}</td><td>{{ d.retiros|floatformat:2 }}</td><td>{{ d.neto|floatformat:2 }}</td></tr>{% endfor %}</tbody>
+        <tfoot class="font-bold border-t"><tr><td class="p-2 text-left">TOTAL RD$</td><td>{{ reporte.totales.ingresos|floatformat:2 }}</td><td>{{ reporte.totales.reposiciones|floatformat:2 }}</td><td>{{ reporte.totales.gastos|floatformat:2 }}</td><td>{{ reporte.totales.retiros|floatformat:2 }}</td><td>{{ reporte.totales.neto|floatformat:2 }}</td></tr></tfoot></table>
+    </div><p class="text-xs text-gray-500 mt-3">Flujo neto = ingresos + reposiciones − gastos − retiros. Incluye todos los medios; no es utilidad ni saldo físico. Las reposiciones no incluyen fondos de apertura.</p></section>
+    <section class="card p-4"><h2 class="font-semibold mb-3">Ingresos por medio de pago</h2><div class="overflow-x-auto">
+        <table class="w-full text-sm text-right"><thead><tr><th class="text-left p-2">Medio</th><th>Cobros ventas</th><th>Cobros CxC</th><th>Total RD$</th></tr></thead><tbody>
+        {% for m in reporte.metodos %}<tr class="border-t"><td class="text-left p-2">{{ m.metodo }}</td><td>{{ m.ventas|floatformat:2 }}</td><td>{{ m.cxc|floatformat:2 }}</td><td>{{ m.total|floatformat:2 }}</td></tr>{% endfor %}
+        </tbody></table></div></section>
+    <section class="card p-4"><h2 class="font-semibold mb-3">Arqueos de efectivo por fecha de cierre</h2>
+        <p class="text-sm mb-3">Turnos aún abiertos iniciados hasta el fin del período: {{ reporte.turnos_abiertos }}.</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm text-right"><thead><tr><th class="text-left p-2">Fecha</th><th>Cierres</th><th>Esperado</th><th>Contado</th><th>Diferencia</th></tr></thead><tbody>
+        {% for d in reporte.dias %}{% if d.cierres %}<tr class="border-t"><td class="text-left p-2">{{ d.fecha|date:'d/m/Y' }}</td><td>{{ d.cierres }}</td><td>{{ d.esperado|floatformat:2 }}</td><td>{{ d.contado|floatformat:2 }}</td><td>{{ d.diferencia|floatformat:2 }}</td></tr>{% endif %}{% endfor %}
+        </tbody><tfoot class="font-bold border-t"><tr><td class="text-left p-2">TOTAL RD$</td><td>{{ reporte.totales.cierres }}</td><td>{{ reporte.totales.esperado|floatformat:2 }}</td><td>{{ reporte.totales.contado|floatformat:2 }}</td><td>{{ reporte.totales.diferencia|floatformat:2 }}</td></tr></tfoot></table></div>
+        <p class="text-xs text-gray-500 mt-3">Importes guardados al cerrar. Su suma incluye fondos reutilizados entre turnos y no equivale al ingreso del período. Una diferencia positiva es sobrante; una negativa, faltante.</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
