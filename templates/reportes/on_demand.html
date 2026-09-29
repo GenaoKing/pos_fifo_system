@@ -6,11 +6,13 @@
 {% block extra_head %}
 <script src="{% static 'js/chart.min.js' %}"></script>
 
-{# Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
+{% comment %}
+Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi que un
    nombre de usuario con `</script>` viaja como texto y no cierra el bloque.
    Antes se interpolaba con `|safe` dentro de <script>, y un username guardado
    con `</script><script>...` ejecutaba JavaScript en la sesion de cualquier
-   administrador que abriera esta pagina. #}
+   administrador que abriera esta pagina.
+{% endcomment %}
 {{ cajeros|json_script:"reportes-cajeros" }}
 
 <script>
@@ -537,10 +539,12 @@ function reportesApp() {
                     </div>
                 </div>
 
-                {# Los mismos componentes que el PDF: la pantalla omitia
+                {% comment %}
+                Los mismos componentes que el PDF: la pantalla omitia
                    tarjeta, cobros de cartera, descuentos y anulaciones, asi que
                    un dia dominado por tarjeta parecia incompleto aqui aunque el
-                   documento tuviera la cifra. #}
+                   documento tuviera la cifra.
+                {% endcomment %}
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
                     <div class="bg-gray-50 rounded-lg p-4 text-center">
                         <p class="text-xs text-gray-500 uppercase tracking-wider">Ventas facturadas</p>
@@ -580,9 +584,11 @@ function reportesApp() {
                     </div>
                 </div>
 
-                {# Arqueo fisico: viene de apps/caja y se muestra APARTE de la
+                {% comment %}
+                Arqueo fisico: viene de apps/caja y se muestra APARTE de la
                    facturacion, para que no se lea como una conciliacion de
-                   efectivo que este resumen no hace. #}
+                   efectivo que este resumen no hace.
+                {% endcomment %}
                 <div class="border border-gray-200 rounded-lg p-4 mb-6">
                     <div class="flex items-center justify-between mb-3">
                         <h4 class="text-sm font-semibold text-gray-700">Arqueo de caja del dia</h4>

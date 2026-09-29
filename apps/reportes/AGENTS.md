@@ -1,6 +1,6 @@
 # apps/reportes — mapa para agentes
 
-<!-- Última revisión: 2026-09-11 -->
+<!-- Última revisión: 2026-09-29 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -34,6 +34,9 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
 - Los PDFs financieros **nunca** en `MEDIA_ROOT` (se sirve sin login, RPT-001);
   `config/urls.py` además bloquea `media/reportes/`.
 - Todo queryset se filtra con el **mismo** `Alcance` que declara RBAC (RPT-003).
+- `on_demand.html` entrega cajeros por `json_script`. Los comentarios de varias
+  líneas deben usar `{% comment %}`: `{# ... #}` solo admite una línea y puede
+  dejar etiquetas script literales que rompen el arranque de Alpine.
 - Encabeza con `config_para_documento(cierre.sucursal)` — ver `apps/common`.
 - `verificar_integridad_financiera` no corrige filas: detecta importes/cantidades,
   estados de cotización y números legacy incompatibles antes de las constraints.
