@@ -139,6 +139,11 @@ jobs:
     name: Build and deploy ${{ matrix.environment }}
     runs-on: ubuntu-latest
     needs: checks
+    timeout-minutes: 120
+    concurrency:
+      group: backend-deploy-${{ matrix.environment }}-${{ matrix.environment == 'prod' && 'serial' || github.run_id }}
+      # Never interrupt a migration or replace an in-flight production release.
+      cancel-in-progress: false
 
     permissions:
       contents: read
@@ -430,6 +435,11 @@ jobs:
             exit 1
           fi
           echo "previous_image=$previous_image" >> "$GITHUB_OUTPUT"
+          previous_sha=$(az containerapp show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_APP_NAME" \
+            --query "properties.template.containers[0].env[?name=='GIT_COMMIT_SHA'].value | [0]" -o tsv)
+          echo "previous_sha=${previous_sha:-unknown}" >> "$GITHUB_OUTPUT"
           echo "Previous API image: $previous_image"
 
       - name: Capture current notifications job image
@@ -461,8 +471,30 @@ jobs:
           echo "previous_image=$previous_image" >> "$GITHUB_OUTPUT"
           echo "Previous notifications job image: $previous_image"
 
-      # El codigo nuevo nunca corre contra un schema viejo. Si la migracion
-      # falla, API y job conservan sus imagenes anteriores.
+      # Production's old image cannot write the new NOT NULL columns. The
+      # operator must freeze ingress and deactivate every revision BEFORE DDL.
+      # This workflow verifies the freeze; it never reopens production.
+      - name: Verify production maintenance before migrations
+        if: steps.target.outputs.deploy == 'true' && matrix.environment == 'prod'
+        shell: bash
+        run: |
+          python scripts/release/production_gate.py frozen \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --app-name "$AZURE_CONTAINER_APP_NAME" \
+            --evidence "$RUNNER_TEMP/deploy-evidence-prod/freeze-before-migrations.json"
+
+          if [ "${{ steps.current_notifications_image.outputs.job_exists }}" = "true" ]; then
+            trigger=$(az containerapp job show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+              --query "properties.configuration.triggerType" -o tsv)
+            test "$trigger" = "Manual" || { echo "Production notifications must remain Manual."; exit 1; }
+            running=$(az containerapp job execution list \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_NOTIFICATIONS_JOB_NAME" \
+              --query "[?properties.status=='Running' || properties.status=='Processing' || properties.status=='Pending'].name" -o tsv)
+            test -z "$running" || { echo "A notifications execution is still active; finish maintenance first."; exit 1; }
+          fi
 
       - name: Update migrate job image if present
         if: steps.target.outputs.deploy == 'true'
@@ -487,6 +519,13 @@ jobs:
             exit 1
           fi
 
+          if [ "${{ matrix.environment }}" = "prod" ]; then
+            python scripts/release/production_gate.py frozen \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --app-name "$AZURE_CONTAINER_APP_NAME" \
+              --evidence "$RUNNER_TEMP/deploy-evidence-prod/freeze-at-migration-start.json"
+          fi
+
           echo "Starting migrate job..."
           execution=$(az containerapp job start \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -494,24 +533,13 @@ jobs:
             --query "name" -o tsv)
           echo "Migration execution: $execution"
 
-          # Esperar a que la ejecucion termine. Sin esto, una migracion fallida
-          # pasaria desapercibida (job start es async).
-          for attempt in $(seq 1 60); do
-            status=$(az containerapp job execution show \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --name "$AZURE_MIGRATE_JOB_NAME" \
-              --job-execution-name "$execution" \
-              --query "properties.status" -o tsv 2>/dev/null || echo "Unknown")
-            echo "Migration status ($attempt/60): $status"
-            case "$status" in
-              Succeeded) echo "Migrations OK."; exit 0 ;;
-              Failed|Degraded|Cancelled) echo "Migration execution ended as '$status'."; exit 1 ;;
-            esac
-            sleep 10
-          done
-
-          echo "Timed out waiting for migration execution to finish."
-          exit 1
+          # Respect the configured replica timeout AND retries. With 1800s and
+          # one retry, wait 4200s; the old fixed 600s abandoned a running job.
+          python scripts/release/production_gate.py wait-migration \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --job-name "$AZURE_MIGRATE_JOB_NAME" \
+            --execution "$execution" \
+            --evidence "$RUNNER_TEMP/deploy-evidence-${{ matrix.environment }}/migrations.json"
 
       - name: Update API image
         if: >-
@@ -519,16 +547,38 @@ jobs:
           (steps.target.outputs.migrations_required == 'false' ||
           steps.migrations.outcome == 'success')
         id: update_api
+        shell: bash
         run: |
+          extra_args=()
+          if [ "${{ matrix.environment }}" = "prod" ]; then
+            python scripts/release/production_gate.py frozen \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --app-name "$AZURE_CONTAINER_APP_NAME" \
+              --evidence "$RUNNER_TEMP/deploy-evidence-prod/freeze-before-api.json"
+            extra_args+=(--min-replicas 1 --revision-suffix "release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
+          fi
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_CONTAINER_APP_NAME" \
-            --image "${{ steps.release_image.outputs.reference }}"
+            --image "${{ steps.release_image.outputs.reference }}" \
+            --set-env-vars "GIT_COMMIT_SHA=$GITHUB_SHA" \
+            "${extra_args[@]}"
 
       - name: Smoke test health
         if: steps.target.outputs.deploy == 'true'
         id: api_health
+        shell: bash
         run: |
+          if [ "${{ matrix.environment }}" = "prod" ]; then
+            python scripts/release/production_gate.py internal-health \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --app-name "$AZURE_CONTAINER_APP_NAME" \
+              --expected-sha "$GITHUB_SHA" \
+              --expected-image "${{ steps.release_image.outputs.reference }}" \
+              --base-url "$AZURE_API_BASE_URL" \
+              --evidence "$RUNNER_TEMP/deploy-evidence-prod/internal-health.json"
+            exit 0
+          fi
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 20 "$AZURE_API_BASE_URL/api/v1/health/"; then
               exit 0
@@ -541,14 +591,15 @@ jobs:
           exit 1
 
       - name: Rollback and verify API image on failure
-        if: failure() && steps.target.outputs.deploy == 'true' && steps.current_api_image.outputs.previous_image != '' && (steps.update_api.outcome == 'failure' || steps.api_health.outcome == 'failure')
+        if: failure() && matrix.environment != 'prod' && steps.target.outputs.deploy == 'true' && steps.current_api_image.outputs.previous_image != '' && (steps.update_api.outcome == 'failure' || steps.api_health.outcome == 'failure')
         shell: bash
         run: |
           echo "::warning::API deployment failed; restoring its previous image."
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_CONTAINER_APP_NAME" \
-            --image "${{ steps.current_api_image.outputs.previous_image }}"
+            --image "${{ steps.current_api_image.outputs.previous_image }}" \
+            --set-env-vars "GIT_COMMIT_SHA=${{ steps.current_api_image.outputs.previous_sha }}"
 
           restored=$(az containerapp show \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -578,7 +629,7 @@ jobs:
             --image "${{ steps.release_image.outputs.reference }}"
 
       - name: Run and wait for one notifications cycle
-        if: steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.job_exists == 'true'
+        if: steps.target.outputs.deploy == 'true' && matrix.environment != 'prod' && steps.current_notifications_image.outputs.job_exists == 'true'
         id: notifications_smoke
         shell: bash
         run: |
@@ -606,7 +657,7 @@ jobs:
           exit 1
 
       - name: Rollback and verify notifications job on failure
-        if: failure() && steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.previous_image != '' && (steps.update_notifications.outcome == 'failure' || steps.notifications_smoke.outcome == 'failure')
+        if: failure() && matrix.environment != 'prod' && steps.target.outputs.deploy == 'true' && steps.current_notifications_image.outputs.previous_image != '' && (steps.update_notifications.outcome == 'failure' || steps.notifications_smoke.outcome == 'failure')
         shell: bash
         run: |
           echo "::warning::Notifications deployment failed; restoring only the job image."
@@ -640,3 +691,22 @@ jobs:
           done
           echo "Timed out verifying notifications rollback."
           exit 1
+
+      - name: Record production state without reopening ingress
+        if: always() && steps.target.outputs.deploy == 'true' && matrix.environment == 'prod'
+        shell: bash
+        run: |
+          python scripts/release/production_gate.py snapshot \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --app-name "$AZURE_CONTAINER_APP_NAME" \
+            --evidence "$RUNNER_TEMP/deploy-evidence-prod/final-state.json"
+          echo "Production remains closed. Operator acceptance or fix-forward is required; no automatic image rollback."
+
+      - name: Upload deployment gate evidence
+        if: always() && steps.target.outputs.deploy == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-gates-${{ matrix.environment }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deploy-evidence-${{ matrix.environment }}/
+          if-no-files-found: warn
+          retention-days: 180

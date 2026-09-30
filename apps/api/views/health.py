@@ -12,6 +12,7 @@ No requiere autenticacion.
 
 from django.conf import settings
 from django.db import connection
+from django.http import JsonResponse
 from django.utils import timezone
 from rest_framework import status as http_status
 from rest_framework.decorators import api_view, permission_classes
@@ -49,6 +50,8 @@ def health_check(request):
         return Response(payload, status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
 
     return Response(payload)
+
+
 def health_live(request):
     """Health liviano para probes de plataforma.
 
