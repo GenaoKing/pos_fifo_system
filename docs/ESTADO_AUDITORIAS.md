@@ -1,5 +1,12 @@
 # Estado de las auditorías de código — punto único de consulta
 
+**Despliegue productivo 2026-09-30 completado:** backend `3d5b2fe`, cinco bases
+con 155 migraciones registradas cada una y 4/4 tenants con tablas físicas
+verificadas. Los reparadores históricos y el índice CONTADO se aplicaron con
+respaldo y ledger; importes/registros financieros conservados. El responsable
+decidió diferir la conciliación de metadatos RNC/nombre/plan, preservando sus
+valores. [Acta y límites](handoffs/PRODUCCION_MIGRADA_2026-09-30.md).
+
 Preparación 2026-09-30: implementados y probados liveness, gates de mantenimiento,
 reparador explícito de auditoría histórica y drenaje de FKs antes del índice
 CONTADO. El ensayo con datos actuales completó cinco bases y preservó importes

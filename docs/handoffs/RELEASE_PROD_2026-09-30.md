@@ -1,5 +1,9 @@
 # Release de producción — preparación 2026-09-30
 
+Despliegue ya ejecutado. El resultado operativo, la ventana real y los
+pendientes están en [producción migrada](PRODUCCION_MIGRADA_2026-09-30.md).
+Este documento conserva el corte de preparación del artefacto `3d5b2fe`.
+
 El responsable autorizó implementar el plan completo e informó que los POS
 locales están apagados. Se incluyen los cambios locales probados; las
 notificaciones se preparan apagadas y los clientes se actualizarán después.

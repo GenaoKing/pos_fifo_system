@@ -1,5 +1,11 @@
 # A08.2 - promocion backend por digest y gate de migraciones
 
+Ejecutado en producción el **2026-09-30**, backend `3d5b2fe`: migraciones,
+verificación interna y reapertura por operador completadas. Ver el
+[acta productiva](../handoffs/PRODUCCION_MIGRADA_2026-09-30.md) para versiones,
+ventana real, respaldo y límites. El texto histórico sobre producción sin
+autorización no describe este pase ya autorizado y ejecutado.
+
 Actualización de código 2026-09-30: el workflow productivo exige ingress ausente
 y cero revisiones activas antes de migrar; mantiene el tráfico cerrado después
 de verificar internamente la API y no hace rollback automático a código legacy.

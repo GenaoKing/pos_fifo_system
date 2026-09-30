@@ -1,5 +1,12 @@
 # Estado maestro del proyecto
 
+**Producción actualizada el 2026-09-30:** API `3d5b2fe` por digest inmutable,
+portal `9c8d491`, control y cuatro tenants migrados. Datos financieros y
+metadatos fiscales/comerciales preservados; notificaciones preparadas y apagadas.
+API reabierta a las 07:48, hora local; observación final en curso. Paquete Windows
+del mismo SHA listo, instalación física pendiente. Estado y evidencias:
+[producción migrada](handoffs/PRODUCCION_MIGRADA_2026-09-30.md).
+
 Preparación autorizada del **2026-09-30**: se integran también caja/cuadre/PDF y
 los cambios locales probados. Las copias actuales de control y cuatro tenants
 migraron tras reparar tablas históricas ausentes y el índice CONTADO. El
