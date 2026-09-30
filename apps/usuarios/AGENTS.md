@@ -1,6 +1,6 @@
 # apps/usuarios — mapa para agentes
 
-<!-- Última revisión: 2026-09-18 (C04 p5.2: ciclo de vida portal) -->
+<!-- Última revisión: 2026-09-26 (Admin local reservado a SYSADMIN) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -10,7 +10,7 @@
 
 `Usuario` custom (`apps/usuarios/models.py`): `username`, `email`, `rol`
 legacy (`SYSADMIN` / `ADMIN` / `CAJERA`), `negocio`, `activo`, `is_staff`.
-Login/logout del POS local y el gate de Django Admin en cloud.
+Login/logout del POS local y el gate de Django Admin local.
 
 ## Entrypoints
 
@@ -20,7 +20,7 @@ Login/logout del POS local y el gate de Django Admin en cloud.
 | Rol legacy | `Usuario.es_admin` / `es_sysadmin` / `es_cajera`; `ROLES` |
 | Login / logout del POS | `views.login_view` (`/login/`), `views.logout_view` (`/logout/`) |
 | Freno de fuerza bruta | `throttling.LimiteLogin` (ráfaga + sostenida, clave IP+username, USR-006) |
-| Django Admin | Solo local: `admin_site.PosAdminSite`; `/admin/` no se monta en cloud |
+| Django Admin | Solo local: `admin_site.PosAdminSite` exige usuario activo, `is_staff` y rol `SYSADMIN`; `/admin/` no se monta en cloud |
 | Provisionar usuario operativo | `services.provisionar_usuario(...)` o `manage.py provisionar_usuario_tenant`; crea credencial local + RBAC + CT-01 en una transacción tenant |
 | Actualizar/desactivar usuario | `services.actualizar_usuario(...)`; exige actor autorizado, motivo y CT-01 |
 | Alta/baja desde portal cloud | `services.provisionar_usuario_portal(...)` / `actualizar_usuario_portal(...)`; con tenancy activa crean/revocan `Identity` + `Membership` además del usuario local |

@@ -288,10 +288,7 @@ class AdminInmutableTests(AnulacionTestCase):
             email='staff_ventas_admin@test.local',
             password='pass',
         )
-        self.staff.rol = 'ADMIN'
-        self.staff.is_staff = True
-        self.staff.activo = True
-        self.staff.save(update_fields=['rol', 'is_staff', 'activo'])
+        # El Admin local solo admite SYSADMIN; create_superuser ya lo prepara.
 
     def test_no_se_pueden_crear_ni_borrar_ventas_desde_el_admin(self):
         self.assertFalse(self.venta_admin.has_add_permission(None))

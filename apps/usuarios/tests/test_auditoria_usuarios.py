@@ -421,6 +421,25 @@ class NegocioNoSeVuelveNuloTests(UsuariosTestCase):
 class PuertaDeAdminTests(UsuariosTestCase):
     """USR-002: Admin no es una puerta paralela al portal."""
 
+    def test_staff_admin_de_negocio_no_abre_admin_local(self):
+        usuario = self._usuario('admin_negocio', rol='ADMIN', is_staff=True)
+        self.client.force_login(usuario)
+
+        self.assertNotEqual(self.client.get('/admin/').status_code, 200)
+
+    def test_revocar_rol_sysadmin_cierra_sesion_admin_existente(self):
+        usuario = self._usuario(
+            'soporte_local', rol='SYSADMIN', is_staff=True, is_superuser=True,
+        )
+        self.client.force_login(usuario)
+        self.assertEqual(self.client.get('/admin/').status_code, 200)
+
+        usuario.rol = 'ADMIN'
+        usuario.is_superuser = False
+        usuario.save(update_fields=['rol', 'is_superuser'])
+
+        self.assertNotEqual(self.client.get('/admin/').status_code, 200)
+
     def test_sin_tenancy_admin_sigue_siendo_del_instalador(self):
         usuario = self._usuario(
             'soporte_local', rol='SYSADMIN', is_staff=True, is_superuser=True,

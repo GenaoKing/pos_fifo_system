@@ -669,6 +669,23 @@ Ese endpoint toca DB. Si falla:
 - revisar PostgreSQL/firewall,
 - revisar que migraciones hayan corrido si hubo cambios de schema.
 
+**Evidencia por base (A09, 2026-09-25):** `Succeeded` en el job y un health
+200 prueban que el gate del workflow avanzó, pero no enumeran las migraciones
+de cada tenant. Guardar el ledger del job `migrate_cloud` durante la corrida
+antes de que Container Apps limpie su réplica; después contrastar las filas de
+`django_migrations` y el inventario de tenants activos mediante consultas de
+solo lectura a las BDs explícitas del ambiente. En A09 el log detallado ya
+no estaba disponible al consultar, pero el control y dos tenants de staging
+mostraron 155 migraciones cada uno y el diff de la promoción no añadía ninguna.
+Para una migración nueva, el conteo aislado **no** sustituye el ledger por
+nombre/tenant ni un restore verificable.
+
+El smoke puntual tampoco es una observación G2 de 24 h. El monitor lanzado
+desde la PC QA tuvo errores locales de conexión y una pausa larga sin muestras;
+repetir ese gate en un runner encendido continuamente y correlacionar fallos
+con Azure y la red de origen. Ver
+[registro de incidentes A09](../handoffs/cierre_prod/A09-incidentes-deployment-2026-09-26.md).
+
 ## Primera corrida dev validada
 
 Resultado observado:

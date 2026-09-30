@@ -7,6 +7,17 @@ API legacy durante migración/rollback y pueden producir ACK falsos de sync.
 También se verificó HTTP 500 en `health/live` por un import ausente. Detalle y
 condiciones de pase en la [revisión actual](handoffs/REVISION_PRODUCCION_Y_LIMPIEZA_2026-09-29.md).
 
+Corte A09 del 2026-09-26: la auditoría CT-01 de mutaciones RBAC en BD tenant
+fallaba con `AUDIT_CONTEXT_INVALID` al pasar `Negocio.slug` en vez de
+`tenant_key`; el [PR #31](https://github.com/GenaoKing/pos_fifo_system/pull/31)
+lo corrigió y la asignación QA pasó en `staging@8213ba5`. El alta de token
+DB-per-tenant que omitía el hash de control plane quedó corregida en el
+[PR #32](https://github.com/GenaoKing/pos_fifo_system/pull/32). El
+[registro de incidentes A09](handoffs/cierre_prod/A09-incidentes-deployment-2026-09-26.md)
+separa estas correcciones de los pendientes operativos: onboarding de usuarios
+RBAC en POS nuevo, e-CF por sucursal, prueba física y 24 h continuas. Ninguna
+de esas pruebas se infiere de CI verde.
+
 Actualización A09 del 2026-09-25: el [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27)
 ya integra auditoría CT-01 atómica en las mutaciones de catálogo y clientes
 del **portal**; `PRO-010` y `CLI-011` continúan parciales porque el camino
