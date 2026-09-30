@@ -8,6 +8,7 @@ no actualiza API antes de un migrate job exitoso.
 from __future__ import annotations
 
 import unittest
+import re
 from pathlib import Path
 
 
@@ -38,12 +39,8 @@ class BackendCiPromotionPolicyTests(unittest.TestCase):
         self.assertIn("steps.migrations.outcome == 'success'", self.workflow)
 
     def test_prod_promotion_uses_existing_digest_without_build_or_push(self) -> None:
-        self.assertEqual(
-            2,
-            self.workflow.count(
-                "if: steps.target.outputs.deploy == 'true' && matrix.environment != 'prod'"
-            ),
-        )
+        for name in ('Build image', 'Push image'):
+            self.assertIn("matrix.environment != 'prod'", self.step(name))
         self.assertIn('reference="$AZURE_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY@$digest"', self.workflow)
         self.assertIn('docker pull "$reference" >/dev/null', self.workflow)
         self.assertIn("Approved image revision ($artifact_source_sha)", self.workflow)
@@ -70,6 +67,50 @@ class BackendCiPromotionPolicyTests(unittest.TestCase):
         )
         self.assertIn("retention-days: 180", self.reproducibility_workflow)
         self.assertIn("retention-days: 180", self.workflow)
+
+    @classmethod
+    def step(cls, name):
+        sections = re.split(r'^      - name: ', cls.workflow, flags=re.MULTILINE)
+        return next(section for section in sections if section.startswith(name + '\n'))
+
+    def test_production_is_frozen_before_any_schema_change(self):
+        freeze = self.workflow.index('name: Verify production maintenance before migrations')
+        self.assertLess(freeze, self.workflow.index('name: Update migrate job image'))
+        step = self.step('Verify production maintenance before migrations')
+        self.assertIn("matrix.environment == 'prod'", step)
+        self.assertIn('production_gate.py frozen', step)
+        self.assertIn('test "$trigger" = "Manual"', step)
+        self.assertIn('test -z "$running"', step)
+        self.assertIn('production_gate.py frozen', self.step('Run migrations and wait for completion'))
+        self.assertIn('production_gate.py frozen', self.step('Update API image'))
+
+    def test_production_does_not_rollback_old_writers_or_run_notifications(self):
+        for name in ('Rollback and verify API image on failure',
+                     'Run and wait for one notifications cycle',
+                     'Rollback and verify notifications job on failure'):
+            self.assertIn("matrix.environment != 'prod'", self.step(name))
+        self.assertNotIn('ingress enable', self.workflow)
+        self.assertNotIn('--ingress external', self.workflow)
+
+    def test_runtime_health_pins_identity_and_keeps_production_closed(self):
+        update = self.step('Update API image')
+        self.assertIn('--set-env-vars "GIT_COMMIT_SHA=$GITHUB_SHA"', update)
+        self.assertIn('--min-replicas 1', update)
+        self.assertIn('--revision-suffix', update)
+        health = self.step('Smoke test health')
+        self.assertIn('production_gate.py internal-health', health)
+        self.assertIn('--expected-sha "$GITHUB_SHA"', health)
+        self.assertIn('--expected-image "${{ steps.release_image.outputs.reference }}"', health)
+        self.assertIn('exit 0\n          fi\n          for attempt', health)
+
+    def test_migrations_have_configured_budget_evidence_and_no_cancellation(self):
+        self.assertIn("matrix.environment == 'prod' && 'serial' || github.run_id", self.workflow)
+        self.assertIn('cancel-in-progress: false', self.workflow)
+        self.assertIn('timeout-minutes: 120', self.workflow)
+        self.assertIn('production_gate.py wait-migration', self.step('Run migrations and wait for completion'))
+        evidence = self.step('Upload deployment gate evidence')
+        self.assertIn('if: always()', evidence)
+        self.assertIn('deploy-evidence-', evidence)
 
 
 if __name__ == "__main__":
