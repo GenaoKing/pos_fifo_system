@@ -76,3 +76,15 @@ contraseña, la membresía y `TenantPortalLoginSerializer.is_valid() == True`.
 La contraseña no se guardó en el repositorio. No se ejecutó un login HTTP desde
 el navegador de David ni se verificó visualmente su acceso al portal. El usuario
 operativo, su contraseña del POS y sus asignaciones RBAC no se modificaron.
+
+Posteriormente, el usuario pidió que el portal usara la misma contraseña que el
+POS. En producción se verificó que el `Usuario` operativo cloud de David tiene
+un hash `pbkdf2_sha256` utilizable y que la `Identity` activa pertenece a su
+`Membership` de Royal Plast. Se copió ese hash a la `Identity` en una
+transacción del control plane y se verificó igualdad exacta después del commit.
+No se consultó ni se registró la contraseña en texto plano. La contraseña
+temporal entregada antes queda reemplazada. No hay acceso a la base del POS
+físico desde esta sesión: si allí se cambió la contraseña desde la importación,
+la igualdad con la contraseña actual de esa PC debe verificarse con un intento
+real de login o comparando hashes de forma segura en sitio. Las futuras
+rotaciones del POS y el portal siguen siendo independientes.
