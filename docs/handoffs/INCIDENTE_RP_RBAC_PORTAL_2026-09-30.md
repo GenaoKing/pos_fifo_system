@@ -64,11 +64,15 @@ directamente `VersionMaestro`.
 
 ## David
 
-La corrección de RBAC no crea una identidad portal. Para habilitar a David se
-requiere una operación controlada en el control plane: crear una `Identity`
-activa para el email ya vinculado a su `Usuario`, con contraseña portal nueva e
-independiente, y una sola `Membership` activa para `royalplast/David`. Antes de
-escribir, volver a comprobar ausencia de ambas filas, existencia y estado del
-usuario operativo, unicidad de email/username y forma de entregar la nueva
-contraseña. Después, comprobar login real al portal y alcance RBAC; no reutilizar
-la contraseña local del POS. Esta operación tampoco se ha ejecutado.
+La corrección de RBAC no crea una identidad portal. El usuario autorizó crear
+su acceso y entregar la contraseña nueva en el chat. Se repitió el preflight
+en producción: David activo, negocio `royal-plast`, email presente, sin
+`Identity` con ese email y sin `Membership` para `royalplast/David`. Su rol
+`administrador` estaba asignado y activo en cloud. En una transacción del
+control plane se creó una `Identity` activa no global con contraseña aleatoria
+independiente y una `Membership` activa para `royalplast/David` con rol legacy
+`CAJERA`, igual que el alta portal normal. Se verificó el hash de la nueva
+contraseña, la membresía y `TenantPortalLoginSerializer.is_valid() == True`.
+La contraseña no se guardó en el repositorio. No se ejecutó un login HTTP desde
+el navegador de David ni se verificó visualmente su acceso al portal. El usuario
+operativo, su contraseña del POS y sus asignaciones RBAC no se modificaron.
