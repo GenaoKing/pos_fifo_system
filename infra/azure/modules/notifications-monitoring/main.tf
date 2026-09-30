@@ -35,7 +35,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "notifications" {
 
   display_name            = "${var.name_prefix}: job de notificaciones sin exito"
   description             = "Alerta si no hubo una ejecucion Completed exitosa del job en los ultimos cinco minutos."
-  enabled                 = true
+  enabled                 = var.notifications_job_scheduled
   severity                = 2
   evaluation_frequency    = "PT1M"
   window_duration         = "PT5M"
@@ -44,7 +44,8 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "notifications" {
   tags                    = var.tags
 
   criteria {
-    query = <<-KQL
+    # Azure devuelve LF; normalizar evita drift en checkouts Windows con CRLF.
+    query = replace(<<-KQL
       ContainerAppSystemLogs_CL
       | where TimeGenerated > ago(5m)
       | where JobName_s == '${var.notifications_job_name}'
@@ -53,6 +54,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "notifications" {
       | summarize successful_executions = count()
       | where successful_executions == 0
     KQL
+    , "\r\n", "\n")
 
     time_aggregation_method = "Count"
     operator                = "GreaterThan"

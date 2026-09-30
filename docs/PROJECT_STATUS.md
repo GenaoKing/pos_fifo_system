@@ -21,6 +21,11 @@ G2. El [registro de incidentes](handoffs/cierre_prod/A09-incidentes-deployment-2
 recoge cada causa, corrección y límite; producción y tiendas no se tocaron.
 Las notas de cortes anteriores que siguen abajo son históricas.
 
+Actualización de costes del 2026-09-28: notificaciones dev/staging pasan a modo
+manual y sus alertas de ausencia de ejecución quedan deshabilitadas en Azure.
+Terraform reconciliado, planes completos sin cambios y smoke manual staging
+exitoso. [Acta de ejecución y decisiones pendientes](handoffs/AHORRO_AZURE_2026-09-28.md).
+
 Actualización A09 del 2026-09-25: el backend de `develop@c7bc435` ya integra
 el trabajo de cierre y la corrección de auditoría portal/RBAC del
 [PR #27](https://github.com/GenaoKing/pos_fifo_system/pull/27). El portal ya

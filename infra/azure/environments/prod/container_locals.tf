@@ -9,7 +9,7 @@ locals {
 
   registry_id           = local.platform_registry.id
   registry_login_server = local.platform_registry.login_server
-  container_image       = "${local.registry_login_server}/${var.container_image_repository}:${var.container_image_tag}"
+  container_image       = var.container_image_digest == null ? "${local.registry_login_server}/${var.container_image_repository}:${var.container_image_tag}" : "${local.registry_login_server}/${var.container_image_repository}@${var.container_image_digest}"
 
   prod_db_name = coalesce(var.db_name, "pos_fifo_prod")
   prod_db_user = var.db_user

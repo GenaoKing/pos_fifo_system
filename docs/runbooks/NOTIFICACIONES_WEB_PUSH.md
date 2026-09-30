@@ -19,8 +19,10 @@ seguir [`EXTENDER_NOTIFICACIONES.md`](EXTENDER_NOTIFICACIONES.md).
   destinatarios respeta los mismos guards `activo` que el motor de permisos:
   rol, negocio y sucursal inactivos no generan destinatarios (una asignacion
   global sigue recibiendo aunque una sucursal concreta este inactiva).
-- El job se ejecuta cada minuto en UTC. Con un POS sincronizando cada 60
-  segundos, la meta normal es hasta dos minutos desde la operacion.
+- En modo `Schedule`, el cron de la V1 ejecuta cada minuto en UTC. Con un POS
+  sincronizando cada 60 segundos, la meta normal es hasta dos minutos desde la
+  operacion. Dev/staging usan `Manual` por defecto: no hay entrega automatica
+  hasta iniciar un ciclo explicitamente.
 - Cada tenant se procesa en contexto propio. El fallo de uno no frena los demas.
 - Endpoints, claves de dispositivo, cuerpos y montos se excluyen de logs.
 - El historial se purga a los 90 dias. El marcador de `EventoSync` procesado
@@ -88,6 +90,38 @@ dispositivo.
 
 ## Despliegue seguro
 
+### Preparar produccion sin activar notificaciones
+
+Se puede crear el job dormido antes del piloto, con las claves VAPID propias
+del ambiente ya preparadas y la privada referenciada desde Key Vault:
+
+```hcl
+enable_notifications_job    = true
+notifications_trigger_type = "Manual"
+web_push_enabled           = false
+enable_notifications_alerts = false
+container_image_digest     = "sha256:<digest-aprobado-de-64-hex>"
+```
+
+`Manual` permite Web Push apagado, pero no omite Key Vault ni ninguna clave
+VAPID. `Schedule` sigue exigiendo `web_push_enabled=true`. El job conserva
+0.5 CPU / 1 GiB y no arranca al crearse. El digest se usa para recursos nuevos;
+el plan debe conservar las imagenes actuales de API y migraciones.
+
+Preparar no incluye `activar_notificaciones` ni `az containerapp job start`.
+Los motores nuevos nacen apagados; si ya existen, consultar su estado antes
+del piloto. No registrar `PROD_AZURE_NOTIFICATIONS_JOB_NAME` en GitHub hasta
+habilitar las ejecuciones: el pipeline actual inicia un ciclo al encontrar
+ese job. En un ambiente sin alerta previa, mantenerla sin crear; las alertas
+existentes se conservan apagadas mientras el disparador sea Manual.
+
+Guardar y revisar el plan completo: solo job, identidad, permisos ACR/Key
+Vault y las variables publicas previstas; cero reemplazos/destrucciones y
+cero ejecuciones. Las referencias de secretos no acreditan que el secreto
+exista: comprobar su metadata y acceso antes de aplicar, sin mostrar valores.
+
+### Activar el piloto autorizado
+
 1. Desplegar backend y migrar control plane y todas las bases tenant:
 
    ```powershell
@@ -116,12 +150,16 @@ dispositivo.
    ```
 
 6. Activar `enable_notifications_job=true` en Terraform y aplicar. La
-   precondicion exige Key Vault, Web Push habilitado y clave publica no vacia.
+   precondicion exige Key Vault y VAPID configurado; para Schedule exige tambien
+   Web Push habilitado.
    El job tambien debe recibir `ALLOWED_HOSTS`, porque `settings_cloud` lo
    valida al importar incluso para comandos de gestion.
-   Mantener el SLA de la V1 con:
+   En dev/staging conservar `notifications_trigger_type="Manual"` y ejecutar
+   el smoke con `az containerapp job start`. Solo para operacion programada
+   explicitamente acordada, mantener el SLA de la V1 con:
 
    ```hcl
+   notifications_trigger_type = "Schedule"
    notifications_schedule_cron = "*/1 * * * *"
    ```
 
@@ -224,7 +262,9 @@ enable_notifications_alerts = true
 notifications_alert_email   = "genaosantiago001@gmail.com"
 ```
 
-Solo habilitarla junto con `enable_notifications_job=true`. La regla se evalua
+Solo crearla junto con `enable_notifications_job=true`. En modo `Manual` la
+regla se conserva deshabilitada, aunque `enable_notifications_alerts=true`.
+Al elegir `Schedule`, se habilita. La regla habilitada se evalua
 cada minuto y alerta cuando no encuentra una ejecucion `Completed` exitosa en
 cinco minutos. Si staging reutiliza el Container Apps Environment de dev, sus
 system logs viven en el workspace de ese runtime compartido; Terraform lo
@@ -263,6 +303,72 @@ job** y rehabilitarla solo despues de observar una ejecucion exitosa.
 
 ## Desactivar
 
+### QA bajo demanda: conservar recursos sin ejecuciones automaticas
+
+Politica aplicada el 2026-09-28 en dev/staging:
+
+```hcl
+enable_notifications_job    = true
+notifications_trigger_type  = "Manual"
+enable_notifications_alerts = true
+```
+
+El ultimo flag conserva la regla y el Action Group existentes; el modulo
+deshabilita la regla cuando el disparador es `Manual`. Si el ambiente nunca
+tuvo alertas, dejarlo en `false`, sin crear recursos innecesarios. La identidad,
+imagen, VAPID, bandeja y eventos se conservan. El registro de dispositivos puede
+seguir habilitado, pero los avisos nuevos esperan el proximo ciclo manual.
+Apagar solo Web Push o el motor por tenant no detiene el cron de Azure.
+
+Ejecutar una prueba bajo demanda (seleccionar el ambiente autorizado):
+
+```powershell
+az containerapp job start --subscription e88372f6-b224-4d73-bf17-c61f32559c45 `
+  --resource-group posfifo-staging-rg --name posfifo-staging-notifications
+az containerapp job execution list --subscription e88372f6-b224-4d73-bf17-c61f32559c45 `
+  --resource-group posfifo-staging-rg --name posfifo-staging-notifications --output table
+```
+
+El ciclo debe terminar `Succeeded`. El CI tambien inicia un ciclo explicitamente
+cuando despliega y encuentra el job; esa ejecucion puntual no rehabilita el cron.
+No es necesario desactivar suscripciones push ni tocar datos para ahorrar.
+
+**Cambio de tipo en un recurso existente:** azurerm 4.75/4.76 marca
+`manual_trigger_config`/`schedule_trigger_config` como reemplazo. No aplicar un
+plan que recree el job sin revisar imagen y recursos: `ignore_changes` de imagen
+no protege una recreacion y puede recuperar una etiqueta mutable del tfvars.
+Para conservar el recurso, seguir este orden, con inputs del ambiente conciliados:
+
+1. Configurar `Manual` en IaC, validar y revisar el plan; guardar el estado previo
+   y la imagen exacta en una carpeta local ignorada por Git.
+2. Deshabilitar primero la regla mediante PATCH a su recurso
+   `Microsoft.Insights/scheduledQueryRules`, API `2023-12-01`, cuerpo
+   `{"properties":{"enabled":false}}`. Verificar `enabled=false`.
+3. PATCH al recurso `Microsoft.App/jobs`, API `2025-07-01`, cuerpo:
+
+   ```json
+   {"properties":{"configuration":{"triggerType":"Manual","scheduleTriggerConfig":null,"manualTriggerConfig":{"parallelism":1,"replicaCompletionCount":1}}}}
+   ```
+
+   Usar `az rest --method patch --url <URL-ARM-del-recurso> --body @<archivo.json>`.
+   El ID debe pertenecer al ambiente autorizado. No enviar secretos, plantilla
+   de contenedor, imagen ni identidad en este PATCH.
+4. Consultar con la misma version REST y comprobar `Manual`, estado `Succeeded`
+   y plantilla, identidad, registry y referencias de secretos identicos al previo.
+5. Generar un nuevo plan completo con la IaC actualizada. Debe mostrar **cero
+   cambios de recursos**. Aplicar ese plan guardado para persistir la reconciliacion
+   en el state remoto. No aplicar el plan anterior que proponia reemplazo.
+6. Repetir plan: cero cambios. Verificar un ciclo manual y ausencia de nuevos
+   arranques programados durante al menos cinco minutos.
+
+El rollback a cron requiere una ventana de pruebas acordada. Actualizar IaC a
+`Schedule`, mantener inicialmente la alerta deshabilitada y usar el PATCH inverso
+con `manualTriggerConfig=null` y el `scheduleTriggerConfig` acordado. Tras un ciclo
+exitoso, rehabilitar la alerta y reconciliar Terraform. No restaurar el cron 24/7
+solo por terminar una prueba o ejecutar un despliegue.
+
+### Retirar el job o apagar el motor del tenant
+
 ```powershell
 python manage.py activar_notificaciones --tenant demo --desactivar --settings=config.settings_cloud
 ```
@@ -270,6 +376,8 @@ python manage.py activar_notificaciones --tenant demo --desactivar --settings=co
 Para detener toda la plataforma, aplicar Terraform con
 `enable_notifications_job=false`. Antes, deshabilitar
 `enable_notifications_alerts`; la bandeja existente sigue disponible.
+Ese flag elimina el job, su identidad y sus asignaciones. Para QA en pausa,
+preferir el modo manual anterior.
 
 El usuario desvincula su dispositivo desde `/notificaciones`. Operaciones:
 

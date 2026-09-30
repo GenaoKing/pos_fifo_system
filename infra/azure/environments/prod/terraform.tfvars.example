@@ -41,6 +41,7 @@ existing_container_apps_environment_name = null
 enable_api_container_app = false
 enable_migrate_job       = false
 enable_notifications_job = false
+notifications_trigger_type  = "Manual"
 notifications_schedule_cron = "*/1 * * * *"
 enable_notifications_alerts = false
 notifications_alert_email   = "genaosantiago001@gmail.com"
@@ -52,6 +53,8 @@ web_push_vapid_subject    = "mailto:operaciones@example.com"
 
 container_image_repository = "pos-fifo-backend"
 container_image_tag        = "prod"
+# Al crear el job dormido, fijar el digest aprobado; no usar una etiqueta mutable.
+container_image_digest     = null
 
 # Prod MVP scale-to-zero.
 api_allowed_hosts         = ".azurecontainerapps.io,localhost,127.0.0.1"

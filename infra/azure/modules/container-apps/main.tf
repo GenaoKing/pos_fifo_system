@@ -536,10 +536,21 @@ resource "azurerm_container_app_job" "notifications" {
     identity            = azurerm_user_assigned_identity.notifications[0].id
   }
 
-  schedule_trigger_config {
-    cron_expression          = var.notifications_schedule_cron
-    parallelism              = 1
-    replica_completion_count = 1
+  dynamic "manual_trigger_config" {
+    for_each = var.notifications_trigger_type == "Manual" ? [1] : []
+    content {
+      parallelism              = 1
+      replica_completion_count = 1
+    }
+  }
+
+  dynamic "schedule_trigger_config" {
+    for_each = var.notifications_trigger_type == "Schedule" ? [1] : []
+    content {
+      cron_expression          = var.notifications_schedule_cron
+      parallelism              = 1
+      replica_completion_count = 1
+    }
   }
 
   template {
@@ -651,10 +662,15 @@ resource "azurerm_container_app_job" "notifications" {
         var.use_key_vault_secrets &&
         var.key_vault_id != null &&
         var.key_vault_uri != null &&
-        var.web_push_enabled &&
-        trimspace(var.web_push_vapid_public_key) != ""
+        trimspace(var.web_push_vapid_public_key) != "" &&
+        trimspace(var.web_push_vapid_private_key_secret_name) != ""
       )
-      error_message = "El job de notificaciones exige Key Vault y un par VAPID publico configurado."
+      error_message = "El job de notificaciones exige Key Vault, clave publica VAPID y referencia al secreto privado, incluso en modo Manual."
+    }
+
+    precondition {
+      condition     = var.notifications_trigger_type == "Manual" || var.web_push_enabled
+      error_message = "Schedule exige web_push_enabled=true; para preparar el job apagado usar Manual con web_push_enabled=false."
     }
   }
 

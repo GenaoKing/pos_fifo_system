@@ -60,7 +60,7 @@ variable "enable_migrate_job" {
 }
 
 variable "enable_notifications_job" {
-  description = "Crea el job programado que proyecta y entrega notificaciones."
+  description = "Crea el job que proyecta y entrega notificaciones; el disparador se configura por separado."
   type        = bool
   default     = false
 }
@@ -78,6 +78,17 @@ variable "migrate_job_name" {
 variable "notifications_job_name" {
   description = "Nombre del Container App Job de notificaciones."
   type        = string
+}
+
+variable "notifications_trigger_type" {
+  description = "Disparador de notificaciones: Manual para QA bajo demanda; Schedule solo durante operacion programada."
+  type        = string
+  default     = "Schedule"
+
+  validation {
+    condition     = contains(["Manual", "Schedule"], var.notifications_trigger_type)
+    error_message = "notifications_trigger_type debe ser Manual o Schedule."
+  }
 }
 
 variable "notifications_schedule_cron" {

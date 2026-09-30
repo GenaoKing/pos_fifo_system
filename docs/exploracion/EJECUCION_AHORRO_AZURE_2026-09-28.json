@@ -1,0 +1,148 @@
+{
+  "captured_utc": "2026-09-28T13:55:15.960629+00:00",
+  "environments": {
+    "dev": {
+      "trigger_before": "Schedule",
+      "trigger_after": "Manual",
+      "image_preserved": "posfifodevacr.azurecr.io/pos-fifo-backend@sha256:9dd5afa910a8e27bc573e5ad1300152cf7fad92e3bedc8bfa260a92e6b73c9a7",
+      "identity_preserved": true,
+      "template_preserved": true,
+      "alert_enabled": false,
+      "switch_observed_by_utc": "2026-09-28T13:50:12+00:00",
+      "recent_executions": [
+        {
+          "name": "posfifo-dev-notifications-29843390",
+          "start": "2026-09-28T13:50:00+00:00",
+          "end": "2026-09-28T13:50:32+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843389",
+          "start": "2026-09-28T13:49:00+00:00",
+          "end": "2026-09-28T13:49:28+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843388",
+          "start": "2026-09-28T13:48:00+00:00",
+          "end": "2026-09-28T13:48:32+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843387",
+          "start": "2026-09-28T13:47:00+00:00",
+          "end": "2026-09-28T13:47:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843386",
+          "start": "2026-09-28T13:46:00+00:00",
+          "end": "2026-09-28T13:46:32+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843385",
+          "start": "2026-09-28T13:45:00+00:00",
+          "end": "2026-09-28T13:45:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843384",
+          "start": "2026-09-28T13:44:00+00:00",
+          "end": "2026-09-28T13:44:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-dev-notifications-29843383",
+          "start": "2026-09-28T13:43:00+00:00",
+          "end": "2026-09-28T13:43:31+00:00",
+          "status": "Succeeded"
+        }
+      ],
+      "executions_after_switch": [],
+      "final_plan_managed_changes": 0,
+      "state_serial": 101,
+      "final_executions_after_switch": [],
+      "observation_minutes": 7.74
+    },
+    "staging": {
+      "trigger_before": "Schedule",
+      "trigger_after": "Manual",
+      "image_preserved": "posfifodevacr.azurecr.io/pos-fifo-backend@sha256:83803cb6350c4b6d55fba3b7b7fd40919394f3a40067c010a383bb40dafa9ce1",
+      "identity_preserved": true,
+      "template_preserved": true,
+      "alert_enabled": false,
+      "switch_observed_by_utc": "2026-09-28T13:50:48+00:00",
+      "recent_executions": [
+        {
+          "name": "posfifo-staging-notifications-nuezy1h",
+          "start": "2026-09-28T13:53:37+00:00",
+          "end": "2026-09-28T13:54:08+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843390",
+          "start": "2026-09-28T13:50:00+00:00",
+          "end": "2026-09-28T13:50:32+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843389",
+          "start": "2026-09-28T13:49:00+00:00",
+          "end": "2026-09-28T13:49:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843388",
+          "start": "2026-09-28T13:48:00+00:00",
+          "end": "2026-09-28T13:48:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843387",
+          "start": "2026-09-28T13:47:00+00:00",
+          "end": "2026-09-28T13:47:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843386",
+          "start": "2026-09-28T13:46:00+00:00",
+          "end": "2026-09-28T13:46:31+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843385",
+          "start": "2026-09-28T13:45:00+00:00",
+          "end": "2026-09-28T13:45:32+00:00",
+          "status": "Succeeded"
+        },
+        {
+          "name": "posfifo-staging-notifications-29843384",
+          "start": "2026-09-28T13:44:00+00:00",
+          "end": "2026-09-28T13:44:31+00:00",
+          "status": "Succeeded"
+        }
+      ],
+      "executions_after_switch": [
+        {
+          "name": "posfifo-staging-notifications-nuezy1h",
+          "start": "2026-09-28T13:53:37+00:00",
+          "end": "2026-09-28T13:54:08+00:00",
+          "status": "Succeeded"
+        }
+      ],
+      "final_plan_managed_changes": 0,
+      "state_serial": 21,
+      "final_executions_after_switch": [
+        {
+          "name": "posfifo-staging-notifications-nuezy1h",
+          "status": "Succeeded",
+          "start": "2026-09-28T13:53:37+00:00",
+          "end": "2026-09-28T13:54:08+00:00"
+        }
+      ],
+      "observation_minutes": 7.14
+    }
+  },
+  "final_observation_utc": "2026-09-28T13:57:56.537779+00:00"
+}
