@@ -90,6 +90,38 @@ dispositivo.
 
 ## Despliegue seguro
 
+### Preparar produccion sin activar notificaciones
+
+Se puede crear el job dormido antes del piloto, con las claves VAPID propias
+del ambiente ya preparadas y la privada referenciada desde Key Vault:
+
+```hcl
+enable_notifications_job    = true
+notifications_trigger_type = "Manual"
+web_push_enabled           = false
+enable_notifications_alerts = false
+container_image_digest     = "sha256:<digest-aprobado-de-64-hex>"
+```
+
+`Manual` permite Web Push apagado, pero no omite Key Vault ni ninguna clave
+VAPID. `Schedule` sigue exigiendo `web_push_enabled=true`. El job conserva
+0.5 CPU / 1 GiB y no arranca al crearse. El digest se usa para recursos nuevos;
+el plan debe conservar las imagenes actuales de API y migraciones.
+
+Preparar no incluye `activar_notificaciones` ni `az containerapp job start`.
+Los motores nuevos nacen apagados; si ya existen, consultar su estado antes
+del piloto. No registrar `PROD_AZURE_NOTIFICATIONS_JOB_NAME` en GitHub hasta
+habilitar las ejecuciones: el pipeline actual inicia un ciclo al encontrar
+ese job. En un ambiente sin alerta previa, mantenerla sin crear; las alertas
+existentes se conservan apagadas mientras el disparador sea Manual.
+
+Guardar y revisar el plan completo: solo job, identidad, permisos ACR/Key
+Vault y las variables publicas previstas; cero reemplazos/destrucciones y
+cero ejecuciones. Las referencias de secretos no acreditan que el secreto
+exista: comprobar su metadata y acceso antes de aplicar, sin mostrar valores.
+
+### Activar el piloto autorizado
+
 1. Desplegar backend y migrar control plane y todas las bases tenant:
 
    ```powershell
@@ -118,7 +150,8 @@ dispositivo.
    ```
 
 6. Activar `enable_notifications_job=true` en Terraform y aplicar. La
-   precondicion exige Key Vault, Web Push habilitado y clave publica no vacia.
+   precondicion exige Key Vault y VAPID configurado; para Schedule exige tambien
+   Web Push habilitado.
    El job tambien debe recibir `ALLOWED_HOSTS`, porque `settings_cloud` lo
    valida al importar incluso para comandos de gestion.
    En dev/staging conservar `notifications_trigger_type="Manual"` y ejecutar

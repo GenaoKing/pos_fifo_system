@@ -80,6 +80,18 @@ variable "container_image_tag" {
   }
 }
 
+variable "container_image_digest" {
+  description = "Digest OCI aprobado para crear recursos de prod. Si se define, prevalece sobre container_image_tag; las imagenes existentes siguen bajo CI/CD."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.container_image_digest == null || can(regex("^sha256:[0-9a-f]{64}$", var.container_image_digest))
+    error_message = "container_image_digest debe ser null o sha256 seguido de 64 caracteres hexadecimales minusculos."
+  }
+}
+
 variable "django_secret_key" {
   description = "SECRET_KEY de Django cloud. Null si use_key_vault_secrets=true."
   type        = string

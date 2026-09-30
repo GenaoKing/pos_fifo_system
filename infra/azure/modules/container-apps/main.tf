@@ -662,10 +662,15 @@ resource "azurerm_container_app_job" "notifications" {
         var.use_key_vault_secrets &&
         var.key_vault_id != null &&
         var.key_vault_uri != null &&
-        var.web_push_enabled &&
-        trimspace(var.web_push_vapid_public_key) != ""
+        trimspace(var.web_push_vapid_public_key) != "" &&
+        trimspace(var.web_push_vapid_private_key_secret_name) != ""
       )
-      error_message = "El job de notificaciones exige Key Vault y un par VAPID publico configurado."
+      error_message = "El job de notificaciones exige Key Vault, clave publica VAPID y referencia al secreto privado, incluso en modo Manual."
+    }
+
+    precondition {
+      condition     = var.notifications_trigger_type == "Manual" || var.web_push_enabled
+      error_message = "Schedule exige web_push_enabled=true; para preparar el job apagado usar Manual con web_push_enabled=false."
     }
   }
 

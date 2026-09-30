@@ -1,5 +1,5 @@
 variable "enable_notifications_job" {
-  description = "Crea el job programado de notificaciones; habilitar solo despues del piloto."
+  description = "Crea el job de notificaciones. Prepararlo en Manual y con Web Push apagado antes del piloto."
   type        = bool
   default     = false
 }
@@ -14,7 +14,7 @@ variable "notifications_job_name" {
 variable "notifications_trigger_type" {
   description = "Disparador de notificaciones: Manual para QA bajo demanda; Schedule solo durante operacion programada."
   type        = string
-  default     = "Schedule"
+  default     = "Manual"
 
   validation {
     condition     = contains(["Manual", "Schedule"], var.notifications_trigger_type)
