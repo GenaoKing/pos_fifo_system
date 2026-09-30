@@ -1,6 +1,6 @@
 # apps/tenancy — mapa para agentes
 
-<!-- Última revisión: 2026-09-24 (gate TEN-016 con colisión de PK explícita) -->
+<!-- Última revisión: 2026-09-30 (reparacion dirigida de auditoria control plane) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -28,6 +28,7 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
 | Verificar identidad sin escribir | `manage.py verificar_identidad_tenant --tenant X`; compara control plane, `Negocio`, configuración y `PLAN_DRIFT` de la suscripción operativa |
 | Checkpoint de provisioning | `services.marcar_estado_provisioning`; estados reanudables auditados en `default` |
 | Checks de aislamiento | `checks.py` (corren en `manage.py check`) |
+| Historial fantasma de auditoría en control plane | `reparar_auditoria_dual_home --database default --dry-run`; `--apply` solo materializa el estado histórico 0004, sin alterar historial ni ejecutar pendientes |
 
 ## Invariantes / trampas
 
@@ -43,6 +44,12 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
   historial fantasma es solo `reparar_sucursales_dual_home` (dry-run primero),
   que materializa la tabla histórica sin borrar el historial ya referenciado;
   nunca un borrado SQL manual ni algo que se ejecute al arrancar.
+- `auditoria` también es dual-home. `migrate_cloud` detecta su tabla ausente
+  con historial aplicado antes de ejecutar DDL. El reparador explícito acepta
+  únicamente `default` con las cuatro migraciones legacy 0001..0004 exactas;
+  valida tablas referenciadas, crea tabla/índices/FKs históricos en una
+  transacción y conserva íntegro `django_migrations`. No recupera registros
+  perdidos ni reemplaza una tabla existente. Después se ejecuta `migrate_cloud`.
 - Las rutas de templates del POS **no existen** en cloud (`config/urls.py`,
   BUG-E). `/admin/` en cloud exige identidad global
   (`apps/usuarios/admin_site.py`).
