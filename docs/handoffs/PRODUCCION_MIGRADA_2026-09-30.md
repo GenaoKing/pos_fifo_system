@@ -84,8 +84,11 @@ a las bases. En producción no se ejecutó ese restore.
   efectivo 0 restaurado; no se mantiene la réplica temporal exigida por el gate.
 - Notificaciones: infraestructura y VAPID preparados, job Manual, Push apagado,
   motores apagados y **cero ejecuciones** del job productivo.
-- **Observación de 60 minutos: en curso**, iniciada alrededor de las 08:00.
-  El resultado se incorpora al finalizar; no se declara cumplida por anticipado.
+- **Observación de 60 minutos: PASS**, de 08:00:04 a 09:00:05, hora de Santo
+  Domingo. Fueron 61 muestras de API, liveness y portal, todas correctas; 3.600
+  segundos observados y separación máxima de 60,02 segundos entre muestras.
+  SHA backend y bundle portal se mantuvieron estables. Evidencia:
+  `production-health-60m.jsonl` y `production-health-60m-result.json`.
 
 ## Paquete Windows y pendientes explícitos
 
