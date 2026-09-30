@@ -1,6 +1,6 @@
 # apps/clientes — mapa para agentes
 
-<!-- Última revisión: 2026-09-25 -->
+<!-- Última revisión: 2026-09-30 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -43,5 +43,9 @@ corporativo…), `cedula_rnc`, crédito (`limite_credito`, `plazo_credito_dias`,
   pendientes de cobertura completa; no atribuirles esta garantía.
 - `cedula_rnc` es obligatorio para e-CF tipo 31 (crédito fiscal).
 - `Venta.cliente = None` también significa contado.
+- `clientes.0006` consolida solo genéricos CONTADO y aborta ante duplicados con
+  identidad propia. En PostgreSQL drena las FK diferibles con `SET CONSTRAINTS
+  ALL IMMEDIATE` antes del índice único, dentro de la misma transacción;
+  ventas, cuentas y cotizaciones conservan sus referencias e importes.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_CLIENTES.md`) —
   **snapshot histórico**, verificar contra código.

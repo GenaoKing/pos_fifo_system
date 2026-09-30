@@ -79,6 +79,13 @@ def consolidar_contado(apps, schema_editor):
 
     Cliente.objects.using(db).filter(id__in=sobrantes).delete()
 
+    # PostgreSQL deja pendientes los triggers de las FK diferibles tras la
+    # reasignacion/borrado. Drenarlos antes del CREATE UNIQUE INDEX permite
+    # mantener datos y constraint en la MISMA transaccion atomica.
+    if schema_editor.connection.vendor == 'postgresql':
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
 
 def sin_reversa(apps, schema_editor):
     """Al revertir se quita el indice; las filas consolidadas no vuelven."""
