@@ -1,5 +1,11 @@
 # Estado maestro del proyecto
 
+Preparación autorizada del **2026-09-30**: se integran también caja/cuadre/PDF y
+los cambios locales probados. Las copias actuales de control y cuatro tenants
+migraron tras reparar tablas históricas ausentes y el índice CONTADO. El
+workflow ya exige mantenimiento y recovery compatible; el estado de ejecución
+se registra en el [handoff del release](handoffs/RELEASE_PROD_2026-09-30.md).
+
 Revisión del **2026-09-29**: backend staging `d24f24e`, portal `cbd0478`.
 Se dan por satisfactorias las validaciones por indicación del responsable,
 pero el pase requiere resolver la ventana de migración/rollback con API legacy

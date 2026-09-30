@@ -1,5 +1,11 @@
 # A08.2 - promocion backend por digest y gate de migraciones
 
+Actualización de código 2026-09-30: el workflow productivo exige ingress ausente
+y cero revisiones activas antes de migrar; mantiene el tráfico cerrado después
+de verificar internamente la API y no hace rollback automático a código legacy.
+El operador controla respaldos, reparaciones históricas explícitas y reapertura.
+Procedimiento y evidencia: [release 2026-09-30](../handoffs/RELEASE_PROD_2026-09-30.md).
+
 **Advertencia verificada 2026-09-29 para producción `bcb8621`:** el workflow
 descrito abajo no bloquea escrituras antes de migrar y su rollback de imagen
 no garantiza compatibilidad con las columnas nuevas NOT NULL. El receptor

@@ -1,5 +1,11 @@
 # Estado de las auditorías de código — punto único de consulta
 
+Preparación 2026-09-30: implementados y probados liveness, gates de mantenimiento,
+reparador explícito de auditoría histórica y drenaje de FKs antes del índice
+CONTADO. El ensayo con datos actuales completó cinco bases y preservó importes
+y registros financieros. Diferencias previas de metadatos y resultado operativo
+se distinguen en el [handoff del release](handoffs/RELEASE_PROD_2026-09-30.md).
+
 Revisión operativa del **2026-09-29**: aceptadas las validaciones de staging
 como premisa del responsable, persiste un bloqueo concreto del procedimiento
 de producción: las nuevas columnas obligatorias rompen las escrituras de la
