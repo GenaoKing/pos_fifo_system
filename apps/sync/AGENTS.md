@@ -1,6 +1,6 @@
 # apps/sync — mapa para agentes
 
-<!-- Última revisión: 2026-09-25 (A09 identidad de usuario en pull RBAC) -->
+<!-- Última revisión: 2026-09-30 (clave técnica cloud configurable en POS standalone) -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -86,6 +86,9 @@ cerrado y no libera el maestro; un replay debe coincidir con el ledger local.
 - Roles/asignaciones negocian `rbac.sync.v2` pero aceptan la lista legacy. Solo
   un envelope completo, sin error/bloqueo y del mismo tenant/sucursal puede
   revocar por ausencia; además solo revoca filas `origen_cloud=True`.
+- En un POS standalone, `CLOUD_TENANT_KEY` fija el tenant técnico esperado en
+  envelopes RBAC. Si falta, se usa `Negocio.slug` por compatibilidad. En cloud
+  manda el contexto técnico DB-per-tenant; el slug comercial puede diferir.
 - El username de las asignaciones se resuelve sin distinguir mayúsculas, como
   el login y la restricción única `Lower(username)`; una cuenta técnica remota
   `STG-01` puede existir localmente como `stg-01`.

@@ -136,9 +136,14 @@ def _tenant_key_rbac_local(negocio):
     """Devuelve la identidad tecnica esperada por un envelope RBAC v2.
 
     En DB-per-tenant el contexto conserva el ``tenant_key`` del control plane;
-    en instalaciones row-level/standalone se usa el slug estable del negocio.
+    en el POS standalone se configura la clave tecnica del cloud. Las
+    instalaciones anteriores sin esa clave conservan el slug como fallback.
     """
-    return get_current_tenant_key() or negocio.slug
+    return (
+        get_current_tenant_key()
+        or getattr(settings, 'CLOUD_TENANT_KEY', '').strip()
+        or negocio.slug
+    )
 
 
 def clasificar_ciclo(*, heartbeat, push, pull, maestros=None):

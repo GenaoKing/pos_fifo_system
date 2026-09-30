@@ -485,6 +485,7 @@ SUCURSAL_CODIGO = os.environ.get('SUCURSAL_CODIGO', 'SD-001')
 SYNC_ENABLED = os.environ.get('SYNC_ENABLED', 'false').lower() == 'true'
 CLOUD_API_URL = os.environ.get('CLOUD_API_URL', '')
 CLOUD_API_TOKEN = os.environ.get('CLOUD_API_TOKEN', '')
+CLOUD_TENANT_KEY = os.environ.get('CLOUD_TENANT_KEY', '').strip()
  
 # Parametros del engine (todos con defaults razonables)
 SYNC_INTERVAL = int(os.environ.get('SYNC_INTERVAL', '60'))
