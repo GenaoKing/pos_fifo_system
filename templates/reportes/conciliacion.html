@@ -3,11 +3,14 @@
 {% block content %}
 <div class="space-y-6">
     <div class="flex flex-wrap justify-between gap-3">
-        <div><h1 class="text-2xl font-bold">Cuadre por período</h1>
+        <div><h1 class="text-2xl font-bold text-gray-900">Cuadre por período</h1>
         <p class="text-sm text-gray-500">Ventas, cobros y movimientos para la conciliación del dueño.</p></div>
-        <a href="{% url 'reportes:on_demand' %}" class="btn-secondary">Volver a reportes</a>
+        <a href="{% url 'reportes:on_demand' %}" class="inline-flex items-center text-sm text-gray-600 hover:text-blue-600 transition-colors">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            Volver a reportes
+        </a>
     </div>
-    <form method="get" class="card p-4 space-y-4" x-data="{
+    <form method="get" class="card bg-white border border-gray-200 p-6 space-y-4" x-data="{
         periodo(tipo) {
             const hoy = '{{ hoy }}';
             const fecha = new Date(hoy + 'T12:00:00');
@@ -19,6 +22,7 @@
             this.$root.elements.fin.value = hoy;
         }
     }">
+        <h2 class="text-lg font-semibold text-gray-900">Período del cuadre</h2>
         <div class="flex flex-wrap gap-2">
             <button type="submit" @click="periodo('semana')" class="btn-secondary">Esta semana</button>
             <button type="submit" @click="periodo('quincena')" class="btn-secondary">Esta quincena</button>
@@ -36,11 +40,21 @@
         <p>{{ reporte.inicio|date:'d/m/Y' }} al {{ reporte.fin|date:'d/m/Y' }} · {{ ambito }}</p>
         <a href="?{{ pdf_query }}" target="_blank" rel="noopener" class="btn-primary">Abrir PDF / Imprimir</a>
     </div>
-    <div class="card p-4 bg-green-50">
-        <p class="text-sm">Ingresos recibidos</p><p class="text-2xl font-bold">RD$ {{ reporte.totales.ingresos|floatformat:2 }}</p>
-        <p class="text-sm">Cobros de ventas RD$ {{ reporte.totales.cobros_ventas|floatformat:2 }} + cobros CxC RD$ {{ reporte.totales.cobros_cxc|floatformat:2 }}.</p>
-        <p class="text-xs mt-2">Incluye la inicial una sola vez. El crédito pendiente no es ingreso. Importes vigentes al generar; excluye anulados.</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="card bg-white border border-gray-200 p-5">
+            <p class="text-xs text-gray-500 uppercase tracking-wider">Cobros de ventas</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">RD$ {{ reporte.totales.cobros_ventas|floatformat:2 }}</p>
+        </div>
+        <div class="card bg-white border border-gray-200 p-5">
+            <p class="text-xs text-gray-500 uppercase tracking-wider">Cobros CxC</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">RD$ {{ reporte.totales.cobros_cxc|floatformat:2 }}</p>
+        </div>
+        <div class="card bg-blue-50 border border-blue-200 p-5">
+            <p class="text-xs text-blue-600 uppercase tracking-wider">Ingresos recibidos</p>
+            <p class="text-2xl font-bold text-blue-700 mt-1">RD$ {{ reporte.totales.ingresos|floatformat:2 }}</p>
+        </div>
     </div>
+    <p class="text-xs text-gray-500">Ingresos = cobros de ventas + cobros CxC. Incluye la inicial una sola vez. El crédito pendiente no es ingreso. Importes vigentes al generar; excluye anulados.</p>
     <section class="card p-4"><h2 class="font-semibold mb-3">Ventas y cobros por día</h2><div class="overflow-x-auto">
         <table class="w-full text-sm text-right"><thead><tr><th class="p-2 text-left">Fecha</th><th>Ventas facturadas</th><th>Crédito generado</th><th>Cobros ventas</th><th>Cobros CxC</th><th>Ingresos</th></tr></thead>
         <tbody>{% for d in reporte.dias %}<tr class="border-t"><td class="p-2 text-left whitespace-nowrap">{{ d.fecha|date:'d/m/Y' }}</td><td>{{ d.ventas|floatformat:2 }}</td><td>{{ d.credito|floatformat:2 }}</td><td>{{ d.cobros_ventas|floatformat:2 }}</td><td>{{ d.cobros_cxc|floatformat:2 }}</td><td class="font-semibold">{{ d.ingresos|floatformat:2 }}</td></tr>{% endfor %}</tbody>

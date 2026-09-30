@@ -507,7 +507,7 @@ def section_title(title: str):
     return Paragraph(clean(title).upper(), get_styles()['PdfSection'])
 
 
-def info_grid(rows: Sequence[Sequence[tuple[str, object]]], *, width: float = CONTENT_WIDTH):
+def info_grid(rows: Sequence[Sequence[tuple[str, object]]], *, width: float = CONTENT_WIDTH, bold_values: bool = False):
     styles = get_styles()
     rows = list(rows)
     for indice, row in enumerate(rows):
@@ -526,7 +526,7 @@ def info_grid(rows: Sequence[Sequence[tuple[str, object]]], *, width: float = CO
         cells = []
         for label, value in row:
             cells.append(para(label, styles['PdfLabel']))
-            cells.append(para(value, styles['PdfValue']))
+            cells.append(para(value, styles['PdfValue'], bold=bold_values))
         while len(cells) < max_pairs * 2:
             cells.extend(['', ''])
         data.append(cells)
@@ -596,6 +596,8 @@ def standard_table(
     status_col: int | None = None,
     width: float = CONTENT_WIDTH,
     max_rows: int | None = None,
+    bold_rows: Sequence[int] = (),
+    bold_columns: Sequence[int] = (),
 ):
     styles = get_styles()
     headers = list(headers)
@@ -643,7 +645,8 @@ def standard_table(
             color = None
             if status_col is not None and index == status_col:
                 color = STATUS_COLORS.get(str(value).upper())
-            rendered.append(para(value, style, color=color, bold=bool(color)))
+            rendered.append(para(value, style, color=color,
+                                 bold=bool(color) or indice in bold_rows or index in bold_columns))
         data.append(rendered)
         filas_rendidas += 1
 

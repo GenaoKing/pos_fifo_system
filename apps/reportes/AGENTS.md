@@ -39,6 +39,8 @@ usa esto: sus reportes son JSON en `apps/api/services/reporting.py`.
   ventas sin CREDITO + CxC APLICADO, movimientos y arqueos guardados por fecha
   de cierre. PDF en memoria, sin caché. Selección explícita de sucursal excluye
   filas legacy sin sucursal; «todas las permitidas» conserva la regla de Alcance.
+- Acceso al cuadre como tarjeta en la cuadrícula de Reportes; PDF destaca
+  importes de resumen y totales en negrita y filas TOTAL con fondo azul suave.
 - `on_demand.html` entrega cajeros por `json_script`. Los comentarios de varias
   líneas deben usar `{% comment %}`: `{# ... #}` solo admite una línea y puede
   dejar etiquetas script literales que rompen el arranque de Alpine.

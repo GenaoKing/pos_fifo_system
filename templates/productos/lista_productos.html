@@ -10,16 +10,20 @@
     <span class="text-gray-900 font-medium">Productos</span>
 {% endblock %}
 {% block content %}
-{# Todo esto estaba ENTRE bloques, donde la herencia de plantillas lo
+{% comment %}
+   Todo esto estaba ENTRE bloques, donde la herencia de plantillas lo
    descarta: el nodo `marcas-data` nunca se renderizo y
    `document.getElementById('marcas-data')` devolvia null, asi que el filtro
-   de marcas estaba roto de entrada. #}
+   de marcas estaba roto de entrada.
+{% endcomment %}
 {% csrf_token %}
-{# Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi
+{% comment %}
+   Datos del servidor por json_script: Django escapa `<`, `>` y `&`, asi
    que un nombre con `</script>` viaja como texto y no cierra el bloque.
    Con `|safe` dentro de <script>, un producto guardado con
    `</script><script>...` ejecutaba JavaScript en el navegador de
-   cualquier operador que abriera el catalogo (PRO-005). #}
+   cualquier operador que abriera el catalogo (PRO-005).
+{% endcomment %}
 {{ marcas_json|json_script:"marcas-data" }}
 {{ productos_json|json_script:"productos-data" }}
 <div x-data="productosManager()">

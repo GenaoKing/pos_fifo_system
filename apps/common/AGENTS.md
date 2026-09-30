@@ -20,6 +20,7 @@ Librería transversal, **no** es una app Django (sin modelos, no está en
 | Encabezado con logo/RNC/tel/dirección | `business_header(config, width=...)` — el logo se resuelve local **o** Azure Blob (`_logo_source`), se valida y se degrada sin logo si falla; ver Invariantes |
 | Título, secciones, grillas, tablas, totales, firmas, nota | `document_title`, `section_title`, `info_grid`, `standard_table`, `totals_table`, `signature_block`, `note` — **levantan `TablaInvalida`** ante forma inconsistente |
 | Pie con fecha y página | `footer_canvas` (usa `doc.pagesize`, hora local) |
+| Resaltar resúmenes/totales | `info_grid(..., bold_values=True)`; `standard_table(..., bold_rows=..., bold_columns=...)`, índices desde cero en los datos, sin contar cabecera |
 | Formatear dinero / fecha / texto | `money` (`RD$`, **levanta `ImporteInvalido`**), `date`, `clean` (escapa y trunca a 4000) |
 
 ## Quién lo usa

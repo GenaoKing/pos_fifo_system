@@ -87,12 +87,19 @@ def generar_pdf(reporte, sucursal, ambito):
     width = doc.width
 
     def tabla(headers, rows):
+        total_rows = [i for i, row in enumerate(rows) if row[0] == 'TOTAL']
         table = pdf.standard_table(headers, rows, width=width,
-                                   aligns=['LEFT'] + ['RIGHT'] * (len(headers) - 1))
+                                   aligns=['LEFT'] + ['RIGHT'] * (len(headers) - 1),
+                                   bold_rows=total_rows, bold_columns=[len(headers) - 1])
         table.setStyle(TableStyle([
             ('TOPPADDING', (0, 0), (-1, -1), 3),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ]))
+        for row in total_rows:
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, row + 1), (-1, row + 1), pdf.LIGHT_BLUE),
+                ('LINEABOVE', (0, row + 1), (-1, row + 1), 1, pdf.PRIMARY),
+            ]))
         return table
 
     elements = pdf.business_header(config_para_documento(sucursal), width=width)
@@ -104,7 +111,7 @@ def generar_pdf(reporte, sucursal, ambito):
         ('Cobros de ventas', pdf.money(reporte['totales']['cobros_ventas'])),
         ('Cobros CxC', pdf.money(reporte['totales']['cobros_cxc'])),
         ('Ingresos recibidos', pdf.money(reporte['totales']['ingresos'])),
-    ]], width=width)]
+    ]], width=width, bold_values=True)]
     sections = [
         ('Ventas y cobros por día', ['Fecha', 'Ventas facturadas', 'Crédito generado', 'Cobros ventas', 'Cobros CxC', 'Ingresos'],
          ['ventas', 'credito', 'cobros_ventas', 'cobros_cxc', 'ingresos']),

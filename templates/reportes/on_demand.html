@@ -307,7 +307,6 @@ function reportesApp() {
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Reportes On-Demand</h1>
             <p class="text-sm text-gray-500 mt-1">Genera reportes manuales con filtros personalizados</p>
-            <a href="{% url 'reportes:conciliacion' %}" class="btn-primary mt-3">Cuadre semanal, quincenal o mensual / PDF</a>
         </div>
         <a href="{% url 'reportes:dashboard' %}" class="inline-flex items-center text-sm text-gray-600 hover:text-blue-600 transition-colors">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -318,7 +317,20 @@ function reportesApp() {
     </div>
 
     {# ====== GRID DE CARDS - SELECCION DE REPORTE ====== #}
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <a href="{% url 'reportes:conciliacion' %}"
+           class="card border p-5 text-left transition-all duration-200 cursor-pointer bg-white border-gray-200 hover:border-blue-300 hover:shadow-md">
+            <div class="flex items-center mb-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 8h6m-6 4h6"/>
+                    </svg>
+                </div>
+            </div>
+            <h3 class="font-semibold text-gray-900 text-sm">Cuadre por período</h3>
+            <p class="text-xs text-gray-500 mt-1">Semanal, quincenal, mensual o personalizado · PDF</p>
+        </a>
 
         <button @click="seleccionar('cierre')"
                 :class="tipo === 'cierre' ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'"
