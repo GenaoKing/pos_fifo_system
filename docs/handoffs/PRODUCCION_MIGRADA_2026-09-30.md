@@ -117,5 +117,11 @@ pruebas HTTP/portal, plan Terraform sin cambios y paquete Windows.
 El export local de la clave VAPID privada se retiró después de verificar Key
 Vault; el material sensible no se incluyó en Git ni en el ZIP.
 
+Se retiraron los tres worktrees restantes de esta ejecución una vez comprobada
+su integración en main, archivando 55 archivos ignorados con SHA-256 verificado.
+Quedan únicamente los checkouts principales backend/frontend. Se eliminaron
+cinco bases locales descartables y los contenedores de ensayo, conservando
+backups y evidencias; no se eliminaron bases ni recursos productivos.
+
 Preparación y causas de las correcciones:
 [RELEASE_PROD_2026-09-30.md](RELEASE_PROD_2026-09-30.md).

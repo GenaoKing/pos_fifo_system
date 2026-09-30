@@ -50,9 +50,9 @@ Multitenancy cloud **DB-per-tenant**: un *control plane* en `default`
   valida tablas referenciadas, crea tabla/índices/FKs históricos en una
   transacción y conserva íntegro `django_migrations`. No recupera registros
   perdidos ni reemplaza una tabla existente. Después se ejecuta `migrate_cloud`.
-- Las rutas de templates del POS **no existen** en cloud (`config/urls.py`,
-  BUG-E). `/admin/` en cloud exige identidad global
-  (`apps/usuarios/admin_site.py`).
+- Las rutas de templates del POS y `/admin/` **no existen** en cloud
+  (`config/urls.py`, BUG-E). La administración cloud usa las APIs tenant-aware;
+  Django Admin local está restringido a SYSADMIN (`apps/usuarios/admin_site.py`).
 - `media_prefix` es único por tenant; `Lower(email)` único en `Identity`.
 - `tenant_key`, `slug`, `db_name` y `media_prefix` son identidad física
   inmutable. El provisioning confirma por checkpoints cada base por separado:

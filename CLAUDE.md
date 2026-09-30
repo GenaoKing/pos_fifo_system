@@ -2,10 +2,12 @@
 
 ## Stack
 
-- Django 4.x + DRF · PostgreSQL · Python 3.11
-- Entorno conda: `pos_fifo` (`C:\Users\Santiago\anaconda3\envs\pos_fifo\python.exe`)
+- Django 5.2.17 + DRF · PostgreSQL · Python 3.11 x64 en Windows / 3.12.14 en cloud y CI.
+- Desarrollo en entorno aislado instalado desde `requirements-dev.txt` con hashes;
+  baseline y comandos en `requirements/README.md`. No actualizar en sitio el conda compartido.
 - Settings de desarrollo local: `config.settings_development`
-- Settings de Azure (producción/cloud): `config.settings_azure_pg`
+- Settings de producción cloud y Container Apps: `config.settings_cloud`.
+- `config.settings_azure_pg` queda como helper local de conexión a Azure PostgreSQL.
 
 ---
 
