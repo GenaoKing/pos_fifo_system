@@ -69,4 +69,5 @@ class InventarioConsolidadoSerializer(serializers.Serializer):
     )
     stock_total = serializers.IntegerField()
     precio_venta = serializers.DecimalField(max_digits=10, decimal_places=2)
+    precio_ultima_compra = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
     necesita_reposicion = serializers.BooleanField()
