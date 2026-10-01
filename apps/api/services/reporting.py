@@ -5,13 +5,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models import Count, DecimalField, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.cuentas_por_cobrar.models import PagoCxC
 from apps.productos.models import Producto
 from apps.sucursales.models import Sucursal
+from apps.sync.models import InventarioMovimientoSync
 from apps.ventas.models import DetalleVenta, Pago, Venta
 
 
@@ -666,7 +667,15 @@ def build_inventario_consolidado(params, resolucion=None):
     No se scopea por negocio: `Producto` no tiene FK negocio; su aislamiento es
     DB-per-tenant (una BD por tenant), no row-level.
     """
-    productos = Producto.objects.select_related('categoria')
+    ultima_compra = InventarioMovimientoSync.objects.filter(
+        producto_sku=OuterRef('sku'),
+        tipo='COMPRA',
+        cantidad__gt=0,
+        costo_unitario__isnull=False,
+    ).order_by('-fecha_movimiento', '-id')
+    productos = Producto.objects.select_related('categoria').annotate(
+        ultimo_costo_compra=Subquery(ultima_compra.values('costo_unitario')[:1]),
+    )
 
     activo = params.get('activo', 'true')
     if str(activo).lower() == 'true':
@@ -697,6 +706,10 @@ def build_inventario_consolidado(params, resolucion=None):
             'stock_por_sucursal': {'LOCAL': stock},
             'stock_total': stock,
             'precio_venta': _money(producto.precio_venta),
+            'precio_ultima_compra': (
+                _money(producto.ultimo_costo_compra)
+                if producto.ultimo_costo_compra is not None else None
+            ),
             'necesita_reposicion': producto.necesita_reposicion,
         })
 
