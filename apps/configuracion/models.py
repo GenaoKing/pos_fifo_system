@@ -396,7 +396,13 @@ class ConfiguracionNegocio(models.Model):
                 'POS no puede cobrar.'
             )
 
-        if self.modulo_ecf and self.emisor_activo_id is None:
+        from apps.suscripciones import registry
+        if self.modulo_ecf and 'ecf' in registry.no_disponibles():
+            errors['modulo_ecf'] = (
+                'La Facturacion Electronica (e-CF) todavia no esta disponible; '
+                'no se puede activar.'
+            )
+        elif self.modulo_ecf and self.emisor_activo_id is None:
             errors['emisor_activo'] = (
                 'Con Facturacion Electronica (e-CF) activa hay que definir el '
                 'emisor que firma los comprobantes.'

@@ -478,6 +478,14 @@ SUCURSAL_CODIGO = os.environ.get('SUCURSAL_CODIGO', 'SD-001')
 # =========================================================================
 # SYNC ENGINE (Fase 4)
 # =========================================================================
+# Modulos del catalogo (apps/suscripciones/registry.py) apagados para TODOS los
+# negocios, por encima de plan, overrides y flags legacy. e-CF todavia no es
+# funcional (2026-10-18): Royal Plast lo tenia activo por su plan Empresarial y
+# cada venta registraba un error de emision. Volver a ofrecerlo es quitarlo de
+# aqui en una release, no un cambio de datos por cliente.
+MODULOS_NO_DISPONIBLES = ('ecf',)
+
+# =========================================================================
 # Configuracion de sincronizacion con el cloud.
 # Si SYNC_ENABLED=False, la app sync no hace nada (modo standalone).
 # Los valores reales (CLOUD_API_URL, CLOUD_API_TOKEN) deben venir de env vars

@@ -453,6 +453,9 @@ class CotizacionAtomicaTests(VentaServiceTestCase):
         self.assertFalse(Venta.objects.exists())
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class PrecondicionFiscalTests(VentaServiceTestCase):
     """VENTAS-011: el tipo 31 se valida antes del commit, no en el navegador."""
 

@@ -133,6 +133,9 @@ class SucursalSinNegocioTests(VerificarInstalacionTestsBase):
         self.assertIn('sin negocio asignado', self._salida())
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class NegocioSinAprovisionarTests(VerificarInstalacionTestsBase):
     """
     `bootstrap_negocio` sin `bootstrap_suscripciones`: el caso exacto que

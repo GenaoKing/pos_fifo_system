@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.negocios.models import Negocio
 from apps.sucursales.models import Sucursal
@@ -31,6 +31,9 @@ def cargar_fixture():
         return json.load(archivo)
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class CT03ContratoCapacidadesTests(TestCase):
     """El escenario del fixture debe resolver exactamente igual en el engine."""
 

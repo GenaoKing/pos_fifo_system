@@ -358,6 +358,8 @@ def _modulo_default_legacy(key):
     if modulo is None:
         # Compatibilidad: nombre suelto sin entrada en el registro.
         return getattr(get_config(), f'modulo_{key}', False)
+    if key in registry.no_disponibles():
+        return False
     if modulo.core:
         return True
     if modulo.flag_legacy:
