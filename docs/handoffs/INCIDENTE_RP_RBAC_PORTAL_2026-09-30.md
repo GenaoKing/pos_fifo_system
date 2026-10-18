@@ -9,9 +9,11 @@ Fecha: 2026-09-30. Diagnóstico de producción mediante consultas de solo lectur
   que esas asignaciones hayan llegado al POS después del cambio de rol.
 - En el control plane de producción, `Tenant.tenant_key=royalplast` y
   `Tenant.slug=royal-plast`; en la base de ese tenant,
-  `Negocio.slug=royal-plast`. El endpoint RBAC v2 entrega la clave técnica
-  `royalplast`, mientras el POS standalone de la versión instalada esperaba
-  `Negocio.slug`.
+  `Negocio.slug=royal-plast`. ~~El endpoint RBAC v2 entrega la clave técnica
+  `royalplast`~~ **Corregido el 2026-10-18:** el endpoint entrega
+  `royal-plast` (el `Negocio.slug` cloud), y el POS standalone esperaba su
+  propio `Negocio.slug`, que es `royal-plast-eirl`. Ver
+  [Corrección en sitio](#corrección-en-sitio-2026-10-18).
 - En producción existe un usuario operativo `David` activo en Royal Plast,
   con email, pero no existe `Identity` con ese email ni `Membership` para
   `royalplast/David`. El login cloud exige ambas y una contraseña propia de la
@@ -22,7 +24,8 @@ Fecha: 2026-09-30. Diagnóstico de producción mediante consultas de solo lectur
 El código permite fijar `CLOUD_TENANT_KEY` en el POS standalone, manteniendo el
 fallback anterior para otras instalaciones. El contexto técnico de cloud sigue
 teniendo prioridad. La configuración de Royal Plast es
-`CLOUD_TENANT_KEY=royalplast` en `deploy/env_cliente.env`.
+`CLOUD_TENANT_KEY=royal-plast` en `deploy/env_cliente.env` (el valor
+`royalplast` que figuraba aquí no desbloquea; ver la corrección en sitio).
 
 Antes de aplicar el parche físico, comprobar que la instalación parte del paquete
 `3d5b2fecabe0`, respaldar los dos archivos y el `.env`, y verificar que el token
@@ -48,7 +51,7 @@ Copy-Item C:\pos_actualizacion\RP_RBAC_hotfix_20260930\config\settings.py C:\pos
 ```
 
 Editar `C:\pos_fifo_system\deploy\env_cliente.env` para dejar exactamente una
-línea `CLOUD_TENANT_KEY=royalplast`. Después:
+línea `CLOUD_TENANT_KEY=royal-plast`. Después:
 
 ```powershell
 Set-Location C:\pos_fifo_system
@@ -61,6 +64,36 @@ Anotar estado de `roles` y `asignaciones`, y comprobar en el POS la asignación
 esperada. Si falla, conservar los logs y restaurar los dos archivos y el `.env`
 del respaldo antes de reiniciar el servicio. Los roles no se reparan editando
 directamente `VersionMaestro`.
+
+## Corrección en sitio (2026-10-18)
+
+El hotfix se aplicó en la PC de Royal Plast el 2026-10-18 (sin el ZIP: mismos
+cambios de `48a1796`, verificados por hash). El diagnóstico de identidades de
+arriba estaba invertido:
+
+| Identidad | Supuesto del 2026-09-30 | Medido en sitio |
+| --- | --- | --- |
+| `Negocio.slug` del POS | `royal-plast` | `royal-plast-eirl` |
+| `tenant_key` en el envelope RBAC v2 | `royalplast` | `royal-plast` |
+
+- Con `CLOUD_TENANT_KEY=royalplast` el ciclo siguió bloqueado; con
+  `royal-plast` se desbloqueó al instante. Último error 15:41:04, ciclos
+  limpios desde 15:43:28.
+- Causa en código: `apps/api/views/sync.py:_tenant_key_rbac` lee
+  `request.tenant` / `request.tenant_key`, pero la autenticación por token de
+  sucursal (`apps/api/authentication.py`) no asigna ninguno de los dos: fija el
+  contextvar y `token.tenant_key`. Por eso el cloud siempre cae al
+  `Negocio.slug` de la base del tenant. **Si se corrige el endpoint para emitir
+  el `tenant_key` real, Royal Plast volverá a bloquearse** salvo que se cambie
+  a la vez su `CLOUD_TENANT_KEY` a `royalplast`.
+- Al desbloquearse se aplicó el cambio del portal del 30/09: David quedó solo
+  con el rol Administrador (Cajero revocado). El Administrador de Royal Plast
+  tiene 35 permisos y no incluye `caja.operar`,
+  `clientes.editar_limite_credito` ni `productos.fotografiar`; David dejó de
+  poder abrir turno. La corrección corresponde al portal, no al POS.
+- Antes de reutilizar este procedimiento en otra instalación, leer el
+  `tenant_key` que trae el envelope (`GET /api/v1/sync/roles/` con
+  `X-RBAC-Schema: rbac.sync.v2`) y usar ese valor, no el del control plane.
 
 ## David
 

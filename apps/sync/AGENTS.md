@@ -87,8 +87,11 @@ cerrado y no libera el maestro; un replay debe coincidir con el ledger local.
   un envelope completo, sin error/bloqueo y del mismo tenant/sucursal puede
   revocar por ausencia; además solo revoca filas `origen_cloud=True`.
 - En un POS standalone, `CLOUD_TENANT_KEY` fija el tenant técnico esperado en
-  envelopes RBAC. Si falta, se usa `Negocio.slug` por compatibilidad. En cloud
-  manda el contexto técnico DB-per-tenant; el slug comercial puede diferir.
+  envelopes RBAC. Si falta, se usa `Negocio.slug` por compatibilidad. Ojo: el
+  emisor cloud (`apps/api/views/sync.py:_tenant_key_rbac`) hoy entrega el
+  `Negocio.slug` del tenant, no `Tenant.tenant_key`, porque la auth de token de
+  sucursal no fija `request.tenant`. Royal Plast usa `royal-plast` (su slug
+  local es `royal-plast-eirl`); corregir el emisor exige migrar esos `.env`.
 - El username de las asignaciones se resuelve sin distinguir mayúsculas, como
   el login y la restricción única `Lower(username)`; una cuenta técnica remota
   `STG-01` puede existir localmente como `stg-01`.
