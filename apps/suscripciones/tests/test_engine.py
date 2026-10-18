@@ -1,6 +1,6 @@
 """Tests del resolutor de modulos por negocio/sucursal y puede_desactivarse."""
 from django.db import transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils.text import slugify
 
 from apps.negocios.models import Negocio
@@ -19,6 +19,9 @@ def _negocio(nombre='Royal Plast'):
     return Negocio.objects.create(nombre=nombre, slug=slugify(nombre))
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class ResolverTests(TestCase):
     def setUp(self):
         # Modulos/planes ya vienen de la migracion; idempotente por si acaso.
@@ -190,3 +193,70 @@ class BackCompatTests(TestCase):
         self.assertIn('cuentas_por_cobrar', activos)  # siempre on historicamente
         self.assertIn('ecf', activos)                 # flag on
         self.assertNotIn('cotizaciones', activos)     # flag off
+
+
+class ModulosNoDisponiblesTests(TestCase):
+    """e-CF apagado para todos (2026-10-18): ningun plan ni flag lo reactiva.
+
+    Royal Plast tenia plan Empresarial, el cloud derivaba modulo_ecf=True y
+    cada venta del POS intentaba encolar una emision sin emisor configurado.
+    """
+
+    def setUp(self):
+        seed.sembrar_modulos(Modulo)
+        seed.crear_planes_default(Plan, Modulo)
+        self.negocio = _negocio('Royal Plast Apagado')
+        self.sucursal = Sucursal.objects.create(
+            codigo='RP-ECF', nombre='RP', activa=True, negocio=self.negocio,
+        )
+
+    def test_ecf_esta_apagado_por_defecto(self):
+        self.assertIn('ecf', registry.no_disponibles())
+
+    def test_plan_empresarial_no_activa_ecf(self):
+        plan = Plan.objects.get(slug='empresarial')
+        self.assertTrue(plan.modulos.filter(key='ecf').exists())
+        SuscripcionNegocio.objects.create(negocio=self.negocio, plan=plan, activa=True)
+
+        activos = engine.modulos_negocio(self.negocio)
+
+        self.assertNotIn('ecf', activos)
+        self.assertIn('financiacion', activos)
+        self.assertFalse(engine.modulo_activo('ecf', negocio=self.negocio))
+
+    def test_override_incluido_no_activa_ecf(self):
+        ecf = Modulo.objects.get(key='ecf')
+        NegocioModulo.objects.create(negocio=self.negocio, modulo=ecf, incluido=True)
+
+        self.assertNotIn('ecf', engine.modulos_negocio(self.negocio))
+
+    def test_sin_negocio_tampoco_falla_abierto_hacia_ecf(self):
+        self.assertFalse(engine.modulo_activo('ecf', negocio=None))
+        self.assertTrue(engine.modulo_activo('cotizaciones', negocio=None))
+        self.assertNotIn('ecf', engine.modulos_negocio(None))
+
+    def test_el_cloud_entrega_modulo_ecf_false_al_pos(self):
+        from apps.configuracion.models import ConfiguracionNegocio
+        from apps.sync.configuracion import flags_legacy_efectivos
+
+        plan = Plan.objects.get(slug='empresarial')
+        SuscripcionNegocio.objects.create(negocio=self.negocio, plan=plan, activa=True)
+        config = ConfiguracionNegocio.objects.create(
+            sucursal=self.sucursal, nombre_negocio='RP',
+        )
+
+        flags = flags_legacy_efectivos(config, self.sucursal)
+
+        self.assertIs(flags['modulo_ecf'], False)
+        self.assertIs(flags['modulo_financiacion_coop'], True)
+
+    def test_la_configuracion_no_admite_encender_ecf(self):
+        from django.core.exceptions import ValidationError
+        from apps.configuracion.models import ConfiguracionNegocio
+
+        config = ConfiguracionNegocio(sucursal=self.sucursal, nombre_negocio='RP')
+        config.modulo_ecf = True
+
+        with self.assertRaises(ValidationError) as ctx:
+            config.full_clean()
+        self.assertIn('modulo_ecf', ctx.exception.message_dict)

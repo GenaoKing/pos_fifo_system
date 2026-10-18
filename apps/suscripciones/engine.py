@@ -109,19 +109,21 @@ def _cache_key(negocio_id):
 def modulos_negocio(negocio):
     """Set efectivo de modulos del tenant (plan + overrides + cierre + core)."""
     if negocio is None:
-        return set(registry.keys())  # fail-open
+        # fail-open, pero nunca hacia un modulo apagado globalmente.
+        return set(registry.keys()) - registry.no_disponibles()
 
     key = _cache_key(negocio.pk)
     cached = cache.get(key)
     if cached is not None:
-        return cached
+        return cached - registry.no_disponibles()
 
+    # Se cachea lo que decide el negocio; el apagado global se resta al leer.
     efectivo = _resolver_negocio(negocio)
     cache.set(
         key, efectivo,
         CACHE_TIMEOUT_COMPARTIDO if _cache_compartido() else CACHE_TIMEOUT_LOCAL,
     )
-    return efectivo
+    return efectivo - registry.no_disponibles()
 
 
 # Estados de aprovisionamiento (SUS-001). Antes eran uno solo.
@@ -289,7 +291,8 @@ def modulo_activo(key, negocio=None, sucursal=None):
                 key,
             )
             return False
-        return True  # fail-open (ver docstring del modulo)
+        # fail-open (ver docstring del modulo), salvo apagado global.
+        return key not in registry.no_disponibles()
     return key in modulos_activos(negocio, sucursal)
 
 

@@ -6,7 +6,7 @@ Regresion de los hallazgos de
 """
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.configuracion.models import ConfiguracionNegocio
@@ -63,6 +63,9 @@ class SuscripcionesTestCase(TestCase):
         return client
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class EstadosDeAprovisionamientoTests(SuscripcionesTestCase):
     """SUS-001: suspender o vaciar ya no habilita todo."""
 
@@ -431,6 +434,9 @@ class HooksDeDatosBloqueantesTests(SuscripcionesTestCase):
         self.assertTrue(ok)
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class KeyDesconocidaTests(SuscripcionesTestCase):
     """SUS-018: una key fuera del catalogo deniega, aun en el camino fail-open."""
 
@@ -510,6 +516,9 @@ class BootstrapTestCase(SuscripcionesTestCase):
         )
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class BootstrapPreservaPorSucursalTests(BootstrapTestCase):
     """SUS-008: la union del bootstrap no enciende un modulo en una sucursal que
     lo tenia apagado."""
@@ -547,6 +556,9 @@ class BootstrapPreservaPorSucursalTests(BootstrapTestCase):
         self.assertEqual(resumen['overrides_sucursal'], 0)
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class BootstrapLegacySinSucursalTests(BootstrapTestCase):
     """SUS-009: la configuracion legacy `sucursal=NULL` no se ignora en silencio."""
 

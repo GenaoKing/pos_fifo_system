@@ -248,3 +248,65 @@ class PushMutacionesMaestroA053Tests(TestCase):
         self.assertEqual(resultado['fallidas'], 1)
         self.assertEqual(mutacion.estado, MutacionMaestro.Estado.PENDIENTE)
         self.assertIn('schema_version master.mutation.v1', mutacion.ultimo_error)
+
+    @mock.patch('apps.sync.engine.requests.post')
+    def test_guardar_sin_cambios_no_entra_a_la_cola(self, post):
+        """Royal Plast id=12: un guardado sin cambios quedaba PENDIENTE con delta {}."""
+        mutacion = self._editar_producto(
+            nombre=self.producto.nombre, precio=str(self.producto.precio_venta),
+        )
+
+        self.assertEqual(mutacion.delta, {})
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.CONFIRMADA)
+        self.assertEqual(mutacion.codigo_resultado, 'LOCAL_NOOP')
+        self.assertEqual(mutacion.cloud_entidad_id, 91)
+        self.assertEqual(mutacion.cloud_revision, REVISION_1)
+        self.assertEqual(self.engine.push_mutaciones_maestro()['procesadas'], 0)
+        post.assert_not_called()
+
+    @mock.patch('apps.sync.engine.requests.post')
+    def test_rechazo_de_validacion_persistente_libera_la_cola(self, post):
+        """Royal Plast id=2: un 400 permanente se reintentaba 543 veces."""
+        self.engine.max_retries = 3
+        trabada = self._editar_producto(nombre='Rechazada por el receptor')
+        siguiente = crear_categoria_local(
+            actor=self.actor,
+            sucursal=self.sucursal,
+            datos={'nombre': 'Categoría detrás de la cola'},
+            mutacion_id=uuid.uuid4(),
+        ).mutacion
+        # La categoría se envía primero por orden de entidad; confirmarla deja
+        # al producto como cabeza de cola para el resto de la prueba.
+        post.return_value = self._ack(siguiente, cloud_id=702)
+        self.assertEqual(self.engine.push_mutaciones_maestro()['confirmadas'], 1)
+
+        rechazo = _Respuesta(
+            {'error': 'Datos inválidos',
+             'detalle': {'mutaciones': [{'delta': ['Campos no mutables: x.']}]}},
+            status_code=400,
+        )
+        post.return_value = rechazo
+        for _ in range(2):
+            self.assertEqual(self.engine.push_mutaciones_maestro()['fallidas'], 1)
+        trabada.refresh_from_db()
+        self.assertEqual(trabada.estado, MutacionMaestro.Estado.PENDIENTE)
+        self.assertEqual(trabada.intentos, 2)
+
+        self.assertEqual(self.engine.push_mutaciones_maestro()['rechazadas'], 1)
+        trabada.refresh_from_db()
+        self.assertEqual(trabada.estado, MutacionMaestro.Estado.RECHAZADA)
+        self.assertEqual(trabada.codigo_resultado, 'MASTER_HTTP_400')
+        self.assertIn('Campos no mutables', trabada.ultimo_error)
+        # Ya no es candidata: la cola queda libre para lo que venga detrás.
+        self.assertEqual(self.engine.push_mutaciones_maestro()['procesadas'], 0)
+
+    @mock.patch('apps.sync.engine.requests.post')
+    def test_error_de_servidor_sigue_siendo_reintento(self, post):
+        self.engine.max_retries = 1
+        mutacion = self._editar_producto()
+        post.return_value = _Respuesta({'detail': 'boom'}, status_code=503)
+
+        self.assertEqual(self.engine.push_mutaciones_maestro()['fallidas'], 1)
+
+        mutacion.refresh_from_db()
+        self.assertEqual(mutacion.estado, MutacionMaestro.Estado.PENDIENTE)

@@ -570,6 +570,8 @@
                 </svg>
                 <input 
                     type="text"
+                    id="pos-product-search"
+                    name="pos_product_search"
                     x-model="busqueda"
                     @input.debounce.300ms="buscarProductos()"
                     @keydown.enter="buscarProductos()"
@@ -579,6 +581,11 @@
                     placeholder="Buscar por nombre, SKU o codigo de barras..."
                     class="form-input search-input w-full"
                     autocomplete="off"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    data-form-type="other"
+                    data-lpignore="true"
                 >
             </div>
 
@@ -755,12 +762,19 @@
                             </svg>
                             <input
                                 type="text"
+                                id="pos-customer-search"
+                                name="pos_customer_search"
                                 x-model="clienteBusqueda"
                                 @input.debounce.300ms="buscarClientes()"
                                 @focus="if(clientesResultados.length) mostrarClientesDropdown = true"
                                 placeholder="Contado (buscar cliente...)"
                                 class="bg-transparent border-none outline-none w-full text-gray-900 placeholder-gray-400 p-0"
                                 autocomplete="off"
+                                autocapitalize="off"
+                                autocorrect="off"
+                                spellcheck="false"
+                                data-form-type="other"
+                                data-lpignore="true"
                             >
                         </div>
 
@@ -1134,12 +1148,12 @@
     </div>
 
     <!-- Modal de autorizacion de descuento -->
-    <div
-        x-show="modalDescuentoAuthAbierto"
-        x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
-        @keydown.escape.window="cerrarModalDescuentoAuth()"
-    >
+    <template x-if="modalDescuentoAuthAbierto">
+      <div
+          x-cloak
+          class="fixed inset-0 z-50 flex items-center justify-center p-4"
+          @keydown.escape.window="cerrarModalDescuentoAuth()"
+      >
         <div class="absolute inset-0 bg-black bg-opacity-50" @click="cerrarModalDescuentoAuth()"></div>
         <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md">
             <div class="border-b border-gray-200 px-6 py-4">
@@ -1218,16 +1232,17 @@
                 ></button>
             </div>
         </div>
-    </div>
+      </div>
+    </template>
 
     <!-- Modal de configuracion de credito -->
-    <div
-        x-show="modalCreditoAbierto"
-        x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
-        @keydown.escape.window="cerrarModalCredito()"
-        @keydown.enter.window="aplicarModalCredito()"
-    >
+    <template x-if="modalCreditoAbierto">
+      <div
+          x-cloak
+          class="fixed inset-0 z-50 flex items-center justify-center p-4"
+          @keydown.escape.window="cerrarModalCredito()"
+          @keydown.enter.window="aplicarModalCredito()"
+      >
         <div class="absolute inset-0 bg-black bg-opacity-50" @click="cerrarModalCredito()"></div>
         <div class="relative bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -1372,7 +1387,8 @@
                 <button type="button" class="btn-primary" @click="aplicarModalCredito()" :disabled="creditoExcedeLimite() && !credito.override_token">Aplicar</button>
             </div>
         </div>
-    </div>
+      </div>
+    </template>
 
 </div>
 

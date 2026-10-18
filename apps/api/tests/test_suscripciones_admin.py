@@ -3,7 +3,7 @@ Endpoints de administración de suscripciones/módulos (operador SaaS) y la
 inclusión de `modulos[]` en el payload de sesión.
 """
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.auditoria.models import Auditoria
@@ -14,6 +14,9 @@ from apps.suscripciones.models import Modulo, NegocioModulo, Plan, SuscripcionNe
 User = get_user_model()
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class SuscripcionAdminTests(TestCase):
     def setUp(self):
         seed.sembrar_modulos(Modulo)
@@ -191,6 +194,9 @@ class SUS015AuditoriaTests(TestCase):
         self.assertEqual(Auditoria.objects.count(), antes)
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class SUS019CanalesDelGuardTests(TestCase):
     """SUS-019 — el guard de degradacion (SUS-004/SUS-015) aplica por TODOS los
     canales, no solo por override.
@@ -274,6 +280,9 @@ class SUS019CanalesDelGuardTests(TestCase):
         self.assertFalse(evento.datos_nuevos['activa'])
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class PayloadModulosTests(TestCase):
     def setUp(self):
         seed.sembrar_modulos(Modulo)

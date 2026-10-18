@@ -136,9 +136,14 @@ def _tenant_key_rbac_local(negocio):
     """Devuelve la identidad tecnica esperada por un envelope RBAC v2.
 
     En DB-per-tenant el contexto conserva el ``tenant_key`` del control plane;
-    en instalaciones row-level/standalone se usa el slug estable del negocio.
+    en el POS standalone se configura la clave tecnica del cloud. Las
+    instalaciones anteriores sin esa clave conservan el slug como fallback.
     """
-    return get_current_tenant_key() or negocio.slug
+    return (
+        get_current_tenant_key()
+        or getattr(settings, 'CLOUD_TENANT_KEY', '').strip()
+        or negocio.slug
+    )
 
 
 def clasificar_ciclo(*, heartbeat, push, pull, maestros=None):
@@ -933,10 +938,25 @@ class SyncEngine:
             return metricas
 
         if respuesta.status_code >= 400:
-            mutacion.marcar_reintento(
-                f'HTTP {respuesta.status_code}: {respuesta.text[:500]}',
-                envio_id=envio_id,
-            )
+            detalle = f'HTTP {respuesta.status_code}: {respuesta.text[:500]}'
+            # Un 400/422 es el receptor diciendo que la propuesta no es válida:
+            # reenviarla igual no cambia la respuesta. Como se envía una por
+            # ciclo y en orden, reintentarla sin fin trababa toda la cola
+            # (Royal Plast: 543 intentos, 11 propuestas detrás sin enviar).
+            # Tras max_retries pasa a RECHAZADA, visible en conflictos de
+            # maestros y resoluble desde el portal; la cola sigue.
+            if (
+                respuesta.status_code in (400, 422)
+                and mutacion.intentos + 1 >= self.max_retries
+            ):
+                if mutacion.marcar_rechazada(
+                    detalle,
+                    codigo=f'MASTER_HTTP_{respuesta.status_code}',
+                    envio_id=envio_id,
+                ):
+                    metricas['rechazadas'] = 1
+                    return metricas
+            mutacion.marcar_reintento(detalle, envio_id=envio_id)
             metricas['fallidas'] = 1
             return metricas
         ack_error = ''

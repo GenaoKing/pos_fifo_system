@@ -190,6 +190,39 @@ class PullRolesTests(TestCase):
         self.assertTrue(resultado['ok'])
         self.assertFalse(self.rol.activo)
 
+    @override_settings(CLOUD_TENANT_KEY='royalplast')
+    @patch('apps.sync.engine.requests.get')
+    def test_pos_standalone_acepta_clave_tecnica_distinta_del_slug(self, mock_get):
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': 'royalplast',
+            'roles': [],
+        })
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_roles()
+
+        self.assertTrue(resultado['ok'])
+        self.assertIsNone(resultado['bloqueo'])
+
+    @override_settings(CLOUD_TENANT_KEY='royalplast')
+    @patch('apps.sync.engine.requests.get')
+    def test_pos_standalone_rechaza_otro_tenant_aun_con_clave_configurada(self, mock_get):
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': 'otro-tenant',
+            'roles': [],
+        })
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_roles()
+
+        self.assertIn('tenant_key no coincide', resultado['bloqueo'])
+
 
 @override_settings(SUCURSAL_CODIGO='SD-001')
 class PullAsignacionesTests(TestCase):
@@ -203,6 +236,24 @@ class PullAsignacionesTests(TestCase):
         self.cajero = User.objects.create_user(
             'caja_asig', 'ca@e.com', 'x', rol='CAJERA', negocio=self.negocio
         )
+
+    @override_settings(CLOUD_TENANT_KEY='royalplast')
+    @patch('apps.sync.engine.requests.get')
+    def test_asignaciones_aceptan_clave_tecnica_distinta_del_slug(self, mock_get):
+        mock_get.return_value = _Resp({
+            'schema_version': 'rbac.sync.v2',
+            'snapshot_complete': True,
+            'tenant_key': 'royalplast',
+            'scope': {'branch_code': self.sucursal.codigo},
+            'assignments': [],
+        })
+
+        resultado = SyncEngine(
+            cloud_url='https://cloud.example', token='t',
+        )._pull_asignaciones()
+
+        self.assertTrue(resultado['ok'])
+        self.assertIsNone(resultado['bloqueo'])
 
     @patch('apps.sync.engine.requests.get')
     def test_pull_crea_asignacion_y_activa_permiso(self, mock_get):

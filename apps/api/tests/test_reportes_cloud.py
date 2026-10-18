@@ -10,6 +10,7 @@ from apps.clientes.models import Cliente
 from apps.cuentas_por_cobrar.models import CuentaPorCobrar, MetodoPlazoCredito, PagoCxC
 from apps.productos.models import Categoria, Producto
 from apps.sucursales.models import Sucursal
+from apps.sync.models import InventarioMovimientoSync
 from apps.ventas.models import DetalleVenta, Pago, Venta
 
 
@@ -409,3 +410,23 @@ class ReportesCloudTests(TestCase):
         self.assertIn('stock_por_sucursal', response.data['productos'][0])
         self.assertIn('ultima_actualizacion_por_sucursal', response.data)
         self.assertIn('sucursales_sin_datos', response.data)
+
+    def test_inventario_muestra_costo_de_ultima_compra_positiva(self):
+        def movimiento(tipo, costo, dias, cantidad=2):
+            return InventarioMovimientoSync.objects.create(
+                sucursal=self.sucursal_sd, tipo=tipo,
+                producto_sku=self.producto_a.sku, producto_nombre=self.producto_a.nombre,
+                cantidad=cantidad, costo_unitario=costo,
+                fecha_movimiento=self.now_local + timedelta(days=dias),
+            )
+
+        movimiento('COMPRA', Decimal('12.50'), -3)
+        movimiento('COMPRA', Decimal('15.25'), -2)
+        movimiento('VENTA', Decimal('99.00'), -1)
+        movimiento('COMPRA', Decimal('20.00'), 0, cantidad=0)
+
+        response = self._api(self.admin).get('/api/v1/reportes/inventario-consolidado/')
+        self.assertEqual(response.status_code, 200)
+        productos = {p['producto_sku']: p for p in response.data['productos']}
+        self.assertEqual(productos[self.producto_a.sku]['precio_ultima_compra'], '15.25')
+        self.assertIsNone(productos[self.producto_b.sku]['precio_ultima_compra'])

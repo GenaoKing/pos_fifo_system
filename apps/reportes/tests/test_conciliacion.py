@@ -95,6 +95,17 @@ class ConciliacionTests(ReportesTestCase):
         visible = _desglose_serializable(self.turno.resumen_operativo(), False, self.turno)
         self.assertEqual(visible['ingresos_dia']['total'], '240.00')
 
+    def test_ingresos_dia_resuelve_sucursal_para_caja_legacy(self):
+        self.caja.sucursal = None
+        self.caja.save(update_fields=['sucursal'])
+
+        with patch('apps.caja.ingresos.get_sucursal_actual', return_value=self.sucursal_a):
+            ingresos = ingresos_del_dia(self.turno)
+
+        self.assertEqual(ingresos['ventas'], '200.00')
+        self.assertEqual(ingresos['cxc'], '40.00')
+        self.assertEqual(ingresos['total'], '240.00')
+
     def test_html_pdf_mismo_alcance_y_totales(self):
         supervisor = self._supervisor_de(self.sucursal_a)
         self._venta(self.sucursal_b, '900')

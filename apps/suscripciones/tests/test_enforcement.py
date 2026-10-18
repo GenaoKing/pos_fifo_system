@@ -12,6 +12,9 @@ from apps.suscripciones import seed
 from apps.suscripciones.models import Modulo, Plan, SuscripcionNegocio
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 @override_settings(SUCURSAL_CODIGO='SD-001')
 class ModuloActivoTenantTests(TestCase):
     """Sucursal con negocio resuelto -> usa el entitlement por tenant."""
@@ -49,6 +52,9 @@ class ModuloActivoTenantTests(TestCase):
         self.assertTrue(modulo_activo('financiacion'))
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 @override_settings(SUCURSAL_CODIGO='SD-LEGACY')
 class ModuloActivoFallbackLegacyTests(TestCase):
     """Sucursal sin negocio (instalacion no provisionada) -> fallback al flag."""

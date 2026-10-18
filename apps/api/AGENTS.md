@@ -1,6 +1,6 @@
 # apps/api — mapa para agentes
 
-<!-- Última revisión: 2026-09-30 -->
+<!-- Última revisión: 2026-10-01 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -41,6 +41,9 @@ tiene modelos propios (`models.py` vacío).
   por sucursal y consolidados. Ingresos = pagos de ventas completadas del día
   sin método CREDITO + abonos CxC APLICADOS por fecha local de pago. No sumar
   otra vez la inicial ni incluir fondos de apertura/reposiciones de caja.
+- `inventario-consolidado` expone `precio_ultima_compra` desde el movimiento
+  `COMPRA` positivo más reciente del ledger sync por SKU; devuelve `null` si no
+  hay compra registrada. No confundir ese precio histórico con costo FIFO actual.
 - `views/sync.py` **valida al importarse** que todo tipo de evento tenga handler:
   si falta uno, Django no arranca. Idempotencia por `event_id`/hash dentro del
   scope autenticado: solo contenido equivalente responde `DUPLICADO`; conflicto
