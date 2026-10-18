@@ -318,6 +318,76 @@ class SaludDeColaTests(VerificarSyncTestsBase):
         self.assertIn('HUECOS EN LA NUMERACION', salida)
 
 
+class PropuestasDeMaestrosTests(VerificarSyncTestsBase):
+    """
+    Escenario real de Royal Plast (2026-10-02 a 2026-10-18): una creacion de
+    producto rechazada con HTTP 400 quedo primera en la cola con 543 intentos y
+    las 11 propuestas siguientes nunca se enviaron. El reporte no lo mostraba.
+    """
+
+    def _mutacion(self, *, entidad_id, operacion='CREAR', intentos=0,
+                  estado=None, ultimo_error=''):
+        from apps.sync.models import MutacionMaestro
+        return MutacionMaestro.objects.create(
+            entidad=MutacionMaestro.Entidad.PRODUCTO,
+            entidad_id=entidad_id,
+            operacion=operacion,
+            delta={'nombre': {'before': None, 'after': f'P{entidad_id}'}},
+            estado=estado or MutacionMaestro.Estado.PENDIENTE,
+            actor=self.user,
+            actor_username=self.user.username,
+            sucursal=self.sucursal,
+            sucursal_codigo=self.sucursal.codigo,
+            intentos=intentos,
+            ultimo_error=ultimo_error,
+        )
+
+    @override_settings(SYNC_MAX_RETRIES=3)
+    def test_reporta_cabeza_que_bloquea_la_cola(self):
+        cabeza = self._mutacion(
+            entidad_id=510, intentos=543,
+            ultimo_error='HTTP 400: Campos no mutables: motivo_inactivacion.',
+        )
+        self._mutacion(entidad_id=511)
+        self._mutacion(entidad_id=512)
+
+        reporte = self._correr_json()
+
+        maestros = reporte['maestros']
+        self.assertEqual(maestros['por_estado']['PENDIENTE'], 3)
+        self.assertEqual(maestros['cabeza']['id'], cabeza.pk)
+        self.assertTrue(maestros['cabeza']['bloquea_cola'])
+        self.assertEqual(maestros['cabeza']['detras_sin_intentar'], 2)
+        self.assertIn('motivo_inactivacion', maestros['cabeza']['ultimo_error'])
+
+        salida = self._correr()
+        self.assertIn('PROPUESTAS DE MAESTROS', salida)
+        self.assertIn('BLOQUEA LA COLA', salida)
+
+    def test_cola_sana_no_alarma_y_lista_conflictos(self):
+        from apps.sync.models import MutacionMaestro
+        self._mutacion(entidad_id=600, intentos=1)
+        self._mutacion(
+            entidad_id=501, operacion='ACTUALIZAR',
+            estado=MutacionMaestro.Estado.CONFLICTO,
+        )
+
+        reporte = self._correr_json()
+
+        maestros = reporte['maestros']
+        self.assertFalse(maestros['cabeza']['bloquea_cola'])
+        self.assertEqual(len(maestros['conflictos_o_rechazos']), 1)
+        self.assertEqual(maestros['conflictos_o_rechazos'][0]['entidad_id'], 501)
+        self.assertNotIn('BLOQUEA LA COLA', self._correr())
+
+    def test_sin_propuestas(self):
+        reporte = self._correr_json()
+
+        self.assertEqual(reporte['maestros']['por_estado'], {})
+        self.assertIsNone(reporte['maestros']['cabeza'])
+        self.assertIn('(sin propuestas)', self._correr())
+
+
 class ReserializarDescartadosTests(VerificarSyncTestsBase):
     """
     Escenario real de Royal Plast (2026-08-22): 15 eventos CXC_CREADA murieron
