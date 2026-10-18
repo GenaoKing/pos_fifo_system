@@ -93,13 +93,13 @@ class MutacionMaestroEntradaSerializer(serializers.Serializer):
 
     CAMPOS = {
         MutacionMaestro.Entidad.CATEGORIA: {
-            'id', 'nombre', 'descripcion', 'activa', 'tipo_negocio',
-            'atributos_configurados',
+            'id', 'nombre', 'descripcion', 'activa', 'motivo_inactivacion',
+            'tipo_negocio', 'atributos_configurados',
         },
         MutacionMaestro.Entidad.PRODUCTO: {
             'id', 'sku', 'codigo_barras', 'nombre', 'descripcion',
             'categoria_id', 'precio_venta', 'stock_minimo', 'activo',
-            'atributos', 'estado', 'marca',
+            'motivo_inactivacion', 'atributos', 'estado', 'marca',
         },
     }
 
@@ -129,7 +129,14 @@ class MutacionMaestroEntradaSerializer(serializers.Serializer):
             })
         attrs['actor_username'] = actor_username
 
-        if not isinstance(delta, dict) or not delta:
+        if not isinstance(delta, dict):
+            raise serializers.ValidationError({
+                'delta': 'El delta debe ser un objeto.',
+            })
+        # POS anteriores encolaban un ACTUALIZAR aunque el guardado no cambiara
+        # nada. Rechazarlo con 400 dejaba esa propuesta primera en la cola para
+        # siempre; el receptor lo confirma como no-op sin tocar el maestro.
+        if not delta and operacion != MutacionMaestro.Operacion.ACTUALIZAR:
             raise serializers.ValidationError({
                 'delta': 'El delta debe ser un objeto no vacío.',
             })
@@ -169,7 +176,9 @@ class MutacionMaestroEntradaSerializer(serializers.Serializer):
             MutacionMaestro.Operacion.ACTIVAR,
             MutacionMaestro.Operacion.DESACTIVAR,
         ):
-            if set(delta) - {'id', campo_estado} or campo_estado not in delta:
+            # El motivo acompaña a la baja (y se limpia al reactivar).
+            permitidos = {'id', campo_estado, 'motivo_inactivacion'}
+            if set(delta) - permitidos or campo_estado not in delta:
                 raise serializers.ValidationError({
                     'delta': 'Un cambio de estado no puede alterar otros campos.',
                 })

@@ -53,6 +53,29 @@ class CT04ContratoTests(SimpleTestCase):
             [valor for valor, _ in MutacionMaestro.Estado.choices],
         )
 
+    def test_receptor_acepta_todos_los_campos_que_el_pos_puede_proponer(self):
+        """El delta local sale de los snapshots; el receptor no puede ignorar uno.
+
+        Royal Plast quedó con la cola de maestros bloqueada desde 2026-10-02:
+        A06 agregó ``motivo_inactivacion`` al snapshot local, el receptor lo
+        rechazaba como no mutable y el POS reintentaba la misma propuesta sin fin.
+        """
+        from apps.productos.models import Categoria, Producto
+        from apps.productos.services import _snapshot_categoria, _snapshot_producto
+
+        # Metadatos del POS que no viajan como cambio de dominio.
+        locales = {'revision', 'origen_cloud_id'}
+        snapshots = {
+            MutacionMaestro.Entidad.PRODUCTO: _snapshot_producto(Producto()),
+            MutacionMaestro.Entidad.CATEGORIA: _snapshot_categoria(Categoria()),
+        }
+        for entidad, snapshot in snapshots.items():
+            with self.subTest(entidad=entidad):
+                self.assertLessEqual(
+                    set(snapshot) - locales,
+                    MutacionMaestroEntradaSerializer.CAMPOS[entidad],
+                )
+
     def test_listado_reservado_declara_conflicto_rechazo_y_semantica_operativa(self):
         listado = self.fixture['listado_conflictos_reservado_a06']
         self.assertEqual(listado['estado_implementacion'], 'RESERVADA_A06')

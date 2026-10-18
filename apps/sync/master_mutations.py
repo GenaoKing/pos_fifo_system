@@ -362,6 +362,27 @@ def _registrar_decision_no_exitosa(ledger, *, actor, sucursal, codigo, detalle, 
     return _resultado_ledger(ledger)
 
 
+def _confirmar_sin_cambios(ledger, *, actor, sucursal, entidad, revision, using):
+    ledger.estado = MutacionMaestro.Estado.CONFIRMADA
+    ledger.cloud_entidad_id = entidad.pk
+    ledger.cloud_revision = revision
+    ledger.codigo_resultado = 'MASTER_NOOP'
+    ledger.ultimo_error = ''
+    ledger.conflicto_detalle = ''
+    ledger.save(using=using)
+    _auditar_resultado(
+        ledger=ledger,
+        actor=actor,
+        sucursal=sucursal,
+        resultado=Auditoria.Resultado.SUCCEEDED,
+        accion='sync.maestro.aplicado',
+        codigo='MASTER_NOOP',
+        detalle='Propuesta sin cambios; el maestro cloud no se modificó.',
+        using=using,
+    )
+    return _resultado_ledger(ledger)
+
+
 def recibir_mutacion_maestro(*, propuesta, sucursal, using):
     """Aplica una propuesta en cloud con replay, RBAC actual y CAS.
 
@@ -423,6 +444,17 @@ def recibir_mutacion_maestro(*, propuesta, sucursal, using):
                         cloud_entidad_id=propuesta['cloud_entidad_id'],
                     ) from exc
                 revision_actual = _revision_actual(entidad)
+                if not propuesta['delta']:
+                    # Edición sin cambios (POS anteriores la encolaban igual).
+                    # No hay nada que pueda chocar ni aplicar: se confirma sin
+                    # guardar el maestro y se devuelve la revisión que el POS ya
+                    # tenía, para no hacerle adoptar cambios cloud que aún no
+                    # recibió por pull.
+                    return _confirmar_sin_cambios(
+                        ledger, actor=actor, sucursal=sucursal, entidad=entidad,
+                        revision=_revision(propuesta['revision_base']) or revision_actual,
+                        using=using,
+                    )
                 if _revision(propuesta['revision_base']) != revision_actual:
                     raise ConflictoMaestro(
                         'MASTER_REVISION_CONFLICT',
