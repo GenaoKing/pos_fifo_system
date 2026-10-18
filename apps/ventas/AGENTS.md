@@ -1,6 +1,6 @@
 # apps/ventas — mapa para agentes
 
-<!-- Última revisión: 2026-09-16 -->
+<!-- Última revisión: 2026-09-30 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -63,5 +63,8 @@ No hagas push directo desde aquí — solo emití el evento al outbox.
 - La carga final del carrito usa `productos_vendibles()`: una propuesta
   `MutacionMaestro` en `PENDIENTE` no frena la venta, pero `CONFLICTO` bloquea
   solo ventas nuevas y nunca reescribe ventas, FIFO o eventos ya persistidos.
+- Los modales que contienen credenciales se montan con `x-if`; dejarlos ocultos
+  con `x-show` permite que Chrome los detecte y ofrezca el usuario guardado en
+  los buscadores de cliente o producto.
 - Auditoría 2026-08-20 (`docs/exploracion/AUDITORIA_CODIGO_APPS_VENTAS.md`) —
   **snapshot histórico**, verificar contra código.

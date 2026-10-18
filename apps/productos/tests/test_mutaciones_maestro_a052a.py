@@ -199,7 +199,9 @@ class MutacionesMaestroA052aTests(TestCase):
             categoria_id=self.categoria.id,
             datos={
                 'nombre': self.categoria.nombre,
-                'descripcion': self.categoria.descripcion,
+                # Un guardado sin cambios ya no entra a la cola: hace falta un
+                # cambio real para que exista una propuesta en conflicto.
+                'descripcion': f'{self.categoria.descripcion} (editada)',
                 'activa': True,
             },
             mutacion_id=uuid.uuid4(),

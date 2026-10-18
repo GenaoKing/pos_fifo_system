@@ -100,6 +100,7 @@ class Command(BaseCommand):
         reporte['huecos_numeracion'] = self._revisar_huecos_numeracion()
         reporte['cola'] = self._revisar_cola()
         reporte['cursores'] = self._revisar_cursores()
+        reporte['maestros'] = self._revisar_maestros()
 
         if opts['json']:
             self.stdout.write(json_lib.dumps(reporte, indent=2, default=str))
@@ -499,6 +500,80 @@ class Command(BaseCommand):
         return filas
 
     # ------------------------------------------------------------------
+    # 6. Propuestas de maestros (sucursal -> cloud)
+    # ------------------------------------------------------------------
+
+    def _revisar_maestros(self):
+        """
+        Estado de la cola de propuestas de productos/categorias.
+
+        El engine envia UNA propuesta por ciclo, en orden (categorias primero,
+        luego por antiguedad). Si la de la cabeza falla siempre, las demas nunca
+        se intentan y el ciclo solo dice "sin ACK valido". Paso en Royal Plast:
+        una creacion rechazada por un campo que el receptor no aceptaba bloqueo
+        la cola desde 2026-10-02 con 500+ intentos, y nada aqui lo mostraba.
+        """
+        from django.db.models import Case, Count, IntegerField, Q, Value, When
+        from apps.sync.models import MutacionMaestro
+
+        estados = MutacionMaestro.Estado
+        por_estado = dict(
+            MutacionMaestro.objects
+            .values_list('estado')
+            .annotate(n=Count('id'))
+            .values_list('estado', 'n')
+        )
+
+        # Mismo orden que SyncEngine._reclamar_mutacion_maestro.
+        orden_entidad = Case(
+            When(entidad=MutacionMaestro.Entidad.CATEGORIA, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+        en_cola = (MutacionMaestro.objects
+                   .filter(Q(estado=estados.PENDIENTE) | Q(estado=estados.ENVIANDO))
+                   .order_by(orden_entidad, 'creado_at', 'id'))
+        cabeza = en_cola.first()
+
+        max_retries = getattr(settings, 'SYNC_MAX_RETRIES', 10)
+        cabeza_info = None
+        if cabeza is not None:
+            cabeza_info = {
+                'id': cabeza.pk,
+                'mutacion_id': str(cabeza.mutacion_id),
+                'entidad': cabeza.entidad,
+                'entidad_id': cabeza.entidad_id,
+                'operacion': cabeza.operacion,
+                'creado_at': cabeza.creado_at.isoformat(),
+                'intentos': cabeza.intentos,
+                'ultimo_error': (cabeza.ultimo_error or '')[:500] or None,
+                'bloquea_cola': cabeza.intentos >= max_retries,
+                'detras_sin_intentar': en_cola.exclude(pk=cabeza.pk).filter(intentos=0).count(),
+            }
+
+        conflictos = [
+            {
+                'id': m.pk,
+                'mutacion_id': str(m.mutacion_id),
+                'entidad': m.entidad,
+                'entidad_id': m.entidad_id,
+                'operacion': m.operacion,
+                'codigo': m.codigo_resultado or None,
+                'detalle': (m.conflicto_detalle or m.ultimo_error or '')[:300] or None,
+            }
+            for m in (MutacionMaestro.objects
+                      .filter(estado__in=[estados.CONFLICTO, estados.RECHAZADA])
+                      .order_by('creado_at', 'id')[:10])
+        ]
+
+        return {
+            'por_estado': por_estado,
+            'max_retries': max_retries,
+            'cabeza': cabeza_info,
+            'conflictos_o_rechazos': conflictos,
+        }
+
+    # ------------------------------------------------------------------
     # Salida legible
     # ------------------------------------------------------------------
 
@@ -594,6 +669,31 @@ class Command(BaseCommand):
                 w(err(f'        {c["bloqueado_detalle"]}'))
             else:
                 w(base)
+
+        # --- propuestas de maestros
+        m = r['maestros']
+        w('')
+        w('PROPUESTAS DE MAESTROS (sucursal -> cloud)')
+        if not m['por_estado']:
+            w('  (sin propuestas)')
+        for estado, n in sorted(m['por_estado'].items()):
+            w(f'  {estado:<14} {n}')
+        cabeza = m['cabeza']
+        if cabeza:
+            linea = (f'  Proxima a enviar: id={cabeza["id"]} {cabeza["entidad"]} '
+                     f'{cabeza["entidad_id"]} {cabeza["operacion"]} '
+                     f'(desde {cabeza["creado_at"]}, intentos={cabeza["intentos"]})')
+            if cabeza['bloquea_cola']:
+                w(err(linea))
+                w(err(f'  ! BLOQUEA LA COLA: {cabeza["detras_sin_intentar"]} propuesta(s) '
+                      f'detras nunca se intentaron.'))
+                if cabeza['ultimo_error']:
+                    w(err(f'        {cabeza["ultimo_error"]}'))
+            else:
+                w(linea)
+        for c in m['conflictos_o_rechazos']:
+            w(warn(f'  ! id={c["id"]} {c["entidad"]} {c["entidad_id"]} {c["operacion"]}: '
+                   f'{c["codigo"] or "(sin codigo)"} {c["detalle"] or ""}'.rstrip()))
 
         w('')
         w('=' * 70)

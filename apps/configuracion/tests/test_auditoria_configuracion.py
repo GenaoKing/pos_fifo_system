@@ -406,6 +406,9 @@ class SecretosEnDryRunTests(ConfiguracionTestCase):
         self.assertFalse(comando._es_sensible('DB_NAME'))
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 class ValidacionCruzadaTests(ConfiguracionTestCase):
     """CFG-006: `full_clean()` rechaza combinaciones operativas/fiscales inseguras."""
 
@@ -472,6 +475,9 @@ class BorradoProtegidoTests(ConfiguracionTestCase):
         )
 
 
+# El motor se prueba con e-CF como modulo vendible generico; el apagado
+# global (settings.MODULOS_NO_DISPONIBLES) tiene sus propias pruebas.
+@override_settings(MODULOS_NO_DISPONIBLES=())
 @override_settings(SUCURSAL_CODIGO='CFG-A')
 class ModulosEfectivosTests(ConfiguracionTestCase):
     """

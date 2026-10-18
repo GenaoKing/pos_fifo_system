@@ -1,6 +1,6 @@
 # apps/caja — mapa para agentes
 
-<!-- Última revisión: 2026-09-29 -->
+<!-- Última revisión: 2026-09-30 -->
 
 > Mapa de orientación, no contrato. Apunta a código; la verdad del *cómo* está
 > en los archivos enlazados. Si algo aquí no cuadra con el código, gana el código
@@ -33,6 +33,8 @@ de cuadre imprimible. Todo en `apps/caja/models.py` y `views.py`.
 - `TurnoCaja.resumen_operativo()` → desglose por método (base del cuadre).
 - `ingresos.ingresos_del_dia(turno)` → ventas cobradas + CxC del día local,
   del cajero y sucursal, en todos los medios; no suma crédito ni fondos.
+  Si la caja es legacy (`sucursal=NULL`), resuelve la sucursal configurada y
+  conserva en alcance las filas históricas sin sucursal.
   `_desglose_serializable` no lo entrega durante conteo ciego.
 
 ## Sync / notificaciones

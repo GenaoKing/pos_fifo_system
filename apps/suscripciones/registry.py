@@ -43,6 +43,7 @@ CATALOGO_MODULOS = [
            depende_de=('ventas', 'clientes')),  # historicamente sin flag (siempre on)
     Modulo('ecf', 'Facturacion electronica (e-CF)',
            'Emision de comprobantes fiscales electronicos.',
+           # Apagado para todos via settings.MODULOS_NO_DISPONIBLES.
            depende_de=('ventas',), flag_legacy='modulo_ecf'),
     Modulo('financiacion', 'Financiacion cooperativa',
            'Registro y PDF de financiacion cooperativa.',
@@ -79,6 +80,16 @@ def keys():
 
 def core_keys():
     return {m.key for m in CATALOGO_MODULOS if m.core}
+
+
+def no_disponibles():
+    """Keys apagadas globalmente, por encima de plan, overrides y flags legacy.
+
+    Viene de ``settings.MODULOS_NO_DISPONIBLES``. Las pruebas del motor que usan
+    un modulo apagado como ejemplo generico lo vacian con override_settings.
+    """
+    from django.conf import settings
+    return set(getattr(settings, 'MODULOS_NO_DISPONIBLES', ())) & set(_BY_KEY)
 
 
 def vendibles():

@@ -207,6 +207,7 @@ Con el dueño o la cajera presentes, antes de irse:
 | Cambios en el `.env` que no toman efecto | El servicio conserva variables del formato viejo, y le ganan al archivo | Re-ejecutar `registrar_servicio.bat`; `nssm get POSFifoSystem AppEnvironmentExtra` debe mostrar **solo 2 variables** |
 | `PUSH` con `Venta no existe en cloud todavia` | Orden de eventos de la versión vieja: la CxC salía antes que su venta | Se resuelve en el ciclo siguiente. Con esta versión ya no ocurre |
 | Un cursor aparece **BLOQUEADO** | Un registro del portal falla al aplicarse y frena la marca de agua | El detalle dice cuál. Corregirlo en el portal y volver a sincronizar |
+| `pull roles` y `pull asignaciones`: `tenant_key no coincide con el negocio local` | El `tenant_key` que trae el envelope RBAC (hoy el `Negocio.slug` del cloud) difiere del `Negocio.slug` del POS; Royal Plast recibe `royal-plast` y su POS tiene `royal-plast-eirl` | Con un paquete que incluya `CLOUD_TENANT_KEY`, leer el `tenant_key` del envelope (`GET /api/v1/sync/roles/` con `X-RBAC-Schema: rbac.sync.v2`) y confirmar la sucursal asociada al token; luego fijar ese valor (Royal Plast: `CLOUD_TENANT_KEY=royal-plast`) en `deploy/env_cliente.env`, reiniciar `POSFifoSync`, correr un ciclo y comprobar que roles/asignaciones avanzan sin bloqueo. No cambiar `Negocio.slug` ni el cursor a mano. |
 | El backup falla en `actualizar.bat` | Sin espacio, o `pg_dump` fuera del PATH | **Aborta a propósito.** Resolver antes de reintentar: sin backup no se migra |
 
 ---

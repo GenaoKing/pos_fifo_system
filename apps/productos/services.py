@@ -248,6 +248,18 @@ def _ejecutar_mutacion(
                 },
                 using=using,
             )
+            sin_cambios = {}
+            if not delta:
+                # Guardar sin cambios no es una propuesta para el cloud. La fila
+                # se conserva (replay del mismo UUID y auditoría enlazada) pero
+                # nace confirmada: antes quedaba PENDIENTE, el receptor la
+                # rechazaba y trababa la cola (Royal Plast, 2026-10-12).
+                sin_cambios = {
+                    'estado': MutacionMaestro.Estado.CONFIRMADA,
+                    'codigo_resultado': 'LOCAL_NOOP',
+                    'cloud_entidad_id': getattr(entidad, 'origen_cloud_id', None),
+                    'cloud_revision': str(antes.get('revision', '') or ''),
+                }
             cola = MutacionMaestro.objects.using(using).create(
                 mutacion_id=identificador,
                 entidad=entidad_tipo,
@@ -262,6 +274,7 @@ def _ejecutar_mutacion(
                 sucursal_codigo=str(sucursal.codigo),
                 tenant_key=_tenant_key(actor, sucursal),
                 auditoria_event_id=evento.event_id,
+                **sin_cambios,
             )
             return ResultadoMutacionMaestro(entidad=entidad, mutacion=cola, repetida=False)
     except IntegrityError:
